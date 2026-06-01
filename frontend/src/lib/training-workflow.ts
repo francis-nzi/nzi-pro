@@ -5,6 +5,8 @@ export type TrainingBookingSource = "manual" | "job_fee" | "invoice" | "free_pla
 export type TrainingBillingStatus = "pending" | "included" | "invoiced" | "paid" | "waived";
 export type TrainingEntitlementStatus = "available" | "reserved" | "consumed" | "cancelled" | "expired";
 export type TrainingCourseRunStatus = "draft" | "scheduled" | "open" | "full" | "in_progress" | "completed" | "cancelled";
+export type TrainingSessionStatus = "scheduled" | "confirmed" | "completed" | "cancelled";
+export type TrainingAttendanceStatus = "booked" | "confirmed" | "attended" | "partial" | "no_show" | "cancelled" | "excused";
 
 const TITLE_CASE = new Map<string, string>([
   ["in_person", "In Person"],
@@ -36,7 +38,9 @@ const TITLE_CASE = new Map<string, string>([
   ["booked", "Booked"],
   ["confirmed", "Confirmed"],
   ["attended", "Attended"],
+  ["partial", "Partial"],
   ["no_show", "No Show"],
+  ["excused", "Excused"],
   ["waitlist", "Waitlist"],
 ]);
 
@@ -123,4 +127,21 @@ export const TRAINING_COURSE_RUN_STATUS_OPTIONS: Array<{ value: TrainingCourseRu
   { value: "in_progress", label: "In progress" },
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
+];
+
+export const TRAINING_SESSION_STATUS_OPTIONS: Array<{ value: TrainingSessionStatus; label: string }> = [
+  { value: "scheduled", label: "Scheduled" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+];
+
+export const TRAINING_ATTENDANCE_STATUS_OPTIONS: Array<{ value: TrainingAttendanceStatus; label: string }> = [
+  { value: "booked", label: "Booked" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "attended", label: "Attended" },
+  { value: "partial", label: "Partial" },
+  { value: "no_show", label: "No show" },
+  { value: "cancelled", label: "Cancelled" },
+  { value: "excused", label: "Excused" },
 ];

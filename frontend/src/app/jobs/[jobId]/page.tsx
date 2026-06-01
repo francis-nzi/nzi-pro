@@ -700,6 +700,7 @@ export default function JobDetailPage() {
               ) : null}
               <JobSetupOverviewSection
                 hidden={false}
+                baseUrl={baseUrl}
                 jobId={jobId}
                 busy={busy}
                 status={status}

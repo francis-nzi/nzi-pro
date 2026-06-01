@@ -24,6 +24,8 @@ import {
   TRAINING_COURSE_RUN_STATUS_OPTIONS,
   TRAINING_DELIVERY_MODE_OPTIONS,
   TRAINING_ENTITLEMENT_STATUS_OPTIONS,
+  TRAINING_SESSION_STATUS_OPTIONS,
+  TRAINING_ATTENDANCE_STATUS_OPTIONS,
   TRAINING_PARTICIPANT_TYPE_OPTIONS,
 } from "@/lib/training-workflow";
 
@@ -150,7 +152,55 @@ type TrainingOverview = {
   details: TrainingDetails;
   products: TrainingProduct[];
   course_runs: TrainingCourseRun[];
+  sessions: TrainingSession[];
   available_entitlements: TrainingEntitlement[];
+};
+
+type TrainingAttendance = {
+  training_session_attendance_id: number;
+  org_id: string;
+  training_course_session_id: number;
+  training_booking_id: number;
+  attendance_status: string;
+  attendance_minutes: number | null;
+  notes: string | null;
+  person_name: string;
+  person_email: string | null;
+  client_name: string | null;
+  booking_source: string | null;
+  participant_type: string | null;
+  booking_attendance_status: string | null;
+  entitlement_id: number | null;
+  created_at: string | null;
+  created_by: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
+};
+
+type TrainingSession = {
+  training_course_session_id: number;
+  org_id: string;
+  training_course_run_id: number;
+  session_title: string | null;
+  session_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  session_hours: number | null;
+  delivery_mode: string | null;
+  venue_name: string | null;
+  venue_address: string | null;
+  online_meeting_url: string | null;
+  online_meeting_id: string | null;
+  online_passcode: string | null;
+  status: string;
+  notes: string | null;
+  attendance_count: number;
+  attended_count: number;
+  created_at: string | null;
+  created_by: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
+  attendance: TrainingAttendance[];
 };
 
 type ProductFormState = {
@@ -207,6 +257,22 @@ type EntitlementFormState = {
   entitlement_type: string;
   status: string;
   expires_at: string;
+  notes: string;
+};
+
+type SessionFormState = {
+  session_title: string;
+  session_date: string;
+  start_time: string;
+  end_time: string;
+  session_hours: string;
+  delivery_mode: string;
+  venue_name: string;
+  venue_address: string;
+  online_meeting_url: string;
+  online_meeting_id: string;
+  online_passcode: string;
+  status: string;
   notes: string;
 };
 
@@ -277,6 +343,22 @@ const EMPTY_ENTITLEMENT: EntitlementFormState = {
   entitlement_type: "free_place",
   status: "available",
   expires_at: "",
+  notes: "",
+};
+
+const EMPTY_SESSION: SessionFormState = {
+  session_title: "",
+  session_date: "",
+  start_time: "",
+  end_time: "",
+  session_hours: "",
+  delivery_mode: "",
+  venue_name: "",
+  venue_address: "",
+  online_meeting_url: "",
+  online_meeting_id: "",
+  online_passcode: "",
+  status: "scheduled",
   notes: "",
 };
 
@@ -484,6 +566,33 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
       setStatus(`Entitlement save failed: ${(err as Error).message}`);
     } finally {
       setEntitlementSaving(false);
+    }
+  }
+
+  async function createSession(runId: number, draft: SessionFormState) {
+    setStatus("");
+    try {
+      const payload = {
+        ...draft,
+        session_hours: toNumberOrNull(draft.session_hours),
+        session_date: draft.session_date || null,
+        start_time: draft.start_time || null,
+        end_time: draft.end_time || null,
+      };
+      const res = await fetch(`${baseUrl}/training-course-runs/${runId}/sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+      }
+      setStatus("Training session created.");
+      await refresh();
+    } catch (err) {
+      setStatus(`Session save failed: ${(err as Error).message}`);
     }
   }
 
@@ -863,12 +972,14 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
           <div className="space-y-4">
             {courseRuns.length ? (
               courseRuns.map((run) => (
-                <CourseRunCard
+              <CourseRunCard
                   key={run.training_course_run_id}
                   run={run}
                   products={products}
                   entitlements={entitlements}
+                  sessions={(overview?.sessions ?? []).filter((session) => session.training_course_run_id === run.training_course_run_id)}
                   baseUrl={baseUrl}
+                  onCreateSession={createSession}
                   onSaved={refresh}
                 />
               ))
@@ -984,17 +1095,23 @@ function CourseRunCard({
   run,
   products,
   entitlements,
+  sessions,
   baseUrl,
+  onCreateSession,
   onSaved,
 }: {
   run: TrainingCourseRun;
   products: TrainingProduct[];
   entitlements: TrainingEntitlement[];
+  sessions: TrainingSession[];
   baseUrl: string;
+  onCreateSession: (runId: number, draft: SessionFormState) => Promise<void>;
   onSaved: () => void;
 }) {
   const [saving, setSaving] = useState(false);
+  const [sessionSaving, setSessionSaving] = useState(false);
   const [status, setStatus] = useState("");
+  const [sessionDraft, setSessionDraft] = useState<SessionFormState>(EMPTY_SESSION);
   const [draft, setDraft] = useState<RunFormState>(() => ({
     training_product_id: toSelectValue(run.training_product_id),
     run_name: toStringOrEmpty(run.run_name),
@@ -1036,6 +1153,7 @@ function CourseRunCard({
       online_passcode: toStringOrEmpty(run.online_passcode),
       notes: toStringOrEmpty(run.notes),
     });
+    setSessionDraft(EMPTY_SESSION);
   }, [run]);
 
   async function saveRun() {
@@ -1239,6 +1357,124 @@ function CourseRunCard({
           <Textarea value={draft.notes} onChange={(e) => setDraft((p) => ({ ...p, notes: e.target.value }))} rows={3} />
         </div>
 
+        <div className="space-y-4 rounded-lg border bg-muted/20 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h4 className="font-medium">Sessions</h4>
+              <p className="text-xs text-muted-foreground">Split a course run into one or more scheduled delivery sessions.</p>
+            </div>
+            <Button
+              onClick={async () => {
+                setSessionSaving(true);
+                try {
+                  await onCreateSession(run.training_course_run_id, sessionDraft);
+                  setSessionDraft(EMPTY_SESSION);
+                } finally {
+                  setSessionSaving(false);
+                }
+              }}
+              disabled={sessionSaving}
+              variant="outline"
+            >
+              {sessionSaving ? "Creating..." : "Create Session"}
+            </Button>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="space-y-2">
+              <Label>Session Title</Label>
+              <Input value={sessionDraft.session_title} onChange={(e) => setSessionDraft((p) => ({ ...p, session_title: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Session Date</Label>
+              <Input type="date" value={sessionDraft.session_date} onChange={(e) => setSessionDraft((p) => ({ ...p, session_date: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select value={sessionDraft.status} onValueChange={(v) => setSessionDraft((p) => ({ ...p, status: v }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TRAINING_SESSION_STATUS_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Start Time</Label>
+              <Input type="time" value={sessionDraft.start_time} onChange={(e) => setSessionDraft((p) => ({ ...p, start_time: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>End Time</Label>
+              <Input type="time" value={sessionDraft.end_time} onChange={(e) => setSessionDraft((p) => ({ ...p, end_time: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Session Hours</Label>
+              <Input type="number" min="0" step="0.25" value={sessionDraft.session_hours} onChange={(e) => setSessionDraft((p) => ({ ...p, session_hours: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Delivery Mode</Label>
+              <Select value={sessionDraft.delivery_mode || "__none__"} onValueChange={(v) => setSessionDraft((p) => ({ ...p, delivery_mode: v === "__none__" ? "" : v }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select mode..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No default</SelectItem>
+                  {TRAINING_DELIVERY_MODE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Venue Name</Label>
+              <Input value={sessionDraft.venue_name} onChange={(e) => setSessionDraft((p) => ({ ...p, venue_name: e.target.value }))} />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Venue / Location Notes</Label>
+              <Input value={sessionDraft.venue_address} onChange={(e) => setSessionDraft((p) => ({ ...p, venue_address: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Online Link</Label>
+              <Input value={sessionDraft.online_meeting_url} onChange={(e) => setSessionDraft((p) => ({ ...p, online_meeting_url: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Meeting ID</Label>
+              <Input value={sessionDraft.online_meeting_id} onChange={(e) => setSessionDraft((p) => ({ ...p, online_meeting_id: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Passcode</Label>
+              <Input value={sessionDraft.online_passcode} onChange={(e) => setSessionDraft((p) => ({ ...p, online_passcode: e.target.value }))} />
+            </div>
+            <div className="space-y-2 md:col-span-3">
+              <Label>Notes</Label>
+              <Textarea value={sessionDraft.notes} onChange={(e) => setSessionDraft((p) => ({ ...p, notes: e.target.value }))} rows={2} />
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <h4 className="font-medium">Scheduled Sessions</h4>
+          {sessions.length ? (
+            sessions.map((session) => (
+              <SessionEditorCard
+                key={session.training_course_session_id}
+                session={session}
+                runBookings={run.bookings}
+                baseUrl={baseUrl}
+                onSaved={onSaved}
+              />
+            ))
+          ) : (
+            <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">No sessions scheduled for this course run yet.</div>
+          )}
+        </div>
+
         <div className="rounded-lg border bg-muted/20 p-3">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -1389,6 +1625,327 @@ function CourseRunCard({
   );
 }
 
+function SessionEditorCard({
+  session,
+  runBookings,
+  baseUrl,
+  onSaved,
+}: {
+  session: TrainingSession;
+  runBookings: TrainingBooking[];
+  baseUrl: string;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
+  const [sessionDraft, setSessionDraft] = useState<SessionFormState>(() => ({
+    session_title: session.session_title || "",
+    session_date: session.session_date || "",
+    start_time: session.start_time || "",
+    end_time: session.end_time || "",
+    session_hours: session.session_hours === null ? "" : String(session.session_hours),
+    delivery_mode: session.delivery_mode || "",
+    venue_name: session.venue_name || "",
+    venue_address: session.venue_address || "",
+    online_meeting_url: session.online_meeting_url || "",
+    online_meeting_id: session.online_meeting_id || "",
+    online_passcode: session.online_passcode || "",
+    status: session.status || "scheduled",
+    notes: session.notes || "",
+  }));
+  const [attendanceDraft, setAttendanceDraft] = useState<Record<number, { attendance_status: string; attendance_minutes: string }>>(() => {
+    const mapped: Record<number, { attendance_status: string; attendance_minutes: string }> = {};
+    session.attendance.forEach((row) => {
+      mapped[row.training_booking_id] = {
+        attendance_status: row.attendance_status || "booked",
+        attendance_minutes: row.attendance_minutes === null ? "" : String(row.attendance_minutes),
+      };
+    });
+    return mapped;
+  });
+
+  useEffect(() => {
+    setSessionDraft({
+      session_title: session.session_title || "",
+      session_date: session.session_date || "",
+      start_time: session.start_time || "",
+      end_time: session.end_time || "",
+      session_hours: session.session_hours === null ? "" : String(session.session_hours),
+      delivery_mode: session.delivery_mode || "",
+      venue_name: session.venue_name || "",
+      venue_address: session.venue_address || "",
+      online_meeting_url: session.online_meeting_url || "",
+      online_meeting_id: session.online_meeting_id || "",
+      online_passcode: session.online_passcode || "",
+      status: session.status || "scheduled",
+      notes: session.notes || "",
+    });
+    const mapped: Record<number, { attendance_status: string; attendance_minutes: string }> = {};
+    session.attendance.forEach((row) => {
+      mapped[row.training_booking_id] = {
+        attendance_status: row.attendance_status || "booked",
+        attendance_minutes: row.attendance_minutes === null ? "" : String(row.attendance_minutes),
+      };
+    });
+    setAttendanceDraft(mapped);
+  }, [session]);
+
+  async function saveSession() {
+    setSaving(true);
+    setStatus("");
+    try {
+      const payload = {
+        ...sessionDraft,
+        session_hours: toNumberOrNull(sessionDraft.session_hours),
+        session_date: sessionDraft.session_date || null,
+        start_time: sessionDraft.start_time || null,
+        end_time: sessionDraft.end_time || null,
+      };
+      const res = await fetch(`${baseUrl}/training-course-sessions/${session.training_course_session_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+      }
+      setStatus("Session saved.");
+      onSaved();
+    } catch (err) {
+      setStatus(`Session save failed: ${(err as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveAttendance() {
+    setSaving(true);
+    setStatus("");
+    try {
+      const payload = {
+        items: runBookings.map((booking) => ({
+          training_booking_id: booking.training_booking_id,
+          attendance_status: attendanceDraft[booking.training_booking_id]?.attendance_status || booking.attendance_status || "booked",
+          attendance_minutes: toNumberOrNull(attendanceDraft[booking.training_booking_id]?.attendance_minutes || ""),
+        })),
+      };
+      const res = await fetch(`${baseUrl}/training-course-sessions/${session.training_course_session_id}/attendance`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+      }
+      setStatus("Attendance saved.");
+      onSaved();
+    } catch (err) {
+      setStatus(`Attendance save failed: ${(err as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border bg-card p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="font-medium">{session.session_title || `Session ${session.training_course_session_id}`}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Badge className={statusChipClass(session.status)} variant="outline">
+              {session.status}
+            </Badge>
+            {session.session_date ? <span>{session.session_date}</span> : null}
+            {session.start_time || session.end_time ? (
+              <span>
+                {session.start_time || "?"}
+                {session.end_time ? ` → ${session.end_time}` : ""}
+              </span>
+            ) : null}
+            {session.session_hours !== null ? <span>{session.session_hours} hrs</span> : null}
+            {session.delivery_mode ? <span>{formatTrainingDeliveryMode(session.delivery_mode)}</span> : null}
+            <span>{session.attendance_count} attendance records</span>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={saveSession} disabled={saving}>
+            {saving ? "Saving..." : "Save Session"}
+          </Button>
+          <Button onClick={saveAttendance} disabled={saving}>
+            {saving ? "Saving..." : "Save Attendance"}
+          </Button>
+        </div>
+      </div>
+      {status ? <div className="mt-2 rounded-md bg-muted px-3 py-2 text-sm">{status}</div> : null}
+
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <div className="space-y-2">
+          <Label>Session Title</Label>
+          <Input value={sessionDraft.session_title} onChange={(e) => setSessionDraft((p) => ({ ...p, session_title: e.target.value }))} />
+        </div>
+        <div className="space-y-2">
+          <Label>Date</Label>
+          <Input type="date" value={sessionDraft.session_date} onChange={(e) => setSessionDraft((p) => ({ ...p, session_date: e.target.value }))} />
+        </div>
+        <div className="space-y-2">
+          <Label>Status</Label>
+          <Select value={sessionDraft.status} onValueChange={(v) => setSessionDraft((p) => ({ ...p, status: v }))}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TRAINING_SESSION_STATUS_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Start Time</Label>
+          <Input type="time" value={sessionDraft.start_time} onChange={(e) => setSessionDraft((p) => ({ ...p, start_time: e.target.value }))} />
+        </div>
+        <div className="space-y-2">
+          <Label>End Time</Label>
+          <Input type="time" value={sessionDraft.end_time} onChange={(e) => setSessionDraft((p) => ({ ...p, end_time: e.target.value }))} />
+        </div>
+        <div className="space-y-2">
+          <Label>Hours</Label>
+          <Input type="number" min="0" step="0.25" value={sessionDraft.session_hours} onChange={(e) => setSessionDraft((p) => ({ ...p, session_hours: e.target.value }))} />
+        </div>
+        <div className="space-y-2">
+          <Label>Delivery Mode</Label>
+          <Select value={sessionDraft.delivery_mode || "__none__"} onValueChange={(v) => setSessionDraft((p) => ({ ...p, delivery_mode: v === "__none__" ? "" : v }))}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select mode..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">No default</SelectItem>
+              {TRAINING_DELIVERY_MODE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Venue</Label>
+          <Input value={sessionDraft.venue_name} onChange={(e) => setSessionDraft((p) => ({ ...p, venue_name: e.target.value }))} />
+        </div>
+        <div className="space-y-2 md:col-span-2">
+          <Label>Location Notes</Label>
+          <Input value={sessionDraft.venue_address} onChange={(e) => setSessionDraft((p) => ({ ...p, venue_address: e.target.value }))} />
+        </div>
+        <div className="space-y-2">
+          <Label>Online Link</Label>
+          <Input value={sessionDraft.online_meeting_url} onChange={(e) => setSessionDraft((p) => ({ ...p, online_meeting_url: e.target.value }))} />
+        </div>
+        <div className="space-y-2">
+          <Label>Meeting ID</Label>
+          <Input value={sessionDraft.online_meeting_id} onChange={(e) => setSessionDraft((p) => ({ ...p, online_meeting_id: e.target.value }))} />
+        </div>
+        <div className="space-y-2">
+          <Label>Passcode</Label>
+          <Input value={sessionDraft.online_passcode} onChange={(e) => setSessionDraft((p) => ({ ...p, online_passcode: e.target.value }))} />
+        </div>
+        <div className="space-y-2 md:col-span-3">
+          <Label>Notes</Label>
+          <Textarea value={sessionDraft.notes} onChange={(e) => setSessionDraft((p) => ({ ...p, notes: e.target.value }))} rows={2} />
+        </div>
+      </div>
+
+      <div className="mt-4 overflow-auto rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Participant</TableHead>
+              <TableHead>Client</TableHead>
+              <TableHead>Attendance</TableHead>
+              <TableHead>Minutes</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {runBookings.length ? (
+              runBookings.map((booking) => {
+                const current = attendanceDraft[booking.training_booking_id] || {
+                  attendance_status: booking.attendance_status || "booked",
+                  attendance_minutes: "",
+                };
+                return (
+                  <TableRow key={booking.training_booking_id}>
+                    <TableCell>
+                      <div className="font-medium">{booking.person_name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {formatTrainingParticipantType(booking.participant_type)} • {formatTrainingBookingSource(booking.booking_source)}
+                      </div>
+                    </TableCell>
+                    <TableCell>{booking.client_name || "External"}</TableCell>
+                    <TableCell>
+                      <Select
+                        value={current.attendance_status}
+                        onValueChange={(v) =>
+                          setAttendanceDraft((prev) => ({
+                            ...prev,
+                            [booking.training_booking_id]: {
+                              ...current,
+                              attendance_status: v,
+                            },
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="w-[180px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TRAINING_ATTENDANCE_STATUS_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        className="w-28"
+                        value={current.attendance_minutes}
+                        onChange={(e) =>
+                          setAttendanceDraft((prev) => ({
+                            ...prev,
+                            [booking.training_booking_id]: {
+                              ...current,
+                              attendance_minutes: e.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            ) : (
+              <TableRow>
+                <TableCell colSpan={4} className="py-6 text-center text-sm text-muted-foreground">
+                  Add participants to record attendance.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
 function BookingEditorCard({
   booking,
   entitlements,
@@ -1402,6 +1959,34 @@ function BookingEditorCard({
 }) {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
+  const entitlementOptions = (() => {
+    if (booking.entitlement_id === null) return entitlements;
+    const exists = entitlements.some((entitlement) => entitlement.training_entitlement_id === booking.entitlement_id);
+    if (exists) return entitlements;
+    return [
+      ...entitlements,
+      {
+        training_entitlement_id: booking.entitlement_id,
+        org_id: booking.org_id || "",
+        source_job_id: null,
+        source_job_number: booking.source_job_number || null,
+        source_client_db_id: booking.client_db_id,
+        entitlement_type: "free_place",
+        status: booking.entitlement_status || "consumed",
+        allocated_to_booking_id: booking.training_booking_id,
+        reserved_at: null,
+        consumed_at: null,
+        expires_at: null,
+        notes: null,
+        source_job_client_name: booking.client_name,
+        allocated_booking_name: booking.person_name,
+        created_at: null,
+        created_by: null,
+        updated_at: null,
+        updated_by: null,
+      },
+    ];
+  })();
   const [draft, setDraft] = useState<BookingFormState>(() => ({
     client_db_id: booking.client_db_id === null ? "" : String(booking.client_db_id),
     contact_id: booking.contact_id === null ? "" : String(booking.contact_id),
@@ -1561,7 +2146,7 @@ function BookingEditorCard({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="__none__">No entitlement</SelectItem>
-              {entitlements.map((entitlement) => (
+              {entitlementOptions.map((entitlement) => (
                 <SelectItem key={entitlement.training_entitlement_id} value={String(entitlement.training_entitlement_id)}>
                   {entitlement.source_job_number || `Job ${entitlement.source_job_id ?? "—"}`} - {formatTrainingEntitlementStatus(entitlement.status)}
                 </SelectItem>

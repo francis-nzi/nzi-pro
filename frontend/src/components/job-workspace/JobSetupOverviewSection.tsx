@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,6 +17,7 @@ import { formatJobFamilyLabel, getJobFamilyDescription, jobFamilyBadgeClassName 
 
 type JobSetupOverviewSectionProps = {
   hidden?: boolean;
+  baseUrl: string;
   jobId: number;
   busy: boolean;
   status: string;
@@ -54,6 +57,7 @@ type JobSetupOverviewSectionProps = {
 
 export default function JobSetupOverviewSection({
   hidden,
+  baseUrl,
   jobId,
   busy,
   status,
@@ -90,10 +94,46 @@ export default function JobSetupOverviewSection({
   onSaveReportingPeriod,
   onApplyTemplate,
 }: JobSetupOverviewSectionProps) {
+  const [entitlementExpiry, setEntitlementExpiry] = useState("");
+  const [entitlementNotes, setEntitlementNotes] = useState("");
+  const [entitlementBusy, setEntitlementBusy] = useState(false);
+  const [entitlementStatus, setEntitlementStatus] = useState("");
+
   const handleSave = () => {
     onSaveJobDetails();
     onSaveReportingPeriod();
   };
+
+  async function createFreeTrainingPlace() {
+    setEntitlementBusy(true);
+    setEntitlementStatus("");
+    try {
+      const res = await fetch(`${baseUrl}/training-entitlements`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          source_job_id: jobId,
+          entitlement_type: "free_place",
+          status: "available",
+          expires_at: entitlementExpiry || null,
+          notes: entitlementNotes || null,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+      }
+      setEntitlementNotes("");
+      setEntitlementExpiry("");
+      setEntitlementStatus("Free training place entitlement created.");
+      setTimeout(() => setEntitlementStatus(""), 3000);
+    } catch (err) {
+      setEntitlementStatus(`Could not create training place: ${(err as Error).message}`);
+    } finally {
+      setEntitlementBusy(false);
+    }
+  }
 
   return (
     <div className={`space-y-6 ${hidden ? "hidden" : ""}`}>
@@ -273,6 +313,35 @@ export default function JobSetupOverviewSection({
           </div>
         </CardContent>
       </Card>
+
+      {jobFamily === "crp" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Training Place Entitlement</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Offer a free training place from this CRP job. The entitlement can then be linked to a participant booking in a training job.
+            </p>
+            {entitlementStatus ? <div className="rounded-md bg-muted px-3 py-2 text-sm">{entitlementStatus}</div> : null}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="entitlementExpiry">Expires At</Label>
+                <Input id="entitlementExpiry" type="datetime-local" value={entitlementExpiry} onChange={(e) => setEntitlementExpiry(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="entitlementNotes">Notes</Label>
+                <Input id="entitlementNotes" value={entitlementNotes} onChange={(e) => setEntitlementNotes(e.target.value)} placeholder="Optional entitlement notes" />
+              </div>
+            </div>
+            <div className="flex items-center justify-end">
+              <Button onClick={createFreeTrainingPlace} disabled={entitlementBusy}>
+                {entitlementBusy ? "Creating..." : "Create Free Training Place"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }
