@@ -40,6 +40,18 @@ type TeamUser = {
   status?: string | null;
 };
 
+type CustomFieldDefinition = {
+  field_id: number;
+  field_name: string;
+  field_type: string;
+  field_label: string;
+  is_required: boolean;
+  entity_type: string;
+  options?: unknown;
+  display_order: number;
+  default_value?: string | null;
+};
+
 type Dataset = {
   dataset_id: number;
   name: string | null;
@@ -84,6 +96,7 @@ function NewJobPageContent() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [jobTypes, setJobTypes] = useState<JobType[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamUser[]>([]);
+  const [jobCustomFields, setJobCustomFields] = useState<CustomFieldDefinition[]>([]);
   const [clientSearch, setClientSearch] = useState("");
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
   const [clientSearchLoading, setClientSearchLoading] = useState(false);
@@ -102,6 +115,11 @@ function NewJobPageContent() {
   const [legacyJobNo, setLegacyJobNo] = useState("");
   const [startDate, setStartDate] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [trainingCourseName, setTrainingCourseName] = useState("");
+  const [trainingDeliveryMode, setTrainingDeliveryMode] = useState("");
+  const [consultancyServiceFocus, setConsultancyServiceFocus] = useState("");
+  const [lcaProductSystemName, setLcaProductSystemName] = useState("");
+  const [pcfProductName, setPcfProductName] = useState("");
   const [clientBenchmarkPeriod, setClientBenchmarkPeriod] = useState<{
     start: string;
     end: string;
@@ -132,6 +150,16 @@ function NewJobPageContent() {
   const selectedWorkflow = getJobWorkflowDefinition(selectedJobFamily || "crp");
   const isTrainingFamily = selectedJobFamily === "training";
   const isCrpFamily = selectedJobFamily === null || selectedJobFamily === "crp";
+  const activeJobFamily = (selectedJobFamily || "crp") as
+    | "crp"
+    | "training"
+    | "consultancy"
+    | "lca"
+    | "pcf";
+  const jobCustomFieldsByName = useMemo(
+    () => new Map(jobCustomFields.map((field) => [field.field_name.toLowerCase(), field] as const)),
+    [jobCustomFields]
+  );
   const familyCreationCopy = useMemo(() => {
     const family = selectedJobFamily || "crp";
     switch (family) {
@@ -331,6 +359,7 @@ function NewJobPageContent() {
     loadClients();
     loadDatasets();
     loadJobTypes();
+    loadJobCustomFields();
     loadTeamMembers();
   }, [baseUrl]);
 
@@ -474,6 +503,22 @@ function NewJobPageContent() {
     }
   }
 
+  async function loadJobCustomFields() {
+    try {
+      const res = await fetch(`${baseUrl}/custom-fields/definitions?entity_type=job`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        console.error("Failed to load job custom fields");
+        return;
+      }
+      const json = await res.json();
+      setJobCustomFields((json.items || []) as CustomFieldDefinition[]);
+    } catch (err) {
+      console.error("Error loading job custom fields:", err);
+    }
+  }
+
   async function loadTeamMembers() {
     try {
       const res = await fetch(`${baseUrl}/admin/users`, {
@@ -514,13 +559,26 @@ function NewJobPageContent() {
     setStatus("Creating job...");
 
     try {
+      const derivedTitle =
+        title.trim() ||
+        (activeJobFamily === "training"
+          ? trainingCourseName.trim()
+          : activeJobFamily === "consultancy"
+            ? consultancyServiceFocus.trim()
+            : activeJobFamily === "lca"
+              ? lcaProductSystemName.trim()
+              : activeJobFamily === "pcf"
+                ? pcfProductName.trim()
+                : "") ||
+        "Untitled";
+
       const res = await fetch(`${baseUrl}/jobs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           client_db_id: clientId ? Number(clientId) : null,
           job_type: jobType,
-          title: title.trim() || "Untitled",
+          title: derivedTitle,
           reporting_year: isCrpFamily && reportingYear ? Number(reportingYear) : undefined,
           is_benchmark: isBenchmark,
           status: jobStatus,
@@ -568,6 +626,46 @@ function NewJobPageContent() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ items: scopeItems }),
         });
+      }
+
+      const customFieldValues: Array<{
+        field_id: number;
+        entity_id: number;
+        entity_type: string;
+        field_value: string | null;
+      }> = [];
+      const addCustomFieldValue = (fieldName: string, value: string) => {
+        const fieldDef = jobCustomFieldsByName.get(fieldName.toLowerCase());
+        if (!fieldDef || !value.trim()) return;
+        customFieldValues.push({
+          field_id: fieldDef.field_id,
+          entity_id: jobId,
+          entity_type: "job",
+          field_value: value.trim(),
+        });
+      };
+
+      if (activeJobFamily === "training") {
+        addCustomFieldValue("training_course_name", trainingCourseName);
+        addCustomFieldValue("training_delivery_mode", trainingDeliveryMode);
+      } else if (activeJobFamily === "consultancy") {
+        addCustomFieldValue("consultancy_service_focus", consultancyServiceFocus);
+      } else if (activeJobFamily === "lca") {
+        addCustomFieldValue("lca_product_system_name", lcaProductSystemName);
+      } else if (activeJobFamily === "pcf") {
+        addCustomFieldValue("pcf_product_name", pcfProductName);
+      }
+
+      if (customFieldValues.length > 0) {
+        const customFieldsRes = await fetch(`${baseUrl}/custom-fields/values`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(customFieldValues),
+        });
+        if (!customFieldsRes.ok) {
+          console.warn("Custom field save failed:", await customFieldsRes.text());
+          successMsg += " | Some family details could not be saved";
+        }
       }
 
       setStatus(successMsg);
@@ -997,6 +1095,102 @@ function NewJobPageContent() {
                           )}
                         </div>
                       </div>
+
+                      {activeJobFamily === "training" && (
+                        <div className="space-y-4 rounded-md border border-slate-200 bg-slate-50 p-4">
+                          <div>
+                            <h4 className="font-semibold text-sm text-slate-900">Training details</h4>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Capture the course name and delivery mode now so the training workspace opens with the
+                              right context.
+                            </p>
+                          </div>
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label htmlFor="trainingCourseName">Training Course / Product</Label>
+                              <Input
+                                id="trainingCourseName"
+                                value={trainingCourseName}
+                                onChange={(e) => setTrainingCourseName(e.target.value)}
+                                placeholder="e.g. CPD Accredited Net Zero Leaders"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="trainingDeliveryMode">Training Delivery Mode</Label>
+                              <Select value={trainingDeliveryMode} onValueChange={setTrainingDeliveryMode}>
+                                <SelectTrigger id="trainingDeliveryMode">
+                                  <SelectValue placeholder="Select delivery mode..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="in_person">In person</SelectItem>
+                                  <SelectItem value="online">Online</SelectItem>
+                                  <SelectItem value="hybrid">Hybrid</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {activeJobFamily === "consultancy" && (
+                        <div className="space-y-4 rounded-md border border-slate-200 bg-slate-50 p-4">
+                          <div>
+                            <h4 className="font-semibold text-sm text-slate-900">Consultancy details</h4>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Capture the advisory focus now so the job starts with the right service context.
+                            </p>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="consultancyServiceFocus">Consultancy Service Focus</Label>
+                            <Input
+                              id="consultancyServiceFocus"
+                              value={consultancyServiceFocus}
+                              onChange={(e) => setConsultancyServiceFocus(e.target.value)}
+                              placeholder="e.g. Policy Development"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {activeJobFamily === "lca" && (
+                        <div className="space-y-4 rounded-md border border-slate-200 bg-slate-50 p-4">
+                          <div>
+                            <h4 className="font-semibold text-sm text-slate-900">LCA details</h4>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Capture the product or system being analysed so the job opens with the right scope.
+                            </p>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="lcaProductSystemName">LCA Product / System Name</Label>
+                            <Input
+                              id="lcaProductSystemName"
+                              value={lcaProductSystemName}
+                              onChange={(e) => setLcaProductSystemName(e.target.value)}
+                              placeholder="e.g. Recycled Packaging Line"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {activeJobFamily === "pcf" && (
+                        <div className="space-y-4 rounded-md border border-slate-200 bg-slate-50 p-4">
+                          <div>
+                            <h4 className="font-semibold text-sm text-slate-900">PCF details</h4>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Capture the product name now so the footprinting job opens with the correct context.
+                            </p>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="pcfProductName">PCF Product Name</Label>
+                            <Input
+                              id="pcfProductName"
+                              value={pcfProductName}
+                              onChange={(e) => setPcfProductName(e.target.value)}
+                              placeholder="e.g. 500ml Aluminium Bottle"
+                            />
+                          </div>
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div className="space-y-4">
