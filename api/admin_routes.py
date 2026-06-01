@@ -795,6 +795,10 @@ def _ensure_job_types_lookup_table(con, org_id: str | None) -> None:
               WHEN COALESCE(NULLIF(TRIM(job_family), ''), '') <> '' THEN job_family
               WHEN LOWER(COALESCE(name, '')) LIKE '%training%' THEN 'training'
               WHEN LOWER(COALESCE(name, '')) LIKE '%consult%' THEN 'consultancy'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%policy development%' THEN 'consultancy'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%strategy workshop%' THEN 'consultancy'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%monthly support services%' THEN 'consultancy'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%support services%' THEN 'consultancy'
               WHEN LOWER(COALESCE(name, '')) LIKE '%life cycle%' OR LOWER(COALESCE(name, '')) LIKE '%assessment%' THEN 'lca'
               WHEN LOWER(COALESCE(name, '')) LIKE '%product carbon%' OR LOWER(COALESCE(name, '')) LIKE '%pcf%' THEN 'pcf'
               ELSE 'crp'

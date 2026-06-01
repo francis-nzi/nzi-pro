@@ -32,6 +32,22 @@ def _json_null_if_na(value):
         return None if pd.isna(value) else value
     except Exception:
         return value
+
+
+def _infer_job_family_from_job_type_name(name: str | None) -> str:
+    raw = str(name or "").strip().lower()
+    if not raw:
+        return "crp"
+    if "training" in raw:
+        return "training"
+    if "consult" in raw or "policy development" in raw or "strategy workshop" in raw or "monthly support services" in raw or "support services" in raw:
+        return "consultancy"
+    if "life cycle" in raw or "assessment" in raw:
+        return "lca"
+    if "product carbon" in raw or "pcf" in raw:
+        return "pcf"
+    return "crp"
+
 @router.post("/jobs")
 def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] = Depends(_current_user)):
     """Create a new job with automatic period calculation."""
@@ -188,7 +204,7 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
             
             job_type_id = job_type_row[0]
             is_crp = job_type_row[1] or False
-            job_family = str(job_type_row[2] or "").strip().lower() or ("crp" if is_crp else "crp")
+            job_family = str(job_type_row[2] or "").strip().lower() or _infer_job_family_from_job_type_name(job_type_name) or ("crp" if is_crp else "crp")
             
             # Get client's benchmark period and financial year info
             fy_month_expr = "financial_year_end_month" if _col_exists(con, "clients", "financial_year_end_month") else "NULL"
@@ -991,7 +1007,7 @@ def update_job(
                 params.append(bool(job_type_row[1]) if job_type_row[1] is not None else False)
                 if _col_exists(con, "jobs", "job_family"):
                     updates.append("job_family = ?")
-                    params.append(str(job_type_row[2] or "").strip().lower() or "crp")
+                    params.append(str(job_type_row[2] or "").strip().lower() or _infer_job_family_from_job_type_name(job_type_name) or "crp")
 
             if "milestone_template_id" in body:
                 milestone_template_id = body.get("milestone_template_id")

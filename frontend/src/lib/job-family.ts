@@ -50,6 +50,10 @@ export function inferJobFamilyFromJobTypeName(value?: string | null): JobFamily 
   if (!name) return "crp";
   if (name.includes("training")) return "training";
   if (name.includes("consult")) return "consultancy";
+  if (name.includes("policy development")) return "consultancy";
+  if (name.includes("strategy workshop")) return "consultancy";
+  if (name.includes("monthly support services")) return "consultancy";
+  if (name.includes("support services")) return "consultancy";
   if (name.includes("life cycle")) return "lca";
   if (name.includes("product carbon") || name.includes("pcf")) return "pcf";
   return "crp";
