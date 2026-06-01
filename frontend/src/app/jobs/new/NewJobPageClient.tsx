@@ -86,7 +86,7 @@ function NewJobPageContent() {
 
   // Form fields
   const [clientId, setClientId] = useState("");
-  const [jobType, setJobType] = useState("CRP");
+  const [jobType, setJobType] = useState("");
   const [reportingYear, setReportingYear] = useState(
     new Date().getFullYear().toString()
   );
@@ -406,7 +406,7 @@ function NewJobPageContent() {
       setJobTypes(activeTypes);
 
       const defaultCrp = activeTypes.find((jt: JobType) => (jt.job_family || (jt.is_crp ? "crp" : "")).toLowerCase() === "crp");
-      if (defaultCrp && !jobType) {
+      if (defaultCrp && (!jobType || !activeTypes.some((jt: JobType) => jt.name === jobType))) {
         setJobType(defaultCrp.name);
       }
     } catch (err) {
