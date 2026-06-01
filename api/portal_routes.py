@@ -119,107 +119,43 @@ def portal_job_overview(job_id: int, current_user: dict = Depends(portal_user_de
 @router.get("/portal/jobs/{job_id}/live-report-data")
 def portal_live_report_data(job_id: int, current_user: dict = Depends(portal_user_dep)):
     from services.tenancy import org_context
-    from api.job_report_routes import get_job_data, get_scope_totals, get_emissions_by_category
     from api.job_live_report_routes import get_job_live_report_data
 
-    client_db_id = int(current_user["client_db_id"])
-    with get_conn() as con:
-        _assert_job_belongs_to_client(job_id, client_db_id, con)
-        _org_id = _portal_org_id(con, client_db_id)
+    try:
+        client_db_id = int(current_user["client_db_id"])
+        with get_conn() as con:
+            _assert_job_belongs_to_client(job_id, client_db_id, con)
+            _org_id = _portal_org_id(con, client_db_id)
 
-    _mock_user = {"email": current_user["email"], "role": "portal", "sub": "portal",
-                  "org_id": _org_id, "user_id": "portal"}
-    with org_context(_org_id):
-        try:
-            return get_job_live_report_data(int(job_id), _user=_mock_user)
-        except HTTPException as exc:
-            if exc.status_code != 500:
-                raise
-            logger.exception("portal_live_report_data failed for job %s with HTTP 500; returning fallback payload", job_id)
-            job_data = get_job_data(int(job_id))
-            if not job_data:
-                raise HTTPException(status_code=404, detail="Job not found") from exc
+        _mock_user = {
+            "email": current_user["email"],
+            "role": "portal",
+            "sub": "portal",
+            "org_id": _org_id,
+            "user_id": "portal",
+        }
+        with org_context(_org_id):
             try:
-                scope_totals = get_scope_totals(int(job_id))
+                return get_job_live_report_data(int(job_id), _user=_mock_user)
+            except HTTPException as exc:
+                if exc.status_code != 500:
+                    raise
+                logger.exception(
+                    "portal_live_report_data failed for job %s with HTTP 500; returning fallback payload",
+                    job_id,
+                )
+                return _portal_fallback_live_report_payload(int(job_id))
             except Exception:
-                scope_totals = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
-            try:
-                categories = get_emissions_by_category(int(job_id))
-            except Exception:
-                categories = []
-            total_emissions = float(scope_totals.get("Total") or 0.0)
-            return {
-                "job_data": job_data,
-                "scope_totals": scope_totals,
-                "benchmark_totals": {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0},
-                "categories": categories,
-                "benchmark_categories": [],
-                "activity_groups": {},
-                "activity_totals": {},
-                "activity_details": {},
-                "activity_group_order": [],
-                "activity_group_colors": {},
-                "job_actions": {},
-                "intensity_metrics": {},
-                "yearly_emissions": [],
-                "target_data": {},
-                "report_metadata": {},
-                "template_variables": {},
-                "site_breakdowns": {},
-                "glossary_cards": [],
-                "render_values": {},
-                "nzi_logo_src": "",
-                "summary": {
-                    "current_total": total_emissions,
-                    "benchmark_total": 0.0,
-                    "delta_total": total_emissions,
-                    "delta_pct": None,
-                    "top_category": None,
-                },
-            }
-        except Exception as exc:
-            logger.exception("portal_live_report_data failed for job %s; returning fallback payload", job_id)
-            job_data = get_job_data(int(job_id))
-            if not job_data:
-                raise HTTPException(status_code=404, detail="Job not found") from exc
-            try:
-                scope_totals = get_scope_totals(int(job_id))
-            except Exception:
-                scope_totals = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
-            try:
-                categories = get_emissions_by_category(int(job_id))
-            except Exception:
-                categories = []
-            total_emissions = float(scope_totals.get("Total") or 0.0)
-            return {
-                "job_data": job_data,
-                "scope_totals": scope_totals,
-                "benchmark_totals": {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0},
-                "categories": categories,
-                "benchmark_categories": [],
-                "activity_groups": {},
-                "activity_totals": {},
-                "activity_details": {},
-                "activity_group_order": [],
-                "activity_group_colors": {},
-                "job_actions": {},
-                "intensity_metrics": {},
-                "yearly_emissions": [],
-                "target_data": {},
-                "report_metadata": {},
-                "template_variables": {},
-                "site_breakdowns": {},
-                "glossary_cards": [],
-                "render_values": {},
-                "nzi_logo_src": "",
-                "summary": {
-                    "current_total": total_emissions,
-                    "benchmark_total": 0.0,
-                    "delta_total": total_emissions,
-                    "delta_pct": None,
-                    "top_category": None,
-                },
-            }
+                logger.exception("portal_live_report_data failed for job %s; returning fallback payload", job_id)
+                return _portal_fallback_live_report_payload(int(job_id))
+    except HTTPException as exc:
+        if exc.status_code != 500:
+            raise
+        logger.exception("portal_live_report_data preflight failed for job %s with HTTP 500; returning fallback payload", job_id)
+        return _portal_fallback_live_report_payload(int(job_id))
+    except Exception:
+        logger.exception("portal_live_report_data preflight failed for job %s; returning fallback payload", job_id)
+        return _portal_fallback_live_report_payload(int(job_id))
 
 
 # ---------------------------------------------------------------------------
@@ -443,6 +379,21 @@ def _portal_clean_label(value, fallback: str) -> str:
     return txt
 
 
+def _table_columns(con, table_name: str) -> set[str]:
+    try:
+        rows = con.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE lower(table_name) = lower(%s)
+            """,
+            [str(table_name or "").strip()],
+        ).fetchall()
+        return {str(r[0]).strip().lower() for r in (rows or []) if r and r[0] is not None}
+    except Exception:
+        return set()
+
+
 def _portal_category_label(row) -> str:
     for value in (
         row.get("dataset_category"),
@@ -493,11 +444,16 @@ def _portal_load_crp_entries(con, job_ids: list[int]):
 
 def _portal_org_id(con, client_db_id: int) -> str | None:
     """Look up the org_id for this client so we can mirror the CRM's org context."""
-    row = con.execute(
-        "SELECT org_id FROM clients WHERE db_id = %s", [int(client_db_id)]
-    ).fetchone()
-    if row and row[0]:
-        return str(row[0])
+    if "org_id" not in _table_columns(con, "clients"):
+        return None
+    try:
+        row = con.execute(
+            "SELECT org_id FROM clients WHERE db_id = %s", [int(client_db_id)]
+        ).fetchone()
+        if row and row[0]:
+            return str(row[0])
+    except Exception:
+        return None
     return None
 
 
@@ -517,6 +473,130 @@ def _portal_load_jobs(con, client_db_id: int):
         """,
         [int(client_db_id)],
     ).df()
+
+
+def _portal_fallback_live_report_payload(job_id: int) -> dict[str, Any]:
+    """Return a minimal live-report payload without ever raising."""
+    from api.job_report_routes import get_job_data
+
+    try:
+        job_data = get_job_data(int(job_id))
+    except Exception:
+        job_data = None
+
+    if not job_data:
+        try:
+            with get_conn() as con:
+                row = con.execute(
+                    """
+                    SELECT j.job_id, j.client_db_id, j.org_id, j.job_number, j.title, j.reporting_year, j.status,
+                           j.reporting_period_start, j.reporting_period_end,
+                           c.client_name, c.crm_owner, c.industry, c.logo_url, c.description_long,
+                           c.net_zero_year, c.interim_year, c.benchmark_year,
+                           c.benchmark_period_start, c.benchmark_period_end,
+                           c.interim_s1_pct, c.interim_s2_pct, c.interim_s3_pct,
+                           c.target_s1_year, c.target_s2_year, c.target_s3_year,
+                           c.target_s1_pct, c.target_s2_pct, c.target_s3_pct,
+                           c.addr_city, c.addr_country
+                    FROM jobs j
+                    LEFT JOIN clients c ON c.db_id = j.client_db_id
+                    WHERE j.job_id = %s
+                    """,
+                    [int(job_id)],
+                ).fetchone()
+            if row:
+                job_data = {
+                    "job_id": row[0],
+                    "client_db_id": row[1],
+                    "org_id": row[2],
+                    "job_number": row[3],
+                    "title": row[4],
+                    "reporting_year": row[5],
+                    "status": row[6],
+                    "period_start": row[7],
+                    "period_end": row[8],
+                    "reporting_period_start": row[7],
+                    "reporting_period_end": row[8],
+                    "client_name": row[9] if len(row) > 9 else None,
+                    "crm_owner": row[10] if len(row) > 10 else None,
+                    "industry": row[11] if len(row) > 11 else None,
+                    "logo_url": row[12] if len(row) > 12 else None,
+                    "client_logo_url": row[12] if len(row) > 12 else None,
+                    "description": row[13] if len(row) > 13 else None,
+                    "net_zero_year": row[14] if len(row) > 14 else None,
+                    "interim_year": row[15] if len(row) > 15 else None,
+                    "benchmark_year": row[16] if len(row) > 16 else None,
+                    "benchmark_period_start": row[17] if len(row) > 17 else None,
+                    "benchmark_period_end": row[18] if len(row) > 18 else None,
+                    "interim_s1_pct": row[19] if len(row) > 19 else None,
+                    "interim_s2_pct": row[20] if len(row) > 20 else None,
+                    "interim_s3_pct": row[21] if len(row) > 21 else None,
+                    "target_s1_year": row[22] if len(row) > 22 else None,
+                    "target_s2_year": row[23] if len(row) > 23 else None,
+                    "target_s3_year": row[24] if len(row) > 24 else None,
+                    "target_s1_pct": row[25] if len(row) > 25 else None,
+                    "target_s2_pct": row[26] if len(row) > 26 else None,
+                    "target_s3_pct": row[27] if len(row) > 27 else None,
+                    "city": row[28] if len(row) > 28 else None,
+                    "country": row[29] if len(row) > 29 else None,
+                    "job_family": None,
+                    "data_collection_due": None,
+                    "first_draft_due": None,
+                    "final_report_due": None,
+                    "no_of_staff": None,
+                    "no_premises_owned": None,
+                    "no_premises_leased": None,
+                    "no_vehicles_owned": None,
+                    "no_vehicles_leased": None,
+                }
+        except Exception:
+            job_data = None
+
+    if not job_data:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    try:
+        from api.job_report_routes import get_scope_totals, get_emissions_by_category
+        scope_totals = get_scope_totals(int(job_id))
+    except Exception:
+        scope_totals = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
+
+    try:
+        from api.job_report_routes import get_emissions_by_category
+        categories = get_emissions_by_category(int(job_id))
+    except Exception:
+        categories = []
+
+    total_emissions = float(scope_totals.get("Total") or 0.0)
+    return {
+        "job_data": job_data,
+        "scope_totals": scope_totals,
+        "benchmark_totals": {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0},
+        "categories": categories,
+        "benchmark_categories": [],
+        "activity_groups": {},
+        "activity_totals": {},
+        "activity_details": {},
+        "activity_group_order": [],
+        "activity_group_colors": {},
+        "job_actions": {},
+        "intensity_metrics": {},
+        "yearly_emissions": [],
+        "target_data": {},
+        "report_metadata": {},
+        "template_variables": {},
+        "site_breakdowns": {},
+        "glossary_cards": [],
+        "render_values": {},
+        "nzi_logo_src": "",
+        "summary": {
+            "current_total": total_emissions,
+            "benchmark_total": 0.0,
+            "delta_total": total_emissions,
+            "delta_pct": None,
+            "top_category": None,
+        },
+    }
 
 
 @router.get("/portal/metrics")
