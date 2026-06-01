@@ -155,7 +155,6 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {sorted.map(([year, job]) => {
         const label = statusLabel(job.review_status);
-        const versionLabel = job.snapshot_version_label?.trim() || (job.snapshot_version_number != null ? `v${job.snapshot_version_number}` : "");
         const snapshotTime = job.snapshot_at ? formatTimestamp(job.snapshot_at) : "";
         return (
           <div key={year} className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-4">
@@ -163,16 +162,10 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
               <div>
                 <div className="text-3xl font-bold text-gray-900 tabular-nums">{year || "—"}</div>
                 <div className="mt-1 text-sm text-gray-500 leading-tight">{job.title || "Carbon Report"}</div>
-                <div className="mt-1 text-xs text-gray-400" title={snapshotTime ? `Saved ${snapshotTime}` : undefined}>
-                  {job.snapshot_at
-                    ? `Latest snapshot saved ${formatTimestamp(job.snapshot_at)}`
-                    : "No saved snapshot yet"}
+                <div className="mt-1 text-xs text-gray-400">Job No: {job.job_number || "—"}</div>
+                <div className="mt-1 text-xs text-gray-400" title={snapshotTime ? `Last refreshed ${snapshotTime}` : undefined}>
+                  {job.snapshot_at ? `Last refreshed ${formatTimestamp(job.snapshot_at)}` : "No refresh recorded yet"}
                 </div>
-                {versionLabel ? (
-                  <div className="mt-2 inline-flex rounded-full border border-green-200 bg-green-50 px-2.5 py-0.5 text-[11px] font-medium text-green-700" title={snapshotTime ? `Saved ${snapshotTime}` : undefined}>
-                    Snapshot {versionLabel}
-                  </div>
-                ) : null}
               </div>
               <ReviewIcon status={job.review_status} />
             </div>
@@ -190,7 +183,7 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
               View Report
             </Link>
             <div className="text-center text-xs text-gray-400">
-              Opens the latest saved snapshot
+              Opens the current report
             </div>
           </div>
         );

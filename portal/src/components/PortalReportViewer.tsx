@@ -170,6 +170,14 @@ function boolLabel(v: boolean | null | undefined): string {
   return v ? "Yes" : "No";
 }
 
+function formatTooltipValue(value: unknown, label: unknown = ""): [string, string] {
+  return [value != null ? `${fmt(Number(value))} tCO₂e` : "—", String(label ?? "")];
+}
+
+function formatTooltipValueWithName(value: unknown, name: unknown, fullName?: string): [string, string] {
+  return [value != null ? `${fmt(Number(value))} tCO₂e` : "—", fullName ?? String(name ?? "")];
+}
+
 // ─── WrapLegend ──────────────────────────────────────────────────────────────
 
 type LegendEntry = { color?: string; value?: string };
@@ -258,7 +266,7 @@ function NetZeroTrendChart({
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           <XAxis dataKey="year" ticks={tickYears} tickFormatter={(v: number) => String(v)} tick={{ fontSize: 10 }} />
           <YAxis tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} />
-          <Tooltip formatter={(value: unknown) => [value != null ? `${fmt(Number(value))} tCO₂e` : "—", ""]} labelFormatter={(label: unknown) => `Year: ${label}`} />
+          <Tooltip formatter={((value: unknown, label: unknown) => formatTooltipValue(value, label)) as any} labelFormatter={(label: unknown) => `Year: ${label}`} />
           <Legend content={(p) => <WrapLegend payload={(p.payload as LegendEntry[] | undefined)} />} />
           {interimYear && interimYear > baselineYear && interimYear < endYear && (
             <ReferenceLine x={interimYear} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: "Interim", position: "top", fill: "#f59e0b", fontSize: 9 }} />
@@ -360,7 +368,7 @@ function IntensityPathwayChart({
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           <XAxis dataKey="year" ticks={tickYears} tickFormatter={(v: number) => String(v)} tick={{ fontSize: 10 }} />
           <YAxis tickFormatter={(v: number) => v.toFixed(1)} tick={{ fontSize: 10 }} />
-          <Tooltip formatter={(value: unknown) => [value != null ? `${Number(value).toFixed(3)} tCO₂e` : "—", ""]} labelFormatter={(label: unknown) => `Year: ${label}`} />
+          <Tooltip formatter={((value: unknown, label: unknown) => [value != null ? `${Number(value).toFixed(3)} tCO₂e` : "—", String(label ?? "")]) as any} labelFormatter={(label: unknown) => `Year: ${label}`} />
           <Legend content={(p) => <WrapLegend payload={(p.payload as LegendEntry[] | undefined)} />} />
           {interimYear && interimYear > baselineYear && interimYear < endYear && (
             <ReferenceLine x={interimYear} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: "Interim", position: "top", fill: "#f59e0b", fontSize: 9 }} />
@@ -559,7 +567,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <Pie data={scopeDonutData} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2}>
                     {scopeDonutData.map(entry => <Cell key={entry.name} fill={SCOPE_COLORS[entry.name] ?? "#999"} />)}
                   </Pie>
-                  <Tooltip formatter={(v: unknown, n: unknown) => [v != null ? `${fmt(Number(v))} tCO₂e` : "—", String(n ?? "")]} />
+                  <Tooltip formatter={((v: unknown, n: unknown) => formatTooltipValue(v, n)) as any} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -843,7 +851,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                     <Pie data={scopeDonutData} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2}>
                       {scopeDonutData.map(entry => <Cell key={entry.name} fill={SCOPE_COLORS[entry.name] ?? "#999"} />)}
                     </Pie>
-                    <Tooltip formatter={(v: unknown, n: unknown) => [v != null ? `${fmt(Number(v))} tCO₂e` : "—", String(n ?? "")]} />
+                    <Tooltip formatter={((v: unknown, n: unknown) => formatTooltipValue(v, n)) as any} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -974,7 +982,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F0F0F0" />
                   <XAxis type="number" tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} />
                   <YAxis type="category" dataKey="name" width={180} tick={{ fontSize: 9 }} />
-                  <Tooltip formatter={(v: unknown, _: unknown, props: { payload?: { fullName?: string } }) => [v != null ? `${fmt(Number(v))} tCO₂e` : "—", props.payload?.fullName ?? ""]} />
+                  <Tooltip formatter={((v: unknown, n: unknown, props: { payload?: { fullName?: string } }) => formatTooltipValueWithName(v, n, props?.payload?.fullName)) as any} />
                   <Bar dataKey="value" name="tCO₂e" radius={[0, 3, 3, 0]}>
                     {activityBarData.map((entry, i) => <Cell key={`cell-${i}`} fill={entry.fill} />)}
                   </Bar>
@@ -1251,7 +1259,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" vertical={false} />
                   <XAxis dataKey="year" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} padding={{ left: 60, right: 60 }} />
                   <YAxis tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={52} />
-                  <Tooltip formatter={(v: unknown, name: unknown) => [v != null ? `${fmt(Number(v))} tCO₂e` : "—", String(name ?? "")]} labelFormatter={(l: unknown) => `Year: ${l}`} />
+                  <Tooltip formatter={((v: unknown, name: unknown) => formatTooltipValue(v, name)) as any} labelFormatter={(l: unknown) => `Year: ${l}`} />
                   <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
                   <Bar dataKey="scope1" name="Scope 1" stackId="a" fill={SCOPE_COLORS["Scope 1"]} />
                   <Bar dataKey="scope2" name="Scope 2" stackId="a" fill={SCOPE_COLORS["Scope 2"]} />

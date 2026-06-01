@@ -18,19 +18,6 @@ type ReportMeta = {
   generated_at?: string | null;
 };
 
-function formatTimestamp(raw: string | null | undefined): string {
-  if (!raw) return "";
-  const dt = new Date(raw);
-  if (Number.isNaN(dt.getTime())) return raw;
-  return dt.toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 export default function ReportViewPage() {
   const params = useParams<{ jobId: string }>();
   const jobId = Number(params?.jobId);
@@ -38,10 +25,6 @@ export default function ReportViewPage() {
 
   const snapshotLabel = useMemo(
     () => meta?.version_label?.trim() || (meta?.version_number != null ? `v${meta.version_number}` : "latest"),
-    [meta]
-  );
-  const snapshotTime = useMemo(
-    () => formatTimestamp(meta?.snapshot_at || meta?.finalized_at || meta?.reviewed_at || meta?.generated_at),
     [meta]
   );
 
@@ -67,11 +50,8 @@ export default function ReportViewPage() {
             <ArrowLeft className="h-4 w-4" />
             Back to Reports
           </Link>
-          <div className="text-xs text-gray-500">
-            {snapshotTime ? `Latest snapshot saved ${snapshotTime}` : "Snapshot timestamp unavailable"}
-          </div>
           <div className="text-xs text-gray-400">
-            {meta?.status ? `Version ${snapshotLabel} • ${meta.status}` : `Version ${snapshotLabel}`}
+            {meta?.status ? `Current report • Version ${snapshotLabel} • ${meta.status}` : `Current report • Version ${snapshotLabel}`}
           </div>
         </div>
 
