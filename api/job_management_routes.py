@@ -175,19 +175,19 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                     continue
             return f"J{max_number + 1:06d}"
         
-        client_db_id = body.get("client_db_id")
         job_type_name = body.get("job_type")
         reporting_year = body.get("reporting_year")
         is_benchmark = body.get("is_benchmark", False)
         start_date = body.get("start_date")
         due_date = body.get("due_date")
-        
-        if not client_db_id or not job_type_name:
-            raise HTTPException(status_code=400, detail="client_db_id and job_type are required")
+
+        client_db_id_raw = body.get("client_db_id")
+
+        if not job_type_name:
+            raise HTTPException(status_code=400, detail="job_type is required")
         
         if not start_date or not due_date:
             raise HTTPException(status_code=400, detail="start_date and due_date are required")
-        assert_client_access(_user, int(client_db_id))
         org_id = require_org(_user)
 
         with get_conn() as con:
@@ -205,38 +205,52 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
             job_type_id = job_type_row[0]
             is_crp = job_type_row[1] or False
             job_family = str(job_type_row[2] or "").strip().lower() or _infer_job_family_from_job_type_name(job_type_name) or ("crp" if is_crp else "crp")
+
+            client_db_id = None
+            if client_db_id_raw not in (None, "", "null", "NULL"):
+                client_db_id = int(client_db_id_raw)
+                assert_client_access(_user, client_db_id)
+            elif job_family != "training":
+                raise HTTPException(status_code=400, detail="client_db_id is required for this job family")
             
             # Get client's benchmark period and financial year info
-            fy_month_expr = "financial_year_end_month" if _col_exists(con, "clients", "financial_year_end_month") else "NULL"
-            fy_day_expr = "financial_year_end_day" if _col_exists(con, "clients", "financial_year_end_day") else "NULL"
-            year_end_expr = "year_end_month" if _col_exists(con, "clients", "year_end_month") else "NULL"
-            client_row = con.execute(
-                """
-                SELECT benchmark_period_start, benchmark_period_end,
-                       {fy_month_expr}, {fy_day_expr},
-                       benchmark_year,
-                       {year_end_expr}
-                FROM clients
-                WHERE db_id = ?
-                """.format(
-                    fy_month_expr=fy_month_expr,
-                    fy_day_expr=fy_day_expr,
-                    year_end_expr=year_end_expr,
-                ),
-                [int(client_db_id)]
-            ).fetchone()
-            
-            if not client_row:
-                raise HTTPException(status_code=404, detail="Client not found")
-            
-            benchmark_start, benchmark_end, fy_month, fy_day, benchmark_year, year_end_month = client_row
-            fy_month = fy_month or _month_value(year_end_month)
+            benchmark_start = benchmark_end = fy_month = fy_day = benchmark_year = year_end_month = None
+            if client_db_id is not None:
+                fy_month_expr = "financial_year_end_month" if _col_exists(con, "clients", "financial_year_end_month") else "NULL"
+                fy_day_expr = "financial_year_end_day" if _col_exists(con, "clients", "financial_year_end_day") else "NULL"
+                year_end_expr = "year_end_month" if _col_exists(con, "clients", "year_end_month") else "NULL"
+                client_row = con.execute(
+                    """
+                    SELECT benchmark_period_start, benchmark_period_end,
+                           {fy_month_expr}, {fy_day_expr},
+                           benchmark_year,
+                           {year_end_expr}
+                    FROM clients
+                    WHERE db_id = ?
+                    """.format(
+                        fy_month_expr=fy_month_expr,
+                        fy_day_expr=fy_day_expr,
+                        year_end_expr=year_end_expr,
+                    ),
+                    [int(client_db_id)]
+                ).fetchone()
+                
+                if not client_row:
+                    raise HTTPException(status_code=404, detail="Client not found")
+                
+                benchmark_start, benchmark_end, fy_month, fy_day, benchmark_year, year_end_month = client_row
+                fy_month = fy_month or _month_value(year_end_month)
             
             # Calculate reporting period
             reporting_period_start = None
             reporting_period_end = None
             
-            if is_benchmark:
+            if job_family == "training":
+                if reporting_year:
+                    reporting_year = int(reporting_year)
+                else:
+                    reporting_year = None
+            elif is_benchmark:
                 # This is the benchmark job - use client's benchmark period
                 if benchmark_start and benchmark_end:
                     reporting_period_start = benchmark_start
@@ -276,7 +290,7 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                     reporting_period_end = reporting_period_start + relativedelta(years=1) - timedelta(days=1)
                     reporting_year = reporting_period_end.year
             
-            if not reporting_year:
+            if job_family != "training" and not reporting_year:
                 raise HTTPException(status_code=400, detail="Cannot determine reporting year/period. Please provide reporting_year or ensure client has benchmark period set.")
             
             insert_columns = [
@@ -298,14 +312,14 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                 "legacy_job_no",
             ]
             insert_values = [
-                int(client_db_id),
+                client_db_id,
                 org_id,
                 job_type_id,
                 job_type_name,
                 "NZI",
                 "PENDING",
                 body.get("title", "Untitled").strip() or "Untitled",
-                int(reporting_year),
+                int(reporting_year) if reporting_year is not None else None,
                 reporting_period_start,
                 reporting_period_end,
                 is_benchmark,
@@ -342,7 +356,7 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                 action="create",
                 entity_type="job",
                 entity_id=job_id,
-                client_id=int(client_db_id),
+                client_id=client_db_id,
                 job_id=job_id,
                 after=after,
                 metadata={
@@ -543,7 +557,7 @@ def list_jobs(
                 f"""
                 SELECT COUNT(*)
                 FROM jobs j
-                JOIN clients c ON c.db_id = j.client_db_id
+                LEFT JOIN clients c ON c.db_id = j.client_db_id
                 {where_sql}
                 """,
                 params,
@@ -602,7 +616,7 @@ def list_jobs(
                            {milestone_sort_expr}
                            {job_plan_select_sql}
                     FROM jobs j
-                    JOIN clients c ON c.db_id = j.client_db_id
+                    LEFT JOIN clients c ON c.db_id = j.client_db_id
                     {job_plan_join_sql}
                     {where_sql}
                     ORDER BY milestone_sort_rank ASC, COALESCE(j.job_number, '') DESC, j.job_id DESC
@@ -691,7 +705,7 @@ def list_jobs(
                         else None
                     ),
                     "status": _json_null_if_na(r.get("status")),
-                    "client_db_id": int(r.get("client_db_id")),
+                    "client_db_id": int(r.get("client_db_id")) if _json_null_if_na(r.get("client_db_id")) is not None else None,
                     "client_name": _json_null_if_na(r.get("client_name")),
                     "crm_name": _json_null_if_na(r.get("crm_name")),
                     "job_family": _json_null_if_na(r.get("job_family")),

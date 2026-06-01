@@ -122,42 +122,49 @@ function NewJobPageContent() {
     () => jobTypes.find((jt) => jt.name === jobType) || null,
     [jobTypes, jobType]
   );
-  const selectedJobFamily = normalizeJobFamily(
-    selectedJobTypeRecord?.job_family ||
-      inferJobFamilyFromJobTypeName(selectedJobTypeRecord?.name) ||
-      (selectedJobTypeRecord?.is_crp ? "crp" : null)
-  );
-  const selectedWorkflow = getJobWorkflowDefinition(selectedJobFamily);
+  const selectedJobFamily = selectedJobTypeRecord
+    ? normalizeJobFamily(
+        selectedJobTypeRecord.job_family ||
+          inferJobFamilyFromJobTypeName(selectedJobTypeRecord.name) ||
+          (selectedJobTypeRecord.is_crp ? "crp" : null)
+      )
+    : null;
+  const selectedWorkflow = getJobWorkflowDefinition(selectedJobFamily || "crp");
+  const isTrainingFamily = selectedJobFamily === "training";
+  const isCrpFamily = selectedJobFamily === null || selectedJobFamily === "crp";
   const stepConfig = useMemo(
     () => [
       {
         id: 1,
-        title: "Job basics",
-        description: "Client, owner, and job metadata",
+        title: "Job family & basics",
+        description: "Choose the family first, then enter the core job metadata",
       },
       {
         id: 2,
-        title: "Reporting period",
-        description: "Reporting year, dates, and benchmark",
+        title: isCrpFamily ? "Reporting period" : "Delivery dates",
+        description: isCrpFamily
+          ? "Reporting year, dates, and benchmark"
+          : "Dates and delivery setup for the selected family",
       },
       {
         id: 3,
-        title: selectedWorkflow.usesScopeDatasets ? "Scope datasets" : "Workflow setup",
-        description: selectedWorkflow.usesScopeDatasets
+        title: isCrpFamily ? "Scope datasets" : "Review & create",
+        description: isCrpFamily
           ? "Assign conversion factor datasets"
           : `Preview the ${selectedWorkflow.label} workflow`,
       },
     ],
-    [selectedWorkflow]
+    [isCrpFamily, selectedWorkflow]
   );
 
   const reportingYearLocked = isBenchmark && !!clientBenchmarkPeriod;
+  const clientRequired = selectedJobFamily ? selectedJobFamily !== "training" : false;
 
   const stepCompletion = [
-    Boolean(clientId) && Boolean(jobType),
+    Boolean(jobType) && (!clientRequired || Boolean(clientId)),
     Boolean(startDate) &&
       Boolean(dueDate) &&
-      (reportingYearLocked || Boolean(reportingYear.trim())) &&
+      (isCrpFamily ? (reportingYearLocked || Boolean(reportingYear.trim())) : true) &&
       (!startDate || !dueDate || new Date(dueDate) >= new Date(startDate)),
     true,
   ];
@@ -180,9 +187,9 @@ function NewJobPageContent() {
   };
 
   const stepFieldMap: Record<number, JobRequiredField[]> = {
-    1: ["clientId", "jobType"],
-    2: ["reportingYear", "startDate", "dueDate"],
-    3: selectedWorkflow.usesScopeDatasets ? ["scopeDatasets"] : [],
+    1: clientRequired ? ["clientId", "jobType"] : ["jobType"],
+    2: isCrpFamily ? ["reportingYear", "startDate", "dueDate"] : ["startDate", "dueDate"],
+    3: isCrpFamily ? ["scopeDatasets"] : [],
   };
 
   function clearFieldError(field: JobRequiredField) {
@@ -197,7 +204,7 @@ function NewJobPageContent() {
   function collectErrors(): Partial<Record<JobRequiredField, string>> {
     const nextErrors: Partial<Record<JobRequiredField, string>> = {};
 
-    if (!clientId) {
+    if (clientRequired && !clientId) {
       nextErrors.clientId = `${requiredFieldLabels.clientId} is required.`;
     }
 
@@ -205,7 +212,7 @@ function NewJobPageContent() {
       nextErrors.jobType = `${requiredFieldLabels.jobType} is required.`;
     }
 
-    if (!reportingYearLocked && !reportingYear.trim()) {
+    if (isCrpFamily && !reportingYearLocked && !reportingYear.trim()) {
       nextErrors.reportingYear =
         `${requiredFieldLabels.reportingYear} is required.`;
     }
@@ -315,6 +322,19 @@ function NewJobPageContent() {
     void hydrateClientDetails(preselectedClientId);
   }, [preselectedClientId]);
 
+  useEffect(() => {
+    if (!isCrpFamily) {
+      setIsBenchmark(false);
+      setClientBenchmarkPeriod(null);
+      setClientBenchmarkLoaded(false);
+      return;
+    }
+
+    if (clientId) {
+      void hydrateClientDetails(clientId);
+    }
+  }, [isCrpFamily, clientId]);
+
   async function hydrateClientDetails(clientDbId: string) {
     setClientBenchmarkLoaded(false);
     try {
@@ -323,7 +343,7 @@ function NewJobPageContent() {
 
       const clientData = await res.json();
       setCrmName(clientData.crm_owner || "");
-      if (clientData.benchmark_period_start && clientData.benchmark_period_end) {
+      if (isCrpFamily && clientData.benchmark_period_start && clientData.benchmark_period_end) {
         setClientBenchmarkPeriod({
           start: clientData.benchmark_period_start,
           end: clientData.benchmark_period_end,
@@ -411,15 +431,6 @@ function NewJobPageContent() {
       const json = await res.json();
       const activeTypes = (json.items || []).filter((jt: JobType) => jt.is_active);
       setJobTypes(activeTypes);
-
-      const defaultCrp = activeTypes.find((jt: JobType) =>
-        normalizeJobFamily(
-          jt.job_family || inferJobFamilyFromJobTypeName(jt.name) || (jt.is_crp ? "crp" : null)
-        ) === "crp"
-      );
-      if (defaultCrp && (!jobType || !activeTypes.some((jt: JobType) => jt.name === jobType))) {
-        setJobType(defaultCrp.name);
-      }
     } catch (err) {
       console.error("Error loading job types:", err);
     }
@@ -469,10 +480,10 @@ function NewJobPageContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          client_db_id: Number(clientId),
+          client_db_id: clientId ? Number(clientId) : null,
           job_type: jobType,
           title: title.trim() || "Untitled",
-          reporting_year: reportingYear ? Number(reportingYear) : undefined,
+          reporting_year: isCrpFamily && reportingYear ? Number(reportingYear) : undefined,
           is_benchmark: isBenchmark,
           status: jobStatus,
           crm_name: crmName || null,
@@ -551,19 +562,17 @@ function NewJobPageContent() {
 
         {loading ? (
           <div className="text-sm text-muted-foreground">Loading clients...</div>
-        ) : clients.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center">
-              <p className="mb-4 text-muted-foreground">
-                No clients found. Please create a client first.
-              </p>
-              <Button asChild>
-                <Link href="/clients/new">Create Client</Link>
-              </Button>
-            </CardContent>
-          </Card>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
+            {clients.length === 0 && !isTrainingFamily ? (
+              <Card>
+                <CardContent className="py-4 text-sm text-muted-foreground">
+                  No clients are available yet. CRP and most non-training jobs still need a client, but
+                  Training can be created without one.
+                </CardContent>
+              </Card>
+            ) : null}
+
             <div className="rounded-md border bg-card p-4">
               <div className="grid gap-3 md:grid-cols-3">
                 {stepConfig.map((step, index) => {
@@ -619,12 +628,71 @@ function NewJobPageContent() {
             {currentStep === 1 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Job basics</CardTitle>
+                  <CardTitle>Job family & basics</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-muted-foreground">
+                    Choose the family first. CRP keeps the current workflow; Training can be created without a client.
+                  </div>
+
                   <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="jobType">Job Family / Type *</Label>
+                      <Select
+                        value={jobType}
+                        onValueChange={(value) => {
+                          setJobType(value);
+                          clearFieldError("jobType");
+                        }}
+                      >
+                        <SelectTrigger
+                          id="jobType"
+                          aria-invalid={!!formErrors.jobType}
+                          className={formErrors.jobType ? "border-destructive" : ""}
+                        >
+                          <SelectValue placeholder="Select job family..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {jobTypes.map((jt) => {
+                            const family = normalizeJobFamily(
+                              jt.job_family ||
+                                inferJobFamilyFromJobTypeName(jt.name) ||
+                                (jt.is_crp ? "crp" : null)
+                            );
+                            const familyLabel = formatJobFamilyLabel(family);
+                            const familyDescription = getJobFamilyDescription(family);
+                            return (
+                              <SelectItem key={jt.job_type_id} value={jt.name}>
+                                <div className="flex items-center gap-2">
+                                  <span>{jt.name}</span>
+                                  <Badge className={jobFamilyBadgeClassName(family)} variant="outline">
+                                    {familyLabel}
+                                  </Badge>
+                                </div>
+                                <div className="text-xs text-muted-foreground">{familyDescription}</div>
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                      {selectedJobTypeRecord ? (
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span className="font-medium">Family:</span>
+                          <Badge className={jobFamilyBadgeClassName(selectedJobFamily)} variant="outline">
+                            {formatJobFamilyLabel(selectedJobFamily || "crp")}
+                          </Badge>
+                          <span>{getJobFamilyDescription(selectedJobFamily || "crp")}</span>
+                        </div>
+                      ) : null}
+                      {formErrors.jobType && (
+                        <p className="text-xs text-destructive">{formErrors.jobType}</p>
+                      )}
+                    </div>
+
                     <div className="space-y-2">
-                      <Label htmlFor="client-search">Client *</Label>
+                      <Label htmlFor="client-search">
+                        Client {clientRequired ? "*" : "(Optional)"}
+                      </Label>
                       <div className="relative">
                         <Input
                           id="client-search"
@@ -647,7 +715,7 @@ function NewJobPageContent() {
                             if (clientSearchTimer.current) clearTimeout(clientSearchTimer.current);
                             clientSearchTimer.current = setTimeout(() => { void searchClients(value); }, 250);
                           }}
-                          placeholder="Search clients by name or ID..."
+                          placeholder={clientRequired ? "Search clients by name or ID..." : "Search clients by name or ID (optional)..."}
                           aria-invalid={!!formErrors.clientId}
                           className={formErrors.clientId ? "border-destructive" : ""}
                           autoComplete="off"
@@ -732,58 +800,6 @@ function NewJobPageContent() {
                       />
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="jobType">Job Family / Type *</Label>
-                      <Select
-                        value={jobType}
-                        onValueChange={(value) => {
-                          setJobType(value);
-                          clearFieldError("jobType");
-                        }}
-                      >
-                        <SelectTrigger
-                          id="jobType"
-                          aria-invalid={!!formErrors.jobType}
-                          className={formErrors.jobType ? "border-destructive" : ""}
-                        >
-                          <SelectValue placeholder="Select job type..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {jobTypes.map((jt) => {
-                            const family = normalizeJobFamily(
-                              jt.job_family ||
-                                inferJobFamilyFromJobTypeName(jt.name) ||
-                                (jt.is_crp ? "crp" : null)
-                            );
-                            const familyLabel = formatJobFamilyLabel(family);
-                            const familyDescription = getJobFamilyDescription(family);
-                            return (
-                              <SelectItem key={jt.job_type_id} value={jt.name}>
-                                <div className="flex items-center gap-2">
-                                  <span>{jt.name}</span>
-                                  <Badge className={jobFamilyBadgeClassName(family)} variant="outline">
-                                    {familyLabel}
-                                  </Badge>
-                                </div>
-                                <div className="text-xs text-muted-foreground">{familyDescription}</div>
-                              </SelectItem>
-                            );
-                          })}
-                        </SelectContent>
-                      </Select>
-                      {selectedJobTypeRecord ? (
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          <span className="font-medium">Family:</span>
-                          <Badge className={jobFamilyBadgeClassName(selectedJobFamily)} variant="outline">
-                            {formatJobFamilyLabel(selectedJobFamily)}
-                          </Badge>
-                          <span>{getJobFamilyDescription(selectedJobFamily)}</span>
-                        </div>
-                      ) : null}
-                      {formErrors.jobType && (
-                        <p className="text-xs text-destructive">{formErrors.jobType}</p>
-                      )}
-                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -822,125 +838,173 @@ function NewJobPageContent() {
             {currentStep === 2 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Reporting period</CardTitle>
+                  <CardTitle>{isCrpFamily ? "Reporting period" : "Delivery dates"}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="reportingYear">Reporting Year {!isBenchmark && "*"}</Label>
-                      <div className="relative">
-                        <Input
-                          id="reportingYear"
-                          type="number"
-                          value={reportingYear}
-                          onChange={(e) => {
-                            setReportingYear(e.target.value);
-                            clearFieldError("reportingYear");
-                          }}
-                          min="1990"
-                          max="2100"
-                          disabled={reportingYearLocked}
-                          aria-invalid={!!formErrors.reportingYear}
-                          className={`pr-9 ${reportingYearLocked ? "bg-muted text-muted-foreground" : ""}`}
-                        />
-                        {reportingYearLocked && (
-                          <Lock className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                        )}
+                  {isCrpFamily ? (
+                    <>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="reportingYear">Reporting Year {isCrpFamily && !isBenchmark ? "*" : ""}</Label>
+                          <div className="relative">
+                            <Input
+                              id="reportingYear"
+                              type="number"
+                              value={reportingYear}
+                              onChange={(e) => {
+                                setReportingYear(e.target.value);
+                                clearFieldError("reportingYear");
+                              }}
+                              min="1990"
+                              max="2100"
+                              disabled={reportingYearLocked}
+                              aria-invalid={!!formErrors.reportingYear}
+                              className={`pr-9 ${reportingYearLocked ? "bg-muted text-muted-foreground" : ""}`}
+                            />
+                            {reportingYearLocked && (
+                              <Lock className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            )}
+                          </div>
+                          {formErrors.reportingYear && (
+                            <p className="text-xs text-destructive">{formErrors.reportingYear}</p>
+                          )}
+                          {reportingYearLocked && (
+                            <p className="text-xs text-muted-foreground">
+                              Auto-calculated from benchmark period end date
+                            </p>
+                          )}
+                        </div>
                       </div>
-                      {formErrors.reportingYear && (
-                        <p className="text-xs text-destructive">{formErrors.reportingYear}</p>
-                      )}
-                      {reportingYearLocked && (
-                        <p className="text-xs text-muted-foreground">
-                          Auto-calculated from benchmark period end date
-                        </p>
-                      )}
-                    </div>
-                  </div>
 
-                  {clientBenchmarkPeriod && (
-                    <div className="rounded-md border border-blue-200 bg-blue-50 p-4">
-                      <h4 className="font-semibold text-sm mb-2">Client Benchmark Period</h4>
-                      <p className="text-sm mb-2">
-                        <strong>Period:</strong>{" "}
-                        {new Date(clientBenchmarkPeriod.start).toLocaleDateString("en-GB", {
-                          day: "2-digit",
-                          month: "2-digit",
-                          year: "numeric",
-                        })} - {new Date(clientBenchmarkPeriod.end).toLocaleDateString("en-GB", {
-                          day: "2-digit",
-                          month: "2-digit",
-                          year: "numeric",
-                        })}
-                      </p>
-                      <div className="flex items-center space-x-2 mt-3">
-                        <input
-                          type="checkbox"
-                          id="isBenchmark"
-                          checked={isBenchmark}
-                          onChange={(e) => {
-                            setIsBenchmark(e.target.checked);
-                            clearFieldError("reportingYear");
-                          }}
-                          className="h-4 w-4 rounded border-gray-300"
-                        />
-                        <Label htmlFor="isBenchmark" className="font-normal cursor-pointer">
-                          This is the benchmark job (reporting period will match benchmark period)
-                        </Label>
-                      </div>
-                      {!isBenchmark && (
-                        <p className="text-xs text-muted-foreground mt-2">
-                          💡 Subsequent jobs will automatically calculate reporting periods based on the benchmark
-                          period + incremental years
-                        </p>
+                      {clientBenchmarkPeriod && (
+                        <div className="rounded-md border border-blue-200 bg-blue-50 p-4">
+                          <h4 className="font-semibold text-sm mb-2">Client Benchmark Period</h4>
+                          <p className="text-sm mb-2">
+                            <strong>Period:</strong>{" "}
+                            {new Date(clientBenchmarkPeriod.start).toLocaleDateString("en-GB", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "numeric",
+                            })} - {new Date(clientBenchmarkPeriod.end).toLocaleDateString("en-GB", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "numeric",
+                            })}
+                          </p>
+                          <div className="flex items-center space-x-2 mt-3">
+                            <input
+                              type="checkbox"
+                              id="isBenchmark"
+                              checked={isBenchmark}
+                              onChange={(e) => {
+                                setIsBenchmark(e.target.checked);
+                                clearFieldError("reportingYear");
+                              }}
+                              className="h-4 w-4 rounded border-gray-300"
+                            />
+                            <Label htmlFor="isBenchmark" className="font-normal cursor-pointer">
+                              This is the benchmark job (reporting period will match benchmark period)
+                            </Label>
+                          </div>
+                          {!isBenchmark && (
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Subsequent jobs will automatically calculate reporting periods based on the benchmark
+                              period + incremental years
+                            </p>
+                          )}
+                        </div>
                       )}
+
+                      {clientBenchmarkLoaded && !clientBenchmarkPeriod && clientId && (
+                        <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
+                          <p className="text-sm text-amber-800">
+                            This client does not have a benchmark period defined. The reporting period will be
+                            calculated from the reporting year and financial year end. Consider updating the client
+                            profile to include benchmark period dates for better period management.
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="startDate">Start Date *</Label>
+                          <Input
+                            id="startDate"
+                            type="date"
+                            value={startDate}
+                            onChange={(e) => {
+                              setStartDate(e.target.value);
+                              clearFieldError("startDate");
+                            }}
+                            aria-invalid={!!formErrors.startDate}
+                          />
+                          {formErrors.startDate && (
+                            <p className="text-xs text-destructive">{formErrors.startDate}</p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="dueDate">Due Date *</Label>
+                          <Input
+                            id="dueDate"
+                            type="date"
+                            value={dueDate}
+                            onChange={(e) => {
+                              setDueDate(e.target.value);
+                              clearFieldError("dueDate");
+                            }}
+                            aria-invalid={!!formErrors.dueDate}
+                          />
+                          {formErrors.dueDate && (
+                            <p className="text-xs text-destructive">{formErrors.dueDate}</p>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+                        <h4 className="font-semibold text-sm text-slate-900">Delivery window</h4>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Use these dates to capture when this job starts and when delivery or completion is expected.
+                          Training, consultancy, LCA, and PCF do not use the CRP reporting period or benchmark logic.
+                        </p>
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="startDate">Start Date *</Label>
+                          <Input
+                            id="startDate"
+                            type="date"
+                            value={startDate}
+                            onChange={(e) => {
+                              setStartDate(e.target.value);
+                              clearFieldError("startDate");
+                            }}
+                            aria-invalid={!!formErrors.startDate}
+                          />
+                          {formErrors.startDate && (
+                            <p className="text-xs text-destructive">{formErrors.startDate}</p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="dueDate">Due Date *</Label>
+                          <Input
+                            id="dueDate"
+                            type="date"
+                            value={dueDate}
+                            onChange={(e) => {
+                              setDueDate(e.target.value);
+                              clearFieldError("dueDate");
+                            }}
+                            aria-invalid={!!formErrors.dueDate}
+                          />
+                          {formErrors.dueDate && (
+                            <p className="text-xs text-destructive">{formErrors.dueDate}</p>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   )}
-
-                  {clientBenchmarkLoaded && !clientBenchmarkPeriod && clientId && (
-                    <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
-                      <p className="text-sm text-amber-800">
-                        This client does not have a benchmark period defined. The reporting period will be
-                        calculated from the reporting year and financial year end. Consider updating the client
-                        profile to include benchmark period dates for better period management.
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="startDate">Start Date *</Label>
-                      <Input
-                        id="startDate"
-                        type="date"
-                        value={startDate}
-                        onChange={(e) => {
-                          setStartDate(e.target.value);
-                          clearFieldError("startDate");
-                        }}
-                        aria-invalid={!!formErrors.startDate}
-                      />
-                      {formErrors.startDate && (
-                        <p className="text-xs text-destructive">{formErrors.startDate}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="dueDate">Due Date *</Label>
-                      <Input
-                        id="dueDate"
-                        type="date"
-                        value={dueDate}
-                        onChange={(e) => {
-                          setDueDate(e.target.value);
-                          clearFieldError("dueDate");
-                        }}
-                        aria-invalid={!!formErrors.dueDate}
-                      />
-                      {formErrors.dueDate && (
-                        <p className="text-xs text-destructive">{formErrors.dueDate}</p>
-                      )}
-                    </div>
-                  </div>
                 </CardContent>
               </Card>
             )}
@@ -948,7 +1012,7 @@ function NewJobPageContent() {
             {currentStep === 3 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>{selectedWorkflow.usesScopeDatasets ? "Scope dataset configuration" : "Workflow setup"}</CardTitle>
+                  <CardTitle>{isCrpFamily ? "Scope dataset configuration" : "Review & create"}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {selectedWorkflow.usesScopeDatasets ? (
