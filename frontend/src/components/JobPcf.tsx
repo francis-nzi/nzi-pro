@@ -101,7 +101,9 @@ export default function JobPcf({ jobId, baseUrl, jobFamily }: JobPcfProps) {
   return (
     <Card>
       <CardHeader className="space-y-2">
-        <CardTitle style={{ color: "#F26624" }}>PCF Details</CardTitle>
+        <CardTitle className="tracking-tight" style={{ color: "#0F766E" }}>
+          PCF Details
+        </CardTitle>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <Badge className={jobFamilyBadgeClassName("pcf")} variant="outline">
             {formatJobFamilyLabel("pcf")}

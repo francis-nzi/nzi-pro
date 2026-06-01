@@ -506,7 +506,9 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     <div className="space-y-6">
       <Card>
         <CardHeader className="space-y-2">
-          <CardTitle>Life Cycle Assessment Wizard (ISO 14040/14044)</CardTitle>
+          <CardTitle className="tracking-tight" style={{ color: "#EA580C" }}>
+            Life Cycle Assessment Wizard (ISO 14040/14044)
+          </CardTitle>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Badge className={lcaFamilyBadgeClass} variant="outline">
               {lcaFamilyLabel}

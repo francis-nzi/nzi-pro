@@ -97,7 +97,9 @@ export default function JobConsultancy({ jobId, baseUrl, jobFamily }: JobConsult
   return (
     <Card>
       <CardHeader className="space-y-2">
-        <CardTitle style={{ color: "#F26624" }}>Consultancy Details</CardTitle>
+        <CardTitle className="tracking-tight" style={{ color: "#7C3AED" }}>
+          Consultancy Details
+        </CardTitle>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <Badge className={jobFamilyBadgeClassName("consultancy")} variant="outline">
             {formatJobFamilyLabel("consultancy")}
