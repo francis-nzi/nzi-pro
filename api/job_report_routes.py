@@ -1630,8 +1630,8 @@ def get_job_data(job_id: int, org_id: str | None = None):
     """Fetch job and client data for the report."""
     org_filter = str(org_id or "").strip() or None
     with get_conn() as con:
-        if org_filter:
-            job_row = con.execute("""
+        family_clause = ", j.job_family" if "job_family" in _table_columns(con, "jobs") else ", NULL::text AS job_family"
+        base_sql = f"""
             SELECT j.job_id, j.client_db_id, j.org_id, j.job_number, j.title, j.reporting_year, j.status,
                    j.reporting_period_start, j.reporting_period_end,
                    c.client_name, c.crm_owner, c.industry, c.logo_url, c.description_long,
@@ -1640,28 +1640,17 @@ def get_job_data(job_id: int, org_id: str | None = None):
                    c.interim_s1_pct, c.interim_s2_pct, c.interim_s3_pct,
                    c.target_s1_year, c.target_s2_year, c.target_s3_year,
                    c.target_s1_pct, c.target_s2_pct, c.target_s3_pct,
-                   c.addr_city, c.addr_country,
-                   j.job_family
-            FROM jobs j
-            JOIN clients c ON c.db_id = j.client_db_id
-            WHERE j.job_id = %s AND c.org_id = %s
-        """, [int(job_id), org_filter]).fetchone()
-        else:
-            job_row = con.execute("""
-            SELECT j.job_id, j.client_db_id, j.org_id, j.job_number, j.title, j.reporting_year, j.status,
-                   j.reporting_period_start, j.reporting_period_end,
-                   c.client_name, c.crm_owner, c.industry, c.logo_url, c.description_long,
-                   c.net_zero_year, c.interim_year, c.benchmark_year,
-                   c.benchmark_period_start, c.benchmark_period_end,
-                   c.interim_s1_pct, c.interim_s2_pct, c.interim_s3_pct,
-                   c.target_s1_year, c.target_s2_year, c.target_s3_year,
-                   c.target_s1_pct, c.target_s2_pct, c.target_s3_pct,
-                   c.addr_city, c.addr_country,
-                   j.job_family
+                   c.addr_city, c.addr_country
+                   {family_clause}
             FROM jobs j
             JOIN clients c ON c.db_id = j.client_db_id
             WHERE j.job_id = %s
-        """, [int(job_id)]).fetchone()
+        """
+        if org_filter:
+            base_sql += " AND c.org_id = %s"
+            job_row = con.execute(base_sql, [int(job_id), org_filter]).fetchone()
+        else:
+            job_row = con.execute(base_sql, [int(job_id)]).fetchone()
         
         if not job_row:
             return None
