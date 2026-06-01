@@ -722,7 +722,7 @@ function NewJobPageContent() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="jobType">Job Type *</Label>
+                      <Label htmlFor="jobType">Job Family / Type *</Label>
                       <Select
                         value={jobType}
                         onValueChange={(value) => {
