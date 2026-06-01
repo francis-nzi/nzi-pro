@@ -483,6 +483,8 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
   const [runSaving, setRunSaving] = useState(false);
   const [entitlementSaving, setEntitlementSaving] = useState(false);
   const [calendarMonthOffset, setCalendarMonthOffset] = useState(0);
+  const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
   const [newProduct, setNewProduct] = useState<ProductFormState>(EMPTY_PRODUCT);
   const [newRun, setNewRun] = useState<RunFormState>(EMPTY_RUN);
   const [newEntitlement, setNewEntitlement] = useState<EntitlementFormState>(EMPTY_ENTITLEMENT);
@@ -598,6 +600,23 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
     }
     return map;
   }, [automationLog]);
+
+  function openRun(runId: number) {
+    setSelectedRunId(runId);
+    setSelectedSessionId(null);
+    window.requestAnimationFrame(() => {
+      document.getElementById(`training-run-${runId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function openSession(session: TrainingSession) {
+    setSelectedRunId(session.training_course_run_id);
+    setSelectedSessionId(session.training_course_session_id);
+    window.requestAnimationFrame(() => {
+      document.getElementById(`training-session-${session.training_course_session_id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      document.getElementById(`training-run-${session.training_course_run_id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
 
   async function refresh() {
     setRefreshToken((value) => value + 1);
@@ -914,7 +933,22 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
                   return (
                     <div
                       key={dateKey}
-                      className={`min-h-[120px] rounded-lg border p-2 ${isCurrentMonth ? "bg-background" : "bg-muted/40 text-muted-foreground"}`}
+                      className={`min-h-[120px] rounded-lg border p-2 transition ${
+                        isCurrentMonth ? "bg-background" : "bg-muted/40 text-muted-foreground"
+                      } ${items.length ? "cursor-pointer hover:border-emerald-300 hover:bg-emerald-50/30" : ""}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        if (items.length) {
+                          openSession(items[0]);
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if ((event.key === "Enter" || event.key === " ") && items.length) {
+                          event.preventDefault();
+                          openSession(items[0]);
+                        }
+                      }}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="text-sm font-medium">{dayLabel}</div>
@@ -936,7 +970,17 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
                             return null;
                           })();
                           return (
-                            <div key={session.training_course_session_id} className="rounded-md border bg-white p-2 text-xs shadow-sm">
+                            <button
+                              key={session.training_course_session_id}
+                              type="button"
+                              className={`w-full rounded-md border bg-white p-2 text-left text-xs shadow-sm transition hover:border-emerald-300 hover:shadow-md ${
+                                selectedSessionId === session.training_course_session_id ? "ring-2 ring-emerald-500 ring-offset-1" : ""
+                              }`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openSession(session);
+                              }}
+                            >
                               <div className="font-medium text-slate-800">{session.session_title || run?.run_name || "Session"}</div>
                               <div className="text-muted-foreground">
                                 {run?.run_name || run?.product_name || `Run ${session.training_course_run_id}`}
@@ -958,7 +1002,7 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
                                 {run?.reminder_enabled ? " • reminders on" : " • reminders off"}
                                 {reminderDays !== null ? ` • due in ${reminderDays}d` : ""}
                               </div>
-                            </div>
+                            </button>
                           );
                         })}
                         {items.length > 3 ? <div className="text-[11px] text-muted-foreground">+{items.length - 3} more</div> : null}
@@ -979,7 +1023,14 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
                 <div className="space-y-2">
                   {courseRuns.length ? (
                     courseRuns.map((run) => (
-                      <div key={run.training_course_run_id} className="rounded-md border bg-white p-2 text-sm">
+                      <button
+                        key={run.training_course_run_id}
+                        type="button"
+                        className={`w-full rounded-md border bg-white p-2 text-left text-sm transition hover:border-emerald-300 hover:shadow-sm ${
+                          selectedRunId === run.training_course_run_id ? "ring-2 ring-emerald-500 ring-offset-1" : ""
+                        }`}
+                        onClick={() => openRun(run.training_course_run_id)}
+                      >
                         <div className="flex items-center justify-between gap-2">
                           <div className="font-medium">{run.run_name || run.product_name || `Run ${run.training_course_run_id}`}</div>
                           <Badge className={statusChipClass(run.status)} variant="outline">
@@ -994,7 +1045,7 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
                         <div className="mt-1 text-[11px] text-muted-foreground">
                           {run.start_date || "No start date"}{run.end_date ? ` → ${run.end_date}` : ""}
                         </div>
-                      </div>
+                      </button>
                     ))
                   ) : (
                     <div className="rounded-md border bg-background p-3 text-sm text-muted-foreground">No runs yet.</div>
@@ -1286,15 +1337,20 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
           <div className="space-y-4">
             {courseRuns.length ? (
               courseRuns.map((run) => (
-              <CourseRunCard
+                <CourseRunCard
                   key={run.training_course_run_id}
                   run={run}
                   products={products}
                   entitlements={entitlements}
                   sessions={(overview?.sessions ?? []).filter((session) => session.training_course_run_id === run.training_course_run_id)}
                   baseUrl={baseUrl}
+                  automationEntries={automationByRun.get(run.training_course_run_id) || []}
+                  isSelected={selectedRunId === run.training_course_run_id}
+                  selectedSessionId={selectedSessionId}
                   onCreateSession={createSession}
                   onSaved={refresh}
+                  onOpenRun={openRun}
+                  onOpenSession={openSession}
                 />
               ))
             ) : (
@@ -1411,16 +1467,26 @@ function CourseRunCard({
   entitlements,
   sessions,
   baseUrl,
+  automationEntries,
+  isSelected,
+  selectedSessionId,
   onCreateSession,
   onSaved,
+  onOpenRun,
+  onOpenSession,
 }: {
   run: TrainingCourseRun;
   products: TrainingProduct[];
   entitlements: TrainingEntitlement[];
   sessions: TrainingSession[];
   baseUrl: string;
+  automationEntries: TrainingAutomationLog[];
+  isSelected: boolean;
+  selectedSessionId: number | null;
   onCreateSession: (runId: number, draft: SessionFormState) => Promise<void>;
   onSaved: () => void;
+  onOpenRun: (runId: number) => void;
+  onOpenSession: (session: TrainingSession) => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [sessionSaving, setSessionSaving] = useState(false);
@@ -1616,7 +1682,10 @@ function CourseRunCard({
   }
 
   return (
-    <Card className="border-slate-200">
+    <Card
+      id={`training-run-${run.training_course_run_id}`}
+      className={`scroll-mt-24 border-slate-200 ${isSelected ? "ring-2 ring-emerald-500 ring-offset-1" : ""}`}
+    >
       <CardHeader className="space-y-2">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -1635,11 +1704,22 @@ function CourseRunCard({
                 </span>
               ) : null}
               {run.capacity !== null ? <span>{run.booking_count}/{run.capacity} booked</span> : <span>{run.booking_count} bookings</span>}
+              {automationEntries.length ? (
+                <span>
+                  Latest automation: {automationEntries[0].action_type}
+                  {automationEntries[0].created_at ? ` on ${new Date(automationEntries[0].created_at).toLocaleString()}` : ""}
+                </span>
+              ) : null}
             </div>
           </div>
-          <Button onClick={saveRun} disabled={saving} variant="outline">
-            {saving ? "Saving..." : "Save Run"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => onOpenRun(run.training_course_run_id)} variant="ghost">
+              Focus
+            </Button>
+            <Button onClick={saveRun} disabled={saving} variant="outline">
+              {saving ? "Saving..." : "Save Run"}
+            </Button>
+          </div>
         </div>
         {status ? <div className="rounded-md bg-muted px-3 py-2 text-sm">{status}</div> : null}
       </CardHeader>
@@ -1966,6 +2046,8 @@ function CourseRunCard({
                 session={session}
                 runBookings={run.bookings}
                 baseUrl={baseUrl}
+                isSelected={selectedSessionId === session.training_course_session_id}
+                onOpenSession={onOpenSession}
                 onSaved={onSaved}
               />
             ))
@@ -2128,11 +2210,15 @@ function SessionEditorCard({
   session,
   runBookings,
   baseUrl,
+  isSelected,
+  onOpenSession,
   onSaved,
 }: {
   session: TrainingSession;
   runBookings: TrainingBooking[];
   baseUrl: string;
+  isSelected: boolean;
+  onOpenSession: (session: TrainingSession) => void;
   onSaved: () => void;
 }) {
   const [saving, setSaving] = useState(false);
@@ -2250,7 +2336,10 @@ function SessionEditorCard({
   }
 
   return (
-    <div className="rounded-lg border bg-card p-3">
+    <div
+      id={`training-session-${session.training_course_session_id}`}
+      className={`scroll-mt-24 rounded-lg border bg-card p-3 ${isSelected ? "ring-2 ring-emerald-500 ring-offset-1" : ""}`}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="font-medium">{session.session_title || `Session ${session.training_course_session_id}`}</div>
@@ -2271,6 +2360,9 @@ function SessionEditorCard({
           </div>
         </div>
         <div className="flex gap-2">
+          <Button variant="ghost" onClick={() => onOpenSession(session)}>
+            Focus
+          </Button>
           <Button variant="outline" onClick={saveSession} disabled={saving}>
             {saving ? "Saving..." : "Save Session"}
           </Button>
