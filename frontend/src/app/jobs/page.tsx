@@ -16,7 +16,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatJobFamilyLabel, jobFamilyBadgeClassName } from "@/lib/job-family";
+import { Badge } from "@/components/ui/badge";
+import {
+  formatJobFamilyLabel,
+  getJobFamilyDescription,
+  jobFamilyBadgeClassName,
+} from "@/lib/job-family";
 import { milestoneDotClass, toneForMilestone } from "@/lib/status-utils";
 
 function apiBaseUrl(): string {
@@ -264,7 +269,13 @@ export default function JobsPage() {
                       <SelectItem value="__all__">All families</SelectItem>
                       {["crp", "training", "consultancy", "lca", "pcf"].map((family) => (
                         <SelectItem key={family} value={family}>
-                          {formatJobFamilyLabel(family)}
+                          <div className="flex items-center gap-2">
+                            <span>{formatJobFamilyLabel(family)}</span>
+                            <Badge className={jobFamilyBadgeClassName(family)} variant="outline">
+                              {formatJobFamilyLabel(family)}
+                            </Badge>
+                          </div>
+                          <div className="text-xs text-muted-foreground">{getJobFamilyDescription(family)}</div>
                         </SelectItem>
                       ))}
                     </SelectContent>
