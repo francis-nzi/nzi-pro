@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.auth import _current_user
@@ -213,6 +213,7 @@ def get_job_review(
 @router.post("/jobs/{job_id}/review/send")
 def send_job_for_review(
     job_id: int,
+    background_tasks: BackgroundTasks,
     _user: dict = Depends(_current_user),
 ):
     assert_permission(_user, "jobs.edit")
@@ -231,8 +232,15 @@ def send_job_for_review(
     for pu in portal_users:
         _notify_client_review_ready(pu, job_ref, int(job_id))
 
-    # Auto-generate an HTML snapshot so the portal can serve it for review.
-    # Best-effort: if it fails the review notification has already been sent.
+    # Queue snapshot generation so the portal can serve it for review.
+    # Runs after this response is sent — chart generation takes 60-120 s.
+    background_tasks.add_task(_bg_generate_review_snapshot, job_id=int(job_id), user=_user)
+
+    return {"ok": True, "review": review, "notified_count": len(portal_users)}
+
+
+def _bg_generate_review_snapshot(job_id: int, user: dict) -> None:
+    """Background task: generates the full report (including charts) and saves to job_report_versions."""
     try:
         from api.job_report_routes import generate_html_report
         generate_html_report(
@@ -242,49 +250,34 @@ def send_job_for_review(
             save_version=True,
             report_version_status="review",
             report_version_label="For Client Review",
-            _user=_user,
+            _user=user,
         )
+        logger.info("_bg_generate_review_snapshot: completed for job %s", job_id)
     except Exception:
-        import logging as _logging
-        _logging.getLogger(__name__).exception(
-            "send_job_for_review: failed to auto-save review snapshot for job %s", job_id
-        )
-
-    return {"ok": True, "review": review, "notified_count": len(portal_users)}
+        logger.exception("_bg_generate_review_snapshot: failed for job %s", job_id)
 
 
 @router.post("/jobs/{job_id}/review/generate-snapshot")
 def generate_review_snapshot(
     job_id: int,
+    background_tasks: BackgroundTasks,
     _user: dict = Depends(_current_user),
 ):
-    """Generate (or refresh) the portal HTML snapshot for this job without re-sending the client notification."""
+    """Queue a portal HTML snapshot refresh for this job without re-sending the client notification.
+
+    Chart generation can take 60-120 seconds, so the work runs in the background
+    after this response is returned.  The portal will reflect the new snapshot
+    once the background task completes.
+    """
     assert_permission(_user, "jobs.edit")
     assert_job_access(_user, int(job_id))
 
-    try:
-        from api.job_report_routes import generate_html_report
-
-        generate_html_report(
-            job_id=int(job_id),
-            template_id=None,
-            version_id=None,
-            save_version=True,
-            report_version_status="review",
-            report_version_label="For Client Review",
-            _user=_user,
-        )
-        logger.info("generate_review_snapshot: completed for job %s", job_id)
-        return {
-            "ok": True,
-            "message": "Report snapshot refreshed and is now available in the portal.",
-        }
-    except Exception:
-        logger.exception("generate_review_snapshot: failed for job %s", job_id)
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to refresh the portal snapshot. Please try again.",
-        )
+    background_tasks.add_task(_bg_generate_review_snapshot, job_id=int(job_id), user=_user)
+    logger.info("generate_review_snapshot: queued background snapshot for job %s", job_id)
+    return {
+        "ok": True,
+        "message": "Snapshot generation started. The portal will be updated in a moment — please allow up to a minute then refresh the portal.",
+    }
 
 
 def _get_active_portal_users_for_job(job_id: int, con) -> list[dict]:
