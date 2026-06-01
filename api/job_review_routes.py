@@ -563,7 +563,7 @@ def send_job_to_portal(
 
         job_ref = f"{job_row[0]} — {job_row[1]}" if job_row and job_row[0] else (str(job_row[1]) if job_row else f"Job {job_id}")
         for pu in portal_users:
-            background_tasks.add_task(_notify_client_review_ready, pu, job_ref, int(job_id))
+            _notify_client_review_ready(pu, job_ref, int(job_id))
 
         logger.info("send_job_to_portal: job %s sent to portal as version %s by %s", job_id, portal_version_id, actor)
         return {
