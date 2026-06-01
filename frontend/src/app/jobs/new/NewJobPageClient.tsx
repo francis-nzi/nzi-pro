@@ -19,6 +19,7 @@ import {
 import {
   formatJobFamilyLabel,
   getJobFamilyDescription,
+  inferJobFamilyFromJobTypeName,
   jobFamilyBadgeClassName,
 } from "@/lib/job-family";
 import { getJobWorkflowDefinition, normalizeJobFamily } from "@/lib/job-workflows";
@@ -122,7 +123,9 @@ function NewJobPageContent() {
     [jobTypes, jobType]
   );
   const selectedJobFamily = normalizeJobFamily(
-    selectedJobTypeRecord?.job_family || (selectedJobTypeRecord?.is_crp ? "crp" : null)
+    selectedJobTypeRecord?.job_family ||
+      inferJobFamilyFromJobTypeName(selectedJobTypeRecord?.name) ||
+      (selectedJobTypeRecord?.is_crp ? "crp" : null)
   );
   const selectedWorkflow = getJobWorkflowDefinition(selectedJobFamily);
   const stepConfig = useMemo(
@@ -409,7 +412,11 @@ function NewJobPageContent() {
       const activeTypes = (json.items || []).filter((jt: JobType) => jt.is_active);
       setJobTypes(activeTypes);
 
-      const defaultCrp = activeTypes.find((jt: JobType) => (jt.job_family || (jt.is_crp ? "crp" : "")).toLowerCase() === "crp");
+      const defaultCrp = activeTypes.find((jt: JobType) =>
+        normalizeJobFamily(
+          jt.job_family || inferJobFamilyFromJobTypeName(jt.name) || (jt.is_crp ? "crp" : null)
+        ) === "crp"
+      );
       if (defaultCrp && (!jobType || !activeTypes.some((jt: JobType) => jt.name === jobType))) {
         setJobType(defaultCrp.name);
       }
@@ -743,7 +750,11 @@ function NewJobPageContent() {
                         </SelectTrigger>
                         <SelectContent>
                           {jobTypes.map((jt) => {
-                            const family = normalizeJobFamily(jt.job_family || (jt.is_crp ? "crp" : null));
+                            const family = normalizeJobFamily(
+                              jt.job_family ||
+                                inferJobFamilyFromJobTypeName(jt.name) ||
+                                (jt.is_crp ? "crp" : null)
+                            );
                             const familyLabel = formatJobFamilyLabel(family);
                             const familyDescription = getJobFamilyDescription(family);
                             return (

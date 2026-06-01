@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { Save } from "lucide-react";
 import Link from "next/link";
+import { inferJobFamilyFromJobTypeName } from "@/lib/job-family";
 
 function apiBaseUrl() {
   return "/api/backend";
@@ -70,7 +71,7 @@ export default function JobTypesPage() {
       const families: Record<number, string> = {};
       (data.items || []).forEach((jobType: JobType) => {
         hours[jobType.job_type_id] = String(jobType.estimated_hours || 0);
-        families[jobType.job_type_id] = (jobType.job_family || "crp").toLowerCase();
+        families[jobType.job_type_id] = (jobType.job_family || inferJobFamilyFromJobTypeName(jobType.name) || "crp").toLowerCase();
       });
       setEditedHours(hours);
       setEditedFamilies(families);
@@ -89,7 +90,7 @@ export default function JobTypesPage() {
     }));
     setEditedFamilies((prev) => ({
       ...prev,
-      [jobType.job_type_id]: (jobType.job_family || "crp").toLowerCase(),
+      [jobType.job_type_id]: (jobType.job_family || inferJobFamilyFromJobTypeName(jobType.name) || "crp").toLowerCase(),
     }));
   }
 
@@ -215,7 +216,7 @@ export default function JobTypesPage() {
                           </select>
                         ) : (
                           <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
-                            {(jobType.job_family || "crp").toUpperCase()}
+                            {(jobType.job_family || inferJobFamilyFromJobTypeName(jobType.name) || "crp").toUpperCase()}
                           </span>
                         )}
                       </TableCell>

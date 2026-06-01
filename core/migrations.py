@@ -436,11 +436,12 @@ def run_migrations():
                 """
                 UPDATE job_types
                 SET job_family = CASE
-                  WHEN COALESCE(is_crp, FALSE) THEN 'crp'
+                  WHEN COALESCE(NULLIF(TRIM(job_family), ''), '') <> '' THEN job_family
                   WHEN LOWER(COALESCE(name, '')) LIKE '%training%' THEN 'training'
                   WHEN LOWER(COALESCE(name, '')) LIKE '%consult%' THEN 'consultancy'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%life cycle%' OR LOWER(COALESCE(name, '')) LIKE '%footprint%' THEN 'lca'
-                  ELSE COALESCE(job_family, 'crp')
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%life cycle%' OR LOWER(COALESCE(name, '')) LIKE '%assessment%' THEN 'lca'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%product carbon%' OR LOWER(COALESCE(name, '')) LIKE '%pcf%' THEN 'pcf'
+                  ELSE 'crp'
                 END
                 WHERE job_family IS NULL OR TRIM(job_family) = ''
                 """

@@ -44,3 +44,13 @@ export function getJobFamilyDescription(value?: string | null): string {
   const family = String(value || "").trim().toLowerCase();
   return FAMILY_DESCRIPTIONS[family] || "General job workflow";
 }
+
+export function inferJobFamilyFromJobTypeName(value?: string | null): JobFamily {
+  const name = String(value || "").trim().toLowerCase();
+  if (!name) return "crp";
+  if (name.includes("training")) return "training";
+  if (name.includes("consult")) return "consultancy";
+  if (name.includes("life cycle")) return "lca";
+  if (name.includes("product carbon") || name.includes("pcf")) return "pcf";
+  return "crp";
+}
