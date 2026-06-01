@@ -150,32 +150,32 @@ def portal_password_reset_request(payload: PasswordResetRequestPayload = Body(..
     with get_conn(autocommit=False) as con:
         token = create_reset_token(payload.email, con=con)
 
-    if token:
-        reset_url = f"{_portal_base_url()}/reset-password?token={token}"
-        try:
-            send_tracked_email(
-                con,
-                to_email=payload.email,
-                subject="NZInsights — reset your password",
-                body_text=(
-                    f"You requested a password reset for your NZInsights account.\n\n"
-                    f"Click the link below to set a new password (valid for 2 hours):\n\n"
-                    f"{reset_url}\n\n"
-                    f"If you did not request this, you can ignore this email."
-                ),
-                body_html=(
-                    f"<p>You requested a password reset for your NZInsights account.</p>"
-                    f"<p><a href='{reset_url}'>Reset your password</a></p>"
-                    f"<p>This link is valid for 2 hours. If you did not request this, ignore this email.</p>"
-                ),
-                template_key="portal_password_reset",
-                entity_type="portal_user",
-                created_by="portal-self-service",
-                raise_on_error=False,
-            )
-            logger.info("portal password reset email queued for %s", payload.email)
-        except Exception:
-            logger.exception("portal password reset email failed for %s", payload.email)
+        if token:
+            reset_url = f"{_portal_base_url()}/reset-password?token={token}"
+            try:
+                send_tracked_email(
+                    con,
+                    to_email=payload.email,
+                    subject="NZInsights — reset your password",
+                    body_text=(
+                        f"You requested a password reset for your NZInsights account.\n\n"
+                        f"Click the link below to set a new password (valid for 2 hours):\n\n"
+                        f"{reset_url}\n\n"
+                        f"If you did not request this, you can ignore this email."
+                    ),
+                    body_html=(
+                        f"<p>You requested a password reset for your NZInsights account.</p>"
+                        f"<p><a href='{reset_url}'>Reset your password</a></p>"
+                        f"<p>This link is valid for 2 hours. If you did not request this, ignore this email.</p>"
+                    ),
+                    template_key="portal_password_reset",
+                    entity_type="portal_user",
+                    created_by="portal-self-service",
+                    raise_on_error=False,
+                )
+                logger.info("portal password reset email queued for %s", payload.email)
+            except Exception:
+                logger.exception("portal password reset email failed for %s", payload.email)
 
     return {"ok": True, "message": "If that email is registered you will receive a reset link shortly"}
 
