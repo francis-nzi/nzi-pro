@@ -18,6 +18,7 @@ import useJobWorkspaceData from "@/components/job-workspace/useJobWorkspaceData"
 import useJobWorkspaceActions from "@/components/job-workspace/useJobWorkspaceActions";
 import useJobWorkspaceDerivedState from "@/components/job-workspace/useJobWorkspaceDerivedState";
 import type { WorkspaceBreadcrumb } from "@/components/job-workspace/types";
+import { formatJobFamilyLabel, getJobFamilyDescription, jobFamilyBadgeClassName } from "@/lib/job-family";
 import {
   JOB_WORKSPACE_GROUPS,
   EMPTY_SCOPE_MAP,
@@ -348,6 +349,24 @@ export default function JobDetailPage() {
   const scopeCardRef = useRef<JobScopeCardHandle>(null);
   const [loadingScopeConfig, setLoadingScopeConfig] = useState<boolean>(false);
   const [loadingReportMetadata, setLoadingReportMetadata] = useState<boolean>(false);
+
+  const familyCustomFieldNames = useMemo(() => {
+    switch (String(job?.job_family || "").toLowerCase()) {
+      case "training":
+        return ["training_course_name", "training_delivery_mode"];
+      case "consultancy":
+        return ["consultancy_service_focus"];
+      case "lca":
+        return ["lca_product_system_name"];
+      case "pcf":
+        return ["pcf_product_name"];
+      default:
+        return [];
+    }
+  }, [job?.job_family]);
+  const familyLabel = formatJobFamilyLabel(job?.job_family);
+  const familyDescription = getJobFamilyDescription(job?.job_family);
+  const showFamilyDetails = familyCustomFieldNames.length > 0;
 
   const workspaceDataSetters = useMemo(
     () => ({
@@ -797,6 +816,33 @@ export default function JobDetailPage() {
 
 
 
+              {showFamilyDetails && (
+                <Card id="family-details-section">
+                  <CardHeader>
+                    <CardTitle style={{ color: '#F26624' }}>Family Details</CardTitle>
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${jobFamilyBadgeClassName(job?.job_family)}`}>
+                        {familyLabel}
+                      </span>
+                      <span>{familyDescription}</span>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      These family-specific fields were captured at create time and can be edited here.
+                    </p>
+                    <CustomFields
+                      entityId={jobId}
+                      entityType="job"
+                      baseUrl={baseUrl}
+                      embedded
+                      fieldNames={familyCustomFieldNames}
+                      hideEmptyState
+                    />
+                  </CardContent>
+                </Card>
+              )}
+
               <Card id="custom-fields-section">
                 <CardHeader>
                   <CardTitle style={{ color: '#F26624' }}>Custom Fields</CardTitle>
@@ -806,7 +852,13 @@ export default function JobDetailPage() {
                     These custom fields are configured in Admin → Custom Fields. Required fields must be completed before
                     saving.
                   </p>
-                  <CustomFields entityId={jobId} entityType="job" baseUrl={baseUrl} embedded />
+                  <CustomFields
+                    entityId={jobId}
+                    entityType="job"
+                    baseUrl={baseUrl}
+                    embedded
+                    excludeFieldNames={familyCustomFieldNames}
+                  />
                 </CardContent>
               </Card>
 

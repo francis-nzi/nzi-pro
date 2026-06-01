@@ -33,9 +33,20 @@ type CustomFieldsProps = {
   entityType: "job" | "client" | "contact" | "quote" | "supplier";
   baseUrl: string;
   embedded?: boolean; // when true, renders without its own Card wrapper
+  fieldNames?: string[];
+  excludeFieldNames?: string[];
+  hideEmptyState?: boolean;
 };
 
-export default function CustomFields({ entityId, entityType, baseUrl, embedded = false }: CustomFieldsProps) {
+export default function CustomFields({
+  entityId,
+  entityType,
+  baseUrl,
+  embedded = false,
+  fieldNames,
+  excludeFieldNames,
+  hideEmptyState = false,
+}: CustomFieldsProps) {
   const [fields, setFields] = useState<CustomFieldDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -44,7 +55,21 @@ export default function CustomFields({ entityId, entityType, baseUrl, embedded =
 
   useEffect(() => {
     loadFields();
-  }, [entityId, entityType]);
+  }, [entityId, entityType, baseUrl, fieldNames?.join("|"), excludeFieldNames?.join("|")]);
+
+  function filterFields(items: CustomFieldDefinition[]) {
+    if (!fieldNames || fieldNames.length === 0) {
+      return excludeFieldNames && excludeFieldNames.length > 0
+        ? items.filter((item) => !excludeFieldNames.map((name) => String(name || "").trim()).includes(String(item.field_name || "").trim()))
+        : items;
+    }
+    const allowed = new Set(fieldNames.map((name) => String(name || "").trim()).filter(Boolean));
+    const excluded = new Set((excludeFieldNames || []).map((name) => String(name || "").trim()).filter(Boolean));
+    return items.filter((item) => {
+      const fieldName = String(item.field_name || "").trim();
+      return allowed.has(fieldName) && !excluded.has(fieldName);
+    });
+  }
 
   async function loadFields() {
     setLoading(true);
@@ -52,7 +77,7 @@ export default function CustomFields({ entityId, entityType, baseUrl, embedded =
       const res = await fetch(`${baseUrl}/custom-fields/values/${entityType}/${entityId}`);
       if (!res.ok) throw new Error("Failed to load custom fields");
       const data = await res.json();
-      const items = data.items || [];
+      const items = filterFields(data.items || []);
       setFields(items);
 
       // Initialize field values from the loaded data (use default_value if no value saved)
@@ -211,6 +236,7 @@ export default function CustomFields({ entityId, entityType, baseUrl, embedded =
     );
   }
 
+  if (hideEmptyState && fields.length === 0) return null;
   if (fields.length === 0) {
     if (embedded) return <p className="text-sm text-muted-foreground">No custom fields defined. Go to Admin → Custom Fields to add fields.</p>;
     return (
