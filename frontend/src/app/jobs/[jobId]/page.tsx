@@ -745,7 +745,7 @@ export default function JobDetailPage() {
               ) : job?.job_family === "pcf" ? (
                 <JobPcf jobId={jobId} baseUrl={baseUrl} jobFamily={job?.job_family ?? null} />
               ) : job?.job_family === "lca" ? (
-                <JobLca jobId={jobId} baseUrl={baseUrl} />
+                <JobLca jobId={jobId} baseUrl={baseUrl} jobFamily={job?.job_family ?? null} />
               ) : (
                 <JobScopeCard
                   ref={scopeCardRef}
@@ -1001,7 +1001,7 @@ export default function JobDetailPage() {
           </TabsContent>
 
           <TabsContent value="lca" className="mt-0">
-            <JobLca jobId={jobId} baseUrl={baseUrl} />
+            <JobLca jobId={jobId} baseUrl={baseUrl} jobFamily={job?.job_family ?? null} />
           </TabsContent>
 
           <JobCommunicationsTabs

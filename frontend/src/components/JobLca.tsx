@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,10 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import UploadProgressBar from "@/components/UploadProgressBar";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
+import { formatJobFamilyLabel, getJobFamilyDescription, jobFamilyBadgeClassName } from "@/lib/job-family";
 
 type JobLcaProps = {
   jobId: number;
   baseUrl: string;
+  jobFamily?: string | null;
 };
 
 type LcaProduct = {
@@ -69,7 +72,7 @@ const STAGES = [
   { key: "use_end_of_life", label: "Use + End-of-Life" },
 ];
 
-export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
+export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -493,12 +496,23 @@ export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
   };
   const nextIdx = Math.min(activeIdx + 1, workflow.length - 1);
   const nextLocked = !isStageUnlocked(nextIdx);
+  const lcaFamilyLabel = formatJobFamilyLabel("lca");
+  const lcaFamilyDescription = getJobFamilyDescription("lca");
+  const lcaFamilyBadgeClass = jobFamilyBadgeClassName("lca");
+
+  if (jobFamily && jobFamily !== "lca") return null;
 
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader>
+        <CardHeader className="space-y-2">
           <CardTitle>Life Cycle Assessment Wizard (ISO 14040/14044)</CardTitle>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Badge className={lcaFamilyBadgeClass} variant="outline">
+              {lcaFamilyLabel}
+            </Badge>
+            <span>{lcaFamilyDescription}</span>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-2 md:grid-cols-3">
@@ -555,7 +569,15 @@ export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
 
       {activeWorkflowStage === "goal-scope" ? (
         <Card>
-          <CardHeader><CardTitle>Stage 1: Goal & Scope</CardTitle></CardHeader>
+          <CardHeader className="space-y-2">
+            <CardTitle>Stage 1: Goal & Scope</CardTitle>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+              <Badge className={lcaFamilyBadgeClass} variant="outline">
+                {lcaFamilyLabel}
+              </Badge>
+              <span>{lcaFamilyDescription}</span>
+            </div>
+          </CardHeader>
           <CardContent className="grid gap-4 lg:grid-cols-4">
             <div className="space-y-2 lg:col-span-2">
               <Label>Product Name</Label>
@@ -625,7 +647,15 @@ export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
       {activeWorkflowStage === "inventory" ? (
         <div className="space-y-6">
           <Card>
-            <CardHeader><CardTitle>Stage 2A: BOM Import</CardTitle></CardHeader>
+            <CardHeader className="space-y-2">
+              <CardTitle>Stage 2A: BOM Import</CardTitle>
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                <Badge className={lcaFamilyBadgeClass} variant="outline">
+                  {lcaFamilyLabel}
+                </Badge>
+                <span>{lcaFamilyDescription}</span>
+              </div>
+            </CardHeader>
             <CardContent className="space-y-3">
               <div className="text-xs text-muted-foreground">
                 Supported columns: item/material/component, quantity/qty/weight, unit/uom, origin_country/country, stage, factor/factor_value.
@@ -635,7 +665,15 @@ export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Stage 2B: Manual LCI Row</CardTitle></CardHeader>
+            <CardHeader className="space-y-2">
+              <CardTitle>Stage 2B: Manual LCI Row</CardTitle>
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                <Badge className={lcaFamilyBadgeClass} variant="outline">
+                  {lcaFamilyLabel}
+                </Badge>
+                <span>{lcaFamilyDescription}</span>
+              </div>
+            </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 lg:grid-cols-4">
                 <div className="space-y-2">
@@ -676,7 +714,15 @@ export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
 
       {activeWorkflowStage === "factor-mapping" || activeWorkflowStage === "gap-filling" ? (
         <Card>
-          <CardHeader><CardTitle>{activeWorkflowStage === "factor-mapping" ? "Stage 3: Emission Factor Mapping" : "Stage 4: Data Gap Filling"}</CardTitle></CardHeader>
+          <CardHeader className="space-y-2">
+            <CardTitle>{activeWorkflowStage === "factor-mapping" ? "Stage 3: Emission Factor Mapping" : "Stage 4: Data Gap Filling"}</CardTitle>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+              <Badge className={lcaFamilyBadgeClass} variant="outline">
+                {lcaFamilyLabel}
+              </Badge>
+              <span>{lcaFamilyDescription}</span>
+            </div>
+          </CardHeader>
           <CardContent className="space-y-3">
             <div className="space-y-2">
               {items.length === 0 ? <div className="text-sm text-muted-foreground">No inventory rows yet.</div> : items.map((row) => (
@@ -703,7 +749,15 @@ export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
 
       {activeWorkflowStage === "impact" ? (
         <Card>
-          <CardHeader><CardTitle>Stage 5: Impact Assessment (LCIA) + Hotspots</CardTitle></CardHeader>
+          <CardHeader className="space-y-2">
+            <CardTitle>Stage 5: Impact Assessment (LCIA) + Hotspots</CardTitle>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+              <Badge className={lcaFamilyBadgeClass} variant="outline">
+                {lcaFamilyLabel}
+              </Badge>
+              <span>{lcaFamilyDescription}</span>
+            </div>
+          </CardHeader>
           <CardContent className="space-y-4">
             <div className="text-sm">
               Total Embedded Emissions: <span className="font-semibold">{Number(summary?.total_tco2e || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO₂e</span>
@@ -738,7 +792,15 @@ export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
 
       {activeWorkflowStage === "reporting" ? (
         <Card>
-          <CardHeader><CardTitle>Stage 6: Reporting</CardTitle></CardHeader>
+          <CardHeader className="space-y-2">
+            <CardTitle>Stage 6: Reporting</CardTitle>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+              <Badge className={lcaFamilyBadgeClass} variant="outline">
+                {lcaFamilyLabel}
+              </Badge>
+              <span>{lcaFamilyDescription}</span>
+            </div>
+          </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex justify-end">
               <Button variant="outline" onClick={generateIsoReport}>Generate ISO Report Payload</Button>

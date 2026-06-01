@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { formatJobFamilyLabel, getJobFamilyDescription, jobFamilyBadgeClassName } from "@/lib/job-family";
 
 type JobPcfProps = {
   jobId: number;
@@ -98,8 +100,14 @@ export default function JobPcf({ jobId, baseUrl, jobFamily }: JobPcfProps) {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="space-y-2">
         <CardTitle style={{ color: "#F26624" }}>PCF Details</CardTitle>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <Badge className={jobFamilyBadgeClassName("pcf")} variant="outline">
+            {formatJobFamilyLabel("pcf")}
+          </Badge>
+          <span>{getJobFamilyDescription("pcf")}</span>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
