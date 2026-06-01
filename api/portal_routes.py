@@ -119,6 +119,7 @@ def portal_job_overview(job_id: int, current_user: dict = Depends(portal_user_de
 @router.get("/portal/jobs/{job_id}/live-report-data")
 def portal_live_report_data(job_id: int, current_user: dict = Depends(portal_user_dep)):
     from services.tenancy import org_context
+    from api.job_report_routes import get_job_data
     from api.job_live_report_routes import get_job_live_report_data
 
     client_db_id = int(current_user["client_db_id"])
@@ -130,6 +131,15 @@ def portal_live_report_data(job_id: int, current_user: dict = Depends(portal_use
                   "org_id": _org_id, "user_id": "portal"}
     with org_context(_org_id):
         try:
+            job_data = get_job_data(int(job_id))
+            if not job_data:
+                raise HTTPException(status_code=404, detail="Job not found")
+            job_family = str(job_data.get("job_family") or "crp").strip().lower()
+            if job_family and job_family != "crp":
+                raise HTTPException(
+                    status_code=404,
+                    detail="Report view is only available for Carbon Reduction Plan jobs.",
+                )
             return get_job_live_report_data(int(job_id), _user=_mock_user)
         except HTTPException:
             raise
@@ -145,12 +155,23 @@ def portal_live_report_data(job_id: int, current_user: dict = Depends(portal_use
 @router.get("/portal/jobs/{job_id}/report-html", response_class=HTMLResponse)
 def portal_report_html(job_id: int, current_user: dict = Depends(portal_user_dep)):
     from services.tenancy import org_context
+    from api.job_report_routes import get_job_data
     from api.job_report_routes import _render_report_snapshot_html
 
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         _assert_job_belongs_to_client(job_id, client_db_id, con)
         _org_id = _portal_org_id(con, client_db_id)
+
+    job_data = get_job_data(int(job_id))
+    if not job_data:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job_family = str(job_data.get("job_family") or "crp").strip().lower()
+    if job_family and job_family != "crp":
+        raise HTTPException(
+            status_code=404,
+            detail="Report view is only available for Carbon Reduction Plan jobs.",
+        )
 
     with org_context(_org_id):
         with get_conn() as con:

@@ -649,7 +649,7 @@ def portal_dashboard_jobs(client_db_id: int, *, con=None) -> list[dict[str, Any]
     ensure_portal_schema(con)
     rows = con.execute(
         """
-        SELECT j.job_id, j.job_number, j.title,
+        SELECT j.job_id, j.job_number, j.title, j.job_family,
                COALESCE(
                    EXTRACT(YEAR FROM j.reporting_period_end)::int,
                    j.reporting_year
@@ -660,6 +660,7 @@ def portal_dashboard_jobs(client_db_id: int, *, con=None) -> list[dict[str, Any]
         FROM jobs j
         LEFT JOIN report_reviews r ON r.job_id = j.job_id
         WHERE j.client_db_id = %s
+          AND COALESCE(LOWER(j.job_family), 'crp') = 'crp'
         ORDER BY display_year DESC NULLS LAST, j.job_id DESC
         """,
         [int(client_db_id)],
@@ -669,12 +670,13 @@ def portal_dashboard_jobs(client_db_id: int, *, con=None) -> list[dict[str, Any]
             "job_id": int(r[0]),
             "job_number": str(r[1] or ""),
             "title": str(r[2] or ""),
-            "reporting_year": int(r[3]) if r[3] is not None else None,
-            "status": str(r[4] or ""),
-            "review_status": str(r[5] or "not_sent"),
-            "review_id": int(r[6]) if r[6] is not None else None,
-            "sent_for_review_at": str(r[7]) if r[7] else None,
-            "approved_at": str(r[8]) if r[8] else None,
+            "job_family": str(r[3] or "") or "crp",
+            "reporting_year": int(r[4]) if r[4] is not None else None,
+            "status": str(r[5] or ""),
+            "review_status": str(r[6] or "not_sent"),
+            "review_id": int(r[7]) if r[7] is not None else None,
+            "sent_for_review_at": str(r[8]) if r[8] else None,
+            "approved_at": str(r[9]) if r[9] else None,
         }
         for r in (rows or [])
     ]

@@ -1640,7 +1640,8 @@ def get_job_data(job_id: int, org_id: str | None = None):
                    c.interim_s1_pct, c.interim_s2_pct, c.interim_s3_pct,
                    c.target_s1_year, c.target_s2_year, c.target_s3_year,
                    c.target_s1_pct, c.target_s2_pct, c.target_s3_pct,
-                   c.addr_city, c.addr_country
+                   c.addr_city, c.addr_country,
+                   j.job_family
             FROM jobs j
             JOIN clients c ON c.db_id = j.client_db_id
             WHERE j.job_id = %s AND c.org_id = %s
@@ -1655,7 +1656,8 @@ def get_job_data(job_id: int, org_id: str | None = None):
                    c.interim_s1_pct, c.interim_s2_pct, c.interim_s3_pct,
                    c.target_s1_year, c.target_s2_year, c.target_s3_year,
                    c.target_s1_pct, c.target_s2_pct, c.target_s3_pct,
-                   c.addr_city, c.addr_country
+                   c.addr_city, c.addr_country,
+                   j.job_family
             FROM jobs j
             JOIN clients c ON c.db_id = j.client_db_id
             WHERE j.job_id = %s
@@ -1712,6 +1714,7 @@ def get_job_data(job_id: int, org_id: str | None = None):
             'target_s3_pct': job_row[27],
             'city': job_row[28],
             'country': job_row[29],
+            'job_family': job_row[30],
             'data_collection_due': milestones[0] if milestones else None,
             'first_draft_due': milestones[1] if milestones else None,
             'final_report_due': milestones[2] if milestones else None,
