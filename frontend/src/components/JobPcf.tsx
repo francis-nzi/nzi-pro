@@ -112,8 +112,8 @@ export default function JobPcf({ jobId, baseUrl, jobFamily }: JobPcfProps) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          Capture the core details for the product carbon footprinting engagement.
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Capture the product scope, functional unit, and reporting context for this footprinting engagement.
         </p>
         {status ? <div className="rounded-md bg-muted px-3 py-2 text-sm">{status}</div> : null}
         {loading ? <div className="text-sm text-muted-foreground">Loading PCF details...</div> : null}

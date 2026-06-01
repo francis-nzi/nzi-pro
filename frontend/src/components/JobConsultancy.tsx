@@ -108,8 +108,8 @@ export default function JobConsultancy({ jobId, baseUrl, jobFamily }: JobConsult
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          Capture the core details for the consultancy engagement. This section is specific to the Consultancy job family.
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Capture the scope, deliverables, and commercial context for this consultancy engagement.
         </p>
         {status ? <div className="rounded-md bg-muted px-3 py-2 text-sm">{status}</div> : null}
         {loading ? <div className="text-sm text-muted-foreground">Loading consultancy details...</div> : null}

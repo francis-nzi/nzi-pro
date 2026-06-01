@@ -517,6 +517,9 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            Work through the goal, inventory, factor mapping, gap filling, impact, and reporting stages for the assessment.
+          </p>
           <div className="grid gap-2 md:grid-cols-3">
             <div className="space-y-2">
               <Label>Product</Label>
