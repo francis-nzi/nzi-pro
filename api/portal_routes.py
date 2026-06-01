@@ -132,8 +132,51 @@ def portal_live_report_data(job_id: int, current_user: dict = Depends(portal_use
     with org_context(_org_id):
         try:
             return get_job_live_report_data(int(job_id), _user=_mock_user)
-        except HTTPException:
-            raise
+        except HTTPException as exc:
+            if exc.status_code != 500:
+                raise
+            logger.exception("portal_live_report_data failed for job %s with HTTP 500; returning fallback payload", job_id)
+            job_data = get_job_data(int(job_id))
+            if not job_data:
+                raise HTTPException(status_code=404, detail="Job not found") from exc
+            try:
+                scope_totals = get_scope_totals(int(job_id))
+            except Exception:
+                scope_totals = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
+            try:
+                categories = get_emissions_by_category(int(job_id))
+            except Exception:
+                categories = []
+            total_emissions = float(scope_totals.get("Total") or 0.0)
+            return {
+                "job_data": job_data,
+                "scope_totals": scope_totals,
+                "benchmark_totals": {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0},
+                "categories": categories,
+                "benchmark_categories": [],
+                "activity_groups": {},
+                "activity_totals": {},
+                "activity_details": {},
+                "activity_group_order": [],
+                "activity_group_colors": {},
+                "job_actions": {},
+                "intensity_metrics": {},
+                "yearly_emissions": [],
+                "target_data": {},
+                "report_metadata": {},
+                "template_variables": {},
+                "site_breakdowns": {},
+                "glossary_cards": [],
+                "render_values": {},
+                "nzi_logo_src": "",
+                "summary": {
+                    "current_total": total_emissions,
+                    "benchmark_total": 0.0,
+                    "delta_total": total_emissions,
+                    "delta_pct": None,
+                    "top_category": None,
+                },
+            }
         except Exception as exc:
             logger.exception("portal_live_report_data failed for job %s; returning fallback payload", job_id)
             job_data = get_job_data(int(job_id))
