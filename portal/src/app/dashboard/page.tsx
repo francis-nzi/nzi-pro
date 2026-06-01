@@ -189,6 +189,9 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
               <ExternalLink className="h-4 w-4" />
               View Report
             </Link>
+            <div className="text-center text-xs text-gray-400">
+              Opens the latest saved snapshot
+            </div>
           </div>
         );
       })}
