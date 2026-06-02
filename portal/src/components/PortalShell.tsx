@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { apiFetch, clearToken, getToken } from "@/lib/auth";
+import PortalStatusBar from "@/components/PortalStatusBar";
 
 type PortalUser = {
   portal_user_id: number;
@@ -57,6 +58,7 @@ export default function PortalShell({ children }: { children: React.ReactNode })
           )}
         </div>
       </header>
+      {user && <PortalStatusBar />}
       <main className="flex-1 mx-auto w-full max-w-6xl px-4 py-8">
         {children}
       </main>

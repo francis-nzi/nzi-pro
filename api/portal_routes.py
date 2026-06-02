@@ -1198,3 +1198,118 @@ def _notify_crm_approval(job_id: int, approver_name: str, approver_email: str) -
         )
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Status bar — broadcasts + action items for the portal header
+# ---------------------------------------------------------------------------
+
+@router.get("/portal/status-bar")
+def portal_status_bar(current_user: dict = Depends(portal_user_dep)):
+    """Return active broadcasts and derived action items for this client.
+
+    Broadcasts: global rows + rows targeting this client, filtered by active window.
+    Actions: derived from review state (open comments, reports awaiting review, etc.)
+    """
+    client_db_id = int(current_user["client_db_id"])
+    now_sql = "NOW()"
+
+    with get_conn() as con:
+        # Active broadcasts (global + this client)
+        broadcast_rows = con.execute(
+            f"""
+            SELECT broadcast_id, title, message, style, link_url, link_label, broadcast_type
+            FROM portal_broadcasts
+            WHERE is_active = TRUE
+              AND (active_from IS NULL OR active_from <= {now_sql})
+              AND (active_until IS NULL OR active_until >= {now_sql})
+              AND (broadcast_type = 'global' OR target_client_db_id = %s)
+            ORDER BY broadcast_type DESC, created_at DESC
+            LIMIT 10
+            """,
+            [client_db_id],
+        ).fetchall()
+
+        # Action items: open client comments across all jobs
+        comment_rows = con.execute(
+            """
+            SELECT rrc.comment_id, rr.job_id, j.job_number, j.title AS job_title,
+                   COUNT(*) OVER (PARTITION BY rr.job_id) AS open_count
+            FROM report_review_comments rrc
+            JOIN report_reviews rr ON rr.review_id = rrc.review_id
+            JOIN jobs j ON j.job_id = rr.job_id
+            WHERE j.client_db_id = %s
+              AND rrc.author_type = 'client'
+              AND rrc.status = 'open'
+            LIMIT 20
+            """,
+            [client_db_id],
+        ).fetchall()
+
+        # Action items: reports sent for review
+        review_rows = con.execute(
+            """
+            SELECT rr.job_id, j.job_number, j.title AS job_title, rr.status,
+                   rr.portal_version_id
+            FROM report_reviews rr
+            JOIN jobs j ON j.job_id = rr.job_id
+            WHERE j.client_db_id = %s
+              AND rr.status IN ('sent_for_review', 'changes_requested')
+              AND rr.portal_version_id IS NOT NULL
+            ORDER BY rr.sent_for_review_at DESC
+            LIMIT 5
+            """,
+            [client_db_id],
+        ).fetchall()
+
+    broadcasts = [
+        {
+            "broadcast_id": int(r[0]),
+            "title": str(r[1] or "") or None,
+            "message": str(r[2] or ""),
+            "style": str(r[3] or "info"),
+            "link_url": str(r[4] or "") or None,
+            "link_label": str(r[5] or "") or None,
+            "broadcast_type": str(r[6] or "global"),
+        }
+        for r in (broadcast_rows or [])
+    ]
+
+    # Aggregate open comments by job
+    job_comment_map: dict[int, dict] = {}
+    for r in (comment_rows or []):
+        jid = int(r[1])
+        if jid not in job_comment_map:
+            job_comment_map[jid] = {
+                "job_id": jid,
+                "job_number": str(r[2] or ""),
+                "job_title": str(r[3] or ""),
+                "open_count": int(r[4] or 0),
+            }
+
+    actions: list[dict[str, Any]] = []
+    for jdata in job_comment_map.values():
+        n = jdata["open_count"]
+        ref = jdata["job_number"] or jdata["job_title"] or f"Job {jdata['job_id']}"
+        actions.append({
+            "type": "open_comments",
+            "job_id": jdata["job_id"],
+            "message": f"You have {n} open comment{'s' if n != 1 else ''} on {ref}",
+            "href": f"/jobs/{jdata['job_id']}/review",
+            "style": "warning",
+        })
+
+    for r in (review_rows or []):
+        jid = int(r[0])
+        if any(a.get("job_id") == jid and a.get("type") == "report_ready" for a in actions):
+            continue
+        ref = str(r[1] or "") or str(r[2] or "") or f"Job {jid}"
+        actions.append({
+            "type": "report_ready",
+            "job_id": jid,
+            "message": f"Your report for {ref} is ready to review",
+            "href": f"/jobs/{jid}/view",
+            "style": "info",
+        })
+
+    return {"ok": True, "broadcasts": broadcasts, "actions": actions}

@@ -87,6 +87,7 @@ from api.admin_jobs_routes import router as admin_jobs_router
 from api.admin_archive_routes import router as admin_archive_router
 from api.admin_monitoring_routes import router as admin_monitoring_router
 from api.admin_audit_routes import router as admin_audit_router
+from api.admin_broadcasts_routes import router as admin_broadcasts_router
 from api.support_feedback_routes import router as support_feedback_router
 from api.stripe_billing_routes import router as stripe_billing_router
 from api.stripe_billing_routes import webhook_router as stripe_billing_webhook_router
@@ -219,6 +220,7 @@ app.include_router(admin_jobs_router)
 app.include_router(admin_archive_router)
 app.include_router(admin_monitoring_router)
 app.include_router(admin_audit_router)
+app.include_router(admin_broadcasts_router)
 app.include_router(support_feedback_router)
 app.include_router(client_index_router)
 app.include_router(client_management_router)

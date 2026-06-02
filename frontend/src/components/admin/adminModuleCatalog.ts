@@ -14,6 +14,7 @@ import {
   History,
   Layers3,
   Mail,
+  Megaphone,
   Palette,
   Settings2,
   ShieldCheck,
@@ -236,6 +237,14 @@ export const ADMIN_MODULES: AdminModule[] = [
     domain: "System & Governance",
     icon: ArchiveRestore,
     critical: true,
+  },
+  {
+    title: "Broadcasting",
+    description: "Send announcements and messages to client portals — global or targeted to individual clients.",
+    href: "/admin/broadcasting",
+    cta: "Manage broadcasts",
+    domain: "System & Governance",
+    icon: Megaphone,
   },
 ];
 
