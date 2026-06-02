@@ -4,12 +4,23 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, setToken } from "@/lib/auth";
 
+type ClientOption = { client_db_id: number; client_name: string };
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Staff client selection state
+  const [staffName, setStaffName] = useState("");
+  const [staffClients, setStaffClients] = useState<ClientOption[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [selectingClient, setSelectingClient] = useState(false);
+  const [issuing, setIssuing] = useState(false);
+
+  // Password reset state
   const [showReset, setShowReset] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
   const [resetSent, setResetSent] = useState(false);
@@ -25,14 +36,52 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password }),
       });
-      const data = await res.json() as { access_token?: string; detail?: string };
+      const data = await res.json() as {
+        access_token?: string | null;
+        needs_client_selection?: boolean;
+        staff_name?: string;
+        accessible_clients?: ClientOption[];
+        detail?: string;
+      };
       if (!res.ok) throw new Error(data.detail ?? "Login failed");
+
+      if (data.needs_client_selection) {
+        // Staff user — show client picker
+        setStaffName(data.staff_name ?? email);
+        setStaffClients(data.accessible_clients ?? []);
+        setSelectedClientId(data.accessible_clients?.[0]?.client_db_id ?? null);
+        setSelectingClient(true);
+        return;
+      }
+
       if (data.access_token) setToken(data.access_token);
       router.replace("/dashboard");
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleStaffClientSelect(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedClientId) return;
+    setIssuing(true);
+    setError("");
+    try {
+      const res = await apiFetch("/portal/auth/staff-select-client", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password, client_db_id: selectedClientId }),
+      });
+      const data = await res.json() as { access_token?: string; detail?: string };
+      if (!res.ok) throw new Error(data.detail ?? "Failed to access client portal");
+      if (data.access_token) setToken(data.access_token);
+      router.replace("/dashboard");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setIssuing(false);
     }
   }
 
@@ -47,7 +96,7 @@ export default function LoginPage() {
       });
       setResetSent(true);
     } catch {
-      setResetSent(true); // Always show success to avoid enumeration
+      setResetSent(true);
     } finally {
       setResetLoading(false);
     }
@@ -62,7 +111,44 @@ export default function LoginPage() {
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-          {!showReset ? (
+          {selectingClient ? (
+            /* ── Staff: pick which client to view ── */
+            <>
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">Choose a client portal</h2>
+              <p className="text-sm text-gray-500 mb-6">
+                Signed in as <span className="font-medium text-gray-700">{staffName}</span> (staff). Select the client portal you want to access.
+              </p>
+              <form onSubmit={e => void handleStaffClientSelect(e)} className="space-y-4">
+                <select
+                  value={selectedClientId ?? ""}
+                  onChange={e => setSelectedClientId(Number(e.target.value))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  required
+                >
+                  {staffClients.map(c => (
+                    <option key={c.client_db_id} value={c.client_db_id}>{c.client_name}</option>
+                  ))}
+                </select>
+                {error && <p className="text-sm text-red-600">{error}</p>}
+                <button
+                  type="submit"
+                  disabled={issuing || !selectedClientId}
+                  className="w-full rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-60 transition-colors"
+                  style={{ backgroundColor: "#F26624" }}
+                >
+                  {issuing ? "Opening portal…" : "Open portal"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setSelectingClient(false); setError(""); }}
+                  className="text-sm text-gray-500 hover:underline"
+                >
+                  Back to sign in
+                </button>
+              </form>
+            </>
+          ) : !showReset ? (
+            /* ── Standard sign in ── */
             <>
               <h2 className="text-lg font-semibold text-gray-900 mb-6">Sign in to your account</h2>
               <form onSubmit={e => void handleLogin(e)} className="space-y-4">
@@ -107,6 +193,7 @@ export default function LoginPage() {
               </button>
             </>
           ) : (
+            /* ── Password reset ── */
             <>
               <h2 className="text-lg font-semibold text-gray-900 mb-2">Reset your password</h2>
               {resetSent ? (
@@ -145,7 +232,7 @@ export default function LoginPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-gray-400">
-          Powered by Net Zero International
+          &copy; {new Date().getFullYear()} Net Zero International. All rights reserved.
         </p>
       </div>
     </div>

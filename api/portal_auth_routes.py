@@ -45,6 +45,24 @@ def _portal_base_url() -> str:
     return url
 
 
+def _issue_staff_portal_token(staff_email: str, staff_name: str, client_db_id: int) -> str | None:
+    """Issue a portal JWT for a staff member (NZI Pro user) viewing a specific client portal."""
+    secret = _portal_jwt_secret()
+    if not secret or pyjwt is None:
+        return None
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": f"staff:{staff_email}",
+        "kind": "portal_staff_session",
+        "client_db_id": int(client_db_id),
+        "staff_email": staff_email,
+        "staff_name": staff_name,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(hours=_PORTAL_TOKEN_HOURS)).timestamp()),
+    }
+    return pyjwt.encode(payload, secret, algorithm="HS256")
+
+
 def _issue_portal_token(portal_user_id: int, client_db_id: int) -> str | None:
     secret = _portal_jwt_secret()
     if not secret or pyjwt is None:
@@ -66,7 +84,7 @@ def _decode_portal_token(token: str) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail="Portal auth not configured")
     try:
         payload = pyjwt.decode(token, secret, algorithms=["HS256"])
-        if payload.get("kind") != "portal_session":
+        if payload.get("kind") not in ("portal_session", "portal_staff_session"):
             raise HTTPException(status_code=401, detail="Invalid token type")
         return payload
     except pyjwt.ExpiredSignatureError:
@@ -76,13 +94,31 @@ def _decode_portal_token(token: str) -> dict[str, Any]:
 
 
 async def _portal_user(authorization: str = Header(default="")) -> dict[str, Any]:
-    """FastAPI dependency — resolves portal JWT to portal user dict."""
+    """FastAPI dependency — resolves portal JWT to portal user dict.
+
+    Handles two token kinds:
+    - portal_session: regular client portal user (looked up in client_portal_users)
+    - portal_staff_session: NZI Pro staff member accessing a client portal
+    """
     scheme, _, token = (authorization or "").partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     payload = _decode_portal_token(token)
-    portal_user_id = int(payload["sub"])
     client_db_id = int(payload["client_db_id"])
+
+    if payload.get("kind") == "portal_staff_session":
+        # Staff session — synthesise a portal user dict; no DB lookup required
+        return {
+            "portal_user_id": None,
+            "client_db_id": client_db_id,
+            "email": str(payload.get("staff_email") or ""),
+            "full_name": str(payload.get("staff_name") or "Staff"),
+            "is_active": True,
+            "is_staff": True,
+        }
+
+    # Regular portal client session
+    portal_user_id = int(payload["sub"])
     with get_conn() as con:
         ensure_portal_schema(con)
         user = get_portal_user_by_id(portal_user_id, con=con)
@@ -90,6 +126,7 @@ async def _portal_user(authorization: str = Header(default="")) -> dict[str, Any
         raise HTTPException(status_code=401, detail="Account not found or inactive")
     if int(user["client_db_id"]) != client_db_id:
         raise HTTPException(status_code=401, detail="Token mismatch")
+    user["is_staff"] = False
     return user
 
 
@@ -124,18 +161,103 @@ class ChangePasswordPayload(BaseModel):
 # Routes
 # ---------------------------------------------------------------------------
 
+def _get_staff_org_id(email: str) -> str | None:
+    """Look up the org_id for an NZI Pro user by email."""
+    try:
+        with get_conn() as con:
+            row = con.execute(
+                "SELECT org_id FROM users WHERE lower(email) = lower(%s) LIMIT 1",
+                [email.strip()],
+            ).fetchone()
+            return str(row[0]) if row and row[0] else None
+    except Exception:
+        return None
+
+
+def _get_staff_accessible_clients(email: str) -> list[dict]:
+    """Return all active clients in the staff member's org (staff can access any client)."""
+    org_id = _get_staff_org_id(email)
+    with get_conn() as con:
+        if org_id:
+            rows = con.execute(
+                "SELECT db_id, client_name FROM clients WHERE org_id = %s AND COALESCE(archived, FALSE) = FALSE ORDER BY client_name",
+                [org_id],
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT db_id, client_name FROM clients WHERE COALESCE(archived, FALSE) = FALSE ORDER BY client_name"
+            ).fetchall()
+    return [{"client_db_id": int(r[0]), "client_name": str(r[1] or "")} for r in (rows or [])]
+
+
+class StaffClientSelectPayload(BaseModel):
+    email: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+    client_db_id: int
+
+
 @router.post("/portal/auth/login")
 def portal_login(payload: LoginPayload = Body(...)):
+    # Try portal client auth first
     with get_conn() as con:
         user = authenticate_portal_user(payload.email, payload.password, con=con)
-    if not user:
+    if user:
+        token = _issue_portal_token(user["portal_user_id"], user["client_db_id"])
+        return {
+            "ok": True,
+            "access_token": token,
+            "token_type": "bearer",
+            "user": user,
+        }
+
+    # Fall back to NZI Pro staff auth
+    try:
+        from core.auth import authenticate_user as _auth_staff
+        staff = _auth_staff(payload.email, payload.password)
+    except Exception:
+        staff = None
+
+    if not staff:
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    token = _issue_portal_token(user["portal_user_id"], user["client_db_id"])
+
+    # Staff: return client list for selection
+    clients = _get_staff_accessible_clients(payload.email)
+    return {
+        "ok": True,
+        "access_token": None,
+        "needs_client_selection": True,
+        "staff_name": staff.get("full_name") or payload.email,
+        "staff_email": payload.email,
+        "accessible_clients": clients,
+    }
+
+
+@router.post("/portal/auth/staff-select-client")
+def portal_staff_select_client(payload: StaffClientSelectPayload = Body(...)):
+    """Second step of staff login: re-authenticate and issue a token for the chosen client."""
+    try:
+        from core.auth import authenticate_user as _auth_staff
+        staff = _auth_staff(payload.email, payload.password)
+    except Exception:
+        staff = None
+    if not staff:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    clients = _get_staff_accessible_clients(payload.email)
+    accessible_ids = {c["client_db_id"] for c in clients}
+    if payload.client_db_id not in accessible_ids:
+        raise HTTPException(status_code=403, detail="You do not have access to this client portal")
+
+    token = _issue_staff_portal_token(
+        staff_email=payload.email,
+        staff_name=str(staff.get("full_name") or payload.email),
+        client_db_id=payload.client_db_id,
+    )
     return {
         "ok": True,
         "access_token": token,
         "token_type": "bearer",
-        "user": user,
+        "is_staff": True,
     }
 
 
