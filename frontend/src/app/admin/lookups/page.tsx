@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
+import { inferJobFamilyFromJobTypeName } from "@/lib/job-family";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -48,6 +49,14 @@ const LOOKUP_TABLES = [
   { key: "currency_lookup", label: "Currencies", idCol: "currency_id", nameCol: "currency_name" },
 ];
 
+const JOB_GROUP_OPTIONS = [
+  { value: "crp", label: "CRP" },
+  { value: "training", label: "Training" },
+  { value: "consultancy", label: "Consultancy" },
+  { value: "lca", label: "LCA" },
+  { value: "pcf", label: "PCF" },
+] as const;
+
 export default function LookupsPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const confirmAction = useConfirmDialog();
@@ -58,6 +67,7 @@ export default function LookupsPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [lookupFilter, setLookupFilter] = useState("");
   const [newItemName, setNewItemName] = useState("");
+  const [newJobTypeGroup, setNewJobTypeGroup] = useState("crp");
   const [vatRateName, setVatRateName] = useState("");
   const [vatRatePct, setVatRatePct] = useState("");
   const [currencyName, setCurrencyName] = useState("");
@@ -70,6 +80,7 @@ export default function LookupsPage() {
   // Edit state
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
+  const [editJobTypeGroup, setEditJobTypeGroup] = useState("crp");
   const [editRatePct, setEditRatePct] = useState("");
   const [editCurrencySymbol, setEditCurrencySymbol] = useState("");
   const [editFileTypeKey, setEditFileTypeKey] = useState("");
@@ -136,10 +147,14 @@ export default function LookupsPage() {
 
     setStatus("Adding...");
     try {
+      const payload: Record<string, string | number | boolean> = { name: newItemName.trim(), is_active: true };
+      if (activeTab === "job_types") {
+        payload.job_group = newJobTypeGroup || "crp";
+      }
       const res = await fetch(`${baseUrl}/admin/lookups/${activeTab}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newItemName.trim(), is_active: true }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -148,6 +163,7 @@ export default function LookupsPage() {
 
       setStatus("Item added!");
       setNewItemName("");
+      setNewJobTypeGroup("crp");
       setIsAddDialogOpen(false);
       loadItems(activeTab);
       setTimeout(() => setStatus(""), 3000);
@@ -298,6 +314,9 @@ export default function LookupsPage() {
       setEditFileTypeKey(String(item.file_type_key ?? ""));
       setEditFileTypeStorageFolder(String(item.storage_folder_key ?? "client-provided"));
       setEditFileTypeSortOrder(String(item.sort_order ?? "0"));
+    } else if (table.key === "job_types") {
+      setEditName(itemNameValue(item, table.nameCol));
+      setEditJobTypeGroup(String(item.job_group ?? item.job_family ?? "crp").toLowerCase());
     } else {
       setEditName(itemNameValue(item, table.nameCol));
       setEditRatePct("");
@@ -309,6 +328,9 @@ export default function LookupsPage() {
       setEditFileTypeKey("");
       setEditFileTypeStorageFolder("");
       setEditFileTypeSortOrder("");
+    }
+    if (table.key !== "job_types") {
+      setEditJobTypeGroup("crp");
     }
   }
 
@@ -366,6 +388,7 @@ export default function LookupsPage() {
     setEditFileTypeKey("");
     setEditFileTypeStorageFolder("");
     setEditFileTypeSortOrder("");
+    setEditJobTypeGroup("crp");
   }
 
   async function saveEdit(tableName: string, itemId: number) {
@@ -407,6 +430,9 @@ export default function LookupsPage() {
         payload.display_name = editName.trim();
         payload.storage_folder_key = editFileTypeStorageFolder.trim() || "client-provided";
         payload.sort_order = sortOrder;
+      }
+      if (tableName === "job_types") {
+        payload.job_group = editJobTypeGroup || "crp";
       }
 
       const res = await fetch(`${baseUrl}/admin/lookups/${tableName}/${itemId}`, {
@@ -595,6 +621,20 @@ export default function LookupsPage() {
                               />
                             </>
                           )}
+                          {activeTable.key === "job_types" && (
+                            <Select value={editJobTypeGroup} onValueChange={setEditJobTypeGroup}>
+                              <SelectTrigger className="w-44">
+                                <SelectValue placeholder="Select group" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {JOB_GROUP_OPTIONS.map((group) => (
+                                  <SelectItem key={group.value} value={group.value}>
+                                    {group.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
                           <Button
                             size="sm"
                             onClick={() => saveEdit(activeTable.key, itemIdValue(item, activeTable.idCol))}
@@ -615,6 +655,11 @@ export default function LookupsPage() {
                         <>
                           <div className="flex-1">
                             <div className="font-medium">{itemNameValue(item, activeTable.nameCol)}</div>
+                            {activeTable.key === "job_types" && (
+                              <div className="text-sm text-muted-foreground">
+                                Group: {String(item.job_group ?? item.job_family ?? inferJobFamilyFromJobTypeName(String(item.name ?? "")) ?? "crp").toUpperCase()}
+                              </div>
+                            )}
                             {activeTable.key === "job_file_types_lookup" && (
                               <div className="text-sm text-muted-foreground">
                                 Key: {String(item.file_type_key ?? "-")} • Folder: {String(item.storage_folder_key ?? "-")} • Sort: {String(item.sort_order ?? 0)}
@@ -804,6 +849,23 @@ export default function LookupsPage() {
                     if (e.key === "Enter") addItem();
                   }}
                 />
+                {activeTable.key === "job_types" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="newJobTypeGroup">Job Group</Label>
+                    <Select value={newJobTypeGroup} onValueChange={setNewJobTypeGroup}>
+                      <SelectTrigger id="newJobTypeGroup">
+                        <SelectValue placeholder="Select group" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {JOB_GROUP_OPTIONS.map((group) => (
+                          <SelectItem key={group.value} value={group.value}>
+                            {group.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
             )}
             <DialogFooter>

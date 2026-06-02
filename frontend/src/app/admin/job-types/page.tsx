@@ -25,6 +25,7 @@ interface JobType {
   name: string;
   estimated_hours: number;
   is_active: boolean;
+  job_group?: string | null;
   job_family?: string | null;
 }
 
@@ -71,7 +72,7 @@ export default function JobTypesPage() {
       const families: Record<number, string> = {};
       (data.items || []).forEach((jobType: JobType) => {
         hours[jobType.job_type_id] = String(jobType.estimated_hours || 0);
-        families[jobType.job_type_id] = (jobType.job_family || inferJobFamilyFromJobTypeName(jobType.name) || "crp").toLowerCase();
+        families[jobType.job_type_id] = (jobType.job_group || jobType.job_family || inferJobFamilyFromJobTypeName(jobType.name) || "crp").toLowerCase();
       });
       setEditedHours(hours);
       setEditedFamilies(families);
@@ -90,7 +91,7 @@ export default function JobTypesPage() {
     }));
     setEditedFamilies((prev) => ({
       ...prev,
-      [jobType.job_type_id]: (jobType.job_family || inferJobFamilyFromJobTypeName(jobType.name) || "crp").toLowerCase(),
+      [jobType.job_type_id]: (jobType.job_group || jobType.job_family || inferJobFamilyFromJobTypeName(jobType.name) || "crp").toLowerCase(),
     }));
   }
 
@@ -112,7 +113,7 @@ export default function JobTypesPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ estimated_hours: parseFloat(hours), job_family: jobFamily }),
+        body: JSON.stringify({ estimated_hours: parseFloat(hours), job_group: jobFamily }),
       });
 
       if (!response.ok) {
@@ -216,7 +217,7 @@ export default function JobTypesPage() {
                           </select>
                         ) : (
                           <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
-                            {(jobType.job_family || inferJobFamilyFromJobTypeName(jobType.name) || "crp").toUpperCase()}
+                            {(jobType.job_group || jobType.job_family || inferJobFamilyFromJobTypeName(jobType.name) || "crp").toUpperCase()}
                           </span>
                         )}
                       </TableCell>
