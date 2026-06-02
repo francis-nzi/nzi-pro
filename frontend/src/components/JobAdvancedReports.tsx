@@ -596,7 +596,6 @@ function CoverPage({ data }: { data: LiveData }) {
     ["Client", job_data.client_name],
     ["Report Title", reportTitle],
     ["Reporting Period", reportingPeriod],
-    ["Job Number", job_data.job_number],
     ["Report Generated", generatedDate],
   ];
 
@@ -981,6 +980,7 @@ export default function JobAdvancedReports({
     ? `Carbon Reduction Plan  ${printPeriodStart} – ${printPeriodEnd}`
     : "Carbon Reduction Plan";
   const printHeaderLine2 = printClientName;
+  const printJobNumber = String(data.job_data?.job_number ?? "").replace(/['"\\]/g, "");
 
   return (
     <>
@@ -1042,6 +1042,13 @@ export default function JobAdvancedReports({
           }
           @bottom-left {
             content: "© Net Zero International";
+            font-size: 8pt;
+            color: #666;
+            font-family: Arial, sans-serif;
+            vertical-align: middle;
+          }
+          @bottom-center {
+            content: "${printJobNumber}";
             font-size: 8pt;
             color: #666;
             font-family: Arial, sans-serif;
