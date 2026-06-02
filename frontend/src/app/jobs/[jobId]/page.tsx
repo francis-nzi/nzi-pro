@@ -7,6 +7,7 @@ import { useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import JobWorkspaceHeader from "@/components/job-workspace/JobWorkspaceHeader";
+import JobReviewNotificationBar from "@/components/job-workspace/JobReviewNotificationBar";
 import JobSetupOverviewSection from "@/components/job-workspace/JobSetupOverviewSection";
 import JobScopeDatasetSection from "@/components/job-workspace/JobScopeDatasetSection";
 import JobFinancialTabs from "@/components/job-workspace/JobFinancialTabs";
@@ -706,6 +707,8 @@ export default function JobDetailPage() {
 
         {error ? <div className="mb-4 text-sm text-destructive">{error}</div> : null}
         {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading...</div> : null}
+
+        <JobReviewNotificationBar jobId={jobId} baseUrl={baseUrl} />
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <div className="mt-6">
