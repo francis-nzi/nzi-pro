@@ -2149,17 +2149,18 @@ export default function JobAdvancedReports({
             : "grid-cols-[80px_1fr_120px_120px_60px]";
           const numCols = hasPrevYear ? 6 : 5;
 
-          const benchmarkColHeader = hasBenchmark ? (
+          const bmYear = data.job_data.benchmark_period_end
+            ? new Date(data.job_data.benchmark_period_end).getFullYear()
+            : null;
+          const bmStartYear = data.job_data.benchmark_period_start
+            ? new Date(data.job_data.benchmark_period_start).getFullYear()
+            : null;
+          const bmYearLabel = bmYear
+            ? (bmStartYear && bmStartYear !== bmYear ? `${bmStartYear}–${bmYear}` : String(bmYear))
+            : "BM";
+          const benchmarkColHeader = (
             <span className="text-xs font-semibold text-white text-right leading-tight" style={{ textTransform: 'none' }}>
-              <span className="block">
-                {data.job_data.benchmark_period_start ? formatDate(data.job_data.benchmark_period_start) : "Benchmark"}
-                {data.job_data.benchmark_period_end ? ` – ${formatDate(data.job_data.benchmark_period_end)}` : ""}
-              </span>
-              <span className="block">tCO₂e</span>
-            </span>
-          ) : (
-            <span className="text-xs font-semibold text-white text-right leading-tight" style={{ textTransform: 'none' }}>
-              <span className="block">Benchmark</span>
+              <span className="block">BM {bmYearLabel}</span>
               <span className="block">tCO₂e</span>
             </span>
           );
@@ -2225,8 +2226,7 @@ export default function JobAdvancedReports({
                       <span className="block">tCO₂e</span>
                     </span>
                     <span className="text-xs font-semibold text-white text-right leading-tight" style={{ textTransform: 'none' }}>
-                      <span className="block">% vs</span>
-                      <span className="block">Benchmark</span>
+                      <span className="block">% vs BM</span>
                     </span>
                   </div>
                   {tableRows}

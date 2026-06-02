@@ -307,9 +307,45 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
             raise HTTPException(status_code=500, detail=f"get_job_report_metadata failed: {exc}") from exc
 
     # ── Sequential: depends on results above ──────────────────────────────────
+
+    # Resolve effective benchmark year: prefer explicit baseline_year, fall back
+    # to the year of benchmark_period_end (which is always populated for CRP jobs).
+    _effective_benchmark_year = _benchmark_year
+    if _effective_benchmark_year is None:
+        _bm_pe = job_data.get("benchmark_period_end")
+        if _bm_pe:
+            try:
+                _effective_benchmark_year = int(str(_bm_pe)[:4])
+            except Exception:
+                pass
+
     benchmark_categories: list[dict[str, Any]] = []
     try:
-        bm_job_id = _resolve_benchmark_reference_job(_jid, _benchmark_year)
+        bm_job_id: int | None = None
+        if _effective_benchmark_year is not None:
+            # Find a job for the same client whose reporting period falls in the benchmark year.
+            with get_conn() as _bm_con:
+                _bm_row = _bm_con.execute(
+                    """
+                    SELECT job_id FROM jobs
+                    WHERE client_db_id = %s
+                      AND job_id <> %s
+                      AND COALESCE(archived, FALSE) = FALSE
+                      AND (
+                        EXTRACT(YEAR FROM reporting_period_end)::int = %s
+                        OR reporting_year = %s
+                      )
+                    ORDER BY COALESCE(is_benchmark, FALSE) DESC,
+                             reporting_period_end DESC NULLS LAST,
+                             job_id DESC
+                    LIMIT 1
+                    """,
+                    [_client_db_id, _jid, _effective_benchmark_year, _effective_benchmark_year],
+                ).fetchone()
+            if _bm_row:
+                bm_job_id = int(_bm_row[0])
+        if bm_job_id is None:
+            bm_job_id = _resolve_benchmark_reference_job(_jid, _effective_benchmark_year)
         if bm_job_id and bm_job_id != _jid:
             benchmark_categories = get_emissions_by_category(int(bm_job_id))
     except Exception:
@@ -333,6 +369,8 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
         if _curr_year:
             _prev_year = _curr_year - 1
             previous_year_label = str(_prev_year)
+            # Exclude the benchmark job so previous year and benchmark are always different
+            _bm_exclude = bm_job_id if bm_job_id else -1
             with get_conn() as _con:
                 _prev_row = _con.execute(
                     """
@@ -341,7 +379,7 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
                            j.reporting_period_end
                     FROM jobs j
                     WHERE j.client_db_id = %s
-                      AND j.job_id != %s
+                      AND j.job_id NOT IN (%s, %s)
                       AND COALESCE(j.archived, FALSE) = FALSE
                       AND (
                         EXTRACT(YEAR FROM j.reporting_period_end)::int = %s
@@ -350,7 +388,7 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
                     ORDER BY j.reporting_period_end DESC NULLS LAST, j.job_id DESC
                     LIMIT 1
                     """,
-                    [_client_db_id, _jid, _prev_year, _prev_year],
+                    [_client_db_id, _jid, _bm_exclude, _prev_year, _prev_year],
                 ).fetchone()
             if _prev_row:
                 previous_year_categories = get_emissions_by_category(int(_prev_row[0]))
