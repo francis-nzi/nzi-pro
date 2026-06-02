@@ -315,6 +315,61 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
     except Exception:
         benchmark_categories = []
 
+    # Previous year (one year before the current reporting year)
+    previous_year_categories: list[dict[str, Any]] = []
+    previous_year_label: str = ""
+    try:
+        _re_end = job_data.get("reporting_period_end")
+        _curr_year: int | None = None
+        if _re_end:
+            try:
+                from datetime import date as _date_cls
+                _curr_year = int(str(_re_end)[:4])
+            except Exception:
+                pass
+        if _curr_year is None:
+            _ry = job_data.get("reporting_year")
+            _curr_year = int(_ry) if _ry else None
+        if _curr_year:
+            _prev_year = _curr_year - 1
+            previous_year_label = str(_prev_year)
+            with get_conn() as _con:
+                _prev_row = _con.execute(
+                    """
+                    SELECT j.job_id,
+                           j.reporting_period_start,
+                           j.reporting_period_end
+                    FROM jobs j
+                    WHERE j.client_db_id = %s
+                      AND j.job_id != %s
+                      AND COALESCE(j.archived, FALSE) = FALSE
+                      AND (
+                        EXTRACT(YEAR FROM j.reporting_period_end)::int = %s
+                        OR j.reporting_year = %s
+                      )
+                    ORDER BY j.reporting_period_end DESC NULLS LAST, j.job_id DESC
+                    LIMIT 1
+                    """,
+                    [_client_db_id, _jid, _prev_year, _prev_year],
+                ).fetchone()
+            if _prev_row:
+                previous_year_categories = get_emissions_by_category(int(_prev_row[0]))
+                # Derive a human-readable label from the previous year job's period
+                _ps = _prev_row[1]
+                _pe = _prev_row[2]
+                if _ps and _pe:
+                    def _ymd(d: Any) -> str:
+                        try:
+                            from datetime import date as _d
+                            if isinstance(d, _d):
+                                return d.strftime("%-d %b %Y")
+                            return str(d)[:10]
+                        except Exception:
+                            return str(d)[:10]
+                    previous_year_label = f"{_ymd(_ps)} – {_ymd(_pe)}"
+    except Exception:
+        pass
+
     try:
         activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
     except Exception:
@@ -365,6 +420,8 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
         "benchmark_totals": benchmark_totals,
         "categories": categories,
         "benchmark_categories": benchmark_categories,
+        "previous_year_categories": previous_year_categories,
+        "previous_year_label": previous_year_label,
         "activity_groups": activity_groups,
         "activity_totals": activity_totals,
         "activity_details": activity_details,

@@ -173,6 +173,8 @@ type LiveData = {
   benchmark_totals?: Record<string, number | null | undefined>;
   categories?: EmissionCategory[];
   benchmark_categories?: EmissionCategory[];
+  previous_year_categories?: EmissionCategory[];
+  previous_year_label?: string | null;
   activity_totals?: Record<string, number | null>;
   activity_group_order?: string[];
   activity_group_colors?: Record<string, string>;
@@ -894,6 +896,8 @@ export default function JobAdvancedReports({
     benchmark_totals,
     categories,
     benchmark_categories,
+    previous_year_categories,
+    previous_year_label,
     activity_totals,
     activity_group_order,
     activity_group_colors,
@@ -1804,7 +1808,7 @@ export default function JobAdvancedReports({
               </div>
             </div>
 
-            {/* Benchmark vs Current Year — Scope Comparison */}
+            {/* Benchmark / Previous Year / Current Year — Scope Comparison */}
             {(() => {
               const bScope1 = toNum(benchmark_totals?.["Scope 1"]);
               const bScope2 = toNum(benchmark_totals?.["Scope 2"]);
@@ -1831,18 +1835,26 @@ export default function JobAdvancedReports({
                 return "Current Year";
               })();
 
+              // Previous year scope totals from previous_year_categories
+              const pyScope1 = (previous_year_categories ?? []).filter(c => c.scope === "Scope 1").reduce((s, c) => s + toNum(c.emissions), 0);
+              const pyScope2 = (previous_year_categories ?? []).filter(c => c.scope === "Scope 2").reduce((s, c) => s + toNum(c.emissions), 0);
+              const pyScope3 = (previous_year_categories ?? []).filter(c => c.scope === "Scope 3").reduce((s, c) => s + toNum(c.emissions), 0);
+              const pyTotal  = pyScope1 + pyScope2 + pyScope3;
+              const hasPrevYear = pyTotal > 0;
+              const prevYearLabel = previous_year_label || "Previous Year";
+
               const barData = [
-                { scope: "Scope 1", benchmark: bScope1, current: scope1, pct: changePct(scope1, bScope1) },
-                { scope: "Scope 2", benchmark: bScope2, current: scope2, pct: changePct(scope2, bScope2) },
-                { scope: "Scope 3", benchmark: bScope3, current: scope3, pct: changePct(scope3, bScope3) },
-                { scope: "Total",   benchmark: bTotal,  current: totalEmissions, pct: changePct(totalEmissions, bTotal) },
+                { scope: "Scope 1", benchmark: bScope1, prevYear: pyScope1 || undefined, current: scope1, pct: changePct(scope1, bScope1) },
+                { scope: "Scope 2", benchmark: bScope2, prevYear: pyScope2 || undefined, current: scope2, pct: changePct(scope2, bScope2) },
+                { scope: "Scope 3", benchmark: bScope3, prevYear: pyScope3 || undefined, current: scope3, pct: changePct(scope3, bScope3) },
+                { scope: "Total",   benchmark: bTotal,  prevYear: pyTotal  || undefined, current: totalEmissions, pct: changePct(totalEmissions, bTotal) },
               ];
 
               return (
                 <div>
                   <p className="text-sm font-semibold text-gray-700 mb-3">Year-on-Year Comparison by Scope</p>
                   <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={barData} margin={{ top: 20, right: 24, left: 8, bottom: 32 }} barCategoryGap="30%" barGap={4}>
+                    <BarChart data={barData} margin={{ top: 20, right: 24, left: 8, bottom: 32 }} barCategoryGap="30%" barGap={3}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F0F0F0" />
                       <XAxis
                         dataKey="scope"
@@ -1867,11 +1879,16 @@ export default function JobAdvancedReports({
                         }}
                       />
                       <YAxis tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} label={{ value: "tCO₂e", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "#94a3b8" } }} />
-                      <Tooltip formatter={(v: number | undefined, name: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", name ?? ""]} />
+                      <Tooltip formatter={(v: unknown, name: unknown) => [typeof v === "number" ? `${fmt(v)} tCO₂e` : "—", String(name ?? "")]} />
                       <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="top" />
                       <Bar dataKey="benchmark" name={benchmarkLabel} fill="#94a3b8" radius={[3, 3, 0, 0]}>
                         <LabelList dataKey="benchmark" position="top" formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmt(v, 1) : ""} style={{ fontSize: 9, fill: "#64748b" }} />
                       </Bar>
+                      {hasPrevYear && (
+                        <Bar dataKey="prevYear" name={prevYearLabel} fill="#64748b" radius={[3, 3, 0, 0]}>
+                          <LabelList dataKey="prevYear" position="top" formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmt(v, 1) : ""} style={{ fontSize: 9, fill: "#475569" }} />
+                        </Bar>
+                      )}
                       <Bar dataKey="current" name={currentLabel} fill={BRAND} radius={[3, 3, 0, 0]}>
                         <LabelList dataKey="current" position="top" formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmt(v, 1) : ""} style={{ fontSize: 9, fill: BRAND }} />
                       </Bar>
@@ -2095,30 +2112,27 @@ export default function JobAdvancedReports({
 
         {/* ── 7. Emissions by Scope and Category ─────────────────────────── */}
         {(categories?.length ?? 0) > 0 && (() => {
-          // Aggregate current-year categories by (scope, activity_group)
-          const aggMap = new Map<string, { scope: string; label: string; current: number; benchmark: number }>();
-          for (const row of (categories ?? [])) {
-            const scope = row.scope ?? "";
-            const label = row.activity_group?.trim() || "Other Emissions";
-            const key = `${scope}||${label}`;
-            const existing = aggMap.get(key);
-            if (existing) {
-              existing.current += toNum(row.emissions);
-            } else {
-              aggMap.set(key, { scope, label, current: toNum(row.emissions), benchmark: 0 });
+          type CatRow = { scope: string; label: string; current: number; benchmark: number; prevYear: number };
+          const aggMap = new Map<string, CatRow>();
+          const addEmissions = (rows: EmissionCategory[] | undefined, field: keyof CatRow) => {
+            for (const row of (rows ?? [])) {
+              const scope = row.scope ?? "";
+              const label = row.activity_group?.trim() || "Other Emissions";
+              const key = `${scope}||${label}`;
+              const existing = aggMap.get(key);
+              if (existing) {
+                (existing[field] as number) += toNum(row.emissions);
+              } else {
+                const entry: CatRow = { scope, label, current: 0, benchmark: 0, prevYear: 0 };
+                (entry[field] as number) = toNum(row.emissions);
+                aggMap.set(key, entry);
+              }
             }
-          }
-          for (const row of (benchmark_categories ?? [])) {
-            const scope = row.scope ?? "";
-            const label = row.activity_group?.trim() || "Other Emissions";
-            const key = `${scope}||${label}`;
-            const existing = aggMap.get(key);
-            if (existing) {
-              existing.benchmark += toNum(row.emissions);
-            } else {
-              aggMap.set(key, { scope, label, current: 0, benchmark: toNum(row.emissions) });
-            }
-          }
+          };
+          addEmissions(categories, "current");
+          addEmissions(benchmark_categories, "benchmark");
+          addEmissions(previous_year_categories, "prevYear");
+
           const scopeOrder = ["Scope 1", "Scope 2", "Scope 3"];
           const allRows = Array.from(aggMap.values()).sort((a, b) => {
             const si = scopeOrder.indexOf(a.scope) - scopeOrder.indexOf(b.scope);
@@ -2127,6 +2141,28 @@ export default function JobAdvancedReports({
           const grandCurrentTotal = totalEmissions;
           const grandBenchmarkTotal = toNum(benchmark_totals?.Total);
           const hasBenchmark = grandBenchmarkTotal > 0 || (benchmark_categories?.length ?? 0) > 0;
+          const hasPrevYear = (previous_year_categories?.length ?? 0) > 0;
+
+          // Column grid: Scope | Category | Benchmark | [PrevYear] | Current | % vs benchmark
+          const cols = hasPrevYear
+            ? "grid-cols-[72px_1fr_110px_110px_110px_60px]"
+            : "grid-cols-[80px_1fr_120px_120px_60px]";
+          const numCols = hasPrevYear ? 6 : 5;
+
+          const benchmarkColHeader = hasBenchmark ? (
+            <span className="text-xs font-semibold text-white text-right leading-tight" style={{ textTransform: 'none' }}>
+              <span className="block">
+                {data.job_data.benchmark_period_start ? formatDate(data.job_data.benchmark_period_start) : "Benchmark"}
+                {data.job_data.benchmark_period_end ? ` – ${formatDate(data.job_data.benchmark_period_end)}` : ""}
+              </span>
+              <span className="block">tCO₂e</span>
+            </span>
+          ) : (
+            <span className="text-xs font-semibold text-white text-right leading-tight" style={{ textTransform: 'none' }}>
+              <span className="block">Benchmark</span>
+              <span className="block">tCO₂e</span>
+            </span>
+          );
 
           const tableRows: React.ReactElement[] = [];
           let rowIdx = 0;
@@ -2134,39 +2170,38 @@ export default function JobAdvancedReports({
             const scopeRows = allRows.filter(r => r.scope === scope);
             if (scopeRows.length === 0) continue;
             const scopeCurrent = scopeRows.reduce((s, r) => s + r.current, 0);
-            const scopeBenchmark = hasBenchmark
-              ? scopeRows.reduce((s, r) => s + r.benchmark, 0)
-              : null;
+            const scopeBenchmark = scopeRows.reduce((s, r) => s + r.benchmark, 0);
+            const scopePrevYear = scopeRows.reduce((s, r) => s + r.prevYear, 0);
             scopeRows.forEach(r => {
-              const pct = grandCurrentTotal > 0 ? (r.current / grandCurrentTotal) * 100 : 0;
+              const pct = grandBenchmarkTotal > 0 ? ((r.current - r.benchmark) / grandBenchmarkTotal) * 100 : (grandCurrentTotal > 0 ? (r.current / grandCurrentTotal) * 100 : 0);
               const bg = rowIdx % 2 === 0 ? "bg-white" : "bg-gray-50";
               tableRows.push(
-                <div key={`${r.scope}-${r.label}`} className={`grid grid-cols-[80px_1fr_120px_120px_60px] border-b border-gray-100 px-3 py-2 ${bg}`}>
+                <div key={`${r.scope}-${r.label}`} className={`grid ${cols} border-b border-gray-100 px-3 py-2 ${bg}`}>
                   <span className="text-xs text-gray-500">{r.scope}</span>
                   <span className="text-xs text-gray-700 pr-2">{r.label}</span>
-                  {hasBenchmark
-                    ? <span className="text-xs text-gray-700 text-right">{fmt(r.benchmark)}</span>
-                    : <span className="text-xs text-gray-400 text-right">—</span>}
+                  {hasBenchmark ? <span className="text-xs text-gray-600 text-right">{fmt(r.benchmark)}</span> : <span className="text-xs text-gray-400 text-right">—</span>}
+                  {hasPrevYear && <span className="text-xs text-gray-600 text-right">{r.prevYear > 0 ? fmt(r.prevYear) : "—"}</span>}
                   <span className="text-xs text-gray-700 text-right">{fmt(r.current)}</span>
-                  <span className="text-xs text-gray-700 text-right">{pct.toFixed(1)}%</span>
+                  <span className="text-xs text-right" style={{ color: pct < 0 ? "#16a34a" : pct > 0 ? "#dc2626" : "#6b7280" }}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span>
                 </div>
               );
               rowIdx++;
             });
-            // Scope sub-total
-            const scopePct = grandCurrentTotal > 0 ? (scopeCurrent / grandCurrentTotal) * 100 : 0;
+            const subPct = grandBenchmarkTotal > 0 ? ((scopeCurrent - scopeBenchmark) / grandBenchmarkTotal) * 100 : (grandCurrentTotal > 0 ? (scopeCurrent / grandCurrentTotal) * 100 : 0);
             tableRows.push(
-              <div key={`subtotal-${scope}`} className="grid grid-cols-[80px_1fr_120px_120px_60px] border-b border-gray-200 px-3 py-2" style={{ backgroundColor: `${BRAND}12` }}>
+              <div key={`subtotal-${scope}`} className={`grid ${cols} border-b border-gray-200 px-3 py-2`} style={{ backgroundColor: `${BRAND}12` }}>
                 <span className="text-xs font-semibold text-gray-700">{scope}</span>
                 <span className="text-xs font-semibold text-gray-700">Sub-total</span>
-                {hasBenchmark
-                  ? <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeBenchmark ?? 0)}</span>
-                  : <span className="text-xs text-gray-400 text-right">—</span>}
+                {hasBenchmark ? <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeBenchmark)}</span> : <span className="text-xs text-gray-400 text-right">—</span>}
+                {hasPrevYear && <span className="text-xs font-semibold text-gray-700 text-right">{scopePrevYear > 0 ? fmt(scopePrevYear) : "—"}</span>}
                 <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeCurrent)}</span>
-                <span className="text-xs font-semibold text-gray-700 text-right">{scopePct.toFixed(1)}%</span>
+                <span className="text-xs font-semibold text-right" style={{ color: subPct < 0 ? "#16a34a" : subPct > 0 ? "#dc2626" : "#6b7280" }}>{subPct >= 0 ? "+" : ""}{subPct.toFixed(1)}%</span>
               </div>
             );
           }
+
+          const grandPrevYearTotal = allRows.reduce((s, r) => s + r.prevYear, 0);
+          const grandPct = grandBenchmarkTotal > 0 ? ((grandCurrentTotal - grandBenchmarkTotal) / grandBenchmarkTotal) * 100 : 0;
 
           return (
             <Card className="live-report-section" data-section="Emissions by Scope and Category">
@@ -2175,45 +2210,35 @@ export default function JobAdvancedReports({
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="overflow-hidden rounded-lg border border-gray-200">
-                  <div className="grid grid-cols-[80px_1fr_120px_120px_60px] px-3 py-2" style={{ backgroundColor: BRAND }}>
+                  <div className={`grid ${cols} px-3 py-2`} style={{ backgroundColor: BRAND }}>
                     <span className="text-xs font-semibold uppercase tracking-wide text-white">Scope</span>
                     <span className="text-xs font-semibold uppercase tracking-wide text-white">Category</span>
-                    <span className="text-xs font-semibold text-white text-right leading-tight" style={{ textTransform: 'none' }}>
-                      {hasBenchmark ? (
-                        <>
-                          <span className="block">
-                            {data.job_data.benchmark_period_start ? formatDate(data.job_data.benchmark_period_start) : "Benchmark"}
-                            {data.job_data.benchmark_period_end ? ` – ${formatDate(data.job_data.benchmark_period_end)}` : ""}
-                          </span>
-                          <span className="block">tCO₂e</span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="block">Benchmark</span>
-                          <span className="block">tCO₂e</span>
-                        </>
-                      )}
-                    </span>
+                    {benchmarkColHeader}
+                    {hasPrevYear && (
+                      <span className="text-xs font-semibold text-white text-right leading-tight" style={{ textTransform: 'none' }}>
+                        <span className="block">{previous_year_label || "Prev Year"}</span>
+                        <span className="block">tCO₂e</span>
+                      </span>
+                    )}
                     <span className="text-xs font-semibold text-white text-right leading-tight" style={{ textTransform: 'none' }}>
                       <span className="block">Current Year</span>
                       <span className="block">tCO₂e</span>
                     </span>
-                    <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">%</span>
+                    <span className="text-xs font-semibold text-white text-right leading-tight" style={{ textTransform: 'none' }}>
+                      <span className="block">% vs</span>
+                      <span className="block">Benchmark</span>
+                    </span>
                   </div>
                   {tableRows}
-                  {/* Grand total */}
-                  <div className="grid grid-cols-[80px_1fr_120px_120px_60px] border-t-2 border-gray-300 px-3 py-2 bg-gray-50">
-                    <span className="text-xs font-bold text-gray-700 uppercase col-span-2">Total Emissions</span>
-                    {hasBenchmark
-                      ? <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandBenchmarkTotal)}</span>
-                      : <span className="text-xs text-gray-400 text-right">—</span>}
+                  <div className={`grid ${cols} border-t-2 border-gray-300 px-3 py-2 bg-gray-50`}>
+                    <span className={`text-xs font-bold text-gray-700 uppercase col-span-2`}>Total Emissions</span>
+                    {hasBenchmark ? <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandBenchmarkTotal)}</span> : <span className="text-xs text-gray-400 text-right">—</span>}
+                    {hasPrevYear && <span className="text-xs font-bold text-gray-700 text-right">{grandPrevYearTotal > 0 ? fmt(grandPrevYearTotal) : "—"}</span>}
                     <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandCurrentTotal)}</span>
-                    <span className="text-xs font-bold text-gray-700 text-right">100.0%</span>
+                    <span className="text-xs font-bold text-right" style={{ color: grandPct < 0 ? "#16a34a" : grandPct > 0 ? "#dc2626" : "#6b7280" }}>{grandPct >= 0 ? "+" : ""}{grandPct.toFixed(1)}%</span>
                   </div>
                 </div>
-                {/* Appendix reference note */}
                 <p className="text-xs text-gray-600">A detailed breakdown of emissions is set out in Appendix 1.</p>
-                {/* Rounding note */}
                 <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3">
                   <p className="text-xs text-gray-700">
                     <span className="font-semibold">Note:</span> Emissions figures are rounded to the nearest 1 decimal place. As a consequence, small differences in totals may occur due to rounding.
