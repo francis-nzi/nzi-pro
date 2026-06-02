@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getToken } from "@/lib/auth-client";
@@ -28,9 +30,16 @@ type ClientDashboardResponse = {
 type JobIntensityYearOverYearProps = {
   clientId: number | null;
   baseUrl: string;
+  yearJobs?: Array<{
+    year: number;
+    job_id: number;
+    job_number: string | null;
+    title?: string | null;
+    reporting_year?: number | null;
+  }>;
 };
 
-export default function JobIntensityYearOverYear({ clientId, baseUrl }: JobIntensityYearOverYearProps) {
+export default function JobIntensityYearOverYear({ clientId, baseUrl, yearJobs = [] }: JobIntensityYearOverYearProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [dashboard, setDashboard] = useState<ClientDashboardResponse | null>(null);
@@ -88,6 +97,24 @@ export default function JobIntensityYearOverYear({ clientId, baseUrl }: JobInten
   }, [sortedYears]);
 
   const latestYear = sortedYears[sortedYears.length - 1]?.year ?? null;
+  const benchmarkYear = sortedYears[0]?.year ?? null;
+  const yearJobsByYear = useMemo(
+    () =>
+      new Map(
+        yearJobs
+          .filter((job) => Number.isFinite(Number(job.year)) && Number.isFinite(Number(job.job_id)))
+          .map((job) => [
+            Number(job.year),
+            {
+              job_id: Number(job.job_id),
+              job_number: job.job_number?.trim() || null,
+              title: job.title?.trim() || null,
+              reporting_year: job.reporting_year ?? null,
+            },
+          ])
+      ),
+    [yearJobs]
+  );
 
   if (clientId == null || loading) {
     return <div className="text-sm text-muted-foreground">Loading intensity metrics...</div>;
@@ -135,14 +162,38 @@ export default function JobIntensityYearOverYear({ clientId, baseUrl }: JobInten
               <tr className="bg-muted">
                 <th className="text-left p-2 border">Metric</th>
                 <th className="text-left p-2 border">Unit</th>
-                {sortedYears.map(({ year }) => (
-                  <th
-                    key={year}
-                    className={`text-right p-2 border font-semibold ${year === latestYear ? "bg-slate-800 text-white" : ""}`}
-                  >
-                    {year}
-                  </th>
-                ))}
+                {sortedYears.map(({ year }) => {
+                  const yearJob = yearJobsByYear.get(year);
+                  const yearJobLabel = yearJob?.job_number || (yearJob?.job_id ? `Job ${yearJob.job_id}` : "");
+                  return (
+                    <th
+                      key={year}
+                      className={`text-right p-2 border font-semibold ${year === latestYear ? "bg-slate-800 text-white" : ""}`}
+                    >
+                      {yearJob?.job_id ? (
+                        <Link
+                          href={`/jobs/${yearJob.job_id}`}
+                          className="inline-flex flex-col items-end leading-tight hover:text-foreground hover:underline"
+                          aria-label={`Open ${yearJobLabel}`}
+                        >
+                          {yearJobLabel ? (
+                            <span className="text-[10px] font-medium uppercase tracking-wide text-primary">
+                              {yearJobLabel}
+                            </span>
+                          ) : null}
+                          {year === benchmarkYear ? (
+                            <Badge className="h-4 rounded-full border-amber-400 bg-amber-400 px-1.5 py-0 text-[9px] font-bold leading-none text-white">
+                              BM
+                            </Badge>
+                          ) : null}
+                          <span className="text-sm font-normal">{year}</span>
+                        </Link>
+                      ) : (
+                        <>{year}</>
+                      )}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>

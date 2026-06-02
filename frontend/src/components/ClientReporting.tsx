@@ -648,7 +648,7 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
       </div>
 
       <div className="pt-2">
-        <JobIntensityYearOverYear clientId={clientId} baseUrl={baseUrl} />
+        <JobIntensityYearOverYear clientId={clientId} baseUrl={baseUrl} yearJobs={data.year_jobs || []} />
       </div>
     </>
   );
