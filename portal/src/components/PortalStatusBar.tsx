@@ -50,7 +50,7 @@ function getDismissed(): Set<number> {
 
 function saveDismissed(ids: Set<number>) {
   try {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify([...ids]));
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(Array.from(ids)));
   } catch { /* ignore */ }
 }
 
