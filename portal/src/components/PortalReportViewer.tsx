@@ -1058,7 +1058,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                       }}
                     />
                     <YAxis tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} label={{ value: "tCO₂e", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "#94a3b8" } }} />
-                    <Tooltip formatter={(v: number | undefined, name: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", name ?? ""]} />
+                    <Tooltip formatter={(v: unknown, name: unknown) => [typeof v === "number" ? `${fmt(v)} tCO₂e` : "—", String(name ?? "")]} />
                     <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="top" />
                     <Bar dataKey="benchmark" name={bLabel} fill="#94a3b8" radius={[3,3,0,0]}>
                       <LabelList dataKey="benchmark" position="top" formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmt(v, 1) : ""} style={{ fontSize: 9, fill: "#64748b" }} />
