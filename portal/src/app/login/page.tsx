@@ -1,10 +1,82 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, setToken } from "@/lib/auth";
 
 type ClientOption = { client_db_id: number; client_name: string };
+
+function ClientPicker({
+  clients,
+  value,
+  onChange,
+}: {
+  clients: ClientOption[];
+  value: number | null;
+  onChange: (id: number) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const selected = clients.find(c => c.client_db_id === value);
+  const filtered = query.trim()
+    ? clients.filter(c => c.client_name.toLowerCase().includes(query.toLowerCase()))
+    : clients;
+
+  useEffect(() => {
+    function onOutsideClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onOutsideClick);
+    return () => document.removeEventListener("mousedown", onOutsideClick);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => { setOpen(v => !v); setQuery(""); }}
+        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-orange-400"
+      >
+        <span className={selected ? "text-gray-900" : "text-gray-400"}>
+          {selected ? selected.client_name : "Select a client…"}
+        </span>
+        <span className="text-gray-400 ml-2">▾</span>
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg">
+          <div className="p-2 border-b border-gray-100">
+            <input
+              autoFocus
+              type="text"
+              placeholder="Search clients…"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              className="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+            />
+          </div>
+          <ul className="max-h-56 overflow-y-auto py-1">
+            {filtered.length === 0 ? (
+              <li className="px-3 py-2 text-sm text-gray-400">No clients found</li>
+            ) : (
+              filtered.map(c => (
+                <li
+                  key={c.client_db_id}
+                  onClick={() => { onChange(c.client_db_id); setOpen(false); setQuery(""); }}
+                  className={`cursor-pointer px-3 py-2 text-sm hover:bg-orange-50 ${value === c.client_db_id ? "font-semibold text-orange-600" : "text-gray-800"}`}
+                >
+                  {c.client_name}
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -119,16 +191,11 @@ export default function LoginPage() {
                 Signed in as <span className="font-medium text-gray-700">{staffName}</span> (staff). Select the client portal you want to access.
               </p>
               <form onSubmit={e => void handleStaffClientSelect(e)} className="space-y-4">
-                <select
-                  value={selectedClientId ?? ""}
-                  onChange={e => setSelectedClientId(Number(e.target.value))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                  required
-                >
-                  {staffClients.map(c => (
-                    <option key={c.client_db_id} value={c.client_db_id}>{c.client_name}</option>
-                  ))}
-                </select>
+                <ClientPicker
+                  clients={staffClients}
+                  value={selectedClientId}
+                  onChange={setSelectedClientId}
+                />
                 {error && <p className="text-sm text-red-600">{error}</p>}
                 <button
                   type="submit"
