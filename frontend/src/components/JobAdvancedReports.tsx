@@ -2226,21 +2226,48 @@ export default function JobAdvancedReports({
 
         {/* ── 8. Intensity Metric Analysis ───────────────────────────────── */}
         {intensity_metrics && Object.keys(intensity_metrics).length > 0 && (() => {
-          const periodLabel = (() => {
+          const currentPeriodLabel = (() => {
             const s = data.job_data.reporting_period_start;
             const e = data.job_data.reporting_period_end;
-            if (!s && !e) return "";
+            if (!s && !e) return "Current Year";
             const sYear = s ? new Date(s).getFullYear() : null;
             const eYear = e ? new Date(e).getFullYear() : null;
-            if (sYear && eYear && sYear !== eYear) return `${sYear}-${eYear}`;
-            return String(sYear ?? eYear ?? "");
+            if (sYear && eYear && sYear !== eYear) return `${sYear}–${eYear}`;
+            return String(sYear ?? eYear ?? "Current Year");
           })();
 
-          const calcIntensity = (m: { value?: number | null; divider?: number | null }) => {
+          const benchmarkPeriodLabel = (() => {
+            const s = data.job_data.benchmark_period_start;
+            const e = data.job_data.benchmark_period_end;
+            if (!s && !e) return "Benchmark Year";
+            const sYear = s ? new Date(s).getFullYear() : null;
+            const eYear = e ? new Date(e).getFullYear() : null;
+            if (sYear && eYear && sYear !== eYear) return `${sYear}–${eYear}`;
+            return String(sYear ?? eYear ?? "Benchmark Year");
+          })();
+
+          const benchmarkTotal = toNum(benchmark_totals?.Total) ||
+            (toNum(benchmark_totals?.["Scope 1"]) + toNum(benchmark_totals?.["Scope 2"]) + toNum(benchmark_totals?.["Scope 3"]));
+
+          const calcIntensity = (m: { value?: number | null; divider?: number | null }, emissions: number) => {
             const v = toNum(m.value);
             const d = toNum(m.divider) || 1;
-            return v > 0 ? (totalEmissions * d) / v : null;
+            return v > 0 && emissions > 0 ? (emissions * d) / v : null;
           };
+
+          const pctChange = (curr: number | null, bench: number | null): number | null => {
+            if (curr == null || bench == null || bench === 0) return null;
+            return ((curr - bench) / Math.abs(bench)) * 100;
+          };
+
+          const fmtPct = (p: number | null) => {
+            if (p == null) return "—";
+            const sign = p > 0 ? "+" : "";
+            return `${sign}${p.toFixed(1)}%`;
+          };
+
+          const pctColor = (p: number | null) =>
+            p == null ? "text-gray-400" : p < 0 ? "text-green-600" : p > 0 ? "text-red-600" : "text-gray-600";
 
           const perLabel = (key: string, m: { label?: string | null; divider?: number | null }) => {
             const label = m.label?.trim() || key;
@@ -2291,7 +2318,7 @@ export default function JobAdvancedReports({
           })();
 
           const summaryParts = dedupedMetricEntries.map(([key, m]) => {
-            const intensity = calcIntensity(m);
+            const intensity = calcIntensity(m, totalEmissions);
             if (intensity == null) return null;
             const label = m.label?.trim() || key;
             const d = toNum(m.divider) || 1;
@@ -2319,21 +2346,32 @@ export default function JobAdvancedReports({
                     Intensity Metrics (tonnes CO₂e)
                   </p>
                   <div className="overflow-hidden rounded-lg border border-gray-200">
-                    <div className="grid grid-cols-[56px_1fr_160px_120px] border-b border-gray-200 bg-gray-50 px-3 py-1.5">
-                      <span /><span /><span />
+                    {/* Header */}
+                    <div className="grid grid-cols-[56px_1fr_110px_110px_90px] border-b border-gray-200 bg-gray-50 px-3 py-1.5">
+                      <span /><span />
                       <div className="text-right">
-                        <p className="text-xs font-semibold text-gray-600">Benchmark Year</p>
-                        {periodLabel && <p className="text-xs text-gray-500">{periodLabel}</p>}
+                        <p className="text-xs font-semibold text-gray-600">Benchmark</p>
+                        <p className="text-xs text-gray-500">{benchmarkPeriodLabel}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-semibold text-gray-600">Current</p>
+                        <p className="text-xs text-gray-500">{currentPeriodLabel}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-semibold text-gray-600">Change</p>
                       </div>
                     </div>
                     {dedupedMetricEntries.map(([key, m], i) => {
-                      const intensity = calcIntensity(m);
+                      const benchIntensity = calcIntensity(m, benchmarkTotal);
+                      const currIntensity  = calcIntensity(m, totalEmissions);
+                      const pct = pctChange(currIntensity, benchIntensity);
                       return (
-                        <div key={key} className={`grid grid-cols-[56px_1fr_160px_120px] items-center border-b border-gray-100 last:border-0 px-3 py-4 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                        <div key={key} className={`grid grid-cols-[56px_1fr_110px_110px_90px] items-center border-b border-gray-100 last:border-0 px-3 py-4 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
                           <div className="flex items-center justify-center"><MetricIcon metricKey={key} label={m.label} /></div>
                           <span className="text-sm font-medium text-gray-700">{perLabel(key, m)}</span>
-                          <span className="text-xs text-gray-500">Scopes 1, 2 and 3</span>
-                          <span className="text-right text-sm font-semibold text-gray-800">{intensity != null ? fmt(intensity) : "—"}</span>
+                          <span className="text-right text-sm text-gray-600">{benchIntensity != null ? fmt(benchIntensity) : "—"}</span>
+                          <span className="text-right text-sm font-semibold text-gray-800">{currIntensity != null ? fmt(currIntensity) : "—"}</span>
+                          <span className={`text-right text-sm font-semibold ${pctColor(pct)}`}>{fmtPct(pct)}</span>
                         </div>
                       );
                     })}
@@ -2346,7 +2384,7 @@ export default function JobAdvancedReports({
                       <React.Fragment key={i}>{i > 0 && " and "}<strong>{part}</strong></React.Fragment>
                     ))}.
                     {employeeCount > 0 && (
-                      <> The business headcount averaged {employeeCount} {employeeCount === 1 ? "person" : "people"} during the benchmark period.</>
+                      <> The business headcount averaged {employeeCount} {employeeCount === 1 ? "person" : "people"} during the reporting period.</>
                     )}
                   </p>
                 )}
