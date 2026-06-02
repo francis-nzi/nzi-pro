@@ -15,6 +15,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
+import JobIntensityYearOverYear from "@/components/JobIntensityYearOverYear";
 
 type ScopeCategoryData = {
   [scope: string]: {
@@ -263,116 +264,117 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
   }
 
   return (
-    <div className="space-y-6">
-      {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
+    <>
+      <div className="space-y-6">
+        {/* KPI Cards */}
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Total Emissions ({latestYear})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {formatNumber(getValueForYear(by_scope, latestYear, "total"))} tCO₂e
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Year-over-Year Change</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {prevYear ? (
+                (() => {
+                  const { value, color } = getYoYChange(
+                    getValueForYear(by_scope, latestYear, "total"),
+                    getValueForYear(by_scope, prevYear, "total")
+                  );
+                  if (value === null) return <div className="text-2xl font-bold">—</div>;
+                  return (
+                    <div className={`text-2xl font-bold ${color}`}>
+                      {value > 0 ? "+" : ""}
+                      {value.toFixed(1)}%
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="text-2xl font-bold">—</div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Years of Data</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{years.length}</div>
+              <div className="text-xs text-muted-foreground">
+                {years[0]} – {latestYear}
+              </div>
+              <div className="mt-3 space-y-1">
+                {displayYears.map((year) => {
+                  const yearJob = yearJobsByYear.get(year);
+                  if (!yearJob?.job_id) return null;
+                  const yearJobLabel = yearJob.job_number || `Job ${yearJob.job_id}`;
+                  return (
+                    <Link
+                      key={year}
+                      href={`/jobs/${yearJob.job_id}`}
+                      className="flex items-center gap-2 text-xs text-primary hover:underline"
+                      aria-label={`Open ${yearJobLabel}`}
+                    >
+                      <span>{yearJobLabel}</span>
+                      {year === benchmarkYear ? (
+                        <Badge className="h-4 rounded-full border-amber-400 bg-amber-400 px-1.5 py-0 text-[9px] font-bold leading-none text-white">
+                          BM
+                        </Badge>
+                      ) : null}
+                      <span className="text-muted-foreground">({year})</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Overview Chart */}
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Emissions ({latestYear})</CardTitle>
+          <CardHeader>
+            <CardTitle className="text-base">Total Emissions by Year</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {formatNumber(getValueForYear(by_scope, latestYear, "total"))} tCO₂e
-            </div>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="year" tick={{ fontSize: 12 }} />
+                <YAxis
+                  tick={{ fontSize: 12 }}
+                  tickFormatter={(v: number) =>
+                    v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)
+                  }
+                />
+                <Tooltip
+                  formatter={(value: string | number | undefined) => [
+                    `${formatNumber(Number(value ?? 0))} tCO₂e`,
+                  ]}
+                />
+                <Legend />
+                {chartBars}
+              </BarChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Year-over-Year Change</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {prevYear ? (
-              (() => {
-                const { value, color } = getYoYChange(
-                  getValueForYear(by_scope, latestYear, "total"),
-                  getValueForYear(by_scope, prevYear, "total")
-                );
-                if (value === null) return <div className="text-2xl font-bold">—</div>;
-                return (
-                  <div className={`text-2xl font-bold ${color}`}>
-                    {value > 0 ? "+" : ""}
-                    {value.toFixed(1)}%
-                  </div>
-                );
-              })()
-            ) : (
-              <div className="text-2xl font-bold">—</div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Years of Data</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{years.length}</div>
-            <div className="text-xs text-muted-foreground">
-              {years[0]} – {latestYear}
-            </div>
-            <div className="mt-3 space-y-1">
-              {displayYears.map((year) => {
-                const yearJob = yearJobsByYear.get(year);
-                if (!yearJob?.job_id) return null;
-                const yearJobLabel = yearJob.job_number || `Job ${yearJob.job_id}`;
-                return (
-                  <Link
-                    key={year}
-                    href={`/jobs/${yearJob.job_id}`}
-                    className="flex items-center gap-2 text-xs text-primary hover:underline"
-                    aria-label={`Open ${yearJobLabel}`}
-                  >
-                    <span>{yearJobLabel}</span>
-                    {year === benchmarkYear ? (
-                      <Badge className="h-4 rounded-full border-amber-400 bg-amber-400 px-1.5 py-0 text-[9px] font-bold leading-none text-white">
-                        BM
-                      </Badge>
-                    ) : null}
-                    <span className="text-muted-foreground">({year})</span>
-                  </Link>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Overview Chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Total Emissions by Year</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="year" tick={{ fontSize: 12 }} />
-              <YAxis
-                tick={{ fontSize: 12 }}
-                tickFormatter={(v: number) =>
-                  v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)
-                }
-              />
-              <Tooltip
-                formatter={(value: string | number | undefined) => [
-                  `${formatNumber(Number(value ?? 0))} tCO₂e`,
-                ]}
-              />
-              <Legend />
-              {chartBars}
-            </BarChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
-
-      {/* Detail Tabs */}
-      <Tabs defaultValue="by-scope" className="w-full">
-        <TabsList>
-          <TabsTrigger value="by-scope">By Scope</TabsTrigger>
-          <TabsTrigger value="by-activity">By Activity</TabsTrigger>
-          <TabsTrigger value="by-site">By Site</TabsTrigger>
-        </TabsList>
+        {/* Detail Tabs */}
+        <Tabs defaultValue="by-scope" className="w-full">
+          <TabsList>
+            <TabsTrigger value="by-scope">By Scope</TabsTrigger>
+            <TabsTrigger value="by-activity">By Activity</TabsTrigger>
+            <TabsTrigger value="by-site">By Site</TabsTrigger>
+          </TabsList>
 
         {/* ── By Scope ── */}
         <TabsContent value="by-scope" className="space-y-4">
@@ -642,7 +644,12 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
             </CardContent>
           </Card>
         </TabsContent>
-      </Tabs>
-    </div>
+        </Tabs>
+      </div>
+
+      <div className="pt-2">
+        <JobIntensityYearOverYear clientId={clientId} baseUrl={baseUrl} />
+      </div>
+    </>
   );
 }
