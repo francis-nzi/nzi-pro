@@ -30,6 +30,32 @@ from services.tenancy import require_org
 from api.org_admin_helpers import _require_org_plan_active
 
 router = APIRouter()
+
+
+@router.get("/lookups/portfolios")
+def list_portfolios_lookup(_user: dict = Depends(_current_user)):
+    """Return active portfolio options from portfolios_lookup.
+
+    Intentionally outside the /admin router so any authenticated user
+    (including CRMs without admin.access) can fetch options for the
+    Original Portfolio field in Job Setup.
+    """
+    assert_permission(_user, "jobs.view")
+    org_id = require_org(_user)
+    with get_conn() as con:
+        rows = con.execute(
+            """
+            SELECT name FROM portfolios_lookup
+            WHERE COALESCE(is_active, TRUE) = TRUE
+            ORDER BY name ASC
+            """,
+        ).fetchall()
+    names = [str(r[0] or "").strip() for r in rows if r[0]]
+    if not names:
+        names = ["NZI", "NZN"]
+    return {"items": names}
+
+
 @router.get("/jobs/{job_id}/sites")
 def job_sites(job_id: int, _user: dict[str, str] = Depends(_current_user)):
     with get_conn() as con:

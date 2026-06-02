@@ -403,16 +403,13 @@ export default function useJobWorkspaceData({
 
     async function loadPortfolios() {
       try {
-        const res = await fetch(`${baseUrl}/admin/lookups/portfolios_lookup`, {
+        const res = await fetch(`${baseUrl}/lookups/portfolios`, {
           credentials: "include",
         });
         if (!res.ok) return;
-        const json = await res.json();
+        const json = await res.json() as { items?: string[] };
         if (cancelled) return;
-        const items = Array.isArray(json.items) ? (json.items as Array<{ name?: string | null }>) : [];
-        const portfolioItems = items
-          .map((item) => String(item.name || "").trim())
-          .filter((item): item is string => Boolean(item));
+        const portfolioItems = (json.items ?? []).filter(Boolean);
         setters.setPortfolios(Array.from(new Set<string>(portfolioItems)).sort((a, b) => a.localeCompare(b)));
       } catch {
         if (!cancelled) setters.setPortfolios([]);
