@@ -465,65 +465,30 @@ def send_job_to_portal(
         import hashlib as _hashlib
         import json as _json
         from datetime import datetime, timezone
+        from api.job_live_report_routes import get_job_live_report_data
         from api.job_report_routes import (
-            get_job_data,
-            get_scope_totals,
-            get_emissions_by_category,
-            get_benchmark_emissions,
-            get_site_emissions_breakdowns,
             _get_job_assigned_template_selection,
-            _get_template_variable_values_for_render,
             _ensure_report_versions_schema,
         )
-        from api.job_live_report_routes import _get_job_report_metadata
 
-        job_data = get_job_data(int(job_id))
-        if not job_data:
+        # Use the same full LiveData payload the portal viewer renders from.
+        # This ensures every section (intensity metrics, activity charts,
+        # yearly emissions, targets, actions, etc.) is present in the snapshot.
+        snapshot_payload: dict[str, Any] = get_job_live_report_data(
+            int(job_id), _user=_user
+        )
+        if not snapshot_payload:
             raise HTTPException(status_code=404, detail="Job not found")
 
-        scope_totals = get_scope_totals(int(job_id))
-        categories = get_emissions_by_category(int(job_id))
-        benchmark_totals = get_benchmark_emissions(int(job_id), job_data.get("benchmark_year"))
-        template_selection = _get_job_assigned_template_selection(int(job_id))
-        template_variables: dict[str, Any] = {}
-        if template_selection and template_selection.get("template_id") is not None:
-            try:
-                template_variables = _get_template_variable_values_for_render(
-                    int(job_id),
-                    int(template_selection["template_id"]),
-                    int(template_selection["version_id"]) if template_selection.get("version_id") is not None else None,
-                )
-            except Exception:
-                pass
-
-        site_breakdowns: dict[str, Any] = {}
-        try:
-            site_breakdowns = get_site_emissions_breakdowns(int(job_id))
-        except Exception:
-            pass
-
-        with get_conn() as con:
-            report_metadata = _get_job_report_metadata(int(job_id)) or {}
-
-        generation_date = datetime.now(timezone.utc).date().isoformat()
-        snapshot_payload: dict[str, Any] = {
-            "job_data": job_data,
-            "scope_totals": scope_totals,
-            "benchmark_totals": benchmark_totals,
-            "categories": categories,
-            "template_variables": template_variables,
-            "report_metadata": report_metadata,
-            "site_breakdowns": site_breakdowns,
-            "generation_date": generation_date,
-            "renderer": "react",
-        }
-        snapshot_json = _json.dumps(snapshot_payload, ensure_ascii=False, sort_keys=True, default=str)
-        data_hash = _hashlib.sha256(snapshot_json.encode()).hexdigest()
-
+        job_data = snapshot_payload.get("job_data") or {}
         org_id_val = str(job_data.get("org_id") or "").strip() or None
         client_db_id_val = int(job_data.get("client_db_id") or 0)
+        template_selection = _get_job_assigned_template_selection(int(job_id))
         tmpl_id = int(template_selection["template_id"]) if template_selection and template_selection.get("template_id") is not None else None
         tmpl_ver_id = int(template_selection["version_id"]) if template_selection and template_selection.get("version_id") is not None else None
+
+        snapshot_json = _json.dumps(snapshot_payload, ensure_ascii=False, sort_keys=True, default=str)
+        data_hash = _hashlib.sha256(snapshot_json.encode()).hexdigest()
 
         with get_conn(autocommit=False) as con:
             _ensure_report_versions_schema(con)

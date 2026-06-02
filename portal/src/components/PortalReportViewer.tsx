@@ -1001,6 +1001,77 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
             </div>
           </div>
 
+          {/* Year-on-Year Comparison by Scope */}
+          {(() => {
+            const bScope1 = toNum(benchmark_totals?.["Scope 1"]);
+            const bScope2 = toNum(benchmark_totals?.["Scope 2"]);
+            const bScope3 = toNum(benchmark_totals?.["Scope 3"]);
+            const bTotal  = toNum(benchmark_totals?.Total) || (bScope1 + bScope2 + bScope3);
+            if (bTotal <= 0) return null;
+
+            const chgPct = (cur: number, bm: number) => bm > 0 ? Math.round(((cur - bm) / bm) * 1000) / 10 : null;
+
+            const bLabel = (() => {
+              const s = data.job_data.benchmark_period_start;
+              const e = data.job_data.benchmark_period_end;
+              if (s && e) return `${formatDate(s)} – ${formatDate(e)}`;
+              return s ? formatDate(s) : "Benchmark Year";
+            })();
+
+            const cLabel = (() => {
+              const s = data.job_data.reporting_period_start;
+              const e = data.job_data.reporting_period_end;
+              if (s && e) return `${formatDate(s)} – ${formatDate(e)}`;
+              return s ? formatDate(s) : "Current Year";
+            })();
+
+            const barData = [
+              { scope: "Scope 1", benchmark: bScope1, current: scope1, pct: chgPct(scope1, bScope1) },
+              { scope: "Scope 2", benchmark: bScope2, current: scope2, pct: chgPct(scope2, bScope2) },
+              { scope: "Scope 3", benchmark: bScope3, current: scope3, pct: chgPct(scope3, bScope3) },
+              { scope: "Total",   benchmark: bTotal,  current: totalEmissions, pct: chgPct(totalEmissions, bTotal) },
+            ];
+
+            return (
+              <div>
+                <p className="text-sm font-semibold text-gray-700 mb-3">Year-on-Year Comparison by Scope</p>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={barData} margin={{ top: 20, right: 24, left: 8, bottom: 32 }} barCategoryGap="30%" barGap={4}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F0F0F0" />
+                    <XAxis
+                      dataKey="scope"
+                      axisLine={false} tickLine={false} interval={0}
+                      tick={(tickProps: any) => {
+                        const { x, y, payload } = tickProps as { x: number; y: number; payload: { value: string } };
+                        const row = barData.find(d => d.scope === payload?.value);
+                        const pct = row?.pct ?? null;
+                        return (
+                          <g transform={`translate(${x},${y})`}>
+                            <text textAnchor="middle" fontSize={11} fill="#334155" y={14}>{payload?.value}</text>
+                            {pct != null && (
+                              <text textAnchor="middle" fontSize={10} fill={pct < 0 ? "#16a34a" : "#dc2626"} y={28}>
+                                {pct < 0 ? "" : "+"}{pct.toFixed(1)}%
+                              </text>
+                            )}
+                          </g>
+                        );
+                      }}
+                    />
+                    <YAxis tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} label={{ value: "tCO₂e", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "#94a3b8" } }} />
+                    <Tooltip formatter={(v: number | undefined, name: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", name ?? ""]} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="top" />
+                    <Bar dataKey="benchmark" name={bLabel} fill="#94a3b8" radius={[3,3,0,0]}>
+                      <LabelList dataKey="benchmark" position="top" formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmt(v, 1) : ""} style={{ fontSize: 9, fill: "#64748b" }} />
+                    </Bar>
+                    <Bar dataKey="current" name={cLabel} fill={BRAND} radius={[3,3,0,0]}>
+                      <LabelList dataKey="current" position="top" formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmt(v, 1) : ""} style={{ fontSize: 9, fill: BRAND }} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            );
+          })()}
+
           {/* Scope Descriptions */}
           <div>
             <p className="text-sm font-semibold text-gray-700 mb-2">Scope Descriptions</p>
