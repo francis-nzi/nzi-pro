@@ -392,19 +392,15 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
                 ).fetchone()
             if _prev_row:
                 previous_year_categories = get_emissions_by_category(int(_prev_row[0]))
-                # Derive a human-readable label from the previous year job's period
+                # Build a compact year label: "2024" or "2023–2024" for cross-year periods
                 _ps = _prev_row[1]
                 _pe = _prev_row[2]
                 if _ps and _pe:
-                    def _ymd(d: Any) -> str:
-                        try:
-                            from datetime import date as _d
-                            if isinstance(d, _d):
-                                return d.strftime("%-d %b %Y")
-                            return str(d)[:10]
-                        except Exception:
-                            return str(d)[:10]
-                    previous_year_label = f"{_ymd(_ps)} – {_ymd(_pe)}"
+                    _ps_year = int(str(_ps)[:4])
+                    _pe_year = int(str(_pe)[:4])
+                    previous_year_label = f"{_ps_year}–{_pe_year}" if _ps_year != _pe_year else str(_pe_year)
+                elif _pe:
+                    previous_year_label = str(int(str(_pe)[:4]))
     except Exception:
         pass
 

@@ -25,6 +25,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import LoadingOrbit from "@/components/LoadingOrbit";
 import { formatDate } from "@/lib/format";
 
+/** Convert a reporting period to a compact year label: "2025" or "2022–2023". */
+function toYearLabel(start: string | null | undefined, end: string | null | undefined): string {
+  const sy = start ? new Date(start).getFullYear() : null;
+  const ey = end   ? new Date(end).getFullYear()   : null;
+  if (sy && ey && sy !== ey) return `${sy}–${ey}`;
+  return String(ey ?? sy ?? "");
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ReportJob = {
@@ -1819,21 +1827,8 @@ export default function JobAdvancedReports({
               const changePct = (cur: number, bm: number) =>
                 bm > 0 ? Math.round(((cur - bm) / bm) * 1000) / 10 : null;
 
-              const benchmarkLabel = (() => {
-                const s = data.job_data.benchmark_period_start;
-                const e = data.job_data.benchmark_period_end;
-                if (s && e) return `${formatDate(s)} – ${formatDate(e)}`;
-                if (s) return formatDate(s);
-                return "Benchmark Year";
-              })();
-
-              const currentLabel = (() => {
-                const s = data.job_data.reporting_period_start;
-                const e = data.job_data.reporting_period_end;
-                if (s && e) return `${formatDate(s)} – ${formatDate(e)}`;
-                if (s) return formatDate(s);
-                return "Current Year";
-              })();
+              const benchmarkLabel = toYearLabel(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end) || "Benchmark";
+              const currentLabel = toYearLabel(data.job_data.reporting_period_start, data.job_data.reporting_period_end) || "Current";
 
               // Previous year scope totals from previous_year_categories
               const pyScope1 = (previous_year_categories ?? []).filter(c => c.scope === "Scope 1").reduce((s, c) => s + toNum(c.emissions), 0);
@@ -2149,21 +2144,18 @@ export default function JobAdvancedReports({
             : "grid-cols-[80px_1fr_120px_120px_60px]";
           const numCols = hasPrevYear ? 6 : 5;
 
-          const bmYear = data.job_data.benchmark_period_end
-            ? new Date(data.job_data.benchmark_period_end).getFullYear()
-            : null;
-          const bmStartYear = data.job_data.benchmark_period_start
-            ? new Date(data.job_data.benchmark_period_start).getFullYear()
-            : null;
-          const bmYearLabel = bmYear
-            ? (bmStartYear && bmStartYear !== bmYear ? `${bmStartYear}–${bmYear}` : String(bmYear))
-            : "BM";
-          const benchmarkColHeader = (
-            <span className="text-xs font-semibold text-white text-right leading-tight" style={{ textTransform: 'none' }}>
-              <span className="block">BM {bmYearLabel}</span>
-              <span className="block">tCO₂e</span>
+          const bmYearLabel = toYearLabel(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end) || "BM";
+          const currentYearLabel = toYearLabel(data.job_data.reporting_period_start, data.job_data.reporting_period_end) || "Current";
+
+          // Shared header cell style: label on line 1, tCO₂e on line 2
+          const colHdr = (label: string) => (
+            <span className="text-xs font-semibold text-white text-right leading-snug" style={{ textTransform: 'none' }}>
+              <span className="block">{label}</span>
+              <span className="block opacity-80">tCO₂e</span>
             </span>
           );
+
+          const benchmarkColHeader = colHdr(`BM ${bmYearLabel}`);
 
           const tableRows: React.ReactElement[] = [];
           let rowIdx = 0;
@@ -2215,18 +2207,11 @@ export default function JobAdvancedReports({
                     <span className="text-xs font-semibold uppercase tracking-wide text-white">Scope</span>
                     <span className="text-xs font-semibold uppercase tracking-wide text-white">Category</span>
                     {benchmarkColHeader}
-                    {hasPrevYear && (
-                      <span className="text-xs font-semibold text-white text-right leading-tight" style={{ textTransform: 'none' }}>
-                        <span className="block">{previous_year_label || "Prev Year"}</span>
-                        <span className="block">tCO₂e</span>
-                      </span>
-                    )}
-                    <span className="text-xs font-semibold text-white text-right leading-tight" style={{ textTransform: 'none' }}>
-                      <span className="block">Current Year</span>
-                      <span className="block">tCO₂e</span>
-                    </span>
-                    <span className="text-xs font-semibold text-white text-right leading-tight" style={{ textTransform: 'none' }}>
-                      <span className="block">% vs BM</span>
+                    {hasPrevYear && colHdr(previous_year_label || "Prev")}
+                    {colHdr(currentYearLabel)}
+                    <span className="text-xs font-semibold text-white text-right leading-snug" style={{ textTransform: 'none' }}>
+                      <span className="block">% vs</span>
+                      <span className="block">BM</span>
                     </span>
                   </div>
                   {tableRows}
