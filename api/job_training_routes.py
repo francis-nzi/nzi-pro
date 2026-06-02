@@ -592,7 +592,7 @@ def _resolve_training_product(con, org_id: str, product_id: int | None) -> dict[
                default_delivery_mode, default_capacity, default_min_attendees, certificate_policy,
                default_documents_json, is_active, created_at, created_by, updated_at, updated_by
         FROM training_products
-        WHERE training_product_id = ? AND org_id = ?
+        WHERE training_product_id = ? AND org_id = ?::text
         """,
         [int(product_id), org_id],
     ).fetchone()
@@ -605,7 +605,7 @@ def _list_training_products(con, org_id: str, include_inactive: bool = False) ->
                default_delivery_mode, default_capacity, default_min_attendees, certificate_policy,
                default_documents_json, is_active, created_at, created_by, updated_at, updated_by
         FROM training_products
-        WHERE org_id = ?
+        WHERE org_id = ?::text
     """
     params: list[Any] = [org_id]
     if not include_inactive:
@@ -634,10 +634,10 @@ def _get_course_run_rows(con, org_id: str, job_id: int) -> list[dict[str, Any]]:
                  COUNT(*) AS booking_count,
                  COUNT(*) FILTER (WHERE attendance_status IN ('booked', 'confirmed', 'attended')) AS confirmed_count
           FROM training_bookings
-          WHERE org_id = ?
+          WHERE org_id = ?::text
           GROUP BY training_course_run_id
         ) counts ON counts.training_course_run_id = r.training_course_run_id
-        WHERE r.org_id = ? AND r.job_id = ?
+        WHERE r.org_id = ?::text AND r.job_id = ?
         ORDER BY COALESCE(r.start_date, CURRENT_DATE), r.training_course_run_id DESC
         """,
         [org_id, org_id, int(job_id)],
@@ -659,7 +659,7 @@ def _get_course_run_rows(con, org_id: str, job_id: int) -> list[dict[str, Any]]:
         LEFT JOIN clients c ON c.db_id = b.client_db_id
         LEFT JOIN training_entitlements e ON e.training_entitlement_id = b.entitlement_id
         LEFT JOIN training_bookings b2 ON b2.training_booking_id = e.allocated_to_booking_id
-        WHERE b.org_id = ? AND b.training_course_run_id IN ({placeholders})
+        WHERE b.org_id = ?::text AND b.training_course_run_id IN ({placeholders})
         ORDER BY b.training_course_run_id, b.person_name, b.training_booking_id
         """,
         [org_id, *run_ids],
@@ -687,7 +687,7 @@ def _get_available_entitlements(con, org_id: str) -> list[dict[str, Any]]:
         LEFT JOIN jobs j ON j.job_id = e.source_job_id
         LEFT JOIN clients c ON c.db_id = e.source_client_db_id
         LEFT JOIN training_bookings b ON b.training_booking_id = e.allocated_to_booking_id
-        WHERE e.org_id = ? AND e.status IN ('available', 'reserved')
+        WHERE e.org_id = ?::text AND e.status IN ('available', 'reserved')
         ORDER BY CASE e.status WHEN 'available' THEN 0 WHEN 'reserved' THEN 1 ELSE 2 END,
                  e.training_entitlement_id DESC
         """,
@@ -706,7 +706,7 @@ def _get_training_session_attendance(con, org_id: str, session_id: int) -> list[
         FROM training_session_attendance a
         JOIN training_bookings b ON b.training_booking_id = a.training_booking_id
         LEFT JOIN clients c ON c.db_id = b.client_db_id
-        WHERE a.org_id = ? AND a.training_course_session_id = ?
+        WHERE a.org_id = ?::text AND a.training_course_session_id = ?
         ORDER BY b.person_name, a.training_session_attendance_id
         """,
         [org_id, int(session_id)],
@@ -728,13 +728,13 @@ def _get_training_course_sessions(con, org_id: str, job_id: int) -> list[dict[st
                  COUNT(*) AS attendance_count,
                  COUNT(*) FILTER (WHERE attendance_status = 'attended') AS attended_count
           FROM training_session_attendance
-          WHERE org_id = ?
+          WHERE org_id = ?::text
           GROUP BY training_course_session_id
         ) counts ON counts.training_course_session_id = s.training_course_session_id
-        WHERE s.org_id = ? AND s.training_course_run_id IN (
+        WHERE s.org_id = ?::text AND s.training_course_run_id IN (
           SELECT training_course_run_id
           FROM training_course_runs
-          WHERE org_id = ? AND job_id = ?
+          WHERE org_id = ?::text AND job_id = ?
         )
         ORDER BY COALESCE(s.session_date, CURRENT_DATE), s.start_time NULLS LAST, s.training_course_session_id
         """,
@@ -824,7 +824,7 @@ def _get_run_automation(con, org_id: str, training_course_run_id: int) -> dict[s
                0, 0, r.created_at, r.created_by, r.updated_at, r.updated_by
         FROM training_course_runs r
         LEFT JOIN training_products p ON p.training_product_id = r.training_product_id
-        WHERE r.org_id = ? AND r.training_course_run_id = ?
+        WHERE r.org_id = ?::text AND r.training_course_run_id = ?
         """,
         [org_id, int(training_course_run_id)],
     ).fetchone()
@@ -846,7 +846,7 @@ def _get_training_run_row(con, org_id: str, training_course_run_id: int):
                0, 0, r.created_at, r.created_by, r.updated_at, r.updated_by
         FROM training_course_runs r
         LEFT JOIN training_products p ON p.training_product_id = r.training_product_id
-        WHERE r.org_id = ? AND r.training_course_run_id = ?
+        WHERE r.org_id = ?::text AND r.training_course_run_id = ?
         """,
         [org_id, int(training_course_run_id)],
     ).fetchone()
@@ -868,7 +868,7 @@ def _get_run_bookings(con, org_id: str, training_course_run_id: int) -> list[dic
         LEFT JOIN clients c ON c.db_id = b.client_db_id
         LEFT JOIN training_entitlements e ON e.training_entitlement_id = b.entitlement_id
         LEFT JOIN training_bookings b2 ON b2.training_booking_id = e.allocated_to_booking_id
-        WHERE b.org_id = ? AND b.training_course_run_id = ?
+        WHERE b.org_id = ?::text AND b.training_course_run_id = ?
         ORDER BY b.person_name, b.training_booking_id
         """,
         [org_id, int(training_course_run_id)],
@@ -881,7 +881,7 @@ def _ensure_training_automation_log(con, org_id: str, training_course_run_id: in
         """
         SELECT 1
         FROM training_automation_log
-        WHERE org_id = ? AND training_course_run_id = ? AND automation_key = ?
+        WHERE org_id = ?::text AND training_course_run_id = ? AND automation_key = ?
         LIMIT 1
         """,
         [org_id, int(training_course_run_id), automation_key],
@@ -951,7 +951,7 @@ def _update_training_automation_log_status(
         """
         UPDATE training_automation_log
         SET status = ?, error_text = ?, sent_at = COALESCE(?, sent_at), updated_at = NOW()
-        WHERE org_id = ? AND training_course_run_id = ? AND automation_key = ?
+        WHERE org_id = ?::text AND training_course_run_id = ? AND automation_key = ?
         """,
         [status, error_text, sent_at, org_id, int(training_course_run_id), automation_key],
     )
@@ -963,7 +963,7 @@ def _all_sessions_completed(con, org_id: str, training_course_run_id: int) -> bo
         SELECT COUNT(*) AS total_count,
                COUNT(*) FILTER (WHERE lower(coalesce(status, '')) = 'completed') AS completed_count
         FROM training_course_sessions
-        WHERE org_id = ? AND training_course_run_id = ?
+        WHERE org_id = ?::text AND training_course_run_id = ?
         """,
         [org_id, int(training_course_run_id)],
     ).fetchone()
@@ -1440,7 +1440,7 @@ def _execute_training_completion_pack(
 
     if mode == "send" and sent_count:
         con.execute(
-            "UPDATE training_course_runs SET completed_at = COALESCE(completed_at, NOW()), updated_at = NOW() WHERE training_course_run_id = ? AND org_id = ?",
+            "UPDATE training_course_runs SET completed_at = COALESCE(completed_at, NOW()), updated_at = NOW() WHERE training_course_run_id = ? AND org_id = ?::text",
             [int(training_course_run_id), org_id],
         )
     return {
@@ -1592,7 +1592,7 @@ def _build_entitlement_values(body: dict[str, Any], con, org_id: str) -> dict[st
             """
             SELECT job_id, job_number, client_db_id
             FROM jobs
-            WHERE org_id = ? AND job_number = ?
+            WHERE org_id = ?::text AND job_number = ?
             """,
             [org_id, source_job_number],
         ).fetchone()
@@ -1606,7 +1606,7 @@ def _build_entitlement_values(body: dict[str, Any], con, org_id: str) -> dict[st
             """
             SELECT job_id, job_number, client_db_id
             FROM jobs
-            WHERE org_id = ? AND job_id = ?
+            WHERE org_id = ?::text AND job_id = ?
             """,
             [org_id, int(source_job_id)],
         ).fetchone()
@@ -1630,7 +1630,7 @@ def _build_entitlement_values(body: dict[str, Any], con, org_id: str) -> dict[st
 
 def _assert_run_access(user: dict[str, str], con, course_run_id: int, org_id: str) -> tuple[Any, int]:
     row = con.execute(
-        "SELECT training_course_run_id, job_id FROM training_course_runs WHERE training_course_run_id = ? AND org_id = ?",
+        "SELECT training_course_run_id, job_id FROM training_course_runs WHERE training_course_run_id = ? AND org_id = ?::text",
         [int(course_run_id), org_id],
     ).fetchone()
     if not row:
@@ -1646,7 +1646,7 @@ def _assert_booking_access(user: dict[str, str], con, booking_id: int, org_id: s
         SELECT b.training_booking_id, r.job_id
         FROM training_bookings b
         JOIN training_course_runs r ON r.training_course_run_id = b.training_course_run_id
-        WHERE b.training_booking_id = ? AND b.org_id = ?
+        WHERE b.training_booking_id = ? AND b.org_id = ?::text
         """,
         [int(booking_id), org_id],
     ).fetchone()
@@ -1659,7 +1659,7 @@ def _assert_booking_access(user: dict[str, str], con, booking_id: int, org_id: s
 
 def _assert_entitlement_access(user: dict[str, str], con, entitlement_id: int, org_id: str) -> tuple[Any, int]:
     row = con.execute(
-        "SELECT training_entitlement_id, source_job_id FROM training_entitlements WHERE training_entitlement_id = ? AND org_id = ?",
+        "SELECT training_entitlement_id, source_job_id FROM training_entitlements WHERE training_entitlement_id = ? AND org_id = ?::text",
         [int(entitlement_id), org_id],
     ).fetchone()
     if not row:
@@ -1670,7 +1670,7 @@ def _assert_entitlement_access(user: dict[str, str], con, entitlement_id: int, o
 
 def _sync_booking_entitlement(con, booking_id: int, entitlement_id: int | None, actor: str, org_id: str) -> None:
     booking_row = con.execute(
-        "SELECT entitlement_id FROM training_bookings WHERE training_booking_id = ? AND org_id = ?",
+        "SELECT entitlement_id FROM training_bookings WHERE training_booking_id = ? AND org_id = ?::text",
         [int(booking_id), org_id],
     ).fetchone()
     if not booking_row:
@@ -1683,20 +1683,20 @@ def _sync_booking_entitlement(con, booking_id: int, entitlement_id: int | None, 
             UPDATE training_entitlements
             SET allocated_to_booking_id = NULL, status = 'available', consumed_at = NULL,
                 updated_at = NOW(), updated_by = ?
-            WHERE training_entitlement_id = ? AND org_id = ?
+            WHERE training_entitlement_id = ? AND org_id = ?::text
             """,
             [actor, current_entitlement_id, org_id],
         )
 
     if entitlement_id is None:
         con.execute(
-            "UPDATE training_bookings SET entitlement_id = NULL, updated_at = NOW(), updated_by = ? WHERE training_booking_id = ? AND org_id = ?",
+            "UPDATE training_bookings SET entitlement_id = NULL, updated_at = NOW(), updated_by = ? WHERE training_booking_id = ? AND org_id = ?::text",
             [actor, int(booking_id), org_id],
         )
         return
 
     entitlement_row = con.execute(
-        "SELECT allocated_to_booking_id FROM training_entitlements WHERE training_entitlement_id = ? AND org_id = ?",
+        "SELECT allocated_to_booking_id FROM training_entitlements WHERE training_entitlement_id = ? AND org_id = ?::text",
         [int(entitlement_id), org_id],
     ).fetchone()
     if not entitlement_row:
@@ -1705,7 +1705,7 @@ def _sync_booking_entitlement(con, booking_id: int, entitlement_id: int | None, 
     existing_booking_id = int(entitlement_row[0]) if entitlement_row[0] is not None else None
     if existing_booking_id is not None and existing_booking_id != int(booking_id):
         con.execute(
-            "UPDATE training_bookings SET entitlement_id = NULL, updated_at = NOW(), updated_by = ? WHERE training_booking_id = ? AND org_id = ?",
+            "UPDATE training_bookings SET entitlement_id = NULL, updated_at = NOW(), updated_by = ? WHERE training_booking_id = ? AND org_id = ?::text",
             [actor, existing_booking_id, org_id],
         )
 
@@ -1714,12 +1714,12 @@ def _sync_booking_entitlement(con, booking_id: int, entitlement_id: int | None, 
         UPDATE training_entitlements
         SET allocated_to_booking_id = ?, status = 'consumed', consumed_at = NOW(),
             updated_at = NOW(), updated_by = ?
-        WHERE training_entitlement_id = ? AND org_id = ?
+        WHERE training_entitlement_id = ? AND org_id = ?::text
         """,
         [int(booking_id), actor, int(entitlement_id), org_id],
     )
     con.execute(
-        "UPDATE training_bookings SET entitlement_id = ?, updated_at = NOW(), updated_by = ? WHERE training_booking_id = ? AND org_id = ?",
+        "UPDATE training_bookings SET entitlement_id = ?, updated_at = NOW(), updated_by = ? WHERE training_booking_id = ? AND org_id = ?::text",
         [int(entitlement_id), actor, int(booking_id), org_id],
     )
 
@@ -1770,7 +1770,7 @@ def _assert_session_access(user: dict[str, str], con, session_id: int, org_id: s
         SELECT s.training_course_session_id, r.job_id
         FROM training_course_sessions s
         JOIN training_course_runs r ON r.training_course_run_id = s.training_course_run_id
-        WHERE s.training_course_session_id = ? AND s.org_id = ?
+        WHERE s.training_course_session_id = ? AND s.org_id = ?::text
         """,
         [int(session_id), org_id],
     ).fetchone()
@@ -1795,10 +1795,10 @@ def _get_sessions_for_run(con, org_id: str, training_course_run_id: int) -> list
                  COUNT(*) AS attendance_count,
                  COUNT(*) FILTER (WHERE attendance_status = 'attended') AS attended_count
           FROM training_session_attendance
-          WHERE org_id = ?
+          WHERE org_id = ?::text
           GROUP BY training_course_session_id
         ) counts ON counts.training_course_session_id = s.training_course_session_id
-        WHERE s.org_id = ? AND s.training_course_run_id = ?
+        WHERE s.org_id = ?::text AND s.training_course_run_id = ?
         ORDER BY COALESCE(s.session_date, CURRENT_DATE), s.start_time NULLS LAST, s.training_course_session_id
         """,
         [org_id, org_id, int(training_course_run_id)],
@@ -1814,7 +1814,7 @@ def _get_sessions_for_run(con, org_id: str, training_course_run_id: int) -> list
             FROM training_session_attendance a
             JOIN training_bookings b ON b.training_booking_id = a.training_booking_id
             LEFT JOIN clients c ON c.db_id = b.client_db_id
-            WHERE a.org_id = ? AND a.training_course_session_id = ?
+            WHERE a.org_id = ?::text AND a.training_course_session_id = ?
             ORDER BY b.person_name, a.training_session_attendance_id
             """,
             [org_id, int(row[0])],
@@ -1909,8 +1909,8 @@ def create_training_product(body: dict = Body(...), _user: dict[str, str] = Depe
                    default_delivery_mode, default_capacity, default_min_attendees, certificate_policy,
                    default_documents_json, is_active, created_at, created_by, updated_at, updated_by
             FROM training_products
-            WHERE org_id = ? AND training_product_id = (
-              SELECT MAX(training_product_id) FROM training_products WHERE org_id = ?
+            WHERE org_id = ?::text AND training_product_id = (
+              SELECT MAX(training_product_id) FROM training_products WHERE org_id = ?::text
             )
             """,
             [org_id, org_id],
@@ -1931,7 +1931,7 @@ def update_training_product(
     with get_conn() as con:
         _ensure_tables(con)
         exists = con.execute(
-            "SELECT 1 FROM training_products WHERE training_product_id = ? AND org_id = ?",
+            "SELECT 1 FROM training_products WHERE training_product_id = ? AND org_id = ?::text",
             [int(training_product_id), org_id],
         ).fetchone()
         if not exists:
@@ -1942,7 +1942,7 @@ def update_training_product(
             SET product_code = ?, product_name = ?, description = ?, default_hours = ?, default_delivery_mode = ?,
                 default_capacity = ?, default_min_attendees = ?, certificate_policy = ?, default_documents_json = ?,
                 is_active = ?, updated_at = NOW(), updated_by = ?
-            WHERE training_product_id = ? AND org_id = ?
+            WHERE training_product_id = ? AND org_id = ?::text
             """,
             [
                 values["product_code"],
@@ -1966,7 +1966,7 @@ def update_training_product(
                    default_delivery_mode, default_capacity, default_min_attendees, certificate_policy,
                    default_documents_json, is_active, created_at, created_by, updated_at, updated_by
             FROM training_products
-            WHERE training_product_id = ? AND org_id = ?
+            WHERE training_product_id = ? AND org_id = ?::text
             """,
             [int(training_product_id), org_id],
         ).fetchone()
@@ -2048,7 +2048,7 @@ def create_job_training_course_run(
                    r.created_at, r.created_by, r.updated_at, r.updated_by
             FROM training_course_runs r
             LEFT JOIN training_products p ON p.training_product_id = r.training_product_id
-            WHERE r.org_id = ? AND r.job_id = ?
+            WHERE r.org_id = ?::text AND r.job_id = ?
             ORDER BY r.training_course_run_id DESC
             LIMIT 1
             """,
@@ -2085,7 +2085,7 @@ def update_training_course_run(
                 capacity = ?, min_attendees = ?, status = ?, workflow_stage_key = ?, start_date = ?,
                 end_date = ?, venue_name = ?, venue_address = ?, online_meeting_url = ?,
                 online_meeting_id = ?, online_passcode = ?, notes = ?, updated_at = NOW(), updated_by = ?
-            WHERE training_course_run_id = ? AND org_id = ?
+            WHERE training_course_run_id = ? AND org_id = ?::text
             """,
             [
                 values["training_product_id"],
@@ -2173,8 +2173,8 @@ def create_training_booking(
             LEFT JOIN clients c ON c.db_id = b.client_db_id
             LEFT JOIN training_entitlements e ON e.training_entitlement_id = b.entitlement_id
             LEFT JOIN training_bookings b2 ON b2.training_booking_id = e.allocated_to_booking_id
-            WHERE b.org_id = ? AND b.training_booking_id = (
-              SELECT MAX(training_booking_id) FROM training_bookings WHERE org_id = ? AND training_course_run_id = ?
+            WHERE b.org_id = ?::text AND b.training_booking_id = (
+              SELECT MAX(training_booking_id) FROM training_bookings WHERE org_id = ?::text AND training_course_run_id = ?
             )
             """,
             [org_id, org_id, int(training_course_run_id)],
@@ -2193,7 +2193,7 @@ def create_training_booking(
                 LEFT JOIN clients c ON c.db_id = b.client_db_id
                 LEFT JOIN training_entitlements e ON e.training_entitlement_id = b.entitlement_id
                 LEFT JOIN training_bookings b2 ON b2.training_booking_id = e.allocated_to_booking_id
-                WHERE b.training_booking_id = ? AND b.org_id = ?
+                WHERE b.training_booking_id = ? AND b.org_id = ?::text
                 """,
                 [int(booking_row[0]), org_id],
             ).fetchone()
@@ -2221,7 +2221,7 @@ def update_training_booking(
             SET client_db_id = ?, contact_id = ?, participant_type = ?, booking_source = ?, person_name = ?,
                 person_email = ?, person_phone = ?, billing_status = ?, attendance_status = ?,
                 special_requirements = ?, consent_status = ?, notes = ?, updated_at = NOW(), updated_by = ?
-            WHERE training_booking_id = ? AND org_id = ?
+            WHERE training_booking_id = ? AND org_id = ?::text
             """,
             [
                 values["client_db_id"],
@@ -2254,7 +2254,7 @@ def update_training_booking(
             LEFT JOIN clients c ON c.db_id = b.client_db_id
             LEFT JOIN training_entitlements e ON e.training_entitlement_id = b.entitlement_id
             LEFT JOIN training_bookings b2 ON b2.training_booking_id = e.allocated_to_booking_id
-            WHERE b.training_booking_id = ? AND b.org_id = ?
+            WHERE b.training_booking_id = ? AND b.org_id = ?::text
             """,
             [int(training_booking_id), org_id],
         ).fetchone()
@@ -2346,7 +2346,7 @@ def update_training_course_session(
                 delivery_mode = ?, venue_name = ?, venue_address = ?, online_meeting_url = ?,
                 online_meeting_id = ?, online_passcode = ?, status = ?, notes = ?,
                 updated_at = NOW(), updated_by = ?
-            WHERE training_course_session_id = ? AND org_id = ?
+            WHERE training_course_session_id = ? AND org_id = ?::text
             """,
             [
                 values["session_title"],
@@ -2396,7 +2396,7 @@ def upsert_training_session_attendance(
             raise HTTPException(status_code=400, detail="items is required")
         for item in items:
             booking_row = con.execute(
-                "SELECT 1 FROM training_bookings WHERE training_booking_id = ? AND org_id = ?",
+                "SELECT 1 FROM training_bookings WHERE training_booking_id = ? AND org_id = ?::text",
                 [int(item["training_booking_id"]), org_id],
             ).fetchone()
             if not booking_row:
@@ -2405,7 +2405,7 @@ def upsert_training_session_attendance(
                 """
                 SELECT training_session_attendance_id
                 FROM training_session_attendance
-                WHERE org_id = ? AND training_course_session_id = ? AND training_booking_id = ?
+                WHERE org_id = ?::text AND training_course_session_id = ? AND training_booking_id = ?
                 """,
                 [org_id, int(training_course_session_id), int(item["training_booking_id"])],
             ).fetchone()
@@ -2414,7 +2414,7 @@ def upsert_training_session_attendance(
                     """
                     UPDATE training_session_attendance
                     SET attendance_status = ?, attendance_minutes = ?, notes = ?, updated_at = NOW(), updated_by = ?
-                    WHERE training_session_attendance_id = ? AND org_id = ?
+                    WHERE training_session_attendance_id = ? AND org_id = ?::text
                     """,
                     [
                         item["attendance_status"],
@@ -2499,7 +2499,7 @@ def save_training_course_run_automation(
             SET reminder_enabled = ?, reminder_schedule_json = ?, reminder_subject_template = ?, reminder_body_template = ?,
                 completion_subject_template = ?, completion_body_template = ?, post_course_documents_json = ?,
                 auto_certificate = ?, certificate_template_key = ?, updated_at = NOW(), updated_by = ?
-            WHERE training_course_run_id = ? AND org_id = ?
+            WHERE training_course_run_id = ? AND org_id = ?::text
             """,
             [
                 values["reminder_enabled"],
@@ -2562,7 +2562,7 @@ def list_training_automation_log(
                    l.created_at, l.sent_at, l.updated_at
             FROM training_automation_log l
             JOIN training_course_runs r ON r.training_course_run_id = l.training_course_run_id
-            WHERE r.job_id = ? AND l.org_id = ?
+            WHERE r.job_id = ? AND l.org_id = ?::text
             ORDER BY l.created_at DESC, l.training_automation_log_id DESC
             LIMIT ?
             """,
@@ -2593,7 +2593,7 @@ def list_training_entitlements(
             LEFT JOIN jobs j ON j.job_id = e.source_job_id
             LEFT JOIN clients c ON c.db_id = e.source_client_db_id
             LEFT JOIN training_bookings b ON b.training_booking_id = e.allocated_to_booking_id
-            WHERE e.org_id = ?
+            WHERE e.org_id = ?::text
         """
         if status:
             sql += " AND e.status = ?"
@@ -2653,8 +2653,8 @@ def create_training_entitlement(
             LEFT JOIN jobs j ON j.job_id = e.source_job_id
             LEFT JOIN clients c ON c.db_id = e.source_client_db_id
             LEFT JOIN training_bookings b ON b.training_booking_id = e.allocated_to_booking_id
-            WHERE e.org_id = ? AND e.training_entitlement_id = (
-              SELECT MAX(training_entitlement_id) FROM training_entitlements WHERE org_id = ?
+            WHERE e.org_id = ?::text AND e.training_entitlement_id = (
+              SELECT MAX(training_entitlement_id) FROM training_entitlements WHERE org_id = ?::text
             )
             """,
             [org_id, org_id],
@@ -2680,7 +2680,7 @@ def update_training_entitlement(
             UPDATE training_entitlements
             SET source_job_id = ?, source_job_number = ?, source_client_db_id = ?, entitlement_type = ?,
                 status = ?, expires_at = ?, notes = ?, updated_at = NOW(), updated_by = ?
-            WHERE training_entitlement_id = ? AND org_id = ?
+            WHERE training_entitlement_id = ? AND org_id = ?::text
             """,
             [
                 values["source_job_id"],
@@ -2707,7 +2707,7 @@ def update_training_entitlement(
             LEFT JOIN jobs j ON j.job_id = e.source_job_id
             LEFT JOIN clients c ON c.db_id = e.source_client_db_id
             LEFT JOIN training_bookings b ON b.training_booking_id = e.allocated_to_booking_id
-            WHERE e.training_entitlement_id = ? AND e.org_id = ?
+            WHERE e.training_entitlement_id = ? AND e.org_id = ?::text
             """,
             [int(training_entitlement_id), org_id],
         ).fetchone()
@@ -2743,7 +2743,7 @@ def consume_training_entitlement(
             LEFT JOIN jobs j ON j.job_id = e.source_job_id
             LEFT JOIN clients c ON c.db_id = e.source_client_db_id
             LEFT JOIN training_bookings b ON b.training_booking_id = e.allocated_to_booking_id
-            WHERE e.training_entitlement_id = ? AND e.org_id = ?
+            WHERE e.training_entitlement_id = ? AND e.org_id = ?::text
             """,
             [int(training_entitlement_id), org_id],
         ).fetchone()
