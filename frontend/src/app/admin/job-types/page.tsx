@@ -189,7 +189,7 @@ export default function JobTypesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Job Type Name</TableHead>
-                  <TableHead>Family</TableHead>
+                  <TableHead>Group</TableHead>
                   <TableHead className="text-right">Estimated Hours</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>

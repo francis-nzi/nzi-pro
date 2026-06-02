@@ -254,7 +254,7 @@ export default function JobsPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="familyFilter">Job Family</Label>
+                  <Label htmlFor="familyFilter">Job Group</Label>
                   <Select
                     value={familyFilter || "__all__"}
                     onValueChange={(v) => {
@@ -263,10 +263,10 @@ export default function JobsPage() {
                     }}
                   >
                     <SelectTrigger id="familyFilter" className="w-full">
-                      <SelectValue placeholder="All families" />
+                      <SelectValue placeholder="All groups" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="__all__">All families</SelectItem>
+                      <SelectItem value="__all__">All groups</SelectItem>
                       {["crp", "training", "consultancy", "lca", "pcf"].map((family) => (
                         <SelectItem key={family} value={family}>
                           <div className="flex items-center gap-2">

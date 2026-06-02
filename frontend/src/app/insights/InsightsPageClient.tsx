@@ -518,7 +518,7 @@ function reportFilterSummary(filters: {
     filters.year ? `Year ${filters.year}` : "All years",
     filters.industry || "All industries",
     filters.crm_owner || "All client owners",
-    filters.job_family ? `Family ${formatJobFamilyLabel(filters.job_family)}` : "All families",
+    filters.job_family ? `Group ${formatJobFamilyLabel(filters.job_family)}` : "All groups",
   ].join(" | ");
 }
 
@@ -636,7 +636,7 @@ function toneForMilestoneStatus(status: string | null | undefined): string {
 function overviewSubtitle(data: DashboardOverview | null): string {
   if (!data) return "Portfolio-wide business intelligence for clients, jobs, and delivery performance.";
   const year = data.selected_year || new Date().getFullYear();
-  return `Portfolio-wide business intelligence for ${year}, with filters for industry, client owner, and job family.`;
+  return `Portfolio-wide business intelligence for ${year}, with filters for industry, client owner, and job group.`;
 }
 
 export default function InsightsPageClient() {
@@ -670,7 +670,7 @@ export default function InsightsPageClient() {
       : ["crp", "training", "consultancy", "lca", "pcf"],
     [data]
   );
-  const selectedJobFamilyLabel = selectedJobFamily ? formatJobFamilyLabel(selectedJobFamily) : "All families";
+  const selectedJobFamilyLabel = selectedJobFamily ? formatJobFamilyLabel(selectedJobFamily) : "All groups";
 
   const readApiError = useCallback(async (res: Response, fallback: string) => {
     const text = await res.text();
@@ -1293,7 +1293,7 @@ export default function InsightsPageClient() {
             </span>
             <span className="hidden sm:inline mx-1 text-slate-300">•</span>
             <span className="flex items-center gap-1">
-              <span>Family:</span>
+              <span>Group:</span>
               <span
                 className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${selectedJobFamily ? jobFamilyBadgeClassName(selectedJobFamily) : "border-slate-200 bg-slate-50 text-slate-700"}`}
               >
@@ -1314,11 +1314,11 @@ export default function InsightsPageClient() {
               </Select>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Family</span>
+              <span className="text-xs text-muted-foreground">Group</span>
               <Select value={selectedJobFamily ?? ALL_FILTER_VALUE} onValueChange={v => setSelectedJobFamily(v === ALL_FILTER_VALUE ? null : v)}>
-                <SelectTrigger className="h-8 w-40 text-xs sm:w-44"><SelectValue placeholder="All families" /></SelectTrigger>
+                <SelectTrigger className="h-8 w-40 text-xs sm:w-44"><SelectValue placeholder="All groups" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_FILTER_VALUE}>All families</SelectItem>
+                  <SelectItem value={ALL_FILTER_VALUE}>All groups</SelectItem>
                   {availableJobFamilies.map((family) => (
                     <SelectItem key={family} value={family}>{formatJobFamilyLabel(family)}</SelectItem>
                   ))}
@@ -1360,9 +1360,9 @@ export default function InsightsPageClient() {
           <InsightsPill active={isSuperuser} onClick={() => setSelectedCrm(null)}>All CRMs</InsightsPill>
           {crmOpts.map(c => <InsightsPill key={c} active={selectedCrm === c} onClick={() => setSelectedCrm(selectedCrm === c ? null : c)}>{c}</InsightsPill>)}
           <span className="ml-1.5 inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
-            Family
+            Group
           </span>
-          <InsightsPill active={!selectedJobFamily} onClick={() => setSelectedJobFamily(null)}>All families</InsightsPill>
+          <InsightsPill active={!selectedJobFamily} onClick={() => setSelectedJobFamily(null)}>All groups</InsightsPill>
           {availableJobFamilies.map((family) => (
             <InsightsPill
               key={family}
@@ -1509,7 +1509,7 @@ export default function InsightsPageClient() {
               </Card>
 
               <Card className="h-full">
-                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Jobs by Family</CardTitle></CardHeader>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Jobs by Group</CardTitle></CardHeader>
                 <CardContent className="pt-0 h-full">
                   {jobsByTypeChartData.length === 0 ? <InsightsEmpty /> : (
                     <div className="h-[250px]">

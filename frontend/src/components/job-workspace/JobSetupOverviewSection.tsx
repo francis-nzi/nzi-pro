@@ -191,7 +191,7 @@ export default function JobSetupOverviewSection({
               )}
               {jobFamily ? (
                 <div className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
-                  <span>Family:</span>
+                  <span>Group:</span>
                   <Badge variant="outline" className={jobFamilyBadgeClassName(jobFamily)}>
                     {formatJobFamilyLabel(jobFamily)}
                   </Badge>

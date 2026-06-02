@@ -211,7 +211,7 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                 client_db_id = int(client_db_id_raw)
                 assert_client_access(_user, client_db_id)
             elif job_family != "training":
-                raise HTTPException(status_code=400, detail="client_db_id is required for this job family")
+                raise HTTPException(status_code=400, detail="client_db_id is required for this job group")
             
             # Get client's benchmark period and financial year info
             benchmark_start = benchmark_end = fy_month = fy_day = benchmark_year = year_end_month = None

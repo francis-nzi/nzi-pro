@@ -485,7 +485,7 @@ def get_dashboard_overview(
     year: int = Query(None, description="Reporting year to filter emissions (defaults to current year)"),
     industry: str | None = Query(None, description="Optional industry filter"),
     crm_owner: str | None = Query(None, description="Optional CRM owner filter"),
-    job_family: str | None = Query(None, description="Optional job family filter"),
+    job_family: str | None = Query(None, description="Optional job group filter"),
     _user: dict[str, str] = Depends(_current_user)
 ):
     """
@@ -693,7 +693,7 @@ def get_dashboard_overview(
                     if families:
                         available_job_families = sorted(set(available_job_families).union(families))
                 except Exception:
-                    logger.debug("Failed to load dashboard job family list; using defaults", exc_info=True)
+                    logger.debug("Failed to load dashboard job group list; using defaults", exc_info=True)
             has_job_types_table = _table_exists(con, "job_types")
             has_job_type_id = _column_exists(con, "jobs", "job_type_id")
             has_job_type_text = _column_exists(con, "jobs", "job_type")
@@ -1051,7 +1051,7 @@ def get_dashboard_financial_overview(
     year: int = Query(None, description="Reporting year filter"),
     industry: str | None = Query(None, description="Optional industry filter"),
     crm_owner: str | None = Query(None, description="Optional CRM owner filter"),
-    job_family: str | None = Query(None, description="Optional job family filter"),
+    job_family: str | None = Query(None, description="Optional job group filter"),
     _user: dict[str, str] = Depends(_current_user)
 ):
     """Portfolio-level quote and invoice intelligence for Insights."""
@@ -1444,7 +1444,7 @@ def get_dashboard_financial_overview(
 
 @router.get("/dashboard/jobs-by-milestone-status")
 def get_jobs_by_milestone_status(
-    job_family: str | None = Query(None, description="Optional job family filter"),
+    job_family: str | None = Query(None, description="Optional job group filter"),
     _user: dict[str, str] = Depends(_current_user),
 ):
     """
@@ -1693,7 +1693,7 @@ def get_dashboard_operations_overview(
     year: int = Query(None, description="Reporting year filter"),
     industry: str | None = Query(None, description="Optional industry filter"),
     crm_owner: str | None = Query(None, description="Optional CRM owner filter"),
-    job_family: str | None = Query(None, description="Optional job family filter"),
+    job_family: str | None = Query(None, description="Optional job group filter"),
     _user: dict[str, str] = Depends(_current_user)
 ):
     """Portfolio-level delivery and workload intelligence for Insights."""
@@ -3177,7 +3177,7 @@ def get_dashboard_report_view(
     year: int | None = Query(None, description="Optional reporting year filter"),
     industry: str | None = Query(None, description="Optional industry filter"),
     crm_owner: str | None = Query(None, description="Optional CRM owner filter"),
-    job_family: str | None = Query(None, description="Optional job family filter"),
+    job_family: str | None = Query(None, description="Optional job group filter"),
     limit: int = Query(100, ge=1, le=500, description="Maximum rows to return"),
     _user: dict[str, str] = Depends(_current_user),
 ):
@@ -3204,7 +3204,7 @@ def export_dashboard_report(
     year: int | None = Query(None, description="Optional reporting year filter"),
     industry: str | None = Query(None, description="Optional industry filter"),
     crm_owner: str | None = Query(None, description="Optional CRM owner filter"),
-    job_family: str | None = Query(None, description="Optional job family filter"),
+    job_family: str | None = Query(None, description="Optional job group filter"),
     limit: int = Query(500, ge=1, le=2000, description="Maximum rows to export"),
     _user: dict[str, str] = Depends(_current_user),
 ):

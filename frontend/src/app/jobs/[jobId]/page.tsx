@@ -819,7 +819,7 @@ export default function JobDetailPage() {
               {showFamilyDetails && (
                 <Card id="family-details-section">
                   <CardHeader>
-                    <CardTitle style={{ color: '#F26624' }}>Family Details</CardTitle>
+                    <CardTitle style={{ color: '#F26624' }}>Group Details</CardTitle>
                     <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                       <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${jobFamilyBadgeClassName(job?.job_family)}`}>
                         {familyLabel}
@@ -829,7 +829,7 @@ export default function JobDetailPage() {
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-muted-foreground mb-4">
-                      These family-specific fields were captured at create time and can be edited here.
+                      These group-specific fields were captured at create time and can be edited here.
                     </p>
                     <CustomFields
                       entityId={jobId}

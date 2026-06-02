@@ -96,7 +96,7 @@ export default function JobWorkspaceHeader({
               {job.jobFamily ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <Pill
-                    label={`Family: ${formatJobFamilyLabel(job.jobFamily)}`}
+                    label={`Group: ${formatJobFamilyLabel(job.jobFamily)}`}
                     className={jobFamilyBadgeClassName(job.jobFamily)}
                   />
                   <span className="text-xs text-slate-500">{getJobFamilyDescription(job.jobFamily)}</span>

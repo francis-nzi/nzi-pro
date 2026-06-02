@@ -204,8 +204,8 @@ function NewJobPageContent() {
     () => [
       {
         id: 1,
-        title: "Job family & basics",
-        description: "Choose the family first, then enter the core job metadata",
+        title: "Job group & basics",
+        description: "Choose the group first, then enter the core job metadata",
       },
       {
         id: 2,
@@ -664,7 +664,7 @@ function NewJobPageContent() {
         });
         if (!customFieldsRes.ok) {
           console.warn("Custom field save failed:", await customFieldsRes.text());
-          successMsg += " | Some family details could not be saved";
+          successMsg += " | Some group details could not be saved";
         }
       }
 
@@ -764,16 +764,16 @@ function NewJobPageContent() {
             {currentStep === 1 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Job family & basics</CardTitle>
+                  <CardTitle>Job group & basics</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-muted-foreground">
-                    Choose the family first. CRP keeps the current workflow; Training can be created without a client.
+                    Choose the group first. CRP keeps the current workflow; Training can be created without a client.
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-3">
                     <div className="space-y-2 md:col-span-2">
-                      <Label htmlFor="jobType">Job Family / Type *</Label>
+                      <Label htmlFor="jobType">Job Group / Type *</Label>
                       <Select
                         value={jobType}
                         onValueChange={(value) => {
@@ -786,7 +786,7 @@ function NewJobPageContent() {
                           aria-invalid={!!formErrors.jobType}
                           className={formErrors.jobType ? "border-destructive" : ""}
                         >
-                          <SelectValue placeholder="Select job family..." />
+                          <SelectValue placeholder="Select job group..." />
                         </SelectTrigger>
                         <SelectContent>
                           {jobTypes.map((jt) => {
@@ -813,7 +813,7 @@ function NewJobPageContent() {
                       </Select>
                       {selectedJobTypeRecord ? (
                         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          <span className="font-medium">Family:</span>
+                          <span className="font-medium">Group:</span>
                           <Badge className={jobFamilyBadgeClassName(selectedJobFamily)} variant="outline">
                             {formatJobFamilyLabel(selectedJobFamily || "crp")}
                           </Badge>
@@ -1298,7 +1298,7 @@ function NewJobPageContent() {
                           <span className="text-sm font-medium text-slate-900">{selectedWorkflow.description}</span>
                         </div>
                         <p className="mt-2 text-xs text-muted-foreground">
-                          {familyCreationCopy.step3Description} The family-specific workflow and detail sections will
+                          {familyCreationCopy.step3Description} The group-specific workflow and detail sections will
                           be available on the job page after creation.
                         </p>
                       </div>

@@ -83,14 +83,14 @@ export default function ClientJobsSection({ loading = false, jobs }: ClientJobsS
           <CardTitle>Jobs ({jobs.length})</CardTitle>
           <div className="flex items-center gap-3">
             <label htmlFor="clientJobFamilyFilter" className="text-sm text-muted-foreground">
-              Family
+              Group
             </label>
             <Select value={familyFilter} onValueChange={setFamilyFilter}>
               <SelectTrigger id="clientJobFamilyFilter" className="w-[220px]">
-                <SelectValue placeholder="All families" />
+                <SelectValue placeholder="All groups" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All families</SelectItem>
+                <SelectItem value="all">All groups</SelectItem>
                 {availableFamilies.map((family) => (
                   <SelectItem key={family} value={family}>
                     <div className="flex items-center gap-2">
@@ -107,7 +107,7 @@ export default function ClientJobsSection({ loading = false, jobs }: ClientJobsS
           </div>
         </CardHeader>
         <CardContent>
-          <div className="text-sm text-muted-foreground">No jobs match the selected family.</div>
+          <div className="text-sm text-muted-foreground">No jobs match the selected group.</div>
         </CardContent>
       </Card>
     );
@@ -126,14 +126,14 @@ export default function ClientJobsSection({ loading = false, jobs }: ClientJobsS
         <CardTitle>Jobs ({jobs.length})</CardTitle>
         <div className="flex items-center gap-3">
           <label htmlFor="clientJobFamilyFilter" className="text-sm text-muted-foreground">
-            Family
+            Group
           </label>
           <Select value={familyFilter} onValueChange={setFamilyFilter}>
             <SelectTrigger id="clientJobFamilyFilter" className="w-[220px]">
-              <SelectValue placeholder="All families" />
+              <SelectValue placeholder="All groups" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All families</SelectItem>
+              <SelectItem value="all">All groups</SelectItem>
               {availableFamilies.map((family) => (
                 <SelectItem key={family} value={family}>
                   <div className="flex items-center gap-2">
