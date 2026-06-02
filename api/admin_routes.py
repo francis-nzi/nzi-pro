@@ -788,6 +788,7 @@ def _ensure_job_types_lookup_table(con, org_id: str | None) -> None:
         con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS estimated_hours NUMERIC(10,2) DEFAULT 0")
         con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS is_crp BOOLEAN DEFAULT FALSE")
         con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS job_family TEXT")
+        con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS job_group TEXT")
         con.execute(
             """
             UPDATE job_types
@@ -803,6 +804,40 @@ def _ensure_job_types_lookup_table(con, org_id: str | None) -> None:
               WHEN LOWER(COALESCE(name, '')) LIKE '%product carbon%' OR LOWER(COALESCE(name, '')) LIKE '%pcf%' THEN 'pcf'
               ELSE 'crp'
             END
+            WHERE job_family IS NULL OR TRIM(job_family) = ''
+            """
+        )
+        con.execute(
+            """
+            UPDATE job_types
+            SET job_group = COALESCE(NULLIF(TRIM(job_group), ''), NULLIF(TRIM(job_family), ''), CASE
+              WHEN LOWER(COALESCE(name, '')) LIKE '%training%' THEN 'training'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%consult%' THEN 'consultancy'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%policy development%' THEN 'consultancy'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%strategy workshop%' THEN 'consultancy'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%monthly support services%' THEN 'consultancy'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%support services%' THEN 'consultancy'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%life cycle%' OR LOWER(COALESCE(name, '')) LIKE '%assessment%' THEN 'lca'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%product carbon%' OR LOWER(COALESCE(name, '')) LIKE '%pcf%' THEN 'pcf'
+              ELSE 'crp'
+            END)
+            WHERE job_group IS NULL OR TRIM(job_group) = ''
+            """
+        )
+        con.execute(
+            """
+            UPDATE job_types
+            SET job_family = COALESCE(NULLIF(TRIM(job_family), ''), NULLIF(TRIM(job_group), ''), CASE
+              WHEN LOWER(COALESCE(name, '')) LIKE '%training%' THEN 'training'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%consult%' THEN 'consultancy'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%policy development%' THEN 'consultancy'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%strategy workshop%' THEN 'consultancy'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%monthly support services%' THEN 'consultancy'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%support services%' THEN 'consultancy'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%life cycle%' OR LOWER(COALESCE(name, '')) LIKE '%assessment%' THEN 'lca'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%product carbon%' OR LOWER(COALESCE(name, '')) LIKE '%pcf%' THEN 'pcf'
+              ELSE 'crp'
+            END)
             WHERE job_family IS NULL OR TRIM(job_family) = ''
             """
         )
@@ -830,16 +865,16 @@ def _ensure_job_types_lookup_table(con, org_id: str | None) -> None:
                 "crp",
             ),
         ]
-        for name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, job_family in default_job_types:
+        for name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, job_group in default_job_types:
             con.execute(
                 """
-                INSERT INTO job_types (org_id, name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, job_family)
-                SELECT %s, %s, %s, %s, %s, %s, %s, %s
+                INSERT INTO job_types (org_id, name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, job_family, job_group)
+                SELECT %s, %s, %s, %s, %s, %s, %s, %s, %s
                 WHERE NOT EXISTS (
                   SELECT 1 FROM job_types WHERE lower(name)=lower(%s) AND COALESCE(org_id, '') = COALESCE(%s, '')
                 )
                 """,
-                [org_id, name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, job_family, name, org_id],
+                [org_id, name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, job_group, job_group, name, org_id],
             )
     except Exception:
         pass

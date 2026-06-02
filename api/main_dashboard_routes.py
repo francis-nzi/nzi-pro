@@ -99,7 +99,7 @@ def _apply_client_filters(
 
 def _job_family_expression(job_alias: str = "j") -> str:
     return (
-        f"LOWER(COALESCE(NULLIF(TRIM({job_alias}.job_family), ''), "
+        f"LOWER(COALESCE(NULLIF(TRIM({job_alias}.job_group), ''), NULLIF(TRIM({job_alias}.job_family), ''), "
         f"CASE WHEN COALESCE({job_alias}.is_crp, FALSE) THEN 'crp' ELSE NULL END))"
     )
 
@@ -675,13 +675,13 @@ def get_dashboard_overview(
             crm_options = _load_dashboard_crm_options(con, org_id)
             available_crm = [str(option.get("label") or option.get("value") or "").strip() for option in crm_options if str(option.get("label") or option.get("value") or "").strip()]
             available_job_families = ["crp", "training", "consultancy", "lca", "pcf"]
-            if _table_exists(con, "job_types") and _column_exists(con, "job_types", "job_family"):
+            if _table_exists(con, "job_types") and (_column_exists(con, "job_types", "job_group") or _column_exists(con, "job_types", "job_family")):
                 try:
                     families_df = con.execute(
                         """
-                        SELECT DISTINCT LOWER(TRIM(job_family)) AS job_family
+                        SELECT DISTINCT LOWER(TRIM(COALESCE(NULLIF(TRIM(job_group), ''), NULLIF(TRIM(job_family), ''), 'crp'))) AS job_family
                         FROM job_types
-                        WHERE COALESCE(NULLIF(TRIM(job_family), ''), '') <> ''
+                        WHERE COALESCE(NULLIF(TRIM(job_group), ''), NULLIF(TRIM(job_family), ''), '') <> ''
                         ORDER BY job_family
                         """
                     ).df()
@@ -697,11 +697,12 @@ def get_dashboard_overview(
             has_job_types_table = _table_exists(con, "job_types")
             has_job_type_id = _column_exists(con, "jobs", "job_type_id")
             has_job_type_text = _column_exists(con, "jobs", "job_type")
+            has_job_group_text = _column_exists(con, "job_types", "job_group")
             has_job_family_text = _column_exists(con, "job_types", "job_family")
             has_job_due_date = _column_exists(con, "jobs", "due_date")
             if has_job_types_table and has_job_type_id:
                 job_type_join = "LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id"
-                job_family_expr = "COALESCE(NULLIF(TRIM(jt.job_family), ''), 'crp')" if has_job_family_text else "'crp'"
+                job_family_expr = "COALESCE(NULLIF(TRIM(jt.job_group), ''), NULLIF(TRIM(jt.job_family), ''), 'crp')" if (has_job_group_text or has_job_family_text) else "'crp'"
                 if has_job_type_text:
                     job_type_name_expr = "COALESCE(NULLIF(TRIM(jt.name), ''), NULLIF(TRIM(j.job_type), ''), 'Unassigned')"
                 else:
@@ -709,7 +710,7 @@ def get_dashboard_overview(
             elif has_job_type_text:
                 job_type_join = ""
                 job_type_name_expr = "COALESCE(NULLIF(TRIM(j.job_type), ''), 'Unassigned')"
-                job_family_expr = "COALESCE(NULLIF(TRIM(j.job_family), ''), 'crp')" if _column_exists(con, "jobs", "job_family") else "'crp'"
+                job_family_expr = "COALESCE(NULLIF(TRIM(j.job_group), ''), NULLIF(TRIM(j.job_family), ''), 'crp')" if (_column_exists(con, "jobs", "job_group") or _column_exists(con, "jobs", "job_family")) else "'crp'"
             else:
                 job_type_join = ""
                 job_type_name_expr = "'Unassigned'"

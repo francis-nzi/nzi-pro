@@ -432,6 +432,7 @@ def run_migrations():
             con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS estimated_hours NUMERIC(10,2) DEFAULT 0")
             con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS is_crp BOOLEAN DEFAULT FALSE")
             con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS job_family VARCHAR")
+            con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS job_group VARCHAR")
             con.execute(
                 """
                 UPDATE job_types
@@ -447,6 +448,40 @@ def run_migrations():
                   WHEN LOWER(COALESCE(name, '')) LIKE '%product carbon%' OR LOWER(COALESCE(name, '')) LIKE '%pcf%' THEN 'pcf'
                   ELSE 'crp'
                 END
+                WHERE job_family IS NULL OR TRIM(job_family) = ''
+                """
+            )
+            con.execute(
+                """
+                UPDATE job_types
+                SET job_group = COALESCE(NULLIF(TRIM(job_group), ''), NULLIF(TRIM(job_family), ''), CASE
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%training%' THEN 'training'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%consult%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%policy development%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%strategy workshop%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%monthly support services%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%support services%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%life cycle%' OR LOWER(COALESCE(name, '')) LIKE '%assessment%' THEN 'lca'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%product carbon%' OR LOWER(COALESCE(name, '')) LIKE '%pcf%' THEN 'pcf'
+                  ELSE 'crp'
+                END)
+                WHERE job_group IS NULL OR TRIM(job_group) = ''
+                """
+            )
+            con.execute(
+                """
+                UPDATE job_types
+                SET job_family = COALESCE(NULLIF(TRIM(job_family), ''), NULLIF(TRIM(job_group), ''), CASE
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%training%' THEN 'training'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%consult%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%policy development%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%strategy workshop%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%monthly support services%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%support services%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%life cycle%' OR LOWER(COALESCE(name, '')) LIKE '%assessment%' THEN 'lca'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%product carbon%' OR LOWER(COALESCE(name, '')) LIKE '%pcf%' THEN 'pcf'
+                  ELSE 'crp'
+                END)
                 WHERE job_family IS NULL OR TRIM(job_family) = ''
                 """
             )
@@ -575,6 +610,7 @@ def run_migrations():
                   job_type_id INTEGER,
                   job_type VARCHAR,
                   job_family VARCHAR,
+                  job_group VARCHAR,
                   job_number VARCHAR,
                   title VARCHAR,
                   reporting_year INTEGER,
@@ -593,10 +629,20 @@ def run_migrations():
             con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS reporting_period_end DATE")
             con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS legacy_job_no VARCHAR")
             con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_family VARCHAR")
+            con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_group VARCHAR")
             con.execute(
                 """
                 UPDATE jobs j
-                SET job_family = COALESCE(j.job_family, jt.job_family, 'crp')
+                SET job_group = COALESCE(NULLIF(TRIM(j.job_group), ''), NULLIF(TRIM(j.job_family), ''), jt.job_group, jt.job_family, 'crp')
+                FROM job_types jt
+                WHERE jt.job_type_id = j.job_type_id
+                  AND (j.job_group IS NULL OR TRIM(j.job_group) = '')
+                """
+            )
+            con.execute(
+                """
+                UPDATE jobs j
+                SET job_family = COALESCE(NULLIF(TRIM(j.job_family), ''), NULLIF(TRIM(j.job_group), ''), jt.job_family, jt.job_group, 'crp')
                 FROM job_types jt
                 WHERE jt.job_type_id = j.job_type_id
                   AND (j.job_family IS NULL OR TRIM(j.job_family) = '')

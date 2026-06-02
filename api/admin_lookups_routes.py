@@ -454,13 +454,13 @@ def create_lookup_item(
                 name = str(body.get("name", "")).strip()
                 if not name:
                     raise HTTPException(status_code=400, detail="Name is required")
-                job_family = str(body.get("job_family") or "crp").strip().lower()
-                if job_family not in {"crp", "training", "consultancy", "lca", "pcf"}:
-                    raise HTTPException(status_code=400, detail="job_family must be one of crp, training, consultancy, lca, or pcf")
+                job_group = str(body.get("job_group") or body.get("job_family") or "crp").strip().lower()
+                if job_group not in {"crp", "training", "consultancy", "lca", "pcf"}:
+                    raise HTTPException(status_code=400, detail="job_group must be one of crp, training, consultancy, lca, or pcf")
                 con.execute(
                     """
-                    INSERT INTO job_types (org_id, name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, job_family)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO job_types (org_id, name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, job_family, job_group)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     [
                         org_id,
@@ -468,9 +468,10 @@ def create_lookup_item(
                         str(body.get("description", "")).strip(),
                         float(body.get("unit_price_ex_vat", 0) or 0),
                         float(body.get("estimated_hours", 0) or 0),
-                        bool(body.get("is_crp", job_family == "crp")),
+                        bool(body.get("is_crp", job_group == "crp")),
                         body.get("is_active", True),
-                        job_family,
+                        job_group,
+                        job_group,
                     ],
                 )
             elif table_name in _ORG_SCOPED_LOOKUP_TABLES:
@@ -645,12 +646,14 @@ def update_lookup_item(
             if table_name == "job_types" and "estimated_hours" in body:
                 updates.append("estimated_hours = %s")
                 params.append(float(body["estimated_hours"]))
-            if table_name == "job_types" and "job_family" in body:
-                job_family = str(body["job_family"] or "").strip().lower()
-                if job_family and job_family not in {"crp", "training", "consultancy", "lca", "pcf"}:
-                    raise HTTPException(status_code=400, detail="job_family must be one of crp, training, consultancy, lca, or pcf")
+            if table_name == "job_types" and ("job_group" in body or "job_family" in body):
+                job_group = str(body.get("job_group", body.get("job_family", "")) or "").strip().lower()
+                if job_group and job_group not in {"crp", "training", "consultancy", "lca", "pcf"}:
+                    raise HTTPException(status_code=400, detail="job_group must be one of crp, training, consultancy, lca, or pcf")
+                updates.append("job_group = %s")
+                params.append(job_group or None)
                 updates.append("job_family = %s")
-                params.append(job_family or None)
+                params.append(job_group or None)
 
             if not updates:
                 return {"ok": True, "message": "No fields to update"}
