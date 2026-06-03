@@ -1382,6 +1382,8 @@ export default function JobAdvancedReports({
                 benchmarkYear={toYearNumber(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end)}
                 benchmarkTotal={toNum(summary?.benchmark_total)}
                 showWidgetRef={false}
+                showPngButton={false}
+                compact
               />
             </div>
 
@@ -1696,6 +1698,8 @@ export default function JobAdvancedReports({
                 benchmarkYear={toYearNumber(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end)}
                 benchmarkTotal={toNum(summary?.benchmark_total)}
                 showWidgetRef={false}
+                showPngButton={false}
+                compact
               />
             </div>
 

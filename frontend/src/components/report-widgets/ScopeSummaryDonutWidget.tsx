@@ -26,6 +26,8 @@ type ScopeSummaryDonutWidgetProps = {
   currentTotal?: number | null;
   widgetKey?: string;
   showWidgetRef?: boolean;
+  showPngButton?: boolean;
+  compact?: boolean;
   className?: string;
 };
 
@@ -47,6 +49,8 @@ export function ScopeSummaryDonutWidget({
   currentTotal,
   widgetKey = REPORT_WIDGET_IDS.emissionsScopeDonut,
   showWidgetRef = true,
+  showPngButton = true,
+  compact = false,
   className,
 }: ScopeSummaryDonutWidgetProps) {
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
@@ -108,10 +112,12 @@ export function ScopeSummaryDonutWidget({
             {subtitle ? <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{subtitle}</div> : null}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => void downloadPng()}>
-              <Download className="mr-2 h-4 w-4" />
-              PNG
-            </Button>
+            {showPngButton ? (
+              <Button variant="outline" size="sm" onClick={() => void downloadPng()}>
+                <Download className="mr-2 h-4 w-4" />
+                PNG
+              </Button>
+            ) : null}
             {showWidgetRef ? (
               <div className="text-[10px] uppercase tracking-[0.28em] text-muted-foreground">
                 <span className="block text-right">Widget ref</span>
@@ -122,11 +128,11 @@ export function ScopeSummaryDonutWidget({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-          <div className="relative mx-auto aspect-square w-full max-w-[480px]" ref={chartWrapRef}>
+        <div className={`grid gap-4 ${compact ? "lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:items-center" : "lg:grid-cols-[minmax(0,1fr)_220px]"}`}>
+          <div className={`relative mx-auto aspect-square w-full ${compact ? "max-w-[220px]" : "max-w-[480px]"}`} ref={chartWrapRef}>
             <ResponsiveContainer width="100%" aspect={1}>
               <PieChart>
-                <Pie data={data} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2}>
+                <Pie data={data} dataKey="value" nameKey="name" innerRadius={compact ? "58%" : "72%"} outerRadius={compact ? "80%" : "94%"} paddingAngle={2}>
                   {data.map((_, index) => (
                     <Cell key={index} fill={SCOPE_COLORS[index % SCOPE_COLORS.length]} />
                   ))}
@@ -142,12 +148,12 @@ export function ScopeSummaryDonutWidget({
               </div>
             </div>
           </div>
-          <div className="space-y-3">
+          <div className={compact ? "space-y-2" : "space-y-3"}>
             {data.map((scope, index) => (
               <div key={scope.name} className="flex items-center justify-between gap-3 text-sm">
                 <div className="flex items-center gap-2">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SCOPE_COLORS[index % SCOPE_COLORS.length] }} />
-                  <span>{scope.name}</span>
+                  <span className="whitespace-nowrap">{scope.name}</span>
                 </div>
                 <div className="text-right">
                   <div className="font-medium">{formatNumber(Number(scope.value || 0), 1)}</div>
@@ -165,7 +171,7 @@ export function ScopeSummaryDonutWidget({
               </div>
             </div>
             {benchmarkPill ? (
-              <Badge className="w-fit rounded-full px-3 py-1 text-xs font-medium" variant="secondary">
+              <Badge className={`w-fit rounded-full px-3 py-1 text-xs font-medium ${compact ? "max-w-none whitespace-nowrap" : ""}`} variant="secondary">
                 {benchmarkPill.label}
               </Badge>
             ) : null}
