@@ -6,9 +6,22 @@ export function sanitizeFilename(value: string): string {
     .replace(/[.\s]+$/g, "");
 }
 
-export function buildPngFilename(title: string): string {
+export function buildPngFilename(title: string, clientName?: string | null): string {
   const safeTitle = sanitizeFilename(title) || "chart";
-  return `${safeTitle}.png`;
+  const safeClient = clientName ? sanitizeFilename(clientName) : "";
+
+  if (!safeClient) return `${safeTitle}.png`;
+
+  const normalizedTitle = safeTitle.toLowerCase();
+  const normalizedClient = safeClient.toLowerCase();
+  if (normalizedTitle === normalizedClient) return `${safeClient}.png`;
+
+  if (normalizedTitle.startsWith(`${normalizedClient} `)) {
+    const remainder = safeTitle.slice(safeClient.length).trim().replace(/^[-–—:]+/, "").trim();
+    return `${safeClient}${remainder ? ` - ${remainder}` : ""}.png`;
+  }
+
+  return `${safeClient} - ${safeTitle}.png`;
 }
 
 export function findLargestSvg(container: HTMLElement | null): SVGSVGElement | null {

@@ -32,6 +32,7 @@ type LegendItem = { label: string; color: string };
 type ScopeYearOnYearBarWidgetProps = {
   title: string;
   subtitle?: string;
+  clientName?: string | null;
   data: ScopeYoYBarPoint[];
   benchmarkLabel: string;
   previousLabel: string;
@@ -57,6 +58,7 @@ function formatPct(value: number | null | undefined): string {
 export function ScopeYearOnYearBarWidget({
   title,
   subtitle,
+  clientName,
   data,
   benchmarkLabel,
   previousLabel,
@@ -84,7 +86,7 @@ export function ScopeYearOnYearBarWidget({
     if (!svg) return;
     await downloadChartAsPng({
       svg,
-      filename: buildPngFilename(title),
+      filename: buildPngFilename(title, clientName),
       title,
       subtitle,
       legendItems,

@@ -690,6 +690,7 @@ export default function JobInsights({
         <ScopeSummaryDonutWidget
           title={`${clientName ?? "Client"} Emissions Summary by Scope`}
           subtitle={currentReportingLabel}
+          clientName={clientName}
           data={scopeCards}
           currentYear={currentYear}
           currentTotal={scopeTotals?.total ?? 0}
@@ -748,11 +749,12 @@ export default function JobInsights({
 
         {scopeYearOnYearBar ? (
           <ScopeYearOnYearBarWidget
-            title="Year-on-Year Comparison by Scope"
-            data={scopeYearOnYearBar.data}
-            benchmarkLabel={scopeYearOnYearBar.benchmarkLabel}
-            previousLabel={scopeYearOnYearBar.previousLabel}
-            currentLabel={scopeYearOnYearBar.currentLabel}
+              title="Year-on-Year Comparison by Scope"
+              clientName={clientName}
+              data={scopeYearOnYearBar.data}
+              benchmarkLabel={scopeYearOnYearBar.benchmarkLabel}
+              previousLabel={scopeYearOnYearBar.previousLabel}
+              currentLabel={scopeYearOnYearBar.currentLabel}
             showBenchmarkBar={scopeYearOnYearBar.showBenchmarkBar}
             showPreviousBar={scopeYearOnYearBar.showPreviousBar}
             showComparisonPct={scopeYearOnYearBar.showComparisonPct}
@@ -853,6 +855,7 @@ export default function JobInsights({
       {scopePathwayData.length > 0 && (
         <EmissionsReductionPathwayWidget
           title={`${clientName ?? "Client"} Emissions Reduction Targets to ${targetYear ?? 2050}`}
+          clientName={clientName}
           data={scopePathwayData}
           benchmarkYear={benchmarkYear}
           targetYear={targetYear}
@@ -865,6 +868,7 @@ export default function JobInsights({
       {intensityPathwayData.length > 0 && (
         <IntensityPathwayWidget
           title={`${clientName ?? "Client"} Intensity Metrics Targets to ${targetYear ?? 2050}`}
+          clientName={clientName}
           data={intensityPathwayData}
           series={intensityPathwaySeries}
           benchmarkYear={benchmarkYear}

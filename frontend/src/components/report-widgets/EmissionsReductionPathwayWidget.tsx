@@ -35,6 +35,7 @@ export type EmissionsPathwayPoint = {
 type EmissionsReductionPathwayWidgetProps = {
   title: string;
   subtitle?: string;
+  clientName?: string | null;
   data: EmissionsPathwayPoint[];
   benchmarkYear?: number | null;
   targetYear?: number | null;
@@ -51,6 +52,7 @@ const DEFAULT_SCOPE_COLORS = ["#4b8b3b", "#4d4d4d", "#38bdf8"];
 export function EmissionsReductionPathwayWidget({
   title,
   subtitle,
+  clientName,
   data,
   benchmarkYear,
   targetYear,
@@ -97,7 +99,7 @@ export function EmissionsReductionPathwayWidget({
     if (!svg) return;
     await downloadChartAsPng({
       svg,
-      filename: buildPngFilename(title),
+      filename: buildPngFilename(title, clientName),
       title,
       legendItems: [
         { label: "Total", color: "#0f766e" },

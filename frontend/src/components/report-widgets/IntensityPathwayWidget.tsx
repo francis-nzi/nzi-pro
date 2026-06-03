@@ -42,6 +42,7 @@ function formatIntensityLabel(label: string): string {
 type IntensityPathwayWidgetProps = {
   title: string;
   subtitle?: string;
+  clientName?: string | null;
   data: IntensityPathwayPoint[];
   series: IntensityPathwaySeries[];
   benchmarkYear?: number | null;
@@ -56,6 +57,7 @@ type IntensityPathwayWidgetProps = {
 export function IntensityPathwayWidget({
   title,
   subtitle,
+  clientName,
   data,
   series,
   benchmarkYear,
@@ -101,7 +103,7 @@ export function IntensityPathwayWidget({
     if (!svg) return;
     await downloadChartAsPng({
       svg,
-      filename: buildPngFilename(title),
+      filename: buildPngFilename(title, clientName),
       title,
       legendItems: series.map((entry) => ({
         label: formatIntensityLabel(entry.label),

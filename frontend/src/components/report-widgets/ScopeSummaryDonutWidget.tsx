@@ -18,6 +18,7 @@ export type ScopeDonutItem = {
 type ScopeSummaryDonutWidgetProps = {
   title: string;
   subtitle?: string;
+  clientName?: string | null;
   data: ScopeDonutItem[];
   currentYear?: number | null;
   benchmarkYear?: number | null;
@@ -38,6 +39,7 @@ function pctChange(current: number, benchmark: number): number | null {
 export function ScopeSummaryDonutWidget({
   title,
   subtitle,
+  clientName,
   data,
   currentYear,
   benchmarkYear,
@@ -89,7 +91,7 @@ export function ScopeSummaryDonutWidget({
     if (!svg) return;
     await downloadChartAsPng({
       svg,
-      filename: buildPngFilename(title),
+      filename: buildPngFilename(title, clientName),
       title,
       subtitle,
       legendItems: data.map((item, index) => ({ label: item.name, color: SCOPE_COLORS[index % SCOPE_COLORS.length] })),
