@@ -9,8 +9,6 @@ import {
   Legend,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -24,16 +22,21 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import LoadingOrbit from "@/components/LoadingOrbit";
 import { formatDate } from "@/lib/format";
+import { ScopeSummaryDonutWidget } from "@/components/report-widgets";
 
 /** Convert a reporting period to a compact year label: "2025" or "2022–2023". */
 function toYearLabel(start: string | null | undefined, end: string | null | undefined): string {
   const sy = start ? new Date(start).getFullYear() : null;
   const ey = end   ? new Date(end).getFullYear()   : null;
-  if (sy && ey && sy !== ey) return `${sy}–${ey}`;
+  if (sy && ey && sy !== ey) return `${sy}-${ey}`;
   return String(ey ?? sy ?? "");
 }
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+function toYearNumber(start: string | null | undefined, end: string | null | undefined): number | null {
+  const sy = start ? new Date(start).getFullYear() : null;
+  const ey = end ? new Date(end).getFullYear() : null;
+  return ey ?? sy ?? null;
+}
 
 type ReportJob = {
   job_id: number;
@@ -1369,89 +1372,17 @@ export default function JobAdvancedReports({
               </p>
             )}
 
-            {/* Donut + scope table */}
-            <div className="mx-auto grid w-fit grid-cols-[280px_minmax(0,1fr)] gap-6 items-center">
-
-              {/* Donut — Insights style */}
-              <div className="relative aspect-square w-[280px] flex-shrink-0">
-                <ResponsiveContainer width="100%" aspect={1}>
-                  <PieChart>
-                    <Pie
-                      data={scopeDonutData}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius="72%"
-                      outerRadius="94%"
-                      paddingAngle={2}
-                    >
-                      {scopeDonutData.map(entry => (
-                        <Cell key={entry.name} fill={SCOPE_COLORS[entry.name] ?? "#999"} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(v: number | undefined, n: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", n ?? ""]} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <div className="text-center">
-                    {(() => { const s = fmt(totalEmissions); return (
-                      <div className="donut-total font-semibold text-gray-800 whitespace-nowrap" style={{ fontSize: s.length > 8 ? 12 : s.length > 6 ? 14 : 16 }}>{s}</div>
-                    ); })()}
-                    <div className="text-xs text-gray-400">tCO₂e total</div>
-                    {(printPeriodStart || printPeriodEnd) ? (
-                      <div className="mt-1 text-[10px] text-gray-400">
-                        {printPeriodStart && printPeriodEnd ? `${printPeriodStart} – ${printPeriodEnd}` : printPeriodStart || printPeriodEnd}
-                      </div>
-                    ) : data.job_data?.reporting_year != null ? (
-                      <div className="mt-1 text-[10px] text-gray-400">{data.job_data.reporting_year}</div>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-
-              {/* Right column: scope table + benchmark */}
-              <div className="space-y-2">
-                <div className="overflow-hidden rounded-lg border border-gray-200">
-                  {/* Header */}
-                  <div className="grid grid-cols-[1fr_90px_52px] items-center gap-2 border-b border-gray-200 bg-gray-100 px-3 py-1.5">
-                    <span className="text-xs font-semibold text-gray-500">Scope</span>
-                    <div className="text-right text-xs font-semibold text-gray-500">tCO₂e</div>
-                    <div className="text-right text-xs font-semibold text-gray-500">%</div>
-                  </div>
-                  {SCOPE_LABELS.map(s => {
-                    const v = toNum(scope_totals?.[s]);
-                    const pct = totalEmissions > 0 ? (v / totalEmissions) * 100 : 0;
-                    return (
-                      <div key={s} className="grid grid-cols-[1fr_90px_52px] items-center gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 last:border-b-0">
-                        <div className="flex items-center gap-2">
-                          <div className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: SCOPE_COLORS[s] }} />
-                          <span className="text-xs text-gray-500 whitespace-nowrap">{s}</span>
-                        </div>
-                        <div className="text-right text-xs font-semibold text-gray-800 tabular-nums whitespace-nowrap">{fmt(v)}</div>
-                        <div className="text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">{pct.toFixed(1)}%</div>
-                      </div>
-                    );
-                  })}
-                  {/* Total row */}
-                  <div className="grid grid-cols-[1fr_90px_52px] items-center gap-2 px-3 py-2" style={{ backgroundColor: `${BRAND}0d` }}>
-                    <span className="text-xs font-semibold text-gray-600">Total</span>
-                    <div className="text-right text-xs font-bold tabular-nums whitespace-nowrap" style={{ color: BRAND }}>{fmt(totalEmissions)}</div>
-                    <div className="text-right text-xs text-gray-500 whitespace-nowrap">100.0%</div>
-                  </div>
-                </div>
-                {/* Benchmark comparison */}
-                {(() => {
-                  const bTotal = toNum(summary?.benchmark_total);
-                  const delta = toNum(summary?.delta_total);
-                  if (bTotal <= 0) return null;
-                  const pct = Math.abs((delta / bTotal) * 100);
-                  const down = delta < 0;
-                  return (
-                    <div className={`rounded-full px-3 py-1 text-xs font-semibold text-center ${down ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
-                      {down ? "▼" : "▲"} {fmt(pct, 1)}% vs benchmark ({fmt(bTotal)} tCO₂e)
-                    </div>
-                  );
-                })()}
-              </div>
+            <div className="mt-6">
+              <ScopeSummaryDonutWidget
+                title={`${data.job_data.client_name ?? "Client"} Emissions Summary by Scope`}
+                clientName={data.job_data.client_name}
+                data={scopeDonutData}
+                currentYear={(toYearNumber(data.job_data.reporting_period_start, data.job_data.reporting_period_end) ?? toNum(data.job_data.reporting_year)) || null}
+                currentTotal={totalEmissions}
+                benchmarkYear={toYearNumber(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end)}
+                benchmarkTotal={toNum(summary?.benchmark_total)}
+                showWidgetRef={false}
+              />
             </div>
 
           </CardContent>
@@ -1754,73 +1685,18 @@ export default function JobAdvancedReports({
           </CardHeader>
           <CardContent className="space-y-6">
 
-            {/* Emissions by Scope: donut + table */}
             <div>
               <p className="text-sm font-semibold text-gray-700 mb-4">Emissions by Scope</p>
-              <div className="mx-auto grid w-fit grid-cols-[280px_minmax(0,1fr)] gap-6 items-center">
-                <div className="relative aspect-square w-[280px] flex-shrink-0">
-                  <ResponsiveContainer width="100%" aspect={1}>
-                    <PieChart>
-                      <Pie
-                        data={scopeDonutData}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius="72%"
-                        outerRadius="94%"
-                        paddingAngle={2}
-                      >
-                        {scopeDonutData.map(entry => (
-                          <Cell key={entry.name} fill={SCOPE_COLORS[entry.name] ?? "#999"} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(v: number | undefined, n: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", n ?? ""]} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                    <div className="text-center">
-                      {(() => { const s = fmt(totalEmissions); return (
-                        <div className="donut-total font-semibold text-gray-800 whitespace-nowrap" style={{ fontSize: s.length > 8 ? 12 : s.length > 6 ? 14 : 16 }}>{s}</div>
-                      ); })()}
-                      <div className="text-xs text-gray-400">tCO₂e total</div>
-                      {(printPeriodStart || printPeriodEnd) ? (
-                        <div className="mt-1 text-[10px] text-gray-400">
-                          {printPeriodStart && printPeriodEnd ? `${printPeriodStart} – ${printPeriodEnd}` : printPeriodStart || printPeriodEnd}
-                        </div>
-                      ) : data.job_data?.reporting_year != null ? (
-                        <div className="mt-1 text-[10px] text-gray-400">{data.job_data.reporting_year}</div>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <div className="overflow-hidden rounded-lg border border-gray-200">
-                    <div className="grid grid-cols-[1fr_90px_52px] items-center gap-2 border-b border-gray-200 bg-gray-100 px-3 py-1.5">
-                      <span className="text-xs font-semibold text-gray-500">Scope</span>
-                      <div className="text-right text-xs font-semibold text-gray-500">tCO₂e</div>
-                      <div className="text-right text-xs font-semibold text-gray-500">%</div>
-                    </div>
-                    {SCOPE_LABELS.map(s => {
-                      const v = toNum(scope_totals?.[s]);
-                      const pct = totalEmissions > 0 ? (v / totalEmissions) * 100 : 0;
-                      return (
-                        <div key={s} className="grid grid-cols-[1fr_90px_52px] items-center gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 last:border-b-0">
-                          <div className="flex items-center gap-2">
-                            <div className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: SCOPE_COLORS[s] }} />
-                            <span className="text-xs text-gray-500 whitespace-nowrap">{s}</span>
-                          </div>
-                          <div className="text-right text-xs font-semibold text-gray-800 tabular-nums whitespace-nowrap">{fmt(v)}</div>
-                          <div className="text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">{pct.toFixed(1)}%</div>
-                        </div>
-                      );
-                    })}
-                    <div className="grid grid-cols-[1fr_90px_52px] items-center gap-2 px-3 py-2" style={{ backgroundColor: `${BRAND}0d` }}>
-                      <span className="text-xs font-semibold text-gray-600">Total</span>
-                      <div className="text-right text-xs font-bold tabular-nums whitespace-nowrap" style={{ color: BRAND }}>{fmt(totalEmissions)}</div>
-                      <div className="text-right text-xs text-gray-500 whitespace-nowrap">100.0%</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <ScopeSummaryDonutWidget
+                title={`${data.job_data.client_name ?? "Client"} Emissions by Scope`}
+                clientName={data.job_data.client_name}
+                data={scopeDonutData}
+                currentYear={(toYearNumber(data.job_data.reporting_period_start, data.job_data.reporting_period_end) ?? toNum(data.job_data.reporting_year)) || null}
+                currentTotal={totalEmissions}
+                benchmarkYear={toYearNumber(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end)}
+                benchmarkTotal={toNum(summary?.benchmark_total)}
+                showWidgetRef={false}
+              />
             </div>
 
             {/* Benchmark / Previous Year / Current Year — Scope Comparison */}
