@@ -49,15 +49,40 @@ export function ScopeSummaryDonutWidget({
 }: ScopeSummaryDonutWidgetProps) {
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
   const total = Number(currentTotal ?? data.reduce((sum, item) => sum + Number(item.value || 0), 0));
-  const benchmarkChange = useMemo(() => {
-    if (benchmarkYear == null || currentYear == null || benchmarkYear === currentYear || benchmarkTotal == null) return null;
-    const pct = pctChange(total, Number(benchmarkTotal || 0));
-    if (pct == null) return null;
-    const direction = pct <= 0 ? "down" : "up";
-    const absPct = Math.abs(pct);
-    const label = `${direction === "down" ? "▼" : "▲"} ${absPct.toFixed(1)}% vs benchmark (${formatNumber(Number(benchmarkTotal || 0), 1)} tCO₂e)`;
-    return { label, direction };
-  }, [benchmarkYear, benchmarkTotal, currentTotal, currentYear, total]);
+  const benchmarkPill = useMemo(() => {
+    if (benchmarkYear == null || currentYear == null || benchmarkYear === currentYear) return null;
+
+    if (benchmarkTotal != null) {
+      const pct = pctChange(total, Number(benchmarkTotal || 0));
+      if (pct != null) {
+        const direction = pct <= 0 ? "down" : "up";
+        const absPct = Math.abs(pct);
+        const label = `${direction === "down" ? "▼" : "▲"} ${absPct.toFixed(1)}% vs benchmark (${formatNumber(Number(benchmarkTotal || 0), 1)} tCO₂e)`;
+        return {
+          label,
+          tone: direction,
+          callout: {
+            text: label,
+            backgroundColor: direction === "down" ? "#dcfce7" : "#fee2e2",
+            borderColor: direction === "down" ? "#bbf7d0" : "#fecaca",
+            textColor: direction === "down" ? "#166534" : "#b91c1c",
+          },
+        };
+      }
+    }
+
+    const label = `vs benchmark ${benchmarkYear}`;
+    return {
+      label,
+      tone: "neutral",
+      callout: {
+        text: label,
+        backgroundColor: "#e2e8f0",
+        borderColor: "#cbd5e1",
+        textColor: "#0f172a",
+      },
+    };
+  }, [benchmarkTotal, benchmarkYear, currentYear, total]);
 
   const downloadPng = async () => {
     const svg = findLargestSvg(chartWrapRef.current);
@@ -68,14 +93,7 @@ export function ScopeSummaryDonutWidget({
       title,
       subtitle,
       legendItems: data.map((item, index) => ({ label: item.name, color: SCOPE_COLORS[index % SCOPE_COLORS.length] })),
-      callout: benchmarkChange
-        ? {
-            text: benchmarkChange.label,
-            backgroundColor: benchmarkChange.direction === "down" ? "#dcfce7" : "#fee2e2",
-            borderColor: benchmarkChange.direction === "down" ? "#bbf7d0" : "#fecaca",
-            textColor: benchmarkChange.direction === "down" ? "#166534" : "#b91c1c",
-          }
-        : null,
+      callout: benchmarkPill?.callout ?? null,
     });
   };
 
@@ -144,9 +162,9 @@ export function ScopeSummaryDonutWidget({
                 </div>
               </div>
             </div>
-            {benchmarkChange ? (
+            {benchmarkPill ? (
               <Badge className="w-fit rounded-full px-3 py-1 text-xs font-medium" variant="secondary">
-                {benchmarkChange.label}
+                {benchmarkPill.label}
               </Badge>
             ) : null}
           </div>
