@@ -263,7 +263,7 @@ function Tooltip({ label, visible }: { label: string; visible: boolean }) {
   );
 }
 
-export function AppSidebar() {
+function AppSidebarContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -810,5 +810,13 @@ export function AppSidebar() {
         </button>
       </div>
     </aside>
+  );
+}
+
+export function AppSidebar() {
+  return (
+    <Suspense fallback={null}>
+      <AppSidebarContent />
+    </Suspense>
   );
 }
