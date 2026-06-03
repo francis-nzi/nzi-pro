@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Download } from "lucide-react";
 import { formatNumber } from "@/lib/format";
 import { REPORT_WIDGET_IDS } from "./registry";
+import { buildPngFilename, downloadSvgAsPng, findLargestSvg } from "./png-export";
 
 export type IntensityPathwayPoint = {
   year: number;
@@ -87,64 +88,9 @@ export function IntensityPathwayWidget({
   };
 
   const downloadPng = async () => {
-    const svg = chartWrapRef.current?.querySelector("svg") as SVGSVGElement | null;
+    const svg = findLargestSvg(chartWrapRef.current);
     if (!svg) return;
-
-    const clone = svg.cloneNode(true) as SVGSVGElement;
-    const rect = svg.getBoundingClientRect();
-    const width = Math.max(1, Math.ceil(rect.width || Number(svg.getAttribute("width") || 1200)));
-    const height = Math.max(1, Math.ceil(rect.height || Number(svg.getAttribute("height") || 800)));
-    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-    clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
-    clone.setAttribute("width", String(width));
-    clone.setAttribute("height", String(height));
-
-    const svgText = new XMLSerializer().serializeToString(clone);
-    const blob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const image = new Image();
-    image.decoding = "async";
-    image.crossOrigin = "anonymous";
-
-    const loadPromise = new Promise<void>((resolve, reject) => {
-      image.onload = () => {
-        try {
-          const canvas = document.createElement("canvas");
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) throw new Error("Canvas rendering is unavailable.");
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(0, 0, width, height);
-          ctx.drawImage(image, 0, 0, width, height);
-
-          canvas.toBlob((pngBlob) => {
-            if (!pngBlob) {
-              reject(new Error("Unable to generate PNG."));
-              return;
-            }
-            const pngUrl = URL.createObjectURL(pngBlob);
-            const a = document.createElement("a");
-            a.href = pngUrl;
-            a.download = `${widgetKey}.png`;
-            a.click();
-            URL.revokeObjectURL(pngUrl);
-            resolve();
-          }, "image/png");
-        } catch (error) {
-          reject(error);
-        } finally {
-          URL.revokeObjectURL(url);
-        }
-      };
-      image.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error("Unable to render chart image."));
-      };
-    });
-
-    image.src = url;
-    await loadPromise;
+    await downloadSvgAsPng(svg, buildPngFilename(title));
   };
 
   if (!data.length || !series.length) {
@@ -237,4 +183,3 @@ export function IntensityPathwayWidget({
     </Card>
   );
 }
-

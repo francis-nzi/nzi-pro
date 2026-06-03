@@ -838,7 +838,7 @@ export default function JobInsights({
           targetYear={targetYear}
           interimYear={interimYear}
           showScope2={Number(scopeTotals?.scope_2 || 0) > 0}
-          showWidgetRef={false}
+          showWidgetRef={true}
         />
       )}
 
@@ -850,6 +850,7 @@ export default function JobInsights({
           benchmarkYear={benchmarkYear}
           targetYear={targetYear}
           interimYear={interimYear}
+          showWidgetRef={true}
         />
       )}
 
