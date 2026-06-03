@@ -25,9 +25,11 @@ import { Input } from "@/components/ui/input";
 import {
   EmissionsByActivityWidget,
   EmissionsReductionPathwayWidget,
+  HistoricalEmissionsTrendWidget,
   IntensityPathwayWidget,
   ScopeYearOnYearBarWidget,
   ScopeSummaryDonutWidget,
+  type HistoricalEmissionsPoint,
   type IntensityPathwayPoint,
 } from "@/components/report-widgets";
 
@@ -368,6 +370,21 @@ export default function JobInsights({
         ],
       };
     }, [benchmarkYear, currentYear, firstHistoricalYear, scopeTotals, yearlyEmissions]);
+
+  const historicalEmissionsTrendData = useMemo<HistoricalEmissionsPoint[]>(
+    () =>
+      yearlyEmissions
+        .slice()
+        .sort((a, b) => a.year - b.year)
+        .map((row) => ({
+          year: row.year,
+          scope1: Number(row.scope1 || 0),
+          scope2: Number(row.scope2 || 0),
+          scope3: Number(row.scope3 || 0),
+          total: Number(row.total || 0),
+        })),
+    [yearlyEmissions]
+  );
 
   const targetPath = useMemo(() => {
     const currentTotal = Number(scopeTotals?.total || 0);
@@ -733,6 +750,16 @@ export default function JobInsights({
             showWidgetRef={true}
           />
         ) : null}
+
+      {historicalEmissionsTrendData.length > 0 ? (
+        <HistoricalEmissionsTrendWidget
+          title="Historical Emissions Trend"
+          subtitle={currentReportingLabel}
+          clientName={clientName}
+          data={historicalEmissionsTrendData}
+          showWidgetRef={true}
+        />
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>

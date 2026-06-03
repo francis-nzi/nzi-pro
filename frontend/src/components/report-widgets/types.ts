@@ -28,3 +28,11 @@ export type ActivityBarPoint = {
   fullName?: string;
   fill?: string;
 };
+
+export type HistoricalEmissionsPoint = {
+  year: number;
+  scope1: number;
+  scope2: number;
+  scope3: number;
+  total: number;
+};
