@@ -25,12 +25,10 @@ import { Input } from "@/components/ui/input";
 import {
   EmissionsByActivityWidget,
   EmissionsReductionPathwayWidget,
-  HistoricalEmissionsTrendWidget,
   IntensityPathwayWidget,
   SiteSummaryDonutWidget,
   ScopeYearOnYearBarWidget,
   ScopeSummaryDonutWidget,
-  type HistoricalEmissionsPoint,
   type IntensityPathwayPoint,
 } from "@/components/report-widgets";
 
@@ -372,21 +370,6 @@ export default function JobInsights({
       };
     }, [benchmarkYear, currentYear, firstHistoricalYear, scopeTotals, yearlyEmissions]);
 
-  const historicalEmissionsTrendData = useMemo<HistoricalEmissionsPoint[]>(
-    () =>
-      yearlyEmissions
-        .slice()
-        .sort((a, b) => a.year - b.year)
-        .map((row) => ({
-          year: row.year,
-          scope1: Number(row.scope1 || 0),
-          scope2: Number(row.scope2 || 0),
-          scope3: Number(row.scope3 || 0),
-          total: Number(row.total || 0),
-        })),
-    [yearlyEmissions]
-  );
-
   const targetPath = useMemo(() => {
     const currentTotal = Number(scopeTotals?.total || 0);
     const startYear = benchmarkYear ?? currentYear;
@@ -479,41 +462,6 @@ export default function JobInsights({
     });
   }, [scopeTotals, benchmarkYear, currentYear, targetYear, yearlyEmissions, targetReductionPct,
       interimYear, interimTargets.scope_1, interimTargets.scope_2, interimTargets.scope_3]);
-
-  const intensityTrend = useMemo(() => {
-    const metricEntries = Object.entries(intensityMetrics)
-      .map(([key, metric]) => {
-        const value = Number(metric?.value ?? 0);
-        const divider = Number(metric?.divider ?? 1);
-        const baseIntensity = value > 0 ? (Number(scopeTotals?.total || 0) / value) * divider : 0;
-        return {
-          key,
-          label: metric?.label?.trim() || key,
-          baseIntensity,
-        };
-      })
-      .filter((entry) => entry.baseIntensity > 0)
-      .slice(0, 4);
-
-    if (metricEntries.length === 0) return [];
-
-    const targetYearValue = targetYear && targetYear >= currentYear ? targetYear : Math.max(currentYear + 1, 2050);
-    const years = Array.from({ length: Math.max(1, targetYearValue - currentYear + 1) }, (_, index) => currentYear + index);
-    const targetPathTotal = targetPath.find((point) => point.year === targetYearValue)?.forecast ?? 0;
-    const currentTotal = Number(scopeTotals?.total || 0);
-
-    return years.map((year) => {
-      const emissionRatio = currentTotal > 0 ? (targetPath.find((point) => point.year === year)?.forecast ?? currentTotal) / currentTotal : 0;
-      const row: Record<string, number | string> = { year };
-      metricEntries.forEach((entry) => {
-        row[entry.label] = Number((entry.baseIntensity * emissionRatio).toFixed(2));
-      });
-      if (year === targetYearValue) {
-        row["Target total"] = Number(targetPathTotal.toFixed(2));
-      }
-      return row;
-    });
-  }, [currentYear, intensityMetrics, scopeTotals?.total, targetPath, targetYear]);
 
   const intensityPathwaySeries = useMemo(
     () =>
@@ -752,16 +700,6 @@ export default function JobInsights({
           />
         ) : null}
 
-      {historicalEmissionsTrendData.length > 0 ? (
-        <HistoricalEmissionsTrendWidget
-          title="Historical Emissions Trend"
-          subtitle={currentReportingLabel}
-          clientName={clientName}
-          data={historicalEmissionsTrendData}
-          showWidgetRef={true}
-        />
-      ) : null}
-
       <div className="grid gap-6 xl:grid-cols-2">
         <SiteSummaryDonutWidget
           title={`${clientName ?? "Client"} Emissions by Site`}
@@ -829,42 +767,6 @@ export default function JobInsights({
           showWidgetRef={true}
         />
       )}
-
-      {intensityTrend.length > 0 ? (
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle>Intensity Actuals vs Forecast</CardTitle>
-            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{currentReportingLabel}</div>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={intensityTrend} margin={{ top: 5, right: 20, left: 6, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="year" />
-                  <YAxis />
-                  <Tooltip formatter={formatTooltipValue} />
-                  <Legend />
-                  {Object.entries(intensityMetrics)
-                    .map(([key, metric]) => ({ key, label: metric?.label?.trim() || key }))
-                    .slice(0, 4)
-                    .map((entry, index) => (
-                      <Line
-                        key={entry.key}
-                        type="monotone"
-                        dataKey={entry.label}
-                        stroke={ACTIVITY_COLORS[index % ACTIVITY_COLORS.length]}
-                        strokeWidth={2}
-                        dot={{ r: 3 }}
-                        name={entry.label}
-                      />
-                    ))}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
 
       <Card>
         <CardHeader className="space-y-1">
