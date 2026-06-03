@@ -244,8 +244,8 @@ export default function JobInsights({
   }, [scopeTotals]);
 
   const benchmarkScopeTotal = useMemo(() => {
-    if (benchmarkYear == null) return null;
-    const benchmarkRow = yearlyEmissions.find((row) => row.year === benchmarkYear);
+    const firstHistoricalYear = yearlyEmissions.length > 0 ? yearlyEmissions[0].year : null;
+    const benchmarkRow = yearlyEmissions.find((row) => row.year === (benchmarkYear ?? firstHistoricalYear ?? null));
     return benchmarkRow ? Number(benchmarkRow.total || 0) : null;
   }, [benchmarkYear, yearlyEmissions]);
 
@@ -655,7 +655,7 @@ export default function JobInsights({
           data={scopeCards}
           currentYear={currentYear}
           currentTotal={scopeTotals?.total ?? 0}
-          benchmarkYear={benchmarkYear}
+          benchmarkYear={benchmarkYear ?? firstHistoricalYear ?? currentYear}
           benchmarkTotal={benchmarkScopeTotal}
         />
 
