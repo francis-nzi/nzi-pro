@@ -4,14 +4,9 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
-  Cell,
-  Legend,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   ResponsiveContainer,
-  ReferenceLine,
   Tooltip,
   XAxis,
   YAxis,
@@ -110,11 +105,6 @@ function bucketKey(value?: string | null): string {
 function formatTooltipValue(value: unknown): [string, string] {
   const amount = Array.isArray(value) ? Number(value[0] ?? 0) : Number(value ?? 0);
   return [`${formatTco2e(amount)} tCO₂e`, ""];
-}
-
-function formatMetricTooltip(value: unknown): [string, string] {
-  const amount = Array.isArray(value) ? Number(value[0] ?? 0) : Number(value ?? 0);
-  return [amount.toFixed(2), ""];
 }
 
 function normalizeSeries<T extends { value: number }>(rows: T[], targetTotal: number): T[] {
@@ -330,7 +320,6 @@ export default function JobInsights({
   const currentYear = reportingYear ?? new Date().getFullYear();
   const firstHistoricalYear = yearlyEmissions.length > 0 ? yearlyEmissions[0].year : null;
   const currentReportingLabel = `Reporting year ${currentYear}`;
-  const trendReportingLabel = `Reporting years ${currentYear} to ${targetYear ?? 2050}`;
   const pathwayReportingLabel = `Reporting years ${firstHistoricalYear ?? benchmarkYear ?? currentYear} to ${targetYear ?? 2050}`;
 
   const scopeYearOnYearBar = useMemo(() => {
@@ -369,41 +358,6 @@ export default function JobInsights({
         ],
       };
     }, [benchmarkYear, currentYear, firstHistoricalYear, scopeTotals, yearlyEmissions]);
-
-  const targetPath = useMemo(() => {
-    const currentTotal = Number(scopeTotals?.total || 0);
-    const startYear = benchmarkYear ?? currentYear;
-    const endYear = targetYear && targetYear > startYear ? targetYear : Math.max(startYear + 1, 2050);
-    const years = Array.from({ length: Math.max(1, endYear - startYear + 1) }, (_, index) => startYear + index);
-    const interimPoint = interimYear && interimYear > startYear && interimYear < endYear ? interimYear : null;
-    const interimTotal =
-      currentTotal > 0
-        ? Number(scopeTotals?.scope_1 || 0) * (1 - Math.max(0, Number(interimTargets.scope_1 ?? 0)) / 100) +
-          Number(scopeTotals?.scope_2 || 0) * (1 - Math.max(0, Number(interimTargets.scope_2 ?? 0)) / 100) +
-          Number(scopeTotals?.scope_3 || 0) * (1 - Math.max(0, Number(interimTargets.scope_3 ?? 0)) / 100)
-        : 0;
-
-    const valueForYear = (year: number): number => {
-      if (year <= currentYear) return currentTotal;
-      if (interimPoint != null && year <= interimPoint) {
-        const span = interimPoint - currentYear;
-        const t = span > 0 ? (year - currentYear) / span : 1;
-        return currentTotal + (interimTotal - currentTotal) * t;
-      }
-      const startYear = interimPoint ?? currentYear;
-      const startValue = interimPoint ? interimTotal : currentTotal;
-      const span = endYear - startYear;
-      const t = span > 0 ? (year - startYear) / span : 1;
-      return Math.max(startValue * (1 - t), 0);
-    };
-
-    return years.map((year) => ({
-      year,
-      actual: year === currentYear ? currentTotal : null,
-      forecast: valueForYear(year),
-      target: valueForYear(year),
-    }));
-  }, [benchmarkYear, currentYear, interimTargets.scope_1, interimTargets.scope_2, interimTargets.scope_3, interimYear, scopeTotals?.scope_1, scopeTotals?.scope_2, scopeTotals?.scope_3, scopeTotals?.total, targetYear]);
 
   const scopePathwayData = useMemo(() => {
     if (!scopeTotals) return [];
@@ -711,35 +665,6 @@ export default function JobInsights({
           benchmarkYear={benchmarkYear ?? firstHistoricalYear ?? currentYear}
           benchmarkTotal={benchmarkScopeTotal}
         />
-
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle>Emissions Trend to Target Year</CardTitle>
-            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{trendReportingLabel}</div>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[320px]">
-              <ResponsiveContainer width="100%" height={320}>
-                <LineChart data={targetPath} margin={{ top: 5, right: 20, left: 6, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="year" />
-                  <YAxis />
-                  <Tooltip formatter={formatMetricTooltip} />
-                  <Legend />
-                  <Line type="monotone" dataKey="actual" stroke="#0f766e" strokeWidth={3} dot={{ r: 4 }} name="Actual" />
-                  <Line type="monotone" dataKey="forecast" stroke="#38bdf8" strokeWidth={2} strokeDasharray="5 4" dot={false} name="Target path" />
-                  {interimYear ? (
-                    <ReferenceLine x={interimYear} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: "Interim", position: "top", fill: "#f59e0b" }} />
-                  ) : null}
-                  {targetYear ? (
-                    <ReferenceLine x={targetYear} stroke="#16a34a" strokeDasharray="3 3" label={{ value: "Net zero", position: "top", fill: "#16a34a" }} />
-                  ) : null}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
       </div>
 
       {scopePathwayData.length > 0 && (
@@ -791,7 +716,7 @@ export default function JobInsights({
       <Card>
         <CardHeader className="space-y-1">
           <CardTitle>What If Scenarios</CardTitle>
-          <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{trendReportingLabel}</div>
+          <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{currentReportingLabel}</div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-3">
