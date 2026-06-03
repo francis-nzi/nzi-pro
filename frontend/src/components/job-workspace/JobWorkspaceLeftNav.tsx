@@ -47,7 +47,7 @@ function buildGroups(jobId: number): GroupDef[] {
         { key: "employee-commuting", label: "Employee Commuting", href: `/jobs/${j}/data-entry/employee-commuting` },
         { key: "asset-register",     label: "Asset Register",     href: `/jobs/${j}/data-entry/asset-register` },
         { key: "business-travel",    label: "Business Travel",    href: `/jobs/${j}/data-entry/business-travel` },
-        { key: "upload",             label: "Data Upload",        href: `/jobs/${j}/data-entry?tab=upload` },
+        { key: "upload",             label: "Data Upload",        href: `/jobs/${j}?tab=upload` },
         { key: "custom-dataset",     label: "Custom Dataset",     href: `/jobs/${j}/data-entry/custom-dataset` },
         { key: "custom-factors",     label: "Job-Only Factors",   href: `/jobs/${j}/data-entry/custom-factors` },
         { key: "spend-data",         label: "Spend Data",         href: `/jobs/${j}/data-entry/spend-data` },

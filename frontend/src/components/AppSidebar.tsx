@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { apiUrl, performLogout } from "@/lib/auth-client";
 import { useTheme } from "@/components/ThemeProvider";
 import { useAuthSession } from "@/components/AuthContext";
+import { JOB_TAB_TO_GROUP } from "@/lib/job-workspace";
 
 const ADMIN_CENTER_DOMAINS = [
   "People & Access",
@@ -133,7 +134,7 @@ const JOB_NAV_GROUPS: JobNavGroup[] = [
       { key: "employee-commuting", label: "Employee Commuting", href: (j) => `/jobs/${j}/data-entry/employee-commuting` },
       { key: "asset-register",     label: "Asset Register",     href: (j) => `/jobs/${j}/data-entry/asset-register` },
       { key: "business-travel",    label: "Business Travel",    href: (j) => `/jobs/${j}/data-entry/business-travel` },
-      { key: "upload",             label: "Data Upload",        href: (j) => `/jobs/${j}/data-entry?tab=upload` },
+      { key: "upload",             label: "Data Upload",        href: (j) => `/jobs/${j}?tab=upload` },
       { key: "custom-dataset",     label: "Custom Dataset",     href: (j) => `/jobs/${j}/data-entry/custom-dataset` },
       { key: "custom-factors",     label: "Job-Only Factors",   href: (j) => `/jobs/${j}/data-entry/custom-factors` },
       { key: "spend-data",         label: "Spend Data",         href: (j) => `/jobs/${j}/data-entry/spend-data` },
@@ -264,6 +265,7 @@ function Tooltip({ label, visible }: { label: string; visible: boolean }) {
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const { theme } = useTheme();
   const authSession = useAuthSession();
@@ -422,8 +424,19 @@ export function AppSidebar() {
   const jobRouteMatch = pathname ? /^\/jobs\/(\d+)(\/.*)?$/.exec(pathname) : null;
   const isOnJobRoute = Boolean(jobRouteMatch);
   const jobIdFromPath = jobRouteMatch ? Number(jobRouteMatch[1]) : null;
-  const activeJobGroup = isOnJobRoute && jobIdFromPath ? getJobActiveGroup(pathname!, jobIdFromPath) : "";
-  const activeJobSubtab = isOnJobRoute && pathname ? getJobActiveSubtab(pathname) : "";
+  const tabParam = searchParams.get("tab") || "";
+  const activeJobGroup =
+    isOnJobRoute && jobIdFromPath
+      ? pathname === `/jobs/${jobIdFromPath}` && tabParam
+        ? JOB_TAB_TO_GROUP[tabParam] ?? "setup"
+        : getJobActiveGroup(pathname!, jobIdFromPath)
+      : "";
+  const activeJobSubtab =
+    isOnJobRoute && pathname
+      ? pathname === `/jobs/${jobIdFromPath}` && tabParam
+        ? tabParam
+        : getJobActiveSubtab(pathname)
+      : "";
 
   const logoUrl = (() => {
     const raw = String(theme?.logo_url || "").trim();
