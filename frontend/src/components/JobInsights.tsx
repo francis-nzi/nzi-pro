@@ -828,7 +828,6 @@ export default function JobInsights({
       {scopePathwayData.length > 0 && (
         <EmissionsReductionPathwayWidget
           title={`${clientName ?? "Client"} Emissions Reduction Targets to ${targetYear ?? 2050}`}
-          subtitle={pathwayReportingLabel}
           data={scopePathwayData}
           benchmarkYear={benchmarkYear}
           targetYear={targetYear}

@@ -1,4 +1,7 @@
+"use client";
+
 import type { ReactNode } from "react";
+import { useRef } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -11,6 +14,8 @@ import {
   YAxis,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
 import { formatNumber } from "@/lib/format";
 import { REPORT_WIDGET_IDS } from "./registry";
 
@@ -56,6 +61,7 @@ export function EmissionsReductionPathwayWidget({
   valueFormatter = (value) => `${formatNumber(Number(value || 0), 1)} tCO₂e`,
 }: EmissionsReductionPathwayWidgetProps) {
   const yearLookup = new Map<number, EmissionsPathwayPoint>(data.map((point) => [Number(point.year), point]));
+  const chartWrapRef = useRef<HTMLDivElement | null>(null);
 
   const renderTooltip = (props: any) => {
     if (!props.active) return null;
@@ -85,6 +91,67 @@ export function EmissionsReductionPathwayWidget({
     );
   };
 
+  const downloadPng = async () => {
+    const svg = chartWrapRef.current?.querySelector("svg") as SVGSVGElement | null;
+    if (!svg) return;
+
+    const clone = svg.cloneNode(true) as SVGSVGElement;
+    const rect = svg.getBoundingClientRect();
+    const width = Math.max(1, Math.ceil(rect.width || Number(svg.getAttribute("width") || 1200)));
+    const height = Math.max(1, Math.ceil(rect.height || Number(svg.getAttribute("height") || 800)));
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+    clone.setAttribute("width", String(width));
+    clone.setAttribute("height", String(height));
+
+    const svgText = new XMLSerializer().serializeToString(clone);
+    const blob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const image = new Image();
+    image.decoding = "async";
+    image.crossOrigin = "anonymous";
+
+    const loadPromise = new Promise<void>((resolve, reject) => {
+      image.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) throw new Error("Canvas rendering is unavailable.");
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(image, 0, 0, width, height);
+
+          canvas.toBlob((pngBlob) => {
+            if (!pngBlob) {
+              reject(new Error("Unable to generate PNG."));
+              return;
+            }
+            const pngUrl = URL.createObjectURL(pngBlob);
+            const a = document.createElement("a");
+            a.href = pngUrl;
+            a.download = `${widgetKey}.png`;
+            a.click();
+            URL.revokeObjectURL(pngUrl);
+            resolve();
+          }, "image/png");
+        } catch (error) {
+          reject(error);
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      };
+      image.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("Unable to render chart image."));
+      };
+    });
+
+    image.src = url;
+    await loadPromise;
+  };
+
   if (!data.length) {
     return (
       <Card className={className}>
@@ -107,16 +174,22 @@ export function EmissionsReductionPathwayWidget({
             <CardTitle>{title}</CardTitle>
             {subtitle ? <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{subtitle}</div> : null}
           </div>
-          {showWidgetRef ? (
-            <div className="text-[10px] uppercase tracking-[0.28em] text-muted-foreground">
-              <span className="block text-right">Widget ref</span>
-              <span className="block font-mono tracking-[0.18em] text-foreground">{widgetKey}</span>
-            </div>
-          ) : null}
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => void downloadPng()}>
+              <Download className="mr-2 h-4 w-4" />
+              PNG
+            </Button>
+            {showWidgetRef ? (
+              <div className="text-[10px] uppercase tracking-[0.28em] text-muted-foreground">
+                <span className="block text-right">Widget ref</span>
+                <span className="block font-mono tracking-[0.18em] text-foreground">{widgetKey}</span>
+              </div>
+            ) : null}
+          </div>
         </div>
       </CardHeader>
       <CardContent>
-        <div className="h-[360px]">
+        <div ref={chartWrapRef} className="h-[360px]">
           <ResponsiveContainer width="100%" height={360}>
             <LineChart data={data} margin={{ top: 5, right: 24, left: 6, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
