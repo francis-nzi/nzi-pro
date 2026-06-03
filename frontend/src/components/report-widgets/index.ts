@@ -5,6 +5,7 @@ export * from "./EmissionsReductionPathwayWidget";
 export * from "./EmissionsByActivityWidget";
 export * from "./HistoricalEmissionsTrendWidget";
 export * from "./IntensityPathwayWidget";
+export * from "./SiteSummaryDonutWidget";
 export * from "./ScopeCategoryComparisonTable";
 export * from "./ScopeYearOnYearBarWidget";
 export * from "./ScopeSummaryDonutWidget";

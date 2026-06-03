@@ -5,6 +5,7 @@ export const REPORT_WIDGET_IDS = {
   historicalEmissionsTrend: "historical_emissions_trend",
   intensityPathway: "intensity_pathway",
   emissionsScopeDonut: "emissions_scope_donut",
+  emissionsSiteDonut: "emissions_site_donut",
   scopeYearOnYearBar: "scope_year_on_year_bar",
 } as const;
 

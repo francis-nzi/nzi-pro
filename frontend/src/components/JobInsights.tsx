@@ -27,6 +27,7 @@ import {
   EmissionsReductionPathwayWidget,
   HistoricalEmissionsTrendWidget,
   IntensityPathwayWidget,
+  SiteSummaryDonutWidget,
   ScopeYearOnYearBarWidget,
   ScopeSummaryDonutWidget,
   type HistoricalEmissionsPoint,
@@ -762,64 +763,16 @@ export default function JobInsights({
       ) : null}
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle>Emissions by Site</CardTitle>
-            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{currentReportingLabel}</div>
-          </CardHeader>
-          <CardContent>
-            {normalizedSiteData.length === 0 ? (
-              <div className="py-12 text-center text-sm text-muted-foreground">No site data available</div>
-            ) : (
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-                <div className="relative mx-auto aspect-square w-full max-w-[420px]">
-                  <ResponsiveContainer width="100%" aspect={1}>
-                    <PieChart>
-                      <Pie data={normalizedSiteData} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2}>
-                        {normalizedSiteData.map((_, index) => (
-                          <Cell key={index} fill={ACTIVITY_COLORS[index % ACTIVITY_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={formatTooltipValue} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                    <div className="text-center">
-                      <div className="text-3xl font-semibold tabular-nums">{formatTco2e(Number(scopeTotals?.total || 0))}</div>
-                      <div className="text-xs text-muted-foreground">tCO₂e total</div>
-                      {currentYear ? <div className="mt-1 text-[10px] text-muted-foreground/70">{currentYear}</div> : null}
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  {normalizedSiteData.map((site, index) => (
-                    <div key={site.name} className="flex items-center justify-between gap-3 text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: ACTIVITY_COLORS[index % ACTIVITY_COLORS.length] }} />
-                        <Link href={`/jobs/${jobId}/data-entry`} className="truncate underline decoration-slate-300 underline-offset-2">
-                          {site.name}
-                        </Link>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-medium">{formatTco2e(site.value)}</div>
-                        <div className="text-xs text-muted-foreground">{pct(site.value, Number(scopeTotals?.total || 0))}</div>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="mt-2 border-t pt-2">
-                    <div className="flex items-center justify-between gap-3 text-sm font-semibold">
-                      <span>Total</span>
-                      <div className="text-right">
-                        <div>{formatTco2e(Number(scopeTotals?.total || 0))}</div>
-                        <div className="text-xs text-muted-foreground">100.0%</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <SiteSummaryDonutWidget
+          title={`${clientName ?? "Client"} Emissions by Site`}
+          subtitle={currentReportingLabel}
+          clientName={clientName}
+          data={normalizedSiteData}
+          currentYear={currentYear}
+          currentTotal={scopeTotals?.total ?? 0}
+          benchmarkYear={benchmarkYear ?? firstHistoricalYear ?? currentYear}
+          benchmarkTotal={benchmarkScopeTotal}
+        />
 
         <Card>
           <CardHeader className="space-y-1">
