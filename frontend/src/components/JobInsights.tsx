@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import LoadingOrbit from "@/components/LoadingOrbit";
 import { Input } from "@/components/ui/input";
+import { EmissionsReductionPathwayWidget } from "@/components/report-widgets";
 
 type ScopeTotals = {
   scope_1: number;
@@ -824,53 +825,15 @@ export default function JobInsights({
       </div>
 
       {scopePathwayData.length > 0 && (
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle>Emissions Reduction Pathway to {targetYear ?? 2050}</CardTitle>
-            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{pathwayReportingLabel}</div>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[360px]">
-              <ResponsiveContainer width="100%" height={360}>
-                <LineChart data={scopePathwayData} margin={{ top: 5, right: 24, left: 6, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toLocaleString("en-GB", { maximumFractionDigits: 0 })} />
-                  <Tooltip formatter={(v: unknown) => [`${formatTco2e(Number(v || 0))} tCO₂e`, ""]} labelFormatter={(v) => `Year: ${v}`} />
-                  <Legend iconType="circle" />
-                  {interimYear && interimYear > (benchmarkYear ?? currentYear) && (
-                    <ReferenceLine x={interimYear} stroke="#f59e0b" strokeDasharray="3 3"
-                      label={{ value: "Interim", position: "top", fill: "#f59e0b", fontSize: 10 }} />
-                  )}
-                  {targetYear && (
-                    <ReferenceLine x={targetYear} stroke="#16a34a" strokeDasharray="3 3"
-                      label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 10 }} />
-                  )}
-                  <Line type="monotone" dataKey="actual_total" name="Total (actual)"
-                    stroke="#0f766e" strokeWidth={3} dot={{ r: 5 }} activeDot={{ r: 6 }} connectNulls={false} />
-                  <Line type="monotone" dataKey="actual_s1" name="Scope 1 (actual)"
-                    stroke={SCOPE_COLORS[0]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
-                  {Number(scopeTotals?.scope_2 || 0) > 0 && (
-                    <Line type="monotone" dataKey="actual_s2" name="Scope 2 (actual)"
-                      stroke={SCOPE_COLORS[1]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
-                  )}
-                  <Line type="monotone" dataKey="actual_s3" name="Scope 3 (actual)"
-                    stroke={SCOPE_COLORS[2]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
-                  <Line type="monotone" dataKey="target_total" name="Total (target)"
-                    stroke="#0f766e" strokeWidth={2} strokeDasharray="5 4" dot={false} />
-                  <Line type="monotone" dataKey="target_s1" name="Scope 1 (target)"
-                    stroke={SCOPE_COLORS[0]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
-                  {Number(scopeTotals?.scope_2 || 0) > 0 && (
-                    <Line type="monotone" dataKey="target_s2" name="Scope 2 (target)"
-                      stroke={SCOPE_COLORS[1]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
-                  )}
-                  <Line type="monotone" dataKey="target_s3" name="Scope 3 (target)"
-                    stroke={SCOPE_COLORS[2]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+        <EmissionsReductionPathwayWidget
+          title={`Emissions Reduction Pathway to ${targetYear ?? 2050}`}
+          subtitle={pathwayReportingLabel}
+          data={scopePathwayData}
+          benchmarkYear={benchmarkYear}
+          targetYear={targetYear}
+          interimYear={interimYear}
+          showScope2={Number(scopeTotals?.scope_2 || 0) > 0}
+        />
       )}
 
       {intensityPathwayData.length > 0 && (
