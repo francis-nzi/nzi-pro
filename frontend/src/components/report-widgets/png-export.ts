@@ -27,12 +27,21 @@ export type ChartExportLegendItem = {
   color: string;
 };
 
+export type ChartExportCallout = {
+  text: string;
+  fill?: string;
+  textColor?: string;
+  borderColor?: string;
+  backgroundColor?: string;
+};
+
 type DownloadChartAsPngOptions = {
   svg: SVGSVGElement;
   filename: string;
   title: string;
   subtitle?: string;
   legendItems?: ChartExportLegendItem[];
+  callout?: ChartExportCallout | null;
 };
 
 function measureLegendRows(ctx: CanvasRenderingContext2D, width: number, items: ChartExportLegendItem[]): ChartExportLegendItem[][] {
@@ -63,6 +72,7 @@ export async function downloadChartAsPng({
   title,
   subtitle,
   legendItems = [],
+  callout = null,
 }: DownloadChartAsPngOptions): Promise<void> {
   const clone = svg.cloneNode(true) as SVGSVGElement;
   const rect = svg.getBoundingClientRect();
@@ -133,6 +143,42 @@ export async function downloadChartAsPng({
             legendY += rowGap;
           }
           y = legendY - 8;
+        }
+
+        if (callout?.text) {
+          const paddingX = 12;
+          const paddingY = 8;
+          const textWidth = ctx.measureText(callout.text).width;
+          const pillWidth = Math.min(canvas.width - 48, textWidth + paddingX * 2);
+          const pillHeight = 28;
+          const pillX = 24;
+          const pillY = y + 12;
+          const radius = 14;
+          const bg = callout.backgroundColor ?? "#fee2e2";
+          const border = callout.borderColor ?? "#fecaca";
+          const fg = callout.textColor ?? "#b91c1c";
+
+          ctx.beginPath();
+          ctx.moveTo(pillX + radius, pillY);
+          ctx.lineTo(pillX + pillWidth - radius, pillY);
+          ctx.quadraticCurveTo(pillX + pillWidth, pillY, pillX + pillWidth, pillY + radius);
+          ctx.lineTo(pillX + pillWidth, pillY + pillHeight - radius);
+          ctx.quadraticCurveTo(pillX + pillWidth, pillY + pillHeight, pillX + pillWidth - radius, pillY + pillHeight);
+          ctx.lineTo(pillX + radius, pillY + pillHeight);
+          ctx.quadraticCurveTo(pillX, pillY + pillHeight, pillX, pillY + pillHeight - radius);
+          ctx.lineTo(pillX, pillY + radius);
+          ctx.quadraticCurveTo(pillX, pillY, pillX + radius, pillY);
+          ctx.closePath();
+          ctx.fillStyle = bg;
+          ctx.fill();
+          ctx.strokeStyle = border;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          ctx.fillStyle = fg;
+          ctx.font = "600 13px Arial, sans-serif";
+          ctx.fillText(callout.text, pillX + paddingX, pillY + 19);
+          y = pillY + pillHeight;
         }
 
         ctx.drawImage(image, 0, headerHeight, width, height);

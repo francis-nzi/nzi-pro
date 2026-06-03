@@ -22,7 +22,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import LoadingOrbit from "@/components/LoadingOrbit";
 import { Input } from "@/components/ui/input";
-import { EmissionsReductionPathwayWidget, IntensityPathwayWidget, type IntensityPathwayPoint } from "@/components/report-widgets";
+import {
+  EmissionsReductionPathwayWidget,
+  IntensityPathwayWidget,
+  ScopeSummaryDonutWidget,
+  type IntensityPathwayPoint,
+} from "@/components/report-widgets";
 
 type ScopeTotals = {
   scope_1: number;
@@ -237,6 +242,12 @@ export default function JobInsights({
       { name: "Scope 3", value: scopeTotals.scope_3 },
     ];
   }, [scopeTotals]);
+
+  const benchmarkScopeTotal = useMemo(() => {
+    if (benchmarkYear == null) return null;
+    const benchmarkRow = yearlyEmissions.find((row) => row.year === benchmarkYear);
+    return benchmarkRow ? Number(benchmarkRow.total || 0) : null;
+  }, [benchmarkYear, yearlyEmissions]);
 
   const activityData = useMemo(() => {
     const map = new Map<string, number>();
@@ -638,58 +649,15 @@ export default function JobInsights({
       </Card>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle>Emissions Summary by Scope</CardTitle>
-            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{currentReportingLabel}</div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-              <div className="relative mx-auto aspect-square w-full max-w-[480px]">
-                <ResponsiveContainer width="100%" aspect={1}>
-                  <PieChart>
-                    <Pie data={scopeCards} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2}>
-                      {scopeCards.map((_, index) => (
-                        <Cell key={index} fill={SCOPE_COLORS[index % SCOPE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={formatTooltipValue} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <div className="text-center">
-                    <div className="text-3xl font-semibold tabular-nums">{formatTco2e(scopeTotals?.total ?? 0)}</div>
-                    <div className="text-xs text-muted-foreground">tCO₂e total</div>
-                    {currentYear ? <div className="mt-1 text-[10px] text-muted-foreground/70">{currentYear}</div> : null}
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-3">
-                {scopeCards.map((scope, index) => (
-                  <div key={scope.name} className="flex items-center justify-between gap-3 text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SCOPE_COLORS[index % SCOPE_COLORS.length] }} />
-                      <span>{scope.name}</span>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-medium">{formatTco2e(scope.value)}</div>
-                      <div className="text-xs text-muted-foreground">{pct(scope.value, Number(scopeTotals?.total || 0))}</div>
-                    </div>
-                  </div>
-                ))}
-                <div className="mt-2 border-t pt-2">
-                  <div className="flex items-center justify-between gap-3 text-sm font-semibold">
-                    <span>Total</span>
-                    <div className="text-right">
-                      <div>{formatTco2e(Number(scopeTotals?.total || 0))}</div>
-                      <div className="text-xs text-muted-foreground">100.0%</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <ScopeSummaryDonutWidget
+          title={`${clientName ?? "Client"} Emissions Summary by Scope`}
+          subtitle={currentReportingLabel}
+          data={scopeCards}
+          currentYear={currentYear}
+          currentTotal={scopeTotals?.total ?? 0}
+          benchmarkYear={benchmarkYear}
+          benchmarkTotal={benchmarkScopeTotal}
+        />
 
         <Card>
           <CardHeader className="space-y-1">
