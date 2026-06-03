@@ -27,6 +27,8 @@ export type ScopeYoYBarPoint = {
   pct?: number | null;
 };
 
+type LegendItem = { label: string; color: string };
+
 type ScopeYearOnYearBarWidgetProps = {
   title: string;
   subtitle?: string;
@@ -34,6 +36,9 @@ type ScopeYearOnYearBarWidgetProps = {
   benchmarkLabel: string;
   previousLabel: string;
   currentLabel: string;
+  showBenchmarkBar?: boolean;
+  showPreviousBar?: boolean;
+  showComparisonPct?: boolean;
   widgetKey?: string;
   showWidgetRef?: boolean;
   className?: string;
@@ -56,19 +61,22 @@ export function ScopeYearOnYearBarWidget({
   benchmarkLabel,
   previousLabel,
   currentLabel,
+  showBenchmarkBar = true,
+  showPreviousBar = true,
+  showComparisonPct = true,
   widgetKey = REPORT_WIDGET_IDS.scopeYearOnYearBar,
   showWidgetRef = true,
   className,
 }: ScopeYearOnYearBarWidgetProps) {
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
 
-  const legendItems = useMemo(
+  const legendItems = useMemo<LegendItem[]>(
     () => [
-      { label: benchmarkLabel, color: BENCHMARK_COLOR },
-      { label: previousLabel, color: PREVIOUS_COLOR },
+      ...(showBenchmarkBar ? [{ label: benchmarkLabel, color: BENCHMARK_COLOR }] : []),
+      ...(showPreviousBar ? [{ label: previousLabel, color: PREVIOUS_COLOR }] : []),
       { label: currentLabel, color: CURRENT_COLOR },
     ],
-    [benchmarkLabel, currentLabel, previousLabel]
+    [benchmarkLabel, currentLabel, previousLabel, showBenchmarkBar, showPreviousBar]
   );
 
   const downloadPng = async () => {
@@ -91,27 +99,33 @@ export function ScopeYearOnYearBarWidget({
     const benchmark = Number(payload.benchmark ?? 0);
     const previous = Number(payload.previous ?? 0);
     const current = Number(payload.current ?? 0);
-    const pct = payload.pct;
+    const pct = showComparisonPct ? payload.pct : null;
 
     return (
       <div className="rounded-md border bg-background px-3 py-2 shadow-sm">
         <div className="text-sm font-medium">{payload.scope}</div>
         <div className="mt-2 space-y-1">
-          <div className="flex items-center justify-between gap-4 text-sm">
-            <span>{benchmarkLabel}</span>
-            <span className="font-medium">{formatNumber(benchmark, 1)} tCO₂e</span>
-          </div>
-          <div className="flex items-center justify-between gap-4 text-sm">
-            <span>{previousLabel}</span>
-            <span className="font-medium">{formatNumber(previous, 1)} tCO₂e</span>
-          </div>
+          {showBenchmarkBar ? (
+            <div className="flex items-center justify-between gap-4 text-sm">
+              <span>{benchmarkLabel}</span>
+              <span className="font-medium">{formatNumber(benchmark, 1)} tCO2e</span>
+            </div>
+          ) : null}
+          {showPreviousBar ? (
+            <div className="flex items-center justify-between gap-4 text-sm">
+              <span>{previousLabel}</span>
+              <span className="font-medium">{formatNumber(previous, 1)} tCO2e</span>
+            </div>
+          ) : null}
           <div className="flex items-center justify-between gap-4 text-sm">
             <span>{currentLabel}</span>
-            <span className="font-medium">{formatNumber(current, 1)} tCO₂e</span>
+            <span className="font-medium">{formatNumber(current, 1)} tCO2e</span>
           </div>
-          <div className="pt-1 text-xs font-semibold" style={{ color: pct != null && pct < 0 ? "#16a34a" : "#dc2626" }}>
-            {pct != null ? `${formatPct(pct)} vs benchmark` : ""}
-          </div>
+          {showComparisonPct && pct != null ? (
+            <div className="pt-1 text-xs font-semibold" style={{ color: pct < 0 ? "#16a34a" : "#dc2626" }}>
+              {`${formatPct(pct)} vs benchmark`}
+            </div>
+          ) : null}
         </div>
       </div>
     );
@@ -167,17 +181,17 @@ export function ScopeYearOnYearBarWidget({
                   tick={(tickProps: any) => {
                     const { x, y, payload } = tickProps as { x: number; y: number; payload: { value: string } };
                     const row = data.find((d) => d.scope === payload?.value);
-                    const pct = row?.pct ?? null;
+                    const pct = showComparisonPct ? row?.pct ?? null : null;
                     return (
                       <g transform={`translate(${x},${y})`}>
                         <text textAnchor="middle" fontSize={11} fill="#334155" y={14}>
                           {payload?.value}
                         </text>
-                        {pct != null && (
+                        {pct != null ? (
                           <text textAnchor="middle" fontSize={10} fill={pct < 0 ? "#16a34a" : "#dc2626"} y={28}>
                             {formatPct(pct)}
                           </text>
-                        )}
+                        ) : null}
                       </g>
                     );
                   }}
@@ -187,29 +201,33 @@ export function ScopeYearOnYearBarWidget({
                   tick={{ fontSize: 10 }}
                   axisLine={false}
                   tickLine={false}
-                  label={{ value: "tCO₂e", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "#94a3b8" } }}
+                  label={{ value: "tCO2e", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "#94a3b8" } }}
                 />
                 <Tooltip
-                  formatter={(v: unknown, name: unknown) => [typeof v === "number" ? `${formatNumber(v, 1)} tCO₂e` : "—", String(name ?? "")]}
+                  formatter={(v: unknown, name: unknown) => [typeof v === "number" ? `${formatNumber(v, 1)} tCO2e` : "—", String(name ?? "")]}
                   content={renderTooltip}
                 />
                 <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="top" />
-                <Bar dataKey="benchmark" name={benchmarkLabel} fill={BENCHMARK_COLOR} radius={[3, 3, 0, 0]}>
-                  <LabelList
-                    dataKey="benchmark"
-                    position="top"
-                    formatter={(v: unknown) => (typeof v === "number" && v > 0 ? formatNumber(v, 1) : "")}
-                    style={{ fontSize: 9, fill: "#64748b" }}
-                  />
-                </Bar>
-                <Bar dataKey="previous" name={previousLabel} fill={PREVIOUS_COLOR} radius={[3, 3, 0, 0]}>
-                  <LabelList
-                    dataKey="previous"
-                    position="top"
-                    formatter={(v: unknown) => (typeof v === "number" && v > 0 ? formatNumber(v, 1) : "")}
-                    style={{ fontSize: 9, fill: "#475569" }}
-                  />
-                </Bar>
+                {showBenchmarkBar ? (
+                  <Bar dataKey="benchmark" name={benchmarkLabel} fill={BENCHMARK_COLOR} radius={[3, 3, 0, 0]}>
+                    <LabelList
+                      dataKey="benchmark"
+                      position="top"
+                      formatter={(v: unknown) => (typeof v === "number" && v > 0 ? formatNumber(v, 1) : "")}
+                      style={{ fontSize: 9, fill: "#64748b" }}
+                    />
+                  </Bar>
+                ) : null}
+                {showPreviousBar ? (
+                  <Bar dataKey="previous" name={previousLabel} fill={PREVIOUS_COLOR} radius={[3, 3, 0, 0]}>
+                    <LabelList
+                      dataKey="previous"
+                      position="top"
+                      formatter={(v: unknown) => (typeof v === "number" && v > 0 ? formatNumber(v, 1) : "")}
+                      style={{ fontSize: 9, fill: "#475569" }}
+                    />
+                  </Bar>
+                ) : null}
                 <Bar dataKey="current" name={currentLabel} fill={CURRENT_COLOR} radius={[3, 3, 0, 0]}>
                   <LabelList
                     dataKey="current"
