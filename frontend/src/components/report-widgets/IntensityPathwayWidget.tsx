@@ -31,6 +31,16 @@ export type IntensityPathwaySeries = {
   color: string;
 };
 
+function formatIntensityLabel(label: string): string {
+  const normalized = label.trim().replace(/\s+/g, " ");
+  const prefixMatch = normalized.match(/^(GBP|m2)\s+(.+)$/i);
+  if (prefixMatch) {
+    const [, unit, rest] = prefixMatch;
+    return `${rest.trim()} ${unit.toUpperCase()}`.replace(/\s+/g, " ").trim();
+  }
+  return normalized;
+}
+
 type IntensityPathwayWidgetProps = {
   title: string;
   subtitle?: string;
@@ -75,9 +85,10 @@ export function IntensityPathwayWidget({
             const actual = point[`${item.label}_actual`];
             const target = point[`${item.label}_target`];
             const value = typeof actual === "number" ? actual : typeof target === "number" ? target : null;
+            const displayLabel = formatIntensityLabel(item.label);
             return (
               <div key={item.key} className="flex items-center justify-between gap-4 text-sm">
-                <span>{item.label}</span>
+                <span>{displayLabel}</span>
                 <span className="font-medium">{valueFormatter(value)}</span>
               </div>
             );
@@ -159,7 +170,7 @@ export function IntensityPathwayWidget({
                   key={`${entry.key}_actual`}
                   type="monotone"
                   dataKey={`${entry.label}_actual`}
-                  name={`${entry.label}`}
+                  name={formatIntensityLabel(entry.label)}
                   stroke={entry.color}
                   strokeWidth={2.5}
                   dot={{ r: 4 }}
@@ -169,11 +180,12 @@ export function IntensityPathwayWidget({
                   key={`${entry.key}_target`}
                   type="monotone"
                   dataKey={`${entry.label}_target`}
-                  name={`${entry.label} target`}
+                  name={`${formatIntensityLabel(entry.label)} target`}
                   stroke={entry.color}
                   strokeWidth={1.5}
                   strokeDasharray="5 4"
                   dot={false}
+                  legendType="none"
                 />,
               ])}
             </LineChart>
