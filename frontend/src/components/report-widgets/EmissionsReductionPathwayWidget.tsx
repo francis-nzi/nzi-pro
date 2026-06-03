@@ -35,6 +35,7 @@ type EmissionsReductionPathwayWidgetProps = {
   interimYear?: number | null;
   showScope2?: boolean;
   widgetKey?: string;
+  showWidgetRef?: boolean;
   className?: string;
   valueFormatter?: (value: number | null | undefined) => ReactNode;
 };
@@ -50,9 +51,40 @@ export function EmissionsReductionPathwayWidget({
   interimYear,
   showScope2 = true,
   widgetKey = REPORT_WIDGET_IDS.emissionsReductionPathway,
+  showWidgetRef = false,
   className,
   valueFormatter = (value) => `${formatNumber(Number(value || 0), 1)} tCO₂e`,
 }: EmissionsReductionPathwayWidgetProps) {
+  const yearLookup = new Map<number, EmissionsPathwayPoint>(data.map((point) => [Number(point.year), point]));
+
+  const renderTooltip = (props: any) => {
+    if (!props.active) return null;
+    const year = Number(props.label);
+    const point = yearLookup.get(year);
+    if (!point) return null;
+
+    const rows: Array<{ label: string; value: number | null | undefined }> = [
+      { label: "Total", value: point.actual_total ?? point.target_total },
+      { label: "Scope 1", value: point.actual_s1 ?? point.target_s1 },
+      ...(showScope2 ? [{ label: "Scope 2", value: point.actual_s2 ?? point.target_s2 }] : []),
+      { label: "Scope 3", value: point.actual_s3 ?? point.target_s3 },
+    ];
+
+    return (
+      <div className="rounded-md border bg-background px-3 py-2 shadow-sm">
+        <div className="text-sm font-medium">Year: {year}</div>
+        <div className="mt-2 space-y-1">
+          {rows.map((row) => (
+            <div key={row.label} className="flex items-center justify-between gap-4 text-sm">
+              <span>{row.label}</span>
+              <span className="font-medium">{valueFormatter(row.value)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   if (!data.length) {
     return (
       <Card className={className}>
@@ -75,10 +107,12 @@ export function EmissionsReductionPathwayWidget({
             <CardTitle>{title}</CardTitle>
             {subtitle ? <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{subtitle}</div> : null}
           </div>
-          <div className="text-[10px] uppercase tracking-[0.28em] text-muted-foreground">
-            <span className="block text-right">Widget ref</span>
-            <span className="block font-mono tracking-[0.18em] text-foreground">{widgetKey}</span>
-          </div>
+          {showWidgetRef ? (
+            <div className="text-[10px] uppercase tracking-[0.28em] text-muted-foreground">
+              <span className="block text-right">Widget ref</span>
+              <span className="block font-mono tracking-[0.18em] text-foreground">{widgetKey}</span>
+            </div>
+          ) : null}
         </div>
       </CardHeader>
       <CardContent>
@@ -88,7 +122,7 @@ export function EmissionsReductionPathwayWidget({
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="year" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toLocaleString("en-GB", { maximumFractionDigits: 0 })} />
-              <Tooltip formatter={(value: unknown) => [valueFormatter(Number(value || 0)), ""]} labelFormatter={(v) => `Year: ${v}`} />
+              <Tooltip content={renderTooltip} />
               <Legend iconType="circle" />
               {interimYear && interimYear > (benchmarkYear ?? 0) && (
                 <ReferenceLine
@@ -109,7 +143,7 @@ export function EmissionsReductionPathwayWidget({
               <Line
                 type="monotone"
                 dataKey="actual_total"
-                name="Total (actual)"
+                name="Total"
                 stroke="#0f766e"
                 strokeWidth={3}
                 dot={{ r: 5 }}
@@ -119,7 +153,7 @@ export function EmissionsReductionPathwayWidget({
               <Line
                 type="monotone"
                 dataKey="actual_s1"
-                name="Scope 1 (actual)"
+                name="Scope 1"
                 stroke={DEFAULT_SCOPE_COLORS[0]}
                 strokeWidth={2}
                 dot={{ r: 3 }}
@@ -129,7 +163,7 @@ export function EmissionsReductionPathwayWidget({
                 <Line
                   type="monotone"
                   dataKey="actual_s2"
-                  name="Scope 2 (actual)"
+                  name="Scope 2"
                   stroke={DEFAULT_SCOPE_COLORS[1]}
                   strokeWidth={2}
                   dot={{ r: 3 }}
@@ -139,7 +173,7 @@ export function EmissionsReductionPathwayWidget({
               <Line
                 type="monotone"
                 dataKey="actual_s3"
-                name="Scope 3 (actual)"
+                name="Scope 3"
                 stroke={DEFAULT_SCOPE_COLORS[2]}
                 strokeWidth={2}
                 dot={{ r: 3 }}
@@ -153,35 +187,39 @@ export function EmissionsReductionPathwayWidget({
                 strokeWidth={2}
                 strokeDasharray="5 4"
                 dot={false}
+                legendType="none"
               />
               <Line
                 type="monotone"
                 dataKey="target_s1"
-                name="Scope 1 (target)"
+                name="Scope 1 target"
                 stroke={DEFAULT_SCOPE_COLORS[0]}
                 strokeWidth={1.5}
                 strokeDasharray="5 4"
                 dot={false}
+                legendType="none"
               />
               {showScope2 && (
                 <Line
                   type="monotone"
                   dataKey="target_s2"
-                  name="Scope 2 (target)"
+                  name="Scope 2 target"
                   stroke={DEFAULT_SCOPE_COLORS[1]}
                   strokeWidth={1.5}
                   strokeDasharray="5 4"
                   dot={false}
+                  legendType="none"
                 />
               )}
               <Line
                 type="monotone"
                 dataKey="target_s3"
-                name="Scope 3 (target)"
+                name="Scope 3 target"
                 stroke={DEFAULT_SCOPE_COLORS[2]}
                 strokeWidth={1.5}
                 strokeDasharray="5 4"
                 dot={false}
+                legendType="none"
               />
             </LineChart>
           </ResponsiveContainer>
@@ -190,4 +228,3 @@ export function EmissionsReductionPathwayWidget({
     </Card>
   );
 }
-

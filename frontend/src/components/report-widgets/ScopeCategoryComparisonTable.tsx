@@ -1,10 +1,13 @@
 import type { ReactNode } from "react";
 import { ReportYearHeader } from "./ReportYearHeader";
+import { REPORT_WIDGET_IDS } from "./registry";
 import type { ReportComparisonYear, ScopeCategoryComparisonRow } from "./types";
 
 type ScopeCategoryComparisonTableProps = {
   years: ReportComparisonYear[];
   rows: ScopeCategoryComparisonRow[];
+  widgetKey?: string;
+  showWidgetRef?: boolean;
   emptyText?: string;
   valueFormatter?: (value: number | null, year: number) => ReactNode;
 };
@@ -12,6 +15,8 @@ type ScopeCategoryComparisonTableProps = {
 export function ScopeCategoryComparisonTable({
   years,
   rows,
+  widgetKey = REPORT_WIDGET_IDS.scopeCategoryComparison,
+  showWidgetRef = false,
   emptyText = "No comparison data available.",
   valueFormatter = (value) => (value == null ? "-" : value.toFixed(2)),
 }: ScopeCategoryComparisonTableProps) {
@@ -24,7 +29,13 @@ export function ScopeCategoryComparisonTable({
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto" data-widget-key={widgetKey}>
+      {showWidgetRef ? (
+        <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-[0.28em] text-muted-foreground">
+          <span>Widget ref</span>
+          <span className="font-mono tracking-[0.18em] text-foreground">{widgetKey}</span>
+        </div>
+      ) : null}
       <table className="w-full text-sm border-collapse">
         <thead>
           <tr className="bg-muted">

@@ -11,6 +11,7 @@ import JobIntensityYearOverYear from "@/components/JobIntensityYearOverYear";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatNumber } from "@/lib/format";
 import {
+  REPORT_WIDGET_IDS,
   ScopeCategoryComparisonTable,
   type ReportComparisonYear,
   type ScopeCategoryComparisonRow,
@@ -1092,6 +1093,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                       <ScopeCategoryComparisonTable
                         years={comparisonYearHeaders}
                         rows={comparisonEmissionsRows as ScopeCategoryComparisonRow[]}
+                        widgetKey={REPORT_WIDGET_IDS.scopeCategoryComparison}
                         valueFormatter={(value) => (value && value > 0 ? formatNumber(value, 2) : "-")}
                         emptyText="No emissions comparison data available."
                       />
@@ -1105,6 +1107,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                       <ScopeCategoryComparisonTable
                         years={comparisonYearHeaders}
                         rows={comparisonVolumeRows as ScopeCategoryComparisonRow[]}
+                        widgetKey={REPORT_WIDGET_IDS.scopeCategoryComparison}
                         valueFormatter={(value) => (value && value > 0 ? formatNumber(value, 2) : "-")}
                         emptyText="No volume comparison data available."
                       />

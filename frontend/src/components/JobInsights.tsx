@@ -303,9 +303,10 @@ export default function JobInsights({
   }, [rows, scopeTotals?.total]);
 
   const currentYear = reportingYear ?? new Date().getFullYear();
+  const firstHistoricalYear = yearlyEmissions.length > 0 ? yearlyEmissions[0].year : null;
   const currentReportingLabel = `Reporting year ${currentYear}`;
   const trendReportingLabel = `Reporting years ${currentYear} to ${targetYear ?? 2050}`;
-  const pathwayReportingLabel = `Reporting years ${(benchmarkYear ?? currentYear)} to ${targetYear ?? 2050}`;
+  const pathwayReportingLabel = `Reporting years ${firstHistoricalYear ?? benchmarkYear ?? currentYear} to ${targetYear ?? 2050}`;
 
   const targetPath = useMemo(() => {
     const currentTotal = Number(scopeTotals?.total || 0);
@@ -826,13 +827,14 @@ export default function JobInsights({
 
       {scopePathwayData.length > 0 && (
         <EmissionsReductionPathwayWidget
-          title={`Emissions Reduction Pathway to ${targetYear ?? 2050}`}
+          title={`${clientName ?? "Client"} Emissions Reduction Targets to ${targetYear ?? 2050}`}
           subtitle={pathwayReportingLabel}
           data={scopePathwayData}
           benchmarkYear={benchmarkYear}
           targetYear={targetYear}
           interimYear={interimYear}
           showScope2={Number(scopeTotals?.scope_2 || 0) > 0}
+          showWidgetRef={false}
         />
       )}
 
