@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import {
   EmissionsReductionPathwayWidget,
   IntensityPathwayWidget,
+  ScopeYearOnYearBarWidget,
   ScopeSummaryDonutWidget,
   type IntensityPathwayPoint,
 } from "@/components/report-widgets";
@@ -318,6 +319,39 @@ export default function JobInsights({
   const currentReportingLabel = `Reporting year ${currentYear}`;
   const trendReportingLabel = `Reporting years ${currentYear} to ${targetYear ?? 2050}`;
   const pathwayReportingLabel = `Reporting years ${firstHistoricalYear ?? benchmarkYear ?? currentYear} to ${targetYear ?? 2050}`;
+
+  const scopeYearOnYearBar = useMemo(() => {
+    if (!scopeTotals || yearlyEmissions.length === 0) return null;
+
+    const benchmarkBarYear = benchmarkYear ?? firstHistoricalYear ?? currentYear;
+    const currentRow = yearlyEmissions.find((row) => row.year === currentYear) ?? yearlyEmissions[yearlyEmissions.length - 1] ?? null;
+    const benchmarkRow =
+      yearlyEmissions.find((row) => row.year === benchmarkBarYear) ??
+      yearlyEmissions.find((row) => row.year === firstHistoricalYear) ??
+      yearlyEmissions[0] ??
+      null;
+
+    if (!currentRow || !benchmarkRow) return null;
+
+    const previousRow =
+      yearlyEmissions
+        .filter((row) => row.year < currentRow.year)
+        .sort((a, b) => b.year - a.year)[0] ?? null;
+
+    const changePct = (cur: number, bm: number) => (bm > 0 ? Math.round(((cur - bm) / bm) * 1000) / 10 : null);
+
+    return {
+      benchmarkLabel: `BM ${benchmarkRow.year}`,
+      previousLabel: previousRow ? `Previous Year ${previousRow.year}` : "Previous Year",
+      currentLabel: `Current Year ${currentRow.year}`,
+      data: [
+        { scope: "Scope 1", benchmark: benchmarkRow.scope1, previous: previousRow?.scope1 ?? null, current: currentRow.scope1, pct: changePct(currentRow.scope1, benchmarkRow.scope1) },
+        { scope: "Scope 2", benchmark: benchmarkRow.scope2, previous: previousRow?.scope2 ?? null, current: currentRow.scope2, pct: changePct(currentRow.scope2, benchmarkRow.scope2) },
+        { scope: "Scope 3", benchmark: benchmarkRow.scope3, previous: previousRow?.scope3 ?? null, current: currentRow.scope3, pct: changePct(currentRow.scope3, benchmarkRow.scope3) },
+        { scope: "Total", benchmark: benchmarkRow.total, previous: previousRow?.total ?? null, current: currentRow.total, pct: changePct(currentRow.total, benchmarkRow.total) },
+      ],
+    };
+  }, [benchmarkYear, currentYear, firstHistoricalYear, scopeTotals, yearlyEmissions]);
 
   const targetPath = useMemo(() => {
     const currentTotal = Number(scopeTotals?.total || 0);
@@ -707,6 +741,17 @@ export default function JobInsights({
           </CardContent>
         </Card>
       </div>
+
+      {scopeYearOnYearBar ? (
+        <ScopeYearOnYearBarWidget
+          title="Year-on-Year Comparison by Scope"
+          data={scopeYearOnYearBar.data}
+          benchmarkLabel={scopeYearOnYearBar.benchmarkLabel}
+          previousLabel={scopeYearOnYearBar.previousLabel}
+          currentLabel={scopeYearOnYearBar.currentLabel}
+          showWidgetRef={true}
+        />
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
