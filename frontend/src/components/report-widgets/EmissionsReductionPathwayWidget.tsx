@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { formatNumber } from "@/lib/format";
 import { REPORT_WIDGET_IDS } from "./registry";
-import { buildPngFilename, downloadSvgAsPng, findLargestSvg } from "./png-export";
+import { buildPngFilename, downloadChartAsPng, findLargestSvg } from "./png-export";
 
 export type EmissionsPathwayPoint = {
   year: number;
@@ -95,7 +95,17 @@ export function EmissionsReductionPathwayWidget({
   const downloadPng = async () => {
     const svg = findLargestSvg(chartWrapRef.current);
     if (!svg) return;
-    await downloadSvgAsPng(svg, buildPngFilename(title));
+    await downloadChartAsPng({
+      svg,
+      filename: buildPngFilename(title),
+      title,
+      legendItems: [
+        { label: "Total", color: "#0f766e" },
+        { label: "Scope 1", color: DEFAULT_SCOPE_COLORS[0] },
+        ...(showScope2 ? [{ label: "Scope 2", color: DEFAULT_SCOPE_COLORS[1] }] : []),
+        { label: "Scope 3", color: DEFAULT_SCOPE_COLORS[2] },
+      ],
+    });
   };
 
   if (!data.length) {

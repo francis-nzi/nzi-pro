@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Download } from "lucide-react";
 import { formatNumber } from "@/lib/format";
 import { REPORT_WIDGET_IDS } from "./registry";
-import { buildPngFilename, downloadSvgAsPng, findLargestSvg } from "./png-export";
+import { buildPngFilename, downloadChartAsPng, findLargestSvg } from "./png-export";
 
 export type IntensityPathwayPoint = {
   year: number;
@@ -33,11 +33,9 @@ export type IntensityPathwaySeries = {
 
 function formatIntensityLabel(label: string): string {
   const normalized = label.trim().replace(/\s+/g, " ");
-  const prefixMatch = normalized.match(/^(GBP|m2)\s+(.+)$/i);
-  if (prefixMatch) {
-    const [, unit, rest] = prefixMatch;
-    return `${rest.trim()} ${unit.toUpperCase()}`.replace(/\s+/g, " ").trim();
-  }
+  if (/^employee$/i.test(normalized)) return "Employee";
+  if (/^gbp\s+/i.test(normalized)) return `${normalized.replace(/^gbp\s+/i, "").trim()} GBP`;
+  if (/^m2\s+/i.test(normalized)) return `${normalized.replace(/^m2\s+/i, "").trim()} m2`;
   return normalized;
 }
 
@@ -101,7 +99,15 @@ export function IntensityPathwayWidget({
   const downloadPng = async () => {
     const svg = findLargestSvg(chartWrapRef.current);
     if (!svg) return;
-    await downloadSvgAsPng(svg, buildPngFilename(title));
+    await downloadChartAsPng({
+      svg,
+      filename: buildPngFilename(title),
+      title,
+      legendItems: series.map((entry) => ({
+        label: formatIntensityLabel(entry.label),
+        color: entry.color,
+      })),
+    });
   };
 
   if (!data.length || !series.length) {

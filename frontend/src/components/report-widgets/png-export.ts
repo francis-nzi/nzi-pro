@@ -22,7 +22,48 @@ export function findLargestSvg(container: HTMLElement | null): SVGSVGElement | n
     .sort((a, b) => b.rect.width * b.rect.height - a.rect.width * a.rect.height)[0]?.svg ?? null;
 }
 
-export async function downloadSvgAsPng(svg: SVGSVGElement, filename: string): Promise<void> {
+export type ChartExportLegendItem = {
+  label: string;
+  color: string;
+};
+
+type DownloadChartAsPngOptions = {
+  svg: SVGSVGElement;
+  filename: string;
+  title: string;
+  subtitle?: string;
+  legendItems?: ChartExportLegendItem[];
+};
+
+function measureLegendRows(ctx: CanvasRenderingContext2D, width: number, items: ChartExportLegendItem[]): ChartExportLegendItem[][] {
+  const rows: ChartExportLegendItem[][] = [];
+  let current: ChartExportLegendItem[] = [];
+  let currentWidth = 0;
+  const itemGap = 20;
+  const dotWidth = 16;
+
+  for (const item of items) {
+    const itemWidth = dotWidth + ctx.measureText(item.label).width + itemGap;
+    if (current.length > 0 && currentWidth + itemWidth > width) {
+      rows.push(current);
+      current = [];
+      currentWidth = 0;
+    }
+    current.push(item);
+    currentWidth += itemWidth;
+  }
+
+  if (current.length) rows.push(current);
+  return rows;
+}
+
+export async function downloadChartAsPng({
+  svg,
+  filename,
+  title,
+  subtitle,
+  legendItems = [],
+}: DownloadChartAsPngOptions): Promise<void> {
   const clone = svg.cloneNode(true) as SVGSVGElement;
   const rect = svg.getBoundingClientRect();
   const width = Math.max(1, Math.ceil(rect.width || Number(svg.getAttribute("width") || 1200)));
@@ -44,13 +85,57 @@ export async function downloadSvgAsPng(svg: SVGSVGElement, filename: string): Pr
     image.onload = () => {
       try {
         const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
         const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("Canvas rendering is unavailable.");
+
+        ctx.font = "600 18px Arial, sans-serif";
+        const titleHeight = 22;
+        const subtitleHeight = subtitle ? 16 : 0;
+        const legendRows = legendItems.length ? measureLegendRows(ctx, width - 48, legendItems) : [];
+        const legendHeight = legendRows.length ? legendRows.length * 24 + 8 : 0;
+        const headerHeight = 24 + titleHeight + (subtitleHeight ? 8 + subtitleHeight : 0) + (legendHeight ? 12 + legendHeight : 0) + 16;
+
+        canvas.width = width;
+        canvas.height = headerHeight + height + 24;
+
         ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, width, height);
-        ctx.drawImage(image, 0, 0, width, height);
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = "#111827";
+        ctx.font = "600 18px Arial, sans-serif";
+        ctx.textBaseline = "alphabetic";
+        ctx.fillText(title, 24, 40);
+
+        let y = 40;
+        if (subtitle) {
+          ctx.fillStyle = "#6b7280";
+          ctx.font = "12px Arial, sans-serif";
+          ctx.fillText(subtitle, 24, 60);
+          y = 60;
+        }
+
+        if (legendRows.length) {
+          const dotRadius = 5;
+          const rowGap = 24;
+          let legendY = y + 32;
+          ctx.font = "14px Arial, sans-serif";
+          for (const row of legendRows) {
+            let x = 24;
+            for (const item of row) {
+              ctx.beginPath();
+              ctx.fillStyle = item.color;
+              ctx.arc(x + dotRadius, legendY - 5, dotRadius, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#111827";
+              ctx.fillText(item.label, x + 16, legendY);
+              x += 16 + ctx.measureText(item.label).width + 20;
+            }
+            legendY += rowGap;
+          }
+          y = legendY - 8;
+        }
+
+        ctx.drawImage(image, 0, headerHeight, width, height);
 
         canvas.toBlob((pngBlob) => {
           if (!pngBlob) {
