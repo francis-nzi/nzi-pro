@@ -10,6 +10,11 @@ import EmissionsSummary from "@/components/EmissionsSummary";
 import JobIntensityYearOverYear from "@/components/JobIntensityYearOverYear";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatNumber } from "@/lib/format";
+import {
+  ScopeCategoryComparisonTable,
+  type ReportComparisonYear,
+  type ScopeCategoryComparisonRow,
+} from "@/components/report-widgets";
 
 type Activity = {
   row_id: number;
@@ -588,6 +593,20 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
     [comparisonData?.year_jobs]
   );
 
+  const comparisonYearHeaders = useMemo<ReportComparisonYear[]>(
+    () =>
+      comparisonYears.map((year) => {
+        const yearJob = yearJobsByYear.get(year);
+        return {
+          year,
+          jobId: yearJob?.job_id ?? null,
+          jobNumber: yearJob?.job_number ?? null,
+          isBenchmark: year === benchmarkYear,
+        };
+      }),
+    [benchmarkYear, comparisonYears, yearJobsByYear]
+  );
+
   function renderComparisonYearHeader(year: number) {
     const yearJob = yearJobsByYear.get(year);
     const yearJobLabel = yearJob?.job_number || (yearJob?.job_id ? `Job ${yearJob.job_id}` : "");
@@ -1061,67 +1080,21 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                 <div className="text-sm text-muted-foreground">No year-over-year comparison data available.</div>
               ) : (
                 <Tabs defaultValue="emissions" className="w-full">
-                  <TabsList>
-                    <TabsTrigger value="emissions">Emissions (tCO₂e)</TabsTrigger>
-                    <TabsTrigger value="volume">Volume</TabsTrigger>
-                  </TabsList>
+                          <TabsList>
+                            <TabsTrigger value="emissions">Emissions (tCO₂e)</TabsTrigger>
+                            <TabsTrigger value="volume">Volume</TabsTrigger>
+                          </TabsList>
 
                   <TabsContent value="emissions" className="pt-2">
                     {comparisonEmissionsRows.length === 0 ? (
                       <div className="text-sm text-muted-foreground">No emissions comparison data available.</div>
                     ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm border-collapse">
-                          <thead>
-                            <tr className="bg-muted">
-                              <th className="text-left p-2 border">Scope</th>
-                              <th className="text-left p-2 border">Category</th>
-                              {comparisonYears.map((year) => renderComparisonYearHeader(year))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {comparisonEmissionsRows.map((row, idx) => {
-                              if (row.type === "category") {
-                                return (
-                                  <tr key={`em-cat-${row.scope}-${row.category}-${idx}`} className="hover:bg-muted/30">
-                                    <td className="p-2 border">{row.scope}</td>
-                                    <td className="p-2 border">{row.category}</td>
-                                    {row.values.map((value, colIdx) => (
-                                      <td key={colIdx} className="text-right p-2 border">
-                                        {value > 0 ? formatNumber(value, 2) : "-"}
-                                      </td>
-                                    ))}
-                                  </tr>
-                                );
-                              }
-                              if (row.type === "subtotal") {
-                                return (
-                                  <tr key={`em-sub-${row.scope}-${idx}`} className="bg-muted/60 font-semibold">
-                                    <td className="p-2 border">{row.scope}</td>
-                                    <td className="p-2 border">Subtotal</td>
-                                    {row.values.map((value, colIdx) => (
-                                      <td key={colIdx} className="text-right p-2 border">
-                                        {value > 0 ? formatNumber(value, 2) : "-"}
-                                      </td>
-                                    ))}
-                                  </tr>
-                                );
-                              }
-                              return (
-                                <tr key={`em-total-${idx}`} className="bg-muted font-bold">
-                                  <td className="p-2 border">All Scopes</td>
-                                  <td className="p-2 border">Total</td>
-                                  {row.values.map((value, colIdx) => (
-                                    <td key={colIdx} className="text-right p-2 border">
-                                      {value > 0 ? formatNumber(value, 2) : "-"}
-                                    </td>
-                                  ))}
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                      <ScopeCategoryComparisonTable
+                        years={comparisonYearHeaders}
+                        rows={comparisonEmissionsRows as ScopeCategoryComparisonRow[]}
+                        valueFormatter={(value) => (value && value > 0 ? formatNumber(value, 2) : "-")}
+                        emptyText="No emissions comparison data available."
+                      />
                     )}
                   </TabsContent>
 
@@ -1129,58 +1102,12 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                     {comparisonVolumeRows.length === 0 ? (
                       <div className="text-sm text-muted-foreground">No volume comparison data available.</div>
                     ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm border-collapse">
-                          <thead>
-                            <tr className="bg-muted">
-                              <th className="text-left p-2 border">Scope</th>
-                              <th className="text-left p-2 border">Category</th>
-                              {comparisonYears.map((year) => renderComparisonYearHeader(year))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {comparisonVolumeRows.map((row, idx) => {
-                              if (row.type === "category") {
-                                return (
-                                  <tr key={`vol-cat-${row.scope}-${row.category}-${idx}`} className="hover:bg-muted/30">
-                                    <td className="p-2 border">{row.scope}</td>
-                                    <td className="p-2 border">{row.category}</td>
-                                    {row.values.map((value, colIdx) => (
-                                      <td key={colIdx} className="text-right p-2 border">
-                                        {value > 0 ? formatNumber(value, 2) : "-"}
-                                      </td>
-                                    ))}
-                                  </tr>
-                                );
-                              }
-                              if (row.type === "subtotal") {
-                                return (
-                                  <tr key={`vol-sub-${row.scope}-${idx}`} className="bg-muted/60 font-semibold">
-                                    <td className="p-2 border">{row.scope}</td>
-                                    <td className="p-2 border">Subtotal</td>
-                                    {row.values.map((value, colIdx) => (
-                                      <td key={colIdx} className="text-right p-2 border">
-                                        {value > 0 ? formatNumber(value, 2) : "-"}
-                                      </td>
-                                    ))}
-                                  </tr>
-                                );
-                              }
-                              return (
-                                <tr key={`vol-total-${idx}`} className="bg-muted font-bold">
-                                  <td className="p-2 border">All Scopes</td>
-                                  <td className="p-2 border">Total</td>
-                                  {row.values.map((value, colIdx) => (
-                                    <td key={colIdx} className="text-right p-2 border">
-                                      {value > 0 ? formatNumber(value, 2) : "-"}
-                                    </td>
-                                  ))}
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                      <ScopeCategoryComparisonTable
+                        years={comparisonYearHeaders}
+                        rows={comparisonVolumeRows as ScopeCategoryComparisonRow[]}
+                        valueFormatter={(value) => (value && value > 0 ? formatNumber(value, 2) : "-")}
+                        emptyText="No volume comparison data available."
+                      />
                     )}
                   </TabsContent>
                 </Tabs>
