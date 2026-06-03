@@ -618,18 +618,7 @@ export default function JobInsights({
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <ScopeSummaryDonutWidget
-          title={`${clientName ?? "Client"} Emissions Summary by Scope`}
-          subtitle={currentReportingLabel}
-          clientName={clientName}
-          data={scopeCards}
-          currentYear={currentYear}
-          currentTotal={scopeTotals?.total ?? 0}
-          benchmarkYear={benchmarkYear ?? firstHistoricalYear ?? currentYear}
-          benchmarkTotal={benchmarkScopeTotal}
-        />
-
+      <div className="w-full">
         <EmissionsByActivityWidget
           title={`${clientName ?? "Client"} Emissions by Activity`}
           subtitle={currentReportingLabel}
@@ -655,6 +644,17 @@ export default function JobInsights({
         ) : null}
 
       <div className="grid gap-6 xl:grid-cols-2">
+        <ScopeSummaryDonutWidget
+          title={`${clientName ?? "Client"} Emissions Summary by Scope`}
+          subtitle={currentReportingLabel}
+          clientName={clientName}
+          data={scopeCards}
+          currentYear={currentYear}
+          currentTotal={scopeTotals?.total ?? 0}
+          benchmarkYear={benchmarkYear ?? firstHistoricalYear ?? currentYear}
+          benchmarkTotal={benchmarkScopeTotal}
+        />
+
         <SiteSummaryDonutWidget
           title={`${clientName ?? "Client"} Emissions by Site`}
           subtitle={currentReportingLabel}
