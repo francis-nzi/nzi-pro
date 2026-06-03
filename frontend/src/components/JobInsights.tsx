@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import LoadingOrbit from "@/components/LoadingOrbit";
 import { Input } from "@/components/ui/input";
-import { EmissionsReductionPathwayWidget } from "@/components/report-widgets";
+import { EmissionsReductionPathwayWidget, IntensityPathwayWidget, type IntensityPathwayPoint } from "@/components/report-widgets";
 
 type ScopeTotals = {
   scope_1: number;
@@ -436,19 +436,22 @@ export default function JobInsights({
     });
   }, [currentYear, intensityMetrics, scopeTotals?.total, targetPath, targetYear]);
 
+  const intensityPathwaySeries = useMemo(
+    () =>
+      Object.entries(intensityMetrics)
+        .map(([key, metric], index) => ({
+          key,
+          label: metric?.label?.trim() || key,
+          color: ACTIVITY_COLORS[index % ACTIVITY_COLORS.length],
+          value: Number(metric?.value ?? 0),
+        }))
+        .filter((entry) => entry.value > 0)
+        .slice(0, 4),
+    [intensityMetrics]
+  );
+
   const intensityPathwayData = useMemo(() => {
-    if (!scopeTotals || Object.keys(intensityMetrics).length === 0) return [];
-
-    const metricEntries = Object.entries(intensityMetrics)
-      .map(([key, metric]) => {
-        const value = Number(metric?.value ?? 0);
-        const divider = Number(metric?.divider ?? 1) || 1;
-        return { key, label: metric?.label?.trim() || key, value, divider };
-      })
-      .filter((e) => e.value > 0)
-      .slice(0, 4);
-
-    if (metricEntries.length === 0) return [];
+    if (!scopeTotals || intensityPathwaySeries.length === 0) return [];
 
     const firstHistoricalYear = yearlyEmissions.length > 0 ? yearlyEmissions[0].year : null;
     const baselineYear = benchmarkYear ?? firstHistoricalYear ?? currentYear;
@@ -491,17 +494,19 @@ export default function JobInsights({
     return years.map((year) => {
       const actual = yearlyEmissions.find((r) => r.year === year);
       const forecast = forecastTotal(year);
-      const row: Record<string, number | string | null> = { year };
-      metricEntries.forEach((entry) => {
+      const row: IntensityPathwayPoint = { year };
+      intensityPathwaySeries.forEach((entry) => {
+        const metric = intensityMetrics[entry.key];
+        const value = Number(metric?.value ?? 0) || 1;
+        const divider = Number(metric?.divider ?? 1) || 1;
         row[`${entry.label}_actual`] = actual
-          ? Number(((actual.total * entry.divider) / entry.value).toFixed(3))
+          ? Number(((actual.total * divider) / value).toFixed(3))
           : null;
-        row[`${entry.label}_target`] = Number(((forecast * entry.divider) / entry.value).toFixed(3));
+        row[`${entry.label}_target`] = Number(((forecast * divider) / value).toFixed(3));
       });
       return row;
     });
-  }, [scopeTotals, benchmarkYear, currentYear, targetYear, yearlyEmissions, targetReductionPct,
-      interimYear, interimTargets.scope_1, interimTargets.scope_2, interimTargets.scope_3, intensityMetrics]);
+  }, [benchmarkYear, currentYear, intensityMetrics, intensityPathwaySeries, interimTargets.scope_1, interimTargets.scope_2, interimTargets.scope_3, interimYear, scopeTotals, targetReductionPct, targetYear, yearlyEmissions]);
 
   const whatIf = useMemo(() => {
     const current = Number(scopeTotals?.total || 0);
@@ -838,50 +843,14 @@ export default function JobInsights({
       )}
 
       {intensityPathwayData.length > 0 && (
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle>Emissions Reduction Pathway to {targetYear ?? 2050} for Intensity Metrics</CardTitle>
-            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{pathwayReportingLabel}</div>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[360px]">
-              <ResponsiveContainer width="100%" height={360}>
-                <LineChart data={intensityPathwayData} margin={{ top: 5, right: 24, left: 6, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toFixed(2)} />
-                  <Tooltip
-                    formatter={(v: unknown) => [`${Number(v || 0).toFixed(3)} tCO₂e`, ""]}
-                    labelFormatter={(v) => `Year: ${v}`}
-                  />
-                  <Legend iconType="circle" />
-                  {interimYear && interimYear > (benchmarkYear ?? currentYear) && (
-                    <ReferenceLine x={interimYear} stroke="#f59e0b" strokeDasharray="3 3"
-                      label={{ value: "Interim", position: "top", fill: "#f59e0b", fontSize: 10 }} />
-                  )}
-                  {targetYear && (
-                    <ReferenceLine x={targetYear} stroke="#16a34a" strokeDasharray="3 3"
-                      label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 10 }} />
-                  )}
-                  {Object.entries(intensityMetrics)
-                    .map(([key, metric]) => ({ key, label: metric?.label?.trim() || key, value: Number(metric?.value ?? 0) }))
-                    .filter((e) => e.value > 0)
-                    .slice(0, 4)
-                    .flatMap((entry, index) => [
-                      <Line key={`${entry.key}_actual`} type="monotone" dataKey={`${entry.label}_actual`}
-                        name={`${entry.label} (actual)`}
-                        stroke={ACTIVITY_COLORS[index % ACTIVITY_COLORS.length]} strokeWidth={2.5}
-                        dot={{ r: 4 }} connectNulls={false} />,
-                      <Line key={`${entry.key}_target`} type="monotone" dataKey={`${entry.label}_target`}
-                        name={`${entry.label} (target)`}
-                        stroke={ACTIVITY_COLORS[index % ACTIVITY_COLORS.length]} strokeWidth={1.5}
-                        strokeDasharray="5 4" dot={false} />,
-                    ])}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+        <IntensityPathwayWidget
+          title={`${clientName ?? "Client"} Intensity Metrics Targets to ${targetYear ?? 2050}`}
+          data={intensityPathwayData}
+          series={intensityPathwaySeries}
+          benchmarkYear={benchmarkYear}
+          targetYear={targetYear}
+          interimYear={interimYear}
+        />
       )}
 
       {intensityTrend.length > 0 ? (
