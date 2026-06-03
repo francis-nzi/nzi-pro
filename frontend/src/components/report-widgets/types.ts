@@ -21,3 +21,10 @@ export type ScopeCategoryComparisonRow =
       type: "total";
       values: Array<number | null>;
     };
+
+export type ActivityBarPoint = {
+  name: string;
+  value: number;
+  fullName?: string;
+  fill?: string;
+};

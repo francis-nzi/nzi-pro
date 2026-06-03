@@ -23,6 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import LoadingOrbit from "@/components/LoadingOrbit";
 import { Input } from "@/components/ui/input";
 import {
+  EmissionsByActivityWidget,
   EmissionsReductionPathwayWidget,
   IntensityPathwayWidget,
   ScopeYearOnYearBarWidget,
@@ -282,6 +283,17 @@ export default function JobInsights({
   const normalizedSiteData = useMemo(
     () => normalizeSeries(siteData, Number(scopeTotals?.total || 0)),
     [scopeTotals?.total, siteData]
+  );
+
+  const activityBarData = useMemo(
+    () =>
+      normalizedActivityData.map((activity, index) => ({
+        name: activity.name,
+        fullName: activity.name,
+        value: activity.value,
+        fill: ACTIVITY_COLORS[index % ACTIVITY_COLORS.length],
+      })),
+    [normalizedActivityData]
   );
 
   const monthlyTrend = useMemo(() => {
@@ -698,53 +710,13 @@ export default function JobInsights({
           benchmarkTotal={benchmarkScopeTotal}
         />
 
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle>Top Emissions by Dataset Category</CardTitle>
-            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{currentReportingLabel}</div>
-          </CardHeader>
-          <CardContent>
-            {normalizedActivityData.length === 0 ? (
-              <div className="py-12 text-center text-sm text-muted-foreground">No dataset category data available</div>
-            ) : (
-              <div className="space-y-3">
-                {normalizedActivityData.map((activity, index) => {
-                  const share = scopeTotals && scopeTotals.total > 0 ? (activity.value / scopeTotals.total) * 100 : 0;
-                  return (
-                    <div key={activity.name} className="rounded-lg border p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className="h-2.5 w-2.5 rounded-full"
-                              style={{ backgroundColor: ACTIVITY_COLORS[index % ACTIVITY_COLORS.length] }}
-                            />
-                            <Link href={`/jobs/${jobId}/data-entry`} className="truncate font-medium text-slate-900 underline decoration-slate-300 underline-offset-2">
-                              {activity.name}
-                            </Link>
-                          </div>
-                          <div className="mt-2 h-2 rounded-full bg-slate-100">
-                            <div
-                              className="h-2 rounded-full"
-                              style={{
-                                width: `${Math.max(2, Math.min(100, share))}%`,
-                                backgroundColor: ACTIVITY_COLORS[index % ACTIVITY_COLORS.length],
-                              }}
-                            />
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-semibold tabular-nums">{formatTco2e(activity.value)}</div>
-                          <div className="text-xs text-muted-foreground">{share.toFixed(1)}%</div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <EmissionsByActivityWidget
+          title={`${clientName ?? "Client"} Emissions by Activity`}
+          subtitle={currentReportingLabel}
+          clientName={clientName}
+          data={activityBarData}
+          showWidgetRef={true}
+        />
       </div>
 
         {scopeYearOnYearBar ? (
