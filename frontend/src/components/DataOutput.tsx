@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Download } from "lucide-react";
 import EmissionsSummary from "@/components/EmissionsSummary";
 import JobIntensityYearOverYear from "@/components/JobIntensityYearOverYear";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -822,6 +822,45 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
     [buildDetailTableRows, comparisonData]
   );
 
+  function exportActivityDetailCsv(tab: "emissions" | "volume") {
+    const rows = tab === "emissions" ? detailEmissionsRows : detailVolumeRows;
+    if (!rows.length) return;
+
+    const unit = tab === "emissions" ? "tCO₂e" : "Volume";
+    const yearHeaders = comparisonYears.map((yr) => {
+      const yj = yearJobsByYear.get(yr);
+      const bm = yr === benchmarkYear ? " (BM)" : "";
+      return `${yr}${yj?.job_number ? ` ${yj.job_number}` : ""}${bm} ${unit}`;
+    });
+
+    const lines: string[] = [
+      ["Scope", "Category", "Activity", ...yearHeaders].map(csvEscape).join(","),
+    ];
+
+    for (const row of rows) {
+      if (row.type === "activity") {
+        lines.push([row.scope, row.category, row.activity, ...row.values.map((v) => v > 0 ? v.toFixed(2) : "0")].map(csvEscape).join(","));
+      } else if (row.type === "cat-subtotal") {
+        lines.push([row.scope, `${row.category} – Subtotal`, "", ...row.values.map((v) => v.toFixed(2))].map(csvEscape).join(","));
+      } else if (row.type === "scope-subtotal") {
+        lines.push([row.scope, "Subtotal", "", ...row.values.map((v) => v.toFixed(2))].map(csvEscape).join(","));
+      } else {
+        lines.push(["All Scopes", "TOTAL", "", ...row.values.map((v) => v.toFixed(2))].map(csvEscape).join(","));
+      }
+    }
+
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const today = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `job-${jobId}-activity-breakdown-${tab}-${today}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  }
+
   if (loading) {
     return (
       <Card>
@@ -1120,7 +1159,29 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
 
           <Card>
             <CardHeader>
-              <CardTitle>Year-over-Year Detailed Activity Breakdown</CardTitle>
+              <div className="flex items-center justify-between gap-4">
+                <CardTitle>Year-over-Year Detailed Activity Breakdown</CardTitle>
+                {!comparisonLoading && comparisonYears.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => exportActivityDetailCsv("emissions")}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 transition-colors"
+                      title="Download emissions data as CSV"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      CSV (tCO₂e)
+                    </button>
+                    <button
+                      onClick={() => exportActivityDetailCsv("volume")}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 transition-colors"
+                      title="Download volume data as CSV"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      CSV (Volume)
+                    </button>
+                  </div>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               {comparisonLoading ? (
