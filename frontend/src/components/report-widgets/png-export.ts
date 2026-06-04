@@ -55,6 +55,8 @@ type DownloadChartAsPngOptions = {
   subtitle?: string;
   legendItems?: ChartExportLegendItem[];
   callout?: ChartExportCallout | null;
+  canvasWidth?: number;
+  centerChart?: boolean;
 };
 
 function measureLegendRows(ctx: CanvasRenderingContext2D, width: number, items: ChartExportLegendItem[]): ChartExportLegendItem[][] {
@@ -86,11 +88,14 @@ export async function downloadChartAsPng({
   subtitle,
   legendItems = [],
   callout = null,
+  canvasWidth,
+  centerChart = true,
 }: DownloadChartAsPngOptions): Promise<void> {
   const clone = svg.cloneNode(true) as SVGSVGElement;
   const rect = svg.getBoundingClientRect();
   const width = Math.max(1, Math.ceil(rect.width || Number(svg.getAttribute("width") || 1200)));
   const height = Math.max(1, Math.ceil(rect.height || Number(svg.getAttribute("height") || 800)));
+  const outputWidth = Math.max(width, canvasWidth ?? width);
 
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
@@ -114,11 +119,11 @@ export async function downloadChartAsPng({
         ctx.font = "600 18px Arial, sans-serif";
         const titleHeight = 22;
         const subtitleHeight = subtitle ? 16 : 0;
-        const legendRows = legendItems.length ? measureLegendRows(ctx, width - 48, legendItems) : [];
+        const legendRows = legendItems.length ? measureLegendRows(ctx, outputWidth - 48, legendItems) : [];
         const legendHeight = legendRows.length ? legendRows.length * 24 + 8 : 0;
         const headerHeight = 24 + titleHeight + (subtitleHeight ? 8 + subtitleHeight : 0) + (legendHeight ? 12 + legendHeight : 0) + 16;
 
-        canvas.width = width;
+        canvas.width = outputWidth;
         canvas.height = headerHeight + height + 24;
 
         ctx.fillStyle = "#ffffff";
@@ -158,6 +163,8 @@ export async function downloadChartAsPng({
           y = legendY - 8;
         }
 
+        const chartX = centerChart ? Math.max(0, Math.floor((outputWidth - width) / 2)) : 0;
+
         if (callout?.text) {
           const paddingX = 12;
           const paddingY = 8;
@@ -194,7 +201,7 @@ export async function downloadChartAsPng({
           y = pillY + pillHeight;
         }
 
-        ctx.drawImage(image, 0, headerHeight, width, height);
+        ctx.drawImage(image, chartX, headerHeight, width, height);
 
         canvas.toBlob((pngBlob) => {
           if (!pngBlob) {

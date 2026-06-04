@@ -93,6 +93,7 @@ export function SiteSummaryDonutWidget({
       subtitle,
       legendItems: data.map((item, index) => ({ label: item.name, color: SITE_COLORS[index % SITE_COLORS.length] })),
       callout: benchmarkPill?.callout ?? null,
+      canvasWidth: 960,
     });
   };
 

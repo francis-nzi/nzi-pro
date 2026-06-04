@@ -100,6 +100,7 @@ export function ScopeSummaryDonutWidget({
       subtitle,
       legendItems: data.map((item, index) => ({ label: item.name, color: SCOPE_COLORS[index % SCOPE_COLORS.length] })),
       callout: benchmarkPill?.callout ?? null,
+      canvasWidth: 960,
     });
   };
 
