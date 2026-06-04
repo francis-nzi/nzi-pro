@@ -128,8 +128,8 @@ export function ScopeSummaryDonutWidget({
         </div>
       </CardHeader>
       <CardContent>
-        <div className={`grid gap-3 ${compact ? "lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:items-center" : "lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-center"}`}>
-          <div className={`relative mx-auto aspect-square w-full ${compact ? "max-w-[220px]" : "max-w-[360px]"}`} ref={chartWrapRef}>
+        <div className={`grid gap-3 ${compact ? "lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:items-center" : "lg:grid-cols-[minmax(0,360px)_300px] lg:items-center"}`}>
+          <div className={`flex w-full justify-center ${compact ? "max-w-[220px]" : "max-w-[360px]"}`} ref={chartWrapRef}>
             <ResponsiveContainer width="100%" aspect={1}>
               <PieChart>
                 <Pie data={data} dataKey="value" nameKey="name" innerRadius={compact ? "58%" : "72%"} outerRadius={compact ? "80%" : "94%"} paddingAngle={2}>
@@ -148,9 +148,9 @@ export function ScopeSummaryDonutWidget({
               </div>
             </div>
           </div>
-          <div className={compact ? "space-y-2" : "min-w-0 space-y-3"}>
+          <div className={compact ? "space-y-2" : "min-w-0 space-y-3 w-[300px]"}>
             {data.map((scope, index) => (
-              <div key={scope.name} className="grid grid-cols-[minmax(0,88px)_minmax(0,1fr)] items-center gap-3 text-sm">
+              <div key={scope.name} className="grid grid-cols-[130px_170px] items-center gap-0 text-sm">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SCOPE_COLORS[index % SCOPE_COLORS.length] }} />
                   <span className="truncate">{scope.name}</span>

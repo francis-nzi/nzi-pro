@@ -119,8 +119,8 @@ export function SiteSummaryDonutWidget({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-center">
-          <div className="relative mx-auto aspect-square w-full max-w-[360px]" ref={chartWrapRef}>
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,360px)_300px] lg:items-center">
+          <div className="flex w-full justify-center max-w-[360px]" ref={chartWrapRef}>
             <ResponsiveContainer width="100%" aspect={1}>
               <PieChart>
                 <Pie data={data} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2}>
@@ -139,9 +139,9 @@ export function SiteSummaryDonutWidget({
               </div>
             </div>
           </div>
-          <div className="min-w-0 space-y-3">
+          <div className="min-w-0 space-y-3 w-[300px]">
             {data.map((site, index) => (
-              <div key={site.name} className="grid grid-cols-[minmax(0,88px)_minmax(0,1fr)] items-center gap-3 text-sm">
+              <div key={site.name} className="grid grid-cols-[130px_170px] items-center gap-0 text-sm">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SITE_COLORS[index % SITE_COLORS.length] }} />
                   <span className="truncate">{site.name}</span>
