@@ -2224,3 +2224,26 @@ def run_migrations():
             )
         except Exception as exc:
             logger.warning("Ignoring job_scope_rows cross-country cleanup failure: %s", exc)
+
+        try:
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS job_widget_pngs (
+                    id          BIGSERIAL PRIMARY KEY,
+                    job_id      INTEGER NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
+                    widget_id   VARCHAR(64) NOT NULL,
+                    png_data    TEXT NOT NULL,
+                    captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    captured_by VARCHAR,
+                    UNIQUE (job_id, widget_id)
+                )
+                """
+            )
+            con.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_job_widget_pngs_job_id
+                ON job_widget_pngs(job_id)
+                """
+            )
+        except Exception as exc:
+            logger.warning("Ignoring job_widget_pngs migration failure: %s", exc)
