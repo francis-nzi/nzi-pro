@@ -120,7 +120,7 @@ export function SiteSummaryDonutWidget({
       </CardHeader>
       <CardContent>
         <div className="grid gap-3 lg:grid-cols-[minmax(0,360px)_300px] lg:items-center">
-          <div className="flex w-full justify-center max-w-[360px]" ref={chartWrapRef}>
+          <div className="relative mx-auto flex aspect-square w-full max-w-[360px] justify-center" ref={chartWrapRef}>
             <ResponsiveContainer width="100%" aspect={1}>
               <PieChart>
                 <Pie data={data} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2}>

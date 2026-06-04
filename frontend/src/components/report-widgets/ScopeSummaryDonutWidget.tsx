@@ -129,7 +129,7 @@ export function ScopeSummaryDonutWidget({
       </CardHeader>
       <CardContent>
         <div className={`grid gap-3 ${compact ? "lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:items-center" : "lg:grid-cols-[minmax(0,360px)_300px] lg:items-center"}`}>
-          <div className={`flex w-full justify-center ${compact ? "max-w-[220px]" : "max-w-[360px]"}`} ref={chartWrapRef}>
+          <div className={`relative mx-auto flex aspect-square w-full justify-center ${compact ? "max-w-[220px]" : "max-w-[360px]"}`} ref={chartWrapRef}>
             <ResponsiveContainer width="100%" aspect={1}>
               <PieChart>
                 <Pie data={data} dataKey="value" nameKey="name" innerRadius={compact ? "58%" : "72%"} outerRadius={compact ? "80%" : "94%"} paddingAngle={2}>
