@@ -24,6 +24,8 @@ import {
   SiteSummaryDonutWidget,
   ScopeYearOnYearBarWidget,
   ScopeSummaryDonutWidget,
+  captureSvgToPngDataUrl,
+  findLargestSvg,
   type IntensityPathwayPoint,
 } from "@/components/report-widgets";
 
@@ -152,6 +154,8 @@ export default function JobInsights({
   const [whatIfScope1, setWhatIfScope1] = useState("0");
   const [whatIfScope2, setWhatIfScope2] = useState("0");
   const [whatIfScope3, setWhatIfScope3] = useState("0");
+  const [capturing, setCapturing] = useState(false);
+  const [captureStatus, setCaptureStatus] = useState<{ count: number; at: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -525,6 +529,38 @@ export default function JobInsights({
       .join(" ");
   }, [clientName, jobId, jobNumber, normalizedActivityData, normalizedSiteData, scopeCards, scopeTotals, targetYear, interimYear]);
 
+  async function captureAllWidgetPngs() {
+    setCapturing(true);
+    setCaptureStatus(null);
+    const pngs: Record<string, string> = {};
+    const containers = document.querySelectorAll("[data-widget-key]");
+    for (const el of Array.from(containers)) {
+      const widgetId = el.getAttribute("data-widget-key");
+      if (!widgetId) continue;
+      const svg = findLargestSvg(el as HTMLElement);
+      if (!svg) continue;
+      try {
+        pngs[widgetId] = await captureSvgToPngDataUrl(svg);
+      } catch {
+        // skip widgets that fail to render
+      }
+    }
+    if (Object.keys(pngs).length > 0) {
+      try {
+        await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pngs }),
+        });
+        setCaptureStatus({ count: Object.keys(pngs).length, at: new Date().toLocaleTimeString() });
+      } catch {
+        setCaptureStatus(null);
+      }
+    }
+    setCapturing(false);
+  }
+
   if (loading) {
     return (
       <Card>
@@ -556,6 +592,22 @@ export default function JobInsights({
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs text-muted-foreground">
+          {captureStatus
+            ? `${captureStatus.count} charts captured for PDF at ${captureStatus.at}`
+            : "Capture all charts as PNG to embed them in the generated PDF report."}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={capturing || loading}
+          onClick={() => void captureAllWidgetPngs()}
+        >
+          {capturing ? "Capturing…" : "Capture Charts for PDF"}
+        </Button>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-4">
         <MetricCard label="Total tCO₂e" subtitle={currentReportingLabel} value={formatTco2e(Number(scopeTotals?.total || 0))} />
         <MetricCard label="Target Year" subtitle={currentReportingLabel} value={targetYear ?? 2050} />

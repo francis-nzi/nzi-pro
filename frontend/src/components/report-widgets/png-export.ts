@@ -90,6 +90,50 @@ function measureLegendRows(ctx: CanvasRenderingContext2D, width: number, items: 
   return rows;
 }
 
+/**
+ * Capture an SVG chart element as a base64 PNG data URL (no download triggered).
+ * Returns a full data URL: "data:image/png;base64,..."
+ */
+export async function captureSvgToPngDataUrl(svg: SVGSVGElement): Promise<string> {
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  const rect = svg.getBoundingClientRect();
+  const w = Math.max(1, Math.ceil(rect.width || Number(svg.getAttribute("width") || 800)));
+  const h = Math.max(1, Math.ceil(rect.height || Number(svg.getAttribute("height") || 600)));
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+  clone.setAttribute("width", String(w));
+  clone.setAttribute("height", String(h));
+
+  const svgText = new XMLSerializer().serializeToString(clone);
+  const blob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  return new Promise<string>((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        // 2× for retina / high-DPI output
+        canvas.width = w * 2;
+        canvas.height = h * 2;
+        const ctx = canvas.getContext("2d")!;
+        ctx.scale(2, 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/png"));
+      } catch (e) {
+        reject(e);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Failed to render SVG")); };
+    img.src = url;
+  });
+}
+
 export async function downloadChartAsPng({
   svg,
   filename,

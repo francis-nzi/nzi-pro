@@ -951,7 +951,7 @@ def _load_report_version_file_payload(con, job_id: int, file_id: int) -> dict[st
     }
 
 
-def _render_report_snapshot_html(snapshot_payload: dict[str, Any], *, portal_view: bool = False) -> str:
+def _render_report_snapshot_html(snapshot_payload: dict[str, Any], *, portal_view: bool = False, widget_pngs: dict | None = None) -> str:
     template_meta = snapshot_payload.get("template") or snapshot_payload.get("render_template") or {}
     template_selection = None
     if isinstance(template_meta, dict):
@@ -1012,6 +1012,7 @@ def _render_report_snapshot_html(snapshot_payload: dict[str, Any], *, portal_vie
         benchmark_site_breakdowns=snapshot_payload.get("benchmark_site_breakdowns") or {},
         site_overall_comparison=snapshot_payload.get("site_overall_comparison") or {},
         portal_view=portal_view,
+        widget_pngs=widget_pngs or {},
     )
     render_values = snapshot_payload.get("render_values") or {}
     return _apply_braced_placeholder_substitution(html_content, render_values)
@@ -1059,6 +1060,61 @@ def _render_html_to_pdf_bytes(html_content: str) -> bytes:
         )
         browser.close()
     return pdf_bytes
+
+
+def _fetch_widget_pngs(job_id: int) -> dict[str, str]:
+    """Return {widget_id: png_data_url} for the job, or {} if none stored."""
+    try:
+        with get_conn() as con:
+            rows = con.execute(
+                "SELECT widget_id, png_data FROM job_widget_pngs WHERE job_id = %s",
+                [int(job_id)],
+            ).fetchall()
+        return {r[0]: r[1] for r in rows} if rows else {}
+    except Exception:
+        return {}
+
+
+@router.post("/jobs/{job_id}/widget-pngs")
+def save_widget_pngs(
+    job_id: int,
+    body: dict,
+    _user: dict = Depends(_current_user),
+):
+    """Store widget PNG data URLs captured from the Insights page for later PDF use."""
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+    actor = _actor(_user)
+    pngs: dict = body.get("pngs") or {}
+    if not pngs:
+        raise HTTPException(status_code=400, detail="No pngs provided.")
+    with get_conn() as con:
+        for widget_id, png_data in pngs.items():
+            con.execute(
+                """
+                INSERT INTO job_widget_pngs (job_id, widget_id, png_data, captured_at, captured_by)
+                VALUES (%s, %s, %s, NOW(), %s)
+                ON CONFLICT (job_id, widget_id) DO UPDATE SET
+                    png_data = EXCLUDED.png_data,
+                    captured_at = EXCLUDED.captured_at,
+                    captured_by = EXCLUDED.captured_by
+                """,
+                [int(job_id), str(widget_id)[:64], str(png_data), actor],
+            )
+    logger.info("save_widget_pngs: job %s stored %d widget PNGs by %s", job_id, len(pngs), actor)
+    return {"ok": True, "count": len(pngs)}
+
+
+@router.get("/jobs/{job_id}/widget-pngs")
+def get_widget_pngs(
+    job_id: int,
+    _user: dict = Depends(_current_user),
+):
+    """Return stored widget PNG data URLs for a job."""
+    assert_permission(_user, "jobs.view")
+    assert_job_access(_user, int(job_id))
+    pngs = _fetch_widget_pngs(int(job_id))
+    return {"ok": True, "pngs": pngs, "count": len(pngs)}
 
 
 def _get_job_assignment_template_and_version(job_id: int) -> tuple[int, int] | None:
@@ -3363,7 +3419,7 @@ def get_report_assets(job_id: int, _user: dict[str, str] = Depends(_current_user
                 frozen_snapshot = _load_latest_final_report_version_snapshot(con, int(job_id))
             if frozen_snapshot:
                 version_row, snapshot_payload = frozen_snapshot
-                html_content = _render_report_snapshot_html(snapshot_payload)
+                html_content = _render_report_snapshot_html(snapshot_payload, widget_pngs=_fetch_widget_pngs(int(job_id)))
                 pdf_bytes = _render_html_to_pdf_bytes(html_content)
                 headers = {
                     "Content-Disposition": f"inline; filename=job-{job_id}-emissions-report.pdf",
@@ -3471,7 +3527,7 @@ def generate_report_with_assets(
                             media_type=str(file_payload.get("media_type") or "application/octet-stream"),
                             headers=headers,
                         )
-                    html_content = _render_report_snapshot_html(snapshot_payload)
+                    html_content = _render_report_snapshot_html(snapshot_payload, widget_pngs=_fetch_widget_pngs(int(job_id)))
                     pdf_bytes = _render_html_to_pdf_bytes(html_content)
                     headers = {
                         "Content-Disposition": f"inline; filename=job-{job_id}-emissions-report.pdf",
@@ -3645,6 +3701,7 @@ def generate_report_with_assets(
             activity_comparison=activity_comparison,
             benchmark_site_breakdowns=benchmark_site_breakdowns,
             site_overall_comparison=site_overall_comparison,
+            widget_pngs=_fetch_widget_pngs(int(job_id)),
         )
 
         html_content = _apply_braced_placeholder_substitution(html_content, render_values)
@@ -3792,7 +3849,7 @@ def generate_job_report(
                             media_type=str(file_payload.get("media_type") or "application/octet-stream"),
                             headers=headers,
                         )
-                    html_content = _render_report_snapshot_html(snapshot_payload)
+                    html_content = _render_report_snapshot_html(snapshot_payload, widget_pngs=_fetch_widget_pngs(int(job_id)))
                     pdf_bytes = _render_html_to_pdf_bytes(html_content)
                     headers = {
                         "Content-Disposition": f"inline; filename=job-{job_id}-emissions-report.pdf",
@@ -4023,6 +4080,7 @@ def generate_job_report(
             activity_comparison=activity_comparison,
             benchmark_site_breakdowns=benchmark_site_breakdowns,
             site_overall_comparison=site_overall_comparison,
+            widget_pngs=_fetch_widget_pngs(int(job_id)),
         )
 
         html_content = _apply_braced_placeholder_substitution(html_content, render_values)
@@ -4156,7 +4214,7 @@ def generate_html_report(
                 frozen_snapshot = _load_latest_final_report_version_snapshot(con, int(job_id))
             if frozen_snapshot:
                 version_row, snapshot_payload = frozen_snapshot
-                html_content = _render_report_snapshot_html(snapshot_payload)
+                html_content = _render_report_snapshot_html(snapshot_payload, widget_pngs=_fetch_widget_pngs(int(job_id)))
                 label = version_row.get("version_label") or f"v{version_row.get('version_number') or job_id}"
                 return HTMLResponse(
                     content=html_content,
@@ -4317,6 +4375,7 @@ def generate_html_report(
             activity_comparison=activity_comparison,
             benchmark_site_breakdowns=benchmark_site_breakdowns,
             site_overall_comparison=site_overall_comparison,
+            widget_pngs=_fetch_widget_pngs(int(job_id)),
         )
 
         html_content = _apply_braced_placeholder_substitution(html_content, render_values)
@@ -4450,7 +4509,7 @@ def _generate_professional_pdf_impl(
                             media_type=str(file_payload.get("media_type") or "application/octet-stream"),
                             headers=headers,
                         )
-                    html_content = _render_report_snapshot_html(snapshot_payload)
+                    html_content = _render_report_snapshot_html(snapshot_payload, widget_pngs=_fetch_widget_pngs(int(job_id)))
                     pdf_bytes = _render_html_to_pdf_bytes(html_content)
                     headers = {
                         "Content-Disposition": f"inline; filename=job-{job_id}-emissions-report.pdf",
@@ -4605,6 +4664,7 @@ def _generate_professional_pdf_impl(
             activity_comparison=activity_comparison,
             benchmark_site_breakdowns=benchmark_site_breakdowns,
             site_overall_comparison=site_overall_comparison,
+            widget_pngs=_fetch_widget_pngs(int(job_id)),
         )
 
         html_content = _apply_braced_placeholder_substitution(html_content, render_values)

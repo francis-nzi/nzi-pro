@@ -280,8 +280,9 @@
 {% set interim_pct    = rm.get("interim_pct") or 50 %}
 {% set nz_pct         = rm.get("net_zero_reduction_pct") or rm.get("net_zero_pct") or 50 %}
 
-{% set has_targets = assets and (assets.get("reduction_pathway_2050") or assets.get("reduction_pathway_interim")) %}
-{% set has_intensity = assets and (assets.get("intensity_pathway_per_fte") or assets.get("intensity_pathway_per_revenue")) %}
+{% set wp = widget_pngs if widget_pngs is defined else {} %}
+{% set has_targets = (wp.get("emissions_reduction_pathway")) or (assets and (assets.get("reduction_pathway_2050") or assets.get("reduction_pathway_interim"))) %}
+{% set has_intensity = (wp.get("intensity_pathway")) or (assets and (assets.get("intensity_pathway_per_fte") or assets.get("intensity_pathway_per_revenue"))) %}
 
 {# Helper macro: pct change #}
 {% macro pct_change(curr, prev) %}
@@ -345,7 +346,9 @@
     <div class="grid-2" style="align-items:start;">
       <div class="card">
         <div class="chart-wrap">
-          {% if assets and assets.get("total_emissions") %}
+          {% if wp.get("emissions_scope_donut") %}
+            <img class="chart" src="{{ wp['emissions_scope_donut'] }}" alt="Scope breakdown">
+          {% elif assets and assets.get("total_emissions") %}
             <img class="chart" src="data:image/png;base64,{{ assets.get('total_emissions') }}" alt="Scope breakdown">
           {% else %}
             <p style="color:var(--muted);font-style:italic;">Chart not available.</p>
@@ -423,11 +426,15 @@
       </tbody>
     </table>
 
-    {% if has_targets and assets.get("reduction_pathway_2050") %}
+    {% if has_targets and (wp.get("emissions_reduction_pathway") or assets.get("reduction_pathway_2050")) %}
     <div class="sub-head" style="margin-top:5mm;">Emissions Reduction Pathway to {{ nz_yr }}</div>
     <div class="card">
       <div class="chart-wrap" style="min-height:72mm;">
-        <img class="chart-full" src="data:image/png;base64,{{ assets.get('reduction_pathway_2050') }}" alt="Reduction pathway to {{ nz_yr }}">
+        {% if wp.get("emissions_reduction_pathway") %}
+          <img class="chart-full" src="{{ wp['emissions_reduction_pathway'] }}" alt="Reduction pathway to {{ nz_yr }}">
+        {% else %}
+          <img class="chart-full" src="data:image/png;base64,{{ assets.get('reduction_pathway_2050') }}" alt="Reduction pathway to {{ nz_yr }}">
+        {% endif %}
       </div>
     </div>
     {% endif %}
@@ -534,7 +541,9 @@
     <div class="sub-head">Emissions by Scope</div>
     <div class="card" style="max-width:380px;margin:0 auto 4mm;">
       <div class="chart-wrap">
-        {% if assets and assets.get("total_emissions") %}
+        {% if wp.get("emissions_scope_donut") %}
+          <img class="chart" src="{{ wp['emissions_scope_donut'] }}" alt="Scope breakdown">
+        {% elif assets and assets.get("total_emissions") %}
           <img class="chart" src="data:image/png;base64,{{ assets.get('total_emissions') }}" alt="Scope breakdown">
         {% else %}
           <p style="color:var(--muted);font-style:italic;">Chart not available.</p>
@@ -591,7 +600,9 @@
     <div class="grid-2" style="align-items:start;">
       <div class="card">
         <div class="chart-wrap">
-          {% if assets and assets.get("activity_breakdown") %}
+          {% if wp.get("emissions_by_activity") %}
+            <img class="chart" src="{{ wp['emissions_by_activity'] }}" alt="Activity breakdown">
+          {% elif assets and assets.get("activity_breakdown") %}
             <img class="chart" src="data:image/png;base64,{{ assets.get('activity_breakdown') }}" alt="Activity breakdown">
           {% else %}
             <p style="color:var(--muted);font-style:italic;">Chart not available.</p>
@@ -600,7 +611,9 @@
       </div>
       <div class="card">
         <div class="chart-wrap">
-          {% if assets and assets.get("activity_bar") %}
+          {% if wp.get("emissions_by_activity") %}
+            <img class="chart" src="{{ wp['emissions_by_activity'] }}" alt="Activity bar chart">
+          {% elif assets and assets.get("activity_bar") %}
             <img class="chart" src="data:image/png;base64,{{ assets.get('activity_bar') }}" alt="Activity bar chart">
           {% else %}
             <p style="color:var(--muted);font-style:italic;">Chart not available.</p>
@@ -722,16 +735,28 @@
 
     {% if has_intensity %}
       <div class="grid-2" style="margin-top:4mm;">
-        {% if assets.get("intensity_pathway_per_fte") %}
+        {% if wp.get("intensity_pathway") or assets.get("intensity_pathway_per_fte") %}
         <div class="card">
           <div class="sub-head" style="margin-top:0;">Carbon Intensity per Employee</div>
-          <div class="chart-wrap"><img class="chart-full" src="data:image/png;base64,{{ assets.get('intensity_pathway_per_fte') }}" alt="Intensity per employee"></div>
+          <div class="chart-wrap">
+            {% if wp.get("intensity_pathway") %}
+              <img class="chart-full" src="{{ wp['intensity_pathway'] }}" alt="Intensity per employee">
+            {% else %}
+              <img class="chart-full" src="data:image/png;base64,{{ assets.get('intensity_pathway_per_fte') }}" alt="Intensity per employee">
+            {% endif %}
+          </div>
         </div>
         {% endif %}
-        {% if assets.get("intensity_pathway_per_revenue") %}
+        {% if wp.get("intensity_pathway") or assets.get("intensity_pathway_per_revenue") %}
         <div class="card">
           <div class="sub-head" style="margin-top:0;">Carbon Intensity per £1,000 Revenue</div>
-          <div class="chart-wrap"><img class="chart-full" src="data:image/png;base64,{{ assets.get('intensity_pathway_per_revenue') }}" alt="Intensity per revenue"></div>
+          <div class="chart-wrap">
+            {% if wp.get("intensity_pathway") %}
+              <img class="chart-full" src="{{ wp['intensity_pathway'] }}" alt="Intensity per revenue">
+            {% else %}
+              <img class="chart-full" src="data:image/png;base64,{{ assets.get('intensity_pathway_per_revenue') }}" alt="Intensity per revenue">
+            {% endif %}
+          </div>
         </div>
         {% endif %}
       </div>
@@ -770,11 +795,15 @@
 
     <div class="note-box"><strong>Note:</strong> Scope 3 emissions represent the largest category for most organisations. Reduction in Scope 3 requires engagement with suppliers, customers, and supply chain partners.</div>
 
-    {% if has_targets and assets.get("reduction_pathway_interim") %}
+    {% if has_targets and (wp.get("emissions_reduction_pathway") or assets.get("reduction_pathway_interim")) %}
     <div class="sub-head" style="margin-top:5mm;">Pathway to Interim Target ({{ interim_yr }})</div>
     <div class="card">
       <div class="chart-wrap" style="min-height:72mm;">
-        <img class="chart-full" src="data:image/png;base64,{{ assets.get('reduction_pathway_interim') }}" alt="Pathway to interim target">
+        {% if wp.get("emissions_reduction_pathway") %}
+          <img class="chart-full" src="{{ wp['emissions_reduction_pathway'] }}" alt="Pathway to interim target">
+        {% else %}
+          <img class="chart-full" src="data:image/png;base64,{{ assets.get('reduction_pathway_interim') }}" alt="Pathway to interim target">
+        {% endif %}
       </div>
     </div>
     {% endif %}

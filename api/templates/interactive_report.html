@@ -2061,11 +2061,16 @@
             </div>
             {% endif %}
 
-            {% if assets.get('reduction_pathway_interim') %}
+            {% set wp = widget_pngs if widget_pngs is defined else {} %}
+            {% if wp.get('emissions_reduction_pathway') or assets.get('reduction_pathway_interim') %}
             <h3 style="text-align: left; margin-top: 20px;">Pathway to Interim Target</h3>
             <div class="chart-container no-break" style="text-align: left;">
                 <div style="width: 100%; max-width: none;">
-                    <img src="data:image/png;base64,{{ assets.get('reduction_pathway_interim', '') }}" alt="Interim Pathway" style="width: 100%; height: auto; display: block;">
+                    {% if wp.get('emissions_reduction_pathway') %}
+                        <img src="{{ wp['emissions_reduction_pathway'] }}" alt="Interim Pathway" style="width: 100%; height: auto; display: block;">
+                    {% else %}
+                        <img src="data:image/png;base64,{{ assets.get('reduction_pathway_interim', '') }}" alt="Interim Pathway" style="width: 100%; height: auto; display: block;">
+                    {% endif %}
                 </div>
             </div>
             {% endif %}
