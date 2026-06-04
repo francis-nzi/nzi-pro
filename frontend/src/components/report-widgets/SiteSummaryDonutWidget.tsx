@@ -143,6 +143,19 @@ export function SiteSummaryDonutWidget({
                   ))}
                 </Pie>
                 <Tooltip formatter={(value: unknown) => [`${formatNumber(Number(value || 0), 1)} tCO₂e`, ""]} />
+                <g aria-hidden="true">
+                  <text x="50%" y="48%" textAnchor="middle" dominantBaseline="middle" fill="#111827" fontSize="32" fontWeight="600" fontFamily="Arial, sans-serif">
+                    {formatNumber(total, 1)}
+                  </text>
+                  <text x="50%" y="56%" textAnchor="middle" dominantBaseline="middle" fill="#6b7280" fontSize="12" fontFamily="Arial, sans-serif">
+                    tCO₂e total
+                  </text>
+                  {currentYear ? (
+                    <text x="50%" y="64%" textAnchor="middle" dominantBaseline="middle" fill="#9ca3af" fontSize="10" fontFamily="Arial, sans-serif">
+                      {currentYear}
+                    </text>
+                  ) : null}
+                </g>
               </PieChart>
             </ResponsiveContainer>
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
