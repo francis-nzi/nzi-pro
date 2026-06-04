@@ -29,6 +29,7 @@ type ScopeSummaryDonutWidgetProps = {
   showWidgetRef?: boolean;
   showPngButton?: boolean;
   compact?: boolean;
+  presentation?: "card" | "image";
   className?: string;
   /** When provided (PDF generation mode), renders this PNG instead of the live Recharts chart */
   storedPngUrl?: string | null;
@@ -54,6 +55,7 @@ export function ScopeSummaryDonutWidget({
   showWidgetRef = true,
   showPngButton = true,
   compact = false,
+  presentation = "card",
   className,
   storedPngUrl,
 }: ScopeSummaryDonutWidgetProps) {
@@ -152,6 +154,19 @@ export function ScopeSummaryDonutWidget({
     });
   };
 
+  if (presentation === "image" && storedPngUrl) {
+    return (
+      <div className={className} data-widget-key={widgetKey}>
+        <img
+          src={storedPngUrl}
+          alt={title}
+          className="mx-auto block max-w-full h-auto object-contain"
+          style={{ width: "100%" }}
+        />
+      </div>
+    );
+  }
+
   const gridClass = compact
     ? "lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:items-center"
     : "w-full lg:w-fit lg:grid-cols-[minmax(0,360px)_300px] lg:items-center";
@@ -184,7 +199,6 @@ export function ScopeSummaryDonutWidget({
       </CardHeader>
       <CardContent>
         <div className={`mx-auto grid gap-3 ${gridClass}`}>
-          {/* Chart area — stored PNG in PDF mode, live Recharts otherwise */}
           <div className={`relative mx-auto flex aspect-square w-full justify-center ${maxW}`} ref={chartWrapRef}>
             {storedPngUrl ? (
               <img
@@ -193,35 +207,32 @@ export function ScopeSummaryDonutWidget({
                 style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
               />
             ) : (
-              <>
-                <ResponsiveContainer width="100%" aspect={1}>
-                  <PieChart>
-                    <Pie data={data} dataKey="value" nameKey="name" innerRadius={compact ? "58%" : "72%"} outerRadius={compact ? "80%" : "94%"} paddingAngle={2}>
-                      {data.map((_, index) => (
-                        <Cell key={index} fill={SCOPE_COLORS[index % SCOPE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value: unknown) => [`${formatNumber(Number(value || 0), 1)} tCO₂e`, ""]} />
-                    <g aria-hidden="true">
-                      <text x="50%" y="48%" textAnchor="middle" dominantBaseline="middle" fill="#111827" fontSize="32" fontWeight="600" fontFamily="Arial, sans-serif">
-                        {formatNumber(total, 1)}
+              <ResponsiveContainer width="100%" aspect={1}>
+                <PieChart>
+                  <Pie data={data} dataKey="value" nameKey="name" innerRadius={compact ? "58%" : "72%"} outerRadius={compact ? "80%" : "94%"} paddingAngle={2}>
+                    {data.map((_, index) => (
+                      <Cell key={index} fill={SCOPE_COLORS[index % SCOPE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value: unknown) => [`${formatNumber(Number(value || 0), 1)} tCO₂e`, ""]} />
+                  <g aria-hidden="true">
+                    <text x="50%" y="48%" textAnchor="middle" dominantBaseline="middle" fill="#111827" fontSize="32" fontWeight="600" fontFamily="Arial, sans-serif">
+                      {formatNumber(total, 1)}
+                    </text>
+                    <text x="50%" y="56%" textAnchor="middle" dominantBaseline="middle" fill="#6b7280" fontSize="12" fontFamily="Arial, sans-serif">
+                      tCO₂e total
+                    </text>
+                    {currentYear ? (
+                      <text x="50%" y="64%" textAnchor="middle" dominantBaseline="middle" fill="#9ca3af" fontSize="10" fontFamily="Arial, sans-serif">
+                        {currentYear}
                       </text>
-                      <text x="50%" y="56%" textAnchor="middle" dominantBaseline="middle" fill="#6b7280" fontSize="12" fontFamily="Arial, sans-serif">
-                        tCO₂e total
-                      </text>
-                      {currentYear ? (
-                        <text x="50%" y="64%" textAnchor="middle" dominantBaseline="middle" fill="#9ca3af" fontSize="10" fontFamily="Arial, sans-serif">
-                          {currentYear}
-                        </text>
-                      ) : null}
-                    </g>
-                  </PieChart>
-                </ResponsiveContainer>
-              </>
+                    ) : null}
+                  </g>
+                </PieChart>
+              </ResponsiveContainer>
             )}
           </div>
 
-          {/* Data table — always shown */}
           <div className={compact ? "space-y-2" : "min-w-0 space-y-3 w-[300px]"}>
             {data.map((scope, index) => (
               <div key={scope.name} className="grid grid-cols-[130px_170px] items-center gap-0 text-sm">
@@ -255,4 +266,3 @@ export function ScopeSummaryDonutWidget({
     </Card>
   );
 }
-

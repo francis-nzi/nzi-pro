@@ -1,15 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Download } from "lucide-react";
-
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatNumber } from "@/lib/format";
-
 import { REPORT_WIDGET_IDS } from "./registry";
 import { buildPngFilename, downloadChartAsPng, renderChartAsPngDataUrl } from "./png-export";
 import { registerWidgetPngExporter } from "./export-registry";
@@ -27,6 +24,9 @@ type SiteSummaryDonutWidgetProps = {
   widgetKey?: string;
   showWidgetRef?: boolean;
   className?: string;
+  presentation?: "card" | "image";
+  /** When provided (PDF generation mode), renders this PNG instead of the live Recharts chart */
+  storedPngUrl?: string | null;
 };
 
 const SITE_COLORS = ["#0f766e", "#0891b2", "#38bdf8", "#7e57c2", "#f07f2f", "#10b981", "#ef4444", "#64748b"];
@@ -48,6 +48,8 @@ export function SiteSummaryDonutWidget({
   widgetKey = REPORT_WIDGET_IDS.emissionsSiteDonut,
   showWidgetRef = true,
   className,
+  presentation = "card",
+  storedPngUrl,
 }: SiteSummaryDonutWidgetProps) {
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
   const total = Number(currentTotal ?? data.reduce((sum, item) => sum + Number(item.value || 0), 0));
@@ -141,6 +143,19 @@ export function SiteSummaryDonutWidget({
       canvasWidth: 960,
     });
   };
+
+  if (presentation === "image" && storedPngUrl) {
+    return (
+      <div className={className} data-widget-key={widgetKey}>
+        <img
+          src={storedPngUrl}
+          alt={title}
+          className="mx-auto block max-w-full h-auto object-contain"
+          style={{ width: "100%" }}
+        />
+      </div>
+    );
+  }
 
   return (
     <Card className={className} data-widget-key={widgetKey}>

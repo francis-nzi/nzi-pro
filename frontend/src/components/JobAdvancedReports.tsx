@@ -1411,6 +1411,7 @@ export default function JobAdvancedReports({
                 benchmarkTotal={donutBenchmarkTotal}
                 showWidgetRef={false}
                 storedPngUrl={storedWidgetPngs["emissions_scope_donut"] ?? null}
+                presentation={storedWidgetPngs["emissions_scope_donut"] ? "image" : "card"}
               />
             </div>
 
@@ -1726,6 +1727,8 @@ export default function JobAdvancedReports({
                 benchmarkYear={donutBenchmarkYear}
                 benchmarkTotal={donutBenchmarkTotal}
                 showWidgetRef={false}
+                storedPngUrl={storedWidgetPngs["emissions_scope_donut"] ?? null}
+                presentation={storedWidgetPngs["emissions_scope_donut"] ? "image" : "card"}
               />
             </div>
 
