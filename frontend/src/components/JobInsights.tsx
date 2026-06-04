@@ -324,7 +324,6 @@ export default function JobInsights({
 
   const currentYear = reportingYear ?? new Date().getFullYear();
   const firstHistoricalYear = yearlyEmissions.length > 0 ? yearlyEmissions[0].year : null;
-  const currentReportingLabel = `Reporting year ${currentYear}`;
   const pathwayReportingLabel = `Reporting years ${firstHistoricalYear ?? benchmarkYear ?? currentYear} to ${targetYear ?? 2050}`;
 
   const scopeYearOnYearBar = useMemo(() => {
@@ -633,11 +632,10 @@ export default function JobInsights({
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard label="Total tCO₂e" subtitle={currentReportingLabel} value={formatTco2e(Number(scopeTotals?.total || 0))} />
-        <MetricCard label="Target Year" subtitle={currentReportingLabel} value={targetYear ?? 2050} />
+        <MetricCard label="Total tCO₂e" value={formatTco2e(Number(scopeTotals?.total || 0))} />
+        <MetricCard label="Target Year" value={targetYear ?? 2050} />
         <LinkMetricCard
           label="Top Dataset Category"
-          subtitle={currentReportingLabel}
           value={normalizedActivityData[0] ? formatTco2e(normalizedActivityData[0].value) : "0.0"}
           suffix="tCO₂e"
           name={normalizedActivityData[0]?.name ?? "No dataset category data"}
@@ -645,7 +643,6 @@ export default function JobInsights({
         />
         <LinkMetricCard
           label="Top Site"
-          subtitle={currentReportingLabel}
           value={normalizedSiteData[0] ? formatTco2e(normalizedSiteData[0].value) : "0.0"}
           suffix="tCO₂e"
           name={normalizedSiteData[0]?.name ?? "No site data"}
@@ -656,7 +653,6 @@ export default function JobInsights({
       <Card>
         <CardHeader className="space-y-1">
           <CardTitle>Summary</CardTitle>
-          <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{currentReportingLabel}</div>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-slate-700">{summaryData}</p>
@@ -697,7 +693,6 @@ export default function JobInsights({
       <div className="space-y-6">
         <ScopeSummaryDonutWidget
           title={`${clientName ?? "Client"} Emissions Summary by Scope`}
-          subtitle={currentReportingLabel}
           clientName={clientName}
           data={scopeCards}
           currentYear={currentYear}
@@ -709,7 +704,6 @@ export default function JobInsights({
 
         <SiteSummaryDonutWidget
           title={`${clientName ?? "Client"} Emissions by Site`}
-          subtitle={currentReportingLabel}
           clientName={clientName}
           data={normalizedSiteData}
           currentYear={currentYear}
@@ -723,7 +717,6 @@ export default function JobInsights({
       <div className="w-full">
         <EmissionsByActivityWidget
           title={`${clientName ?? "Client"} Emissions by Activity`}
-          subtitle={currentReportingLabel}
           clientName={clientName}
           data={activityBarData}
           showWidgetRef={true}
@@ -774,7 +767,6 @@ export default function JobInsights({
       <Card>
         <CardHeader className="space-y-1">
           <CardTitle>Monthly Emissions Trend</CardTitle>
-          <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{currentReportingLabel}</div>
         </CardHeader>
         <CardContent>
           <div className="h-[300px]">
@@ -794,7 +786,6 @@ export default function JobInsights({
       <Card>
         <CardHeader className="space-y-1">
           <CardTitle>What If Scenarios</CardTitle>
-          <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{currentReportingLabel}</div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-3">
@@ -824,7 +815,6 @@ export default function JobInsights({
       <Card>
         <CardHeader className="space-y-1">
           <CardTitle>Industry Trends and References</CardTitle>
-          <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{currentReportingLabel}</div>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-slate-700">
           <p>Use this section to compare the job against sector norms, highlight reduction opportunities, and cite the source material used for assumptions.</p>
