@@ -605,9 +605,17 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
 
                             let target = null;
 
+                            // Donut widgets export as complete cards, so in print/PDF mode
+                            // replace the whole widget card rather than only the inner chart.
+                            if (widgetId.includes('donut')) {
+                                target = container;
+                            }
+
                             // 1. recharts-responsive-container parent (chart rendered normally)
-                            const rc = container.querySelector('.recharts-responsive-container');
-                            if (rc) target = rc.parentElement;
+                            if (!target) {
+                                const rc = container.querySelector('.recharts-responsive-container');
+                                if (rc) target = rc.parentElement;
+                            }
 
                             // 2. aspect-square div (donut widgets — present even if chart not rendered)
                             if (!target) {
