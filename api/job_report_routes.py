@@ -27,6 +27,7 @@ from typing import Optional, Any
 
 from core.database import get_conn
 from api.auth import _current_user
+from api.permissions import assert_job_access, assert_permission
 from services.monthly_emissions import JobMonthlyEmissionsResolver
 from services.emissions_reporting import combined_row_metrics
 from api.report_template_routes import (
