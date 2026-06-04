@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import {
   BarChart2,
@@ -255,11 +256,34 @@ function BdSubNav({ accentColor, pathname }: { accentColor: string; pathname: st
 }
 
 function Tooltip({ label, visible }: { label: string; visible: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
   if (!visible) return null;
+
   return (
-    <div className="pointer-events-none absolute left-full z-50 ml-3 whitespace-nowrap rounded-md border bg-popover px-2.5 py-1.5 text-xs font-medium text-popover-foreground shadow-md opacity-0 group-hover:opacity-100 transition-opacity">
-      {label}
-    </div>
+    <>
+      <div
+        ref={ref}
+        className="absolute inset-0"
+        onMouseEnter={() => {
+          if (ref.current) {
+            const r = ref.current.getBoundingClientRect();
+            setPos({ top: r.top + r.height / 2, left: r.right + 8 });
+          }
+        }}
+        onMouseLeave={() => setPos(null)}
+      />
+      {pos !== null && createPortal(
+        <div
+          className="pointer-events-none fixed z-[9999] whitespace-nowrap rounded-md border bg-popover px-2.5 py-1.5 text-xs font-medium text-popover-foreground shadow-md"
+          style={{ top: pos.top, left: pos.left, transform: "translateY(-50%)" }}
+        >
+          {label}
+        </div>,
+        document.body
+      )}
+    </>
   );
 }
 
