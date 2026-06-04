@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import LoadingOrbit from "@/components/LoadingOrbit";
 import { formatDate } from "@/lib/format";
-import { ScopeSummaryDonutWidget } from "@/components/report-widgets";
+import { ScopeSummaryDonutWidget, captureSvgToPngDataUrl, findLargestSvg } from "@/components/report-widgets";
 
 /** Convert a reporting period to a compact year label: "2025" or "2022–2023". */
 function toYearLabel(start: string | null | undefined, end: string | null | undefined): string {
@@ -697,6 +697,7 @@ export default function JobAdvancedReports({
   const [sendingToPortal, setSendingToPortal] = useState(false);
   const [sendToPortalResult, setSendToPortalResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [storedWidgetPngs, setStoredWidgetPngs] = useState<Record<string, string>>({});
+  const [widgetPngsPrimed, setWidgetPngsPrimed] = useState(false);
 
   function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
     const headers: Record<string, string> = {
@@ -726,21 +727,53 @@ export default function JobAdvancedReports({
       .finally(() => setLoading(false));
   }, [jobId, baseUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When Playwright renders for PDF (use_widget_pngs=1), fetch stored PNGs so
-  // widgets can render them as <img> tags instead of live Recharts charts.
+  // When Playwright renders for PDF (use_widget_pngs=1), capture the live widgets
+  // first, persist those PNGs, and then load the stored PNGs so the print/PDF path
+  // can use the same images that Insights exports.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("use_widget_pngs") !== "1") return;
+    if (loading || !data || widgetPngsPrimed) return;
     void (async () => {
       try {
+        await new Promise((resolve) => setTimeout(resolve, 750));
+
+        const pngs: Record<string, string> = {};
+        const containers = document.querySelectorAll("[data-widget-key]");
+        for (const el of Array.from(containers)) {
+          const widgetId = el.getAttribute("data-widget-key");
+          if (!widgetId) continue;
+          const svg = findLargestSvg(el as HTMLElement);
+          if (!svg) continue;
+          try {
+            pngs[widgetId] = await captureSvgToPngDataUrl(svg);
+          } catch {
+            // skip widgets that fail to render
+          }
+        }
+
+        for (const [widgetId, pngData] of Object.entries(pngs)) {
+          try {
+            await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ widget_id: widgetId, png_data: pngData }),
+            });
+          } catch {
+            // skip persistence failures
+          }
+        }
+
         const res = await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, { credentials: "include" });
         if (!res.ok) return;
         const d = await res.json() as { pngs?: Record<string, string> };
         if (d.pngs && Object.keys(d.pngs).length > 0) setStoredWidgetPngs(d.pngs);
+        setWidgetPngsPrimed(true);
       } catch { /* silently ignore */ }
     })();
-  }, [jobId, baseUrl]);
+  }, [jobId, baseUrl, data, loading, widgetPngsPrimed]);
 
   async function downloadPdf() {
     setDownloading(true);
