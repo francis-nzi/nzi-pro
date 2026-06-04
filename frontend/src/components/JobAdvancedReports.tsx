@@ -1375,6 +1375,7 @@ export default function JobAdvancedReports({
             <div className="mt-6">
               <ScopeSummaryDonutWidget
                 title={`${data.job_data.client_name ?? "Client"} Emissions Summary by Scope`}
+                subtitle={`Reporting year ${toYearNumber(data.job_data.reporting_period_start, data.job_data.reporting_period_end) ?? toNum(data.job_data.reporting_year) ?? ""}`}
                 clientName={data.job_data.client_name}
                 data={scopeDonutData}
                 currentYear={(toYearNumber(data.job_data.reporting_period_start, data.job_data.reporting_period_end) ?? toNum(data.job_data.reporting_year)) || null}
@@ -1689,6 +1690,7 @@ export default function JobAdvancedReports({
               <p className="text-sm font-semibold text-gray-700 mb-4">Emissions by Scope</p>
               <ScopeSummaryDonutWidget
                 title={`${data.job_data.client_name ?? "Client"} Emissions by Scope`}
+                subtitle={`Reporting year ${toYearNumber(data.job_data.reporting_period_start, data.job_data.reporting_period_end) ?? toNum(data.job_data.reporting_year) ?? ""}`}
                 clientName={data.job_data.client_name}
                 data={scopeDonutData}
                 currentYear={(toYearNumber(data.job_data.reporting_period_start, data.job_data.reporting_period_end) ?? toNum(data.job_data.reporting_year)) || null}
