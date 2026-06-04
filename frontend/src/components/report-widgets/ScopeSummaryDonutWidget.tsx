@@ -128,8 +128,8 @@ export function ScopeSummaryDonutWidget({
         </div>
       </CardHeader>
       <CardContent>
-        <div className={`grid gap-4 ${compact ? "lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:items-center" : "lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)] lg:items-center"}`}>
-          <div className={`relative mx-auto aspect-square w-full ${compact ? "max-w-[220px]" : "max-w-[480px]"}`} ref={chartWrapRef}>
+        <div className={`grid gap-3 ${compact ? "lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:items-center" : "lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-center"}`}>
+          <div className={`relative mx-auto aspect-square w-full ${compact ? "max-w-[220px]" : "max-w-[360px]"}`} ref={chartWrapRef}>
             <ResponsiveContainer width="100%" aspect={1}>
               <PieChart>
                 <Pie data={data} dataKey="value" nameKey="name" innerRadius={compact ? "58%" : "72%"} outerRadius={compact ? "80%" : "94%"} paddingAngle={2}>
@@ -150,10 +150,10 @@ export function ScopeSummaryDonutWidget({
           </div>
           <div className={compact ? "space-y-2" : "min-w-0 space-y-3"}>
             {data.map((scope, index) => (
-              <div key={scope.name} className="flex items-center justify-between gap-3 text-sm">
-                <div className="flex items-center gap-2">
+              <div key={scope.name} className="grid grid-cols-[minmax(0,88px)_minmax(0,1fr)] items-center gap-3 text-sm">
+                <div className="flex items-center gap-2 min-w-0">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SCOPE_COLORS[index % SCOPE_COLORS.length] }} />
-                  <span className="whitespace-nowrap">{scope.name}</span>
+                  <span className="truncate">{scope.name}</span>
                 </div>
                 <div className="text-right">
                   <div className="font-medium">{formatNumber(Number(scope.value || 0), 1)}</div>
