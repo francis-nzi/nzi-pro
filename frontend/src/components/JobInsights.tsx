@@ -547,15 +547,19 @@ export default function JobInsights({
     }
     if (Object.keys(pngs).length > 0) {
       try {
-        await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, {
+        const res = await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ pngs }),
         });
-        setCaptureStatus({ count: Object.keys(pngs).length, at: new Date().toLocaleTimeString() });
+        if (res.ok) {
+          setCaptureStatus({ count: Object.keys(pngs).length, at: new Date().toLocaleTimeString() });
+        } else {
+          setCaptureStatus({ count: 0, at: `Failed (${res.status})` });
+        }
       } catch {
-        setCaptureStatus(null);
+        setCaptureStatus({ count: 0, at: "Network error" });
       }
     }
     setCapturing(false);

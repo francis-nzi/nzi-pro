@@ -560,6 +560,89 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
             except Exception:
                 pass
 
+            # Inject stored widget PNGs BEFORE entering print media mode so that
+            # aspect-ratio and responsive containers still have natural dimensions.
+            # Recharts SVGs often fail to render in headless print mode; this replaces
+            # the chart wrap div with a pre-captured <img> regardless.
+            _widget_pngs: dict[str, str] = {}
+            try:
+                with get_conn() as _wp_con:
+                    _wp_rows = _wp_con.execute(
+                        "SELECT widget_id, png_data FROM job_widget_pngs WHERE job_id = %s",
+                        [int(job_id)],
+                    ).fetchall()
+                    _widget_pngs = {r[0]: r[1] for r in (_wp_rows or [])}
+            except Exception:
+                _widget_pngs = {}
+
+            if _widget_pngs:
+                _inject_log = page.evaluate(
+                    """
+                    (pngs) => {
+                        const log = [];
+                        for (const [widgetId, dataUrl] of Object.entries(pngs)) {
+                            const container = document.querySelector('[data-widget-key="' + widgetId + '"]');
+                            if (!container) { log.push(widgetId + ':no-container'); continue; }
+
+                            let target = null;
+
+                            // 1. recharts-responsive-container parent (chart rendered normally)
+                            const rc = container.querySelector('.recharts-responsive-container');
+                            if (rc) target = rc.parentElement;
+
+                            // 2. aspect-square div (donut widgets — present even if chart not rendered)
+                            if (!target) {
+                                for (const div of container.querySelectorAll('div')) {
+                                    if (typeof div.className === 'string' && div.className.includes('aspect-square')) {
+                                        target = div; break;
+                                    }
+                                }
+                            }
+
+                            // 3. fixed-height div like h-[360px] (line / bar charts)
+                            if (!target) {
+                                for (const div of container.querySelectorAll('div')) {
+                                    if (typeof div.className === 'string' && div.className.includes('h-[')) {
+                                        target = div; break;
+                                    }
+                                }
+                            }
+
+                            // 4. any SVG parent as last resort
+                            if (!target) {
+                                const svg = container.querySelector('svg');
+                                if (svg) target = svg.parentElement;
+                            }
+
+                            if (!target) { log.push(widgetId + ':no-target'); continue; }
+
+                            // Read natural dimensions before any print-mode collapse
+                            const rect = target.getBoundingClientRect();
+                            const w = Math.round(rect.width) || 360;
+                            const h = Math.round(rect.height) || w;
+
+                            // Force explicit size so the img renders at the right dimensions
+                            target.style.setProperty('width', w + 'px', 'important');
+                            target.style.setProperty('height', h + 'px', 'important');
+                            target.style.setProperty('min-height', h + 'px', 'important');
+                            target.style.setProperty('aspect-ratio', 'auto', 'important');
+                            target.style.setProperty('overflow', 'visible', 'important');
+                            target.style.setProperty('display', 'block', 'important');
+
+                            const img = document.createElement('img');
+                            img.src = dataUrl;
+                            img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;';
+                            target.innerHTML = '';
+                            target.appendChild(img);
+                            log.push(widgetId + ':' + w + 'x' + h);
+                        }
+                        return log.join(' | ');
+                    }
+                    """,
+                    _widget_pngs,
+                )
+                print(f"[WIDGET PNG INJECTION] job={job_id} {_inject_log}", file=sys.stderr, flush=True)
+
             # Apply print media so measurements reflect the actual print layout.
             page.emulate_media(media="print")
 
@@ -595,48 +678,6 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
                     });
                 }
             """)
-
-            # Replace SVG chart areas with stored widget PNGs so the PDF
-            # shows the correct Insights charts instead of blank Recharts SVGs.
-            _widget_pngs: dict[str, str] = {}
-            try:
-                with get_conn() as _wp_con:
-                    _wp_rows = _wp_con.execute(
-                        "SELECT widget_id, png_data FROM job_widget_pngs WHERE job_id = %s",
-                        [int(job_id)],
-                    ).fetchall()
-                    _widget_pngs = {r[0]: r[1] for r in (_wp_rows or [])}
-            except Exception:
-                _widget_pngs = {}
-
-            if _widget_pngs:
-                page.evaluate(
-                    """
-                    (pngs) => {
-                        for (const [widgetId, dataUrl] of Object.entries(pngs)) {
-                            const container = document.querySelector('[data-widget-key="' + widgetId + '"]');
-                            if (!container) continue;
-                            // Find the recharts responsive container's parent (the chart wrap div)
-                            const rechartsWrap = container.querySelector('.recharts-responsive-container');
-                            let target = rechartsWrap ? rechartsWrap.parentElement : null;
-                            // Fallback: find the largest SVG and use its parent
-                            if (!target) {
-                                const svg = Array.from(container.querySelectorAll('svg'))
-                                    .sort((a, b) => (b.getBoundingClientRect().width * b.getBoundingClientRect().height)
-                                                  - (a.getBoundingClientRect().width * a.getBoundingClientRect().height))[0];
-                                target = svg ? svg.parentElement : null;
-                            }
-                            if (!target) continue;
-                            const img = document.createElement('img');
-                            img.src = dataUrl;
-                            img.style.cssText = 'width:100%;height:auto;display:block;max-height:480px;object-fit:contain;';
-                            target.innerHTML = '';
-                            target.appendChild(img);
-                        }
-                    }
-                    """,
-                    _widget_pngs,
-                )
 
             page.wait_for_timeout(2000)
 
