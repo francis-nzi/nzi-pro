@@ -1070,7 +1070,7 @@ def _fetch_widget_pngs(job_id: int) -> dict[str, str]:
                 "SELECT widget_id, png_data FROM job_widget_pngs WHERE job_id = %s",
                 [int(job_id)],
             ).fetchall()
-        return {r[0]: r[1] for r in rows} if rows else {}
+            return {r[0]: r[1] for r in rows} if rows else {}
     except Exception:
         return {}
 
@@ -1092,6 +1092,21 @@ def save_widget_png(
     actor = _user.get("email", "unknown")
     try:
         with get_conn() as con:
+            # Create table on first use — belt-and-suspenders in case startup
+            # migration was skipped or silently failed.
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS job_widget_pngs (
+                    id          BIGSERIAL PRIMARY KEY,
+                    job_id      INTEGER NOT NULL,
+                    widget_id   VARCHAR(64) NOT NULL,
+                    png_data    TEXT NOT NULL,
+                    captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    captured_by VARCHAR,
+                    UNIQUE (job_id, widget_id)
+                )
+                """
+            )
             con.execute(
                 """
                 INSERT INTO job_widget_pngs (job_id, widget_id, png_data, captured_at, captured_by)
