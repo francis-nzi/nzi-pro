@@ -158,13 +158,6 @@ export function SiteSummaryDonutWidget({
                 </g>
               </PieChart>
             </ResponsiveContainer>
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                <div className="text-3xl font-semibold tabular-nums">{formatNumber(total, 1)}</div>
-                <div className="text-xs text-muted-foreground">tCO₂e total</div>
-                {currentYear ? <div className="mt-1 text-[10px] text-muted-foreground/70">{currentYear}</div> : null}
-              </div>
-            </div>
           </div>
           <div className="min-w-0 space-y-3 w-[300px]">
             {data.map((site, index) => (
@@ -199,3 +192,4 @@ export function SiteSummaryDonutWidget({
     </Card>
   );
 }
+
