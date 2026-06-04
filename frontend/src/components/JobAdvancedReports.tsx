@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import LoadingOrbit from "@/components/LoadingOrbit";
 import { formatDate } from "@/lib/format";
-import { ScopeSummaryDonutWidget } from "@/components/report-widgets";
+import { EmissionsReductionPathwayWidget, ScopeSummaryDonutWidget, buildEmissionsReductionPathwayData } from "@/components/report-widgets";
 
 /** Convert a reporting period to a compact year label: "2025" or "2022–2023". */
 function toYearLabel(start: string | null | undefined, end: string | null | undefined): string {
@@ -967,7 +967,6 @@ export default function JobAdvancedReports({
   const interimS1Pct = toNum(target_data?.interim_s1_pct ?? target_data?.interim_pct) || 50;
   const interimS2Pct = toNum(target_data?.interim_s2_pct ?? target_data?.interim_pct) || 50;
   const interimS3Pct = toNum(target_data?.interim_s3_pct ?? target_data?.interim_pct) || 50;
-  const interimPct = interimS1Pct;
 
   const scopeDonutData = SCOPE_LABELS.filter(s => toNum(scope_totals?.[s]) > 0).map(s => ({
     name: s,
@@ -988,6 +987,37 @@ export default function JobAdvancedReports({
   const activityChartHeight = Math.max(200, activityBarData.length * 52 + 40);
 
   const hasPathway = baselineYear > 2000 && netZeroYear > baselineYear;
+  const emissionsReductionPathwayData = useMemo(
+    () =>
+      buildEmissionsReductionPathwayData({
+        yearlyEmissions: effectiveYearlyEmissions,
+        scope1Fallback: scope1,
+        scope2Fallback: scope2,
+        scope3Fallback: scope3,
+        benchmarkYear: baselineYear,
+        currentYear: currentReportYear,
+        targetYear: netZeroYear,
+        interimYear,
+        targetReductionPct: targetPct,
+        interimS1Pct,
+        interimS2Pct,
+        interimS3Pct,
+      }),
+    [
+      baselineYear,
+      currentReportYear,
+      effectiveYearlyEmissions,
+      interimS1Pct,
+      interimS2Pct,
+      interimS3Pct,
+      interimYear,
+      netZeroYear,
+      scope1,
+      scope2,
+      scope3,
+      targetPct,
+    ],
+  );
 
   const appendixRows = site_breakdowns?.appendix_rows ?? [];
   const hasAppendix = appendixRows.length > 0;
@@ -1489,30 +1519,19 @@ export default function JobAdvancedReports({
             {/* Emissions Reduction Pathway chart */}
             {hasPathway && (
               <div className="break-inside-avoid">
-                {storedWidgetPngs["emissions_reduction_pathway"] ? (
-                  <img
-                    src={storedWidgetPngs["emissions_reduction_pathway"]}
-                    alt={`${data.job_data?.client_name ?? "Client"} Emissions Reduction Targets to ${netZeroYear}`}
-                    className="mx-auto block w-full max-w-full h-auto object-contain"
-                  />
-                ) : (
-                  <>
-                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">
-                      Emissions Reduction Pathway to {netZeroYear}
-                    </p>
-                    <NetZeroTrendChart
-                      yearlyEmissions={effectiveYearlyEmissions}
-                      baselineYear={baselineYear}
-                      endYear={netZeroYear}
-                      interimYear={interimYear}
-                      interimPct={interimPct}
-                      targetPct={targetPct}
-                      scope1Fallback={scope1}
-                      scope2Fallback={scope2}
-                      scope3Fallback={scope3}
-                    />
-                  </>
-                )}
+                <EmissionsReductionPathwayWidget
+                  title={`${data.job_data?.client_name ?? "Client"} Emissions Reduction Targets to ${netZeroYear}`}
+                  clientName={data.job_data?.client_name}
+                  data={emissionsReductionPathwayData}
+                  benchmarkYear={baselineYear}
+                  targetYear={netZeroYear}
+                  interimYear={interimYear}
+                  showScope2={scope2 > 0}
+                  showWidgetRef={false}
+                  storedPngUrl={storedWidgetPngs["emissions_reduction_pathway"] ?? null}
+                  presentation={storedWidgetPngs["emissions_reduction_pathway"] ? "image" : "card"}
+                  className="w-full"
+                />
               </div>
             )}
 

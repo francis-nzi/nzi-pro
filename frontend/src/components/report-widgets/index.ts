@@ -1,9 +1,10 @@
 export * from "./types";
 export { captureSvgToPngDataUrl, findLargestSvg } from "./png-export";
 export * from "./export-registry";
+export * from "./pathway-data";
 export * from "./ReportYearHeader";
 export * from "./registry";
-export * from "./EmissionsReductionPathwayWidget";
+export { EmissionsReductionPathwayWidget } from "./EmissionsReductionPathwayWidget";
 export * from "./EmissionsByActivityWidget";
 export * from "./HistoricalEmissionsTrendWidget";
 export * from "./IntensityPathwayWidget";

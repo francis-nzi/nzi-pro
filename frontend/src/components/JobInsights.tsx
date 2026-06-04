@@ -25,6 +25,7 @@ import {
   SiteSummaryDonutWidget,
   ScopeYearOnYearBarWidget,
   ScopeSummaryDonutWidget,
+  buildEmissionsReductionPathwayData,
   captureSvgToPngDataUrl,
   findLargestSvg,
   type IntensityPathwayPoint,
@@ -363,63 +364,37 @@ export default function JobInsights({
       };
     }, [benchmarkYear, currentYear, firstHistoricalYear, scopeTotals, yearlyEmissions]);
 
-  const scopePathwayData = useMemo(() => {
-    if (!scopeTotals) return [];
-
-    // Use benchmark year setting, earliest historical year, or current year as fallback
-    const firstHistoricalYear = yearlyEmissions.length > 0 ? yearlyEmissions[0].year : null;
-    const baselineYear = benchmarkYear ?? firstHistoricalYear ?? currentYear;
-    const endYear = targetYear && targetYear > baselineYear ? targetYear : Math.max(baselineYear + 1, 2050);
-
-    // Benchmark emissions: from the baseline year row if available, else current job totals
-    const benchmarkRow = yearlyEmissions.find((r) => r.year === baselineYear);
-    const benchS1 = benchmarkRow ? benchmarkRow.scope1 : Number(scopeTotals.scope_1 || 0);
-    const benchS2 = benchmarkRow ? benchmarkRow.scope2 : Number(scopeTotals.scope_2 || 0);
-    const benchS3 = benchmarkRow ? benchmarkRow.scope3 : Number(scopeTotals.scope_3 || 0);
-
-    const finalFactor = (100 - targetReductionPct) / 100;
-    const iYear = interimYear && interimYear > baselineYear && interimYear < endYear ? interimYear : null;
-
-    const forecastScope = (bench: number, interimPct: number | null, year: number): number => {
-      if (year <= baselineYear) return bench;
-      const finalTarget = bench * finalFactor;
-      const iTarget = iYear != null && interimPct != null ? bench * (1 - interimPct / 100) : null;
-      if (iYear != null && iTarget != null && year <= iYear) {
-        const span = iYear - baselineYear;
-        const t = span > 0 ? (year - baselineYear) / span : 1;
-        return bench + (iTarget - bench) * t;
-      }
-      const segStart = iYear ?? baselineYear;
-      const segVal = iTarget ?? bench;
-      const span = endYear - segStart;
-      const t = span > 0 ? (year - segStart) / span : 1;
-      return Math.max(segVal + (finalTarget - segVal) * t, 0);
-    };
-
-    // Include all historical years (no lower-bound filter) + full forecast range
-    const yearSet = new Set<number>();
-    for (let y = baselineYear; y <= endYear; y++) yearSet.add(y);
-    yearlyEmissions.forEach((r) => { if (r.year <= endYear) yearSet.add(r.year); });
-    const years = Array.from(yearSet).sort((a, b) => a - b);
-
-    return years.map((year) => {
-      const actual = yearlyEmissions.find((r) => r.year === year);
-      return {
-        year,
-        actual_total: actual ? actual.total : null,
-        actual_s1: actual ? actual.scope1 : null,
-        actual_s2: actual ? actual.scope2 : null,
-        actual_s3: actual ? actual.scope3 : null,
-        target_total: forecastScope(benchS1, interimTargets.scope_1, year) +
-                      forecastScope(benchS2, interimTargets.scope_2, year) +
-                      forecastScope(benchS3, interimTargets.scope_3, year),
-        target_s1: forecastScope(benchS1, interimTargets.scope_1, year),
-        target_s2: benchS2 > 0 ? forecastScope(benchS2, interimTargets.scope_2, year) : undefined,
-        target_s3: forecastScope(benchS3, interimTargets.scope_3, year),
-      };
-    });
-  }, [scopeTotals, benchmarkYear, currentYear, targetYear, yearlyEmissions, targetReductionPct,
-      interimYear, interimTargets.scope_1, interimTargets.scope_2, interimTargets.scope_3]);
+  const scopePathwayData = useMemo(
+    () =>
+      buildEmissionsReductionPathwayData({
+        yearlyEmissions,
+        scope1Fallback: Number(scopeTotals?.scope_1 || 0),
+        scope2Fallback: Number(scopeTotals?.scope_2 || 0),
+        scope3Fallback: Number(scopeTotals?.scope_3 || 0),
+        benchmarkYear,
+        currentYear,
+        targetYear,
+        interimYear,
+        targetReductionPct,
+        interimS1Pct: interimTargets.scope_1,
+        interimS2Pct: interimTargets.scope_2,
+        interimS3Pct: interimTargets.scope_3,
+      }),
+    [
+      benchmarkYear,
+      currentYear,
+      interimTargets.scope_1,
+      interimTargets.scope_2,
+      interimTargets.scope_3,
+      interimYear,
+      scopeTotals?.scope_1,
+      scopeTotals?.scope_2,
+      scopeTotals?.scope_3,
+      targetReductionPct,
+      targetYear,
+      yearlyEmissions,
+    ],
+  );
 
   const intensityPathwaySeries = useMemo(
     () =>
