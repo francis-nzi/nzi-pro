@@ -588,7 +588,7 @@ def get_dashboard_overview(
                     )
                     for _, row in client_groups.iterrows():
                         client_id = _normalize_int_value(row.get("client_id"))
-                        client_name = str(row.get("client_name") or "Unspecified").strip() or "Unspecified"
+                        client_name = _normalize_text_value(row.get("client_name"), "Unspecified")
                         top_emitting_clients.append({
                             "client_name": client_name,
                             "client_id": client_id,
@@ -632,8 +632,8 @@ def get_dashboard_overview(
             if job_statuses_df is not None and not job_statuses_df.empty:
                 for _, row in job_statuses_df.iterrows():
                     status_breakdown.append({
-                        "status": row['status'],
-                        "count": int(row['count'])
+                        "status": _normalize_text_value(row.get("status"), "Unknown"),
+                        "count": _normalize_int_value(row.get("count")) or 0,
                     })
             
             # Active jobs (not completed/archived) with filters
@@ -676,7 +676,11 @@ def get_dashboard_overview(
             
             years_list = []
             if available_years_df is not None and not available_years_df.empty:
-                years_list = [int(year) for year in available_years_df['reporting_year'].tolist() if year is not None]
+                years_list = [
+                    normalized_year
+                    for year_value in available_years_df["reporting_year"].tolist()
+                    if (normalized_year := _normalize_int_value(year_value)) is not None
+                ]
             current_year = date.today().year
             if current_year not in years_list:
                 years_list = [current_year, *years_list]
@@ -689,7 +693,10 @@ def get_dashboard_overview(
             except Exception:
                 logger.exception("Failed to load dashboard industries; defaulting to empty list")
                 industries_df = None
-            available_industries = [row['industry'] for _, row in industries_df.iterrows()] if industries_df is not None else []
+            available_industries = [
+                _normalize_text_value(row.get("industry"), "Unspecified")
+                for _, row in industries_df.iterrows()
+            ] if industries_df is not None else []
 
             crm_options = _load_dashboard_crm_options(con, org_id)
             available_crm = [str(option.get("label") or option.get("value") or "").strip() for option in crm_options if str(option.get("label") or option.get("value") or "").strip()]
@@ -705,9 +712,9 @@ def get_dashboard_overview(
                         """
                     ).df()
                     families = [
-                        str(row.get("job_family") or "").strip().lower()
+                        _normalize_text_value(row.get("job_family"), "").strip().lower()
                         for _, row in families_df.iterrows()
-                        if str(row.get("job_family") or "").strip()
+                        if _normalize_text_value(row.get("job_family"), "").strip()
                     ] if families_df is not None and not families_df.empty else []
                     if families:
                         available_job_families = sorted(set(available_job_families).union(families))
@@ -891,14 +898,14 @@ def get_dashboard_overview(
                     overall_milestone_status = get_overall_status(milestone_statuses) if milestone_statuses else None
                     
                     recent_activity.append({
-                        "job_id": int(row['job_id']),
-                        "title": row['title'],
+                        "job_id": _normalize_int_value(row.get("job_id")) or 0,
+                        "title": _normalize_text_value(row.get("title"), "Unassigned"),
                         "reporting_year": _normalize_int_value(row['reporting_year']),
-                        "status": row['status'],
-                        "client_name": row['client_name'],
+                        "status": _normalize_text_value(row.get("status"), "Unknown"),
+                        "client_name": _normalize_text_value(row.get("client_name"), "Unspecified"),
                         "job_type": _normalize_text_value(row.get("job_type_name"), "Unassigned"),
                         "job_family": _normalize_text_value(row.get("job_family"), "crp"),
-                        "start_date": row['start_date'],
+                        "start_date": row.get("start_date"),
                         "milestone_status": overall_milestone_status,
                     })
 
@@ -930,9 +937,9 @@ def get_dashboard_overview(
                     jobs_by_type.append({
                         "job_type": _normalize_text_value(row.get("job_type"), "Unassigned"),
                         "job_family": _normalize_text_value(row.get("job_family"), "crp"),
-                        "total_jobs": int(row.get("total_jobs") or 0),
-                        "active_jobs": int(row.get("active_jobs") or 0),
-                        "completed_jobs": int(row.get("completed_jobs") or 0),
+                        "total_jobs": _normalize_int_value(row.get("total_jobs")) or 0,
+                        "active_jobs": _normalize_int_value(row.get("active_jobs")) or 0,
+                        "completed_jobs": _normalize_int_value(row.get("completed_jobs")) or 0,
                     })
 
             job_renewals = []
@@ -986,7 +993,7 @@ def get_dashboard_overview(
                         if days_remaining <= 90:
                             renewal_summary["due_90"] += 1
                         job_renewals.append({
-                            "job_id": int(row.get("job_id") or 0),
+                            "job_id": _normalize_int_value(row.get("job_id")) or 0,
                             "job_number": _normalize_text_value(row.get("job_number"), ""),
                             "title": _normalize_text_value(row.get("title"), "Unassigned"),
                             "client_name": _normalize_text_value(row.get("client_name"), "Unassigned"),
@@ -1020,9 +1027,9 @@ def get_dashboard_overview(
             crm_status_data = {}
             if crm_status_df is not None and not crm_status_df.empty:
                 for _, row in crm_status_df.iterrows():
-                    crm = row['crm_name']
-                    status = row['status']
-                    count = int(row['count'])
+                    crm = _normalize_text_value(row.get("crm_name"), "Unassigned")
+                    status = _normalize_text_value(row.get("status"), "Unknown")
+                    count = _normalize_int_value(row.get("count")) or 0
                     
                     if crm not in crm_status_data:
                         crm_status_data[crm] = {
@@ -1069,7 +1076,38 @@ def get_dashboard_overview(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch dashboard overview: {e}")
+        logger.exception("Failed to fetch dashboard overview; returning empty fallback")
+        current_year = date.today().year
+        return {
+            "selected_year": int(year) if isinstance(year, int) else current_year,
+            "available_years": [current_year],
+            "available_industries": [],
+            "available_crm": [],
+            "available_job_families": ["crp", "training", "consultancy", "lca", "pcf"],
+            "crm_options": [],
+            "year_trend": [],
+            "industry_breakdown": [],
+            "metrics": {
+                "total_clients": 0,
+                "total_emissions": 0.0,
+                "active_jobs": 0,
+                "total_datasets": 0,
+                "yoy_change": None,
+            },
+            "job_status_breakdown": [],
+            "top_emitting_clients": [],
+            "recent_activity": [],
+            "jobs_per_crm": [],
+            "jobs_by_type": [],
+            "job_renewals": [],
+            "renewal_summary": {
+                "overdue": 0,
+                "due_30": 0,
+                "due_60": 0,
+                "due_90": 0,
+            },
+            "warning": f"dashboard_overview_unavailable: {e}",
+        }
 
 
 @router.get("/dashboard/financial-overview")
