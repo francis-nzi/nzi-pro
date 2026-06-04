@@ -119,7 +119,7 @@ export function SiteSummaryDonutWidget({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)] lg:items-center">
           <div className="relative mx-auto aspect-square w-full max-w-[420px]" ref={chartWrapRef}>
             <ResponsiveContainer width="100%" aspect={1}>
               <PieChart>
@@ -139,7 +139,7 @@ export function SiteSummaryDonutWidget({
               </div>
             </div>
           </div>
-          <div className="space-y-3">
+          <div className="min-w-0 space-y-3">
             {data.map((site, index) => (
               <div key={site.name} className="flex items-center justify-between gap-3 text-sm">
                 <div className="flex items-center gap-2">

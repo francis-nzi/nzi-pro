@@ -128,7 +128,7 @@ export function ScopeSummaryDonutWidget({
         </div>
       </CardHeader>
       <CardContent>
-        <div className={`grid gap-4 ${compact ? "lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:items-center" : "lg:grid-cols-[minmax(0,1fr)_220px]"}`}>
+        <div className={`grid gap-4 ${compact ? "lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:items-center" : "lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)] lg:items-center"}`}>
           <div className={`relative mx-auto aspect-square w-full ${compact ? "max-w-[220px]" : "max-w-[480px]"}`} ref={chartWrapRef}>
             <ResponsiveContainer width="100%" aspect={1}>
               <PieChart>
@@ -148,7 +148,7 @@ export function ScopeSummaryDonutWidget({
               </div>
             </div>
           </div>
-          <div className={compact ? "space-y-2" : "space-y-3"}>
+          <div className={compact ? "space-y-2" : "min-w-0 space-y-3"}>
             {data.map((scope, index) => (
               <div key={scope.name} className="flex items-center justify-between gap-3 text-sm">
                 <div className="flex items-center gap-2">
