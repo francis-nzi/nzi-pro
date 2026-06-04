@@ -3,7 +3,7 @@ API endpoints for job report generation.
 Generates comprehensive PDF reports with emissions data.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 import logging
@@ -1078,13 +1078,13 @@ def _fetch_widget_pngs(job_id: int) -> dict[str, str]:
 @router.post("/jobs/{job_id}/widget-pngs")
 def save_widget_pngs(
     job_id: int,
-    body: dict,
+    body: dict = Body(...),
     _user: dict = Depends(_current_user),
 ):
     """Store widget PNG data URLs captured from the Insights page for later PDF use."""
     assert_permission(_user, "jobs.edit")
     assert_job_access(_user, int(job_id))
-    actor = _actor(_user)
+    actor = _user.get("email", "unknown")
     pngs: dict = body.get("pngs") or {}
     if not pngs:
         raise HTTPException(status_code=400, detail="No pngs provided.")
