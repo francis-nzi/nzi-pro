@@ -91,7 +91,20 @@ export function SiteSummaryDonutWidget({
       filename: buildPngFilename(title, clientName),
       title,
       subtitle,
-      legendItems: data.map((item, index) => ({ label: item.name, color: SITE_COLORS[index % SITE_COLORS.length] })),
+      tableRows: [
+        ...data.map((item, index) => ({
+          label: item.name,
+          value: formatNumber(Number(item.value || 0), 1),
+          percent: total > 0 ? `${((item.value / total) * 100).toFixed(1)}%` : "0.0%",
+          color: SITE_COLORS[index % SITE_COLORS.length],
+        })),
+        {
+          label: "Total",
+          value: formatNumber(total, 1),
+          percent: "100.0%",
+          isTotal: true,
+        },
+      ],
       callout: benchmarkPill?.callout ?? null,
       canvasWidth: 960,
     });
