@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatNumber } from "@/lib/format";
 import { REPORT_WIDGET_IDS } from "./registry";
-import { buildPngFilename, downloadChartAsPng, findLargestSvg } from "./png-export";
+import { buildPngFilename, downloadChartAsPng, renderChartAsPngDataUrl } from "./png-export";
+import { registerWidgetPngExporter } from "./export-registry";
 
 export type ScopeDonutItem = {
   name: string;
@@ -93,8 +94,39 @@ export function ScopeSummaryDonutWidget({
     };
   }, [benchmarkTotal, benchmarkYear, currentYear, total]);
 
+  const exportPngDataUrl = async () => {
+    const svg = chartWrapRef.current?.querySelector("svg") as SVGSVGElement | null;
+    if (!svg) return "";
+    return renderChartAsPngDataUrl({
+      svg,
+      title,
+      subtitle,
+      tableRows: [
+        ...data.map((item, index) => ({
+          label: item.name,
+          value: formatNumber(Number(item.value || 0), 1),
+          percent: total > 0 ? `${((item.value / total) * 100).toFixed(1)}%` : "0.0%",
+          color: SCOPE_COLORS[index % SCOPE_COLORS.length],
+        })),
+        {
+          label: "Total",
+          value: formatNumber(total, 1),
+          percent: "100.0%",
+          isTotal: true,
+        },
+      ],
+      callout: benchmarkPill?.callout ?? null,
+      canvasWidth: 960,
+    });
+  };
+
+  useEffect(() => {
+    if (!widgetKey) return;
+    return registerWidgetPngExporter(widgetKey, exportPngDataUrl);
+  }, [exportPngDataUrl, widgetKey]);
+
   const downloadPng = async () => {
-    const svg = findLargestSvg(chartWrapRef.current);
+    const svg = chartWrapRef.current?.querySelector("svg") as SVGSVGElement | null;
     if (!svg) return;
     await downloadChartAsPng({
       svg,

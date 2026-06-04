@@ -21,6 +21,7 @@ import {
   EmissionsByActivityWidget,
   EmissionsReductionPathwayWidget,
   IntensityPathwayWidget,
+  getWidgetPngExporter,
   SiteSummaryDonutWidget,
   ScopeYearOnYearBarWidget,
   ScopeSummaryDonutWidget,
@@ -537,9 +538,18 @@ export default function JobInsights({
     for (const el of Array.from(containers)) {
       const widgetId = el.getAttribute("data-widget-key");
       if (!widgetId) continue;
-      const svg = findLargestSvg(el as HTMLElement);
-      if (!svg) continue;
       try {
+        const exporter = getWidgetPngExporter(widgetId);
+        if (exporter) {
+          const pngData = await exporter();
+          if (pngData) {
+            pngs[widgetId] = pngData;
+            continue;
+          }
+        }
+
+        const svg = findLargestSvg(el as HTMLElement);
+        if (!svg) continue;
         pngs[widgetId] = await captureSvgToPngDataUrl(svg);
       } catch {
         // skip widgets that fail to render

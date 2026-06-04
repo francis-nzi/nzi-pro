@@ -1,5 +1,6 @@
 export * from "./types";
 export { captureSvgToPngDataUrl, findLargestSvg } from "./png-export";
+export * from "./export-registry";
 export * from "./ReportYearHeader";
 export * from "./registry";
 export * from "./EmissionsReductionPathwayWidget";

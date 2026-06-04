@@ -132,9 +132,8 @@ export async function captureSvgToPngDataUrl(svg: SVGSVGElement): Promise<string
   });
 }
 
-export async function downloadChartAsPng({
+async function composeChartAsPngDataUrl({
   svg,
-  filename,
   title,
   subtitle,
   legendItems = [],
@@ -142,7 +141,7 @@ export async function downloadChartAsPng({
   callout = null,
   canvasWidth,
   centerChart = true,
-}: DownloadChartAsPngOptions): Promise<void> {
+}: Omit<DownloadChartAsPngOptions, "filename">): Promise<string> {
   const clone = svg.cloneNode(true) as SVGSVGElement;
   const rect = svg.getBoundingClientRect();
   const width = Math.max(1, Math.ceil(rect.width || Number(svg.getAttribute("width") || 1200)));
@@ -161,7 +160,7 @@ export async function downloadChartAsPng({
   image.decoding = "async";
   image.crossOrigin = "anonymous";
 
-  const loadPromise = new Promise<void>((resolve, reject) => {
+  const loadPromise = new Promise<string>((resolve, reject) => {
     image.onload = () => {
       try {
         const canvas = document.createElement("canvas");
@@ -339,19 +338,7 @@ export async function downloadChartAsPng({
           ctx.drawImage(image, chartX, headerHeight, width, height);
         }
 
-        canvas.toBlob((pngBlob) => {
-          if (!pngBlob) {
-            reject(new Error("Unable to generate PNG."));
-            return;
-          }
-          const pngUrl = URL.createObjectURL(pngBlob);
-          const a = document.createElement("a");
-          a.href = pngUrl;
-          a.download = filename;
-          a.click();
-          URL.revokeObjectURL(pngUrl);
-          resolve();
-        }, "image/png");
+        resolve(canvas.toDataURL("image/png"));
       } catch (error) {
         reject(error);
       } finally {
@@ -365,5 +352,26 @@ export async function downloadChartAsPng({
   });
 
   image.src = url;
-  await loadPromise;
+  return await loadPromise;
+}
+
+export async function downloadChartAsPng({
+  filename,
+  ...options
+}: DownloadChartAsPngOptions): Promise<void> {
+  const pngUrl = await composeChartAsPngDataUrl(options);
+  try {
+    const a = document.createElement("a");
+    a.href = pngUrl;
+    a.download = filename;
+    a.click();
+  } finally {
+    // data URLs do not need explicit revocation
+  }
+}
+
+export async function renderChartAsPngDataUrl(
+  options: Omit<DownloadChartAsPngOptions, "filename">,
+): Promise<string> {
+  return composeChartAsPngDataUrl(options);
 }
