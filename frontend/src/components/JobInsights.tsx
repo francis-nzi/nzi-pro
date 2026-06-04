@@ -618,31 +618,6 @@ export default function JobInsights({
         </CardContent>
       </Card>
 
-      <div className="w-full">
-        <EmissionsByActivityWidget
-          title={`${clientName ?? "Client"} Emissions by Activity`}
-          subtitle={currentReportingLabel}
-          clientName={clientName}
-          data={activityBarData}
-          showWidgetRef={true}
-        />
-      </div>
-
-        {scopeYearOnYearBar ? (
-          <ScopeYearOnYearBarWidget
-              title="Year-on-Year Comparison by Scope"
-              clientName={clientName}
-              data={scopeYearOnYearBar.data}
-              benchmarkLabel={scopeYearOnYearBar.benchmarkLabel}
-              previousLabel={scopeYearOnYearBar.previousLabel}
-              currentLabel={scopeYearOnYearBar.currentLabel}
-            showBenchmarkBar={scopeYearOnYearBar.showBenchmarkBar}
-            showPreviousBar={scopeYearOnYearBar.showPreviousBar}
-            showComparisonPct={scopeYearOnYearBar.showComparisonPct}
-            showWidgetRef={true}
-          />
-        ) : null}
-
       <div className="space-y-6">
         <ScopeSummaryDonutWidget
           title={`${clientName ?? "Client"} Emissions Summary by Scope`}
@@ -668,6 +643,31 @@ export default function JobInsights({
           className="w-full"
         />
       </div>
+
+      <div className="w-full">
+        <EmissionsByActivityWidget
+          title={`${clientName ?? "Client"} Emissions by Activity`}
+          subtitle={currentReportingLabel}
+          clientName={clientName}
+          data={activityBarData}
+          showWidgetRef={true}
+        />
+      </div>
+
+        {scopeYearOnYearBar ? (
+          <ScopeYearOnYearBarWidget
+              title="Year-on-Year Comparison by Scope"
+              clientName={clientName}
+              data={scopeYearOnYearBar.data}
+              benchmarkLabel={scopeYearOnYearBar.benchmarkLabel}
+              previousLabel={scopeYearOnYearBar.previousLabel}
+              currentLabel={scopeYearOnYearBar.currentLabel}
+            showBenchmarkBar={scopeYearOnYearBar.showBenchmarkBar}
+            showPreviousBar={scopeYearOnYearBar.showPreviousBar}
+          showComparisonPct={scopeYearOnYearBar.showComparisonPct}
+          showWidgetRef={true}
+        />
+      ) : null}
 
       {scopePathwayData.length > 0 && (
         <EmissionsReductionPathwayWidget
