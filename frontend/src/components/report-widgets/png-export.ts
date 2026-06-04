@@ -114,11 +114,9 @@ export async function captureSvgToPngDataUrl(svg: SVGSVGElement): Promise<string
     img.onload = () => {
       try {
         const canvas = document.createElement("canvas");
-        // 2× for retina / high-DPI output
-        canvas.width = w * 2;
-        canvas.height = h * 2;
+        canvas.width = w;
+        canvas.height = h;
         const ctx = canvas.getContext("2d")!;
-        ctx.scale(2, 2);
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, w, h);
         ctx.drawImage(img, 0, 0, w, h);

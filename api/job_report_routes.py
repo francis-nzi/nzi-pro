@@ -3,7 +3,7 @@ API endpoints for job report generation.
 Generates comprehensive PDF reports with emissions data.
 """
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 import logging
@@ -1075,21 +1075,23 @@ def _fetch_widget_pngs(job_id: int) -> dict[str, str]:
         return {}
 
 
+class _WidgetPngPayload(BaseModel):
+    widget_id: str
+    png_data: str
+
+
 @router.post("/jobs/{job_id}/widget-pngs")
-def save_widget_pngs(
+def save_widget_png(
     job_id: int,
-    body: dict = Body(...),
+    payload: _WidgetPngPayload,
     _user: dict = Depends(_current_user),
 ):
-    """Store widget PNG data URLs captured from the Insights page for later PDF use."""
+    """Store a single widget PNG captured from the Insights page."""
     assert_permission(_user, "jobs.edit")
     assert_job_access(_user, int(job_id))
     actor = _user.get("email", "unknown")
-    pngs: dict = body.get("pngs") or {}
-    if not pngs:
-        raise HTTPException(status_code=400, detail="No pngs provided.")
-    with get_conn() as con:
-        for widget_id, png_data in pngs.items():
+    try:
+        with get_conn() as con:
             con.execute(
                 """
                 INSERT INTO job_widget_pngs (job_id, widget_id, png_data, captured_at, captured_by)
@@ -1099,10 +1101,12 @@ def save_widget_pngs(
                     captured_at = EXCLUDED.captured_at,
                     captured_by = EXCLUDED.captured_by
                 """,
-                [int(job_id), str(widget_id)[:64], str(png_data), actor],
+                [int(job_id), str(payload.widget_id)[:64], str(payload.png_data), actor],
             )
-    logger.info("save_widget_pngs: job %s stored %d widget PNGs by %s", job_id, len(pngs), actor)
-    return {"ok": True, "count": len(pngs)}
+    except Exception as exc:
+        logger.error("save_widget_png job=%s widget=%s error=%s", job_id, payload.widget_id, exc)
+        raise HTTPException(status_code=500, detail=f"Failed to save widget PNG: {exc}")
+    return {"ok": True}
 
 
 @router.get("/jobs/{job_id}/widget-pngs")

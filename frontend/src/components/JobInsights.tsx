@@ -546,20 +546,30 @@ export default function JobInsights({
       }
     }
     if (Object.keys(pngs).length > 0) {
-      try {
-        const res = await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pngs }),
-        });
-        if (res.ok) {
-          setCaptureStatus({ count: Object.keys(pngs).length, at: new Date().toLocaleTimeString() });
-        } else {
-          setCaptureStatus({ count: 0, at: `Failed (${res.status})` });
+      let saved = 0;
+      let lastError = "";
+      for (const [widgetId, pngData] of Object.entries(pngs)) {
+        try {
+          const res = await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ widget_id: widgetId, png_data: pngData }),
+          });
+          if (res.ok) {
+            saved++;
+          } else {
+            const body = await res.json().catch(() => ({})) as { detail?: string };
+            lastError = body.detail ?? `HTTP ${res.status}`;
+          }
+        } catch (e) {
+          lastError = String(e);
         }
-      } catch {
-        setCaptureStatus({ count: 0, at: "Network error" });
+      }
+      if (saved > 0) {
+        setCaptureStatus({ count: saved, at: new Date().toLocaleTimeString() });
+      } else {
+        setCaptureStatus({ count: 0, at: `Failed: ${lastError}` });
       }
     }
     setCapturing(false);
