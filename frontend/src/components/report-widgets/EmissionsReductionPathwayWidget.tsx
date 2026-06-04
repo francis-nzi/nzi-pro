@@ -95,6 +95,7 @@ export function EmissionsReductionPathwayWidget({
 }: EmissionsReductionPathwayWidgetProps) {
   const yearLookup = new Map<number, EmissionsPathwayPoint>(data.map((point) => [Number(point.year), point]));
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
+  const exportPngDataUrlRef = useRef<() => Promise<string> | string>(() => "");
 
   const total = useMemo(() => Number(data.reduce((sum, item) => sum + Number(item.actual_total ?? item.target_total ?? 0), 0)), [data]);
 
@@ -155,6 +156,12 @@ export function EmissionsReductionPathwayWidget({
     });
   }, [benchmarkPill?.callout, data, showScope2, subtitle, title, total]);
 
+  useEffect(() => {
+    exportPngDataUrlRef.current = exportPngDataUrl;
+  }, [exportPngDataUrl]);
+
+  const stableExportPngDataUrl = useCallback(() => exportPngDataUrlRef.current(), []);
+
   const downloadPng = useCallback(async () => {
     const pngUrl = await exportPngDataUrl();
     if (!pngUrl) return;
@@ -166,8 +173,8 @@ export function EmissionsReductionPathwayWidget({
 
   useEffect(() => {
     if (!widgetKey) return;
-    return registerWidgetPngExporter(widgetKey, exportPngDataUrl);
-  }, [exportPngDataUrl, widgetKey]);
+    return registerWidgetPngExporter(widgetKey, stableExportPngDataUrl);
+  }, [stableExportPngDataUrl, widgetKey]);
 
   if (!data.length) {
     return (
