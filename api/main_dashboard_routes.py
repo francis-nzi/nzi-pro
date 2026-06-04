@@ -543,23 +543,30 @@ def get_dashboard_overview(
             
             # Total number of clients (optionally filtered by industry)
             clients_count_sql = f"SELECT COUNT(*) FROM clients c {client_where}"
-            clients_count = con.execute(clients_count_sql, client_params).fetchone()[0]
+            try:
+                clients_count = con.execute(clients_count_sql, client_params).fetchone()[0]
+            except Exception:
+                logger.exception("Failed to load dashboard client count; defaulting to 0")
+                clients_count = 0
             
             # Combined emissions rows for all CRP jobs matching the portfolio filters.
-            emissions_jobs_df = _load_dashboard_emissions_jobs(
-                con,
-                year=None,
-                industry=industry,
-                crm_owner=crm_owner,
-                job_family=job_family,
-            )
             emissions_scope_df = None
-            if emissions_jobs_df is not None and not emissions_jobs_df.empty:
-                emissions_job_ids = [int(job_id) for job_id in emissions_jobs_df["job_id"].tolist() if job_id is not None]
-                emissions_scope_df = load_combined_emissions_summary_rows(con, emissions_job_ids)
-                if emissions_scope_df is not None and not emissions_scope_df.empty:
-                    emissions_scope_df = emissions_scope_df.copy()
-                    emissions_scope_df["dashboard_year_norm"] = emissions_scope_df["dashboard_year"].apply(_normalize_int_value)
+            try:
+                emissions_jobs_df = _load_dashboard_emissions_jobs(
+                    con,
+                    year=None,
+                    industry=industry,
+                    crm_owner=crm_owner,
+                    job_family=job_family,
+                )
+                if emissions_jobs_df is not None and not emissions_jobs_df.empty:
+                    emissions_job_ids = [int(job_id) for job_id in emissions_jobs_df["job_id"].tolist() if job_id is not None]
+                    emissions_scope_df = load_combined_emissions_summary_rows(con, emissions_job_ids)
+                    if emissions_scope_df is not None and not emissions_scope_df.empty:
+                        emissions_scope_df = emissions_scope_df.copy()
+                        emissions_scope_df["dashboard_year_norm"] = emissions_scope_df["dashboard_year"].apply(_normalize_int_value)
+            except Exception:
+                logger.exception("Failed to load dashboard emissions overview; continuing with empty emissions data")
 
             # Total CO2 emissions for selected year.
             total_emissions = 0.0
@@ -615,7 +622,11 @@ def get_dashboard_overview(
                 GROUP BY j.status
                 ORDER BY count DESC
                 """
-            job_statuses_df = con.execute(job_statuses_query, job_params).df()
+            try:
+                job_statuses_df = con.execute(job_statuses_query, job_params).df()
+            except Exception:
+                logger.exception("Failed to load dashboard job statuses; continuing with empty breakdown")
+                job_statuses_df = None
             
             status_breakdown = []
             if job_statuses_df is not None and not job_statuses_df.empty:
@@ -650,14 +661,18 @@ def get_dashboard_overview(
                 total_datasets = 0
             
             # Available years for year selector
-            available_years_df = con.execute(
-                """
-                SELECT DISTINCT reporting_year 
-                FROM jobs 
-                WHERE reporting_year IS NOT NULL
-                ORDER BY reporting_year DESC
-                """
-            ).df()
+            try:
+                available_years_df = con.execute(
+                    """
+                    SELECT DISTINCT reporting_year 
+                    FROM jobs 
+                    WHERE reporting_year IS NOT NULL
+                    ORDER BY reporting_year DESC
+                    """
+                ).df()
+            except Exception:
+                logger.exception("Failed to load dashboard reporting years; defaulting to current year only")
+                available_years_df = None
             
             years_list = []
             if available_years_df is not None and not available_years_df.empty:
@@ -667,9 +682,13 @@ def get_dashboard_overview(
                 years_list = [current_year, *years_list]
 
             # Available industries (for filter dropdown)
-            industries_df = con.execute(
-                "SELECT DISTINCT industry FROM clients WHERE industry IS NOT NULL ORDER BY industry"
-            ).df()
+            try:
+                industries_df = con.execute(
+                    "SELECT DISTINCT industry FROM clients WHERE industry IS NOT NULL ORDER BY industry"
+                ).df()
+            except Exception:
+                logger.exception("Failed to load dashboard industries; defaulting to empty list")
+                industries_df = None
             available_industries = [row['industry'] for _, row in industries_df.iterrows()] if industries_df is not None else []
 
             crm_options = _load_dashboard_crm_options(con, org_id)
@@ -978,20 +997,24 @@ def get_dashboard_overview(
                         })
 
             # Jobs per CRM by status (using current client CRM owner)
-            crm_status_df = con.execute(
-                f"""
-                SELECT 
-                    COALESCE(c.crm_owner, 'Unassigned') as crm_name,
-                    COALESCE(j.status, 'Unknown') as status,
-                    COUNT(*) as count
-                FROM jobs j
-                LEFT JOIN clients c ON j.client_db_id = c.db_id
-                WHERE 1=1{job_where}
-                GROUP BY c.crm_owner, j.status
-                ORDER BY crm_name, status
-                """,
-                job_params,
-            ).df()
+            try:
+                crm_status_df = con.execute(
+                    f"""
+                    SELECT 
+                        COALESCE(c.crm_owner, 'Unassigned') as crm_name,
+                        COALESCE(j.status, 'Unknown') as status,
+                        COUNT(*) as count
+                    FROM jobs j
+                    LEFT JOIN clients c ON j.client_db_id = c.db_id
+                    WHERE 1=1{job_where}
+                    GROUP BY c.crm_owner, j.status
+                    ORDER BY crm_name, status
+                    """,
+                    job_params,
+                ).df()
+            except Exception:
+                logger.exception("Failed to load dashboard CRM status breakdown; continuing with empty breakdown")
+                crm_status_df = None
             
             # Organize data by CRM with status breakdown
             crm_status_data = {}
@@ -1043,6 +1066,8 @@ def get_dashboard_overview(
                 "renewal_summary": renewal_summary,
             }
             
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch dashboard overview: {e}")
 
