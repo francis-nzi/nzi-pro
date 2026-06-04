@@ -1488,21 +1488,31 @@ export default function JobAdvancedReports({
 
             {/* Emissions Reduction Pathway chart */}
             {hasPathway && (
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">
-                  Emissions Reduction Pathway to {netZeroYear}
-                </p>
-                <NetZeroTrendChart
-                  yearlyEmissions={effectiveYearlyEmissions}
-                  baselineYear={baselineYear}
-                  endYear={netZeroYear}
-                  interimYear={interimYear}
-                  interimPct={interimPct}
-                  targetPct={targetPct}
-                  scope1Fallback={scope1}
-                  scope2Fallback={scope2}
-                  scope3Fallback={scope3}
-                />
+              <div className="break-inside-avoid">
+                {storedWidgetPngs["emissions_reduction_pathway"] ? (
+                  <img
+                    src={storedWidgetPngs["emissions_reduction_pathway"]}
+                    alt={`${data.job_data?.client_name ?? "Client"} Emissions Reduction Targets to ${netZeroYear}`}
+                    className="mx-auto block w-full max-w-full h-auto object-contain"
+                  />
+                ) : (
+                  <>
+                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">
+                      Emissions Reduction Pathway to {netZeroYear}
+                    </p>
+                    <NetZeroTrendChart
+                      yearlyEmissions={effectiveYearlyEmissions}
+                      baselineYear={baselineYear}
+                      endYear={netZeroYear}
+                      interimYear={interimYear}
+                      interimPct={interimPct}
+                      targetPct={targetPct}
+                      scope1Fallback={scope1}
+                      scope2Fallback={scope2}
+                      scope3Fallback={scope3}
+                    />
+                  </>
+                )}
               </div>
             )}
 

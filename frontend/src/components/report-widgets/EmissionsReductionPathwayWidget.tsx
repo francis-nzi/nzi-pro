@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -13,12 +13,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatNumber } from "@/lib/format";
 import { REPORT_WIDGET_IDS } from "./registry";
-import { buildPngFilename, downloadChartAsPng, findLargestSvg } from "./png-export";
+import { registerWidgetPngExporter } from "./export-registry";
+import { buildPngFilename, renderChartAsPngDataUrl } from "./png-export";
 
 export type EmissionsPathwayPoint = {
   year: number;
@@ -41,6 +43,8 @@ type EmissionsReductionPathwayWidgetProps = {
   targetYear?: number | null;
   interimYear?: number | null;
   showScope2?: boolean;
+  presentation?: "card" | "image";
+  storedPngUrl?: string | null;
   widgetKey?: string;
   showWidgetRef?: boolean;
   className?: string;
@@ -48,6 +52,30 @@ type EmissionsReductionPathwayWidgetProps = {
 };
 
 const DEFAULT_SCOPE_COLORS = ["#4b8b3b", "#4d4d4d", "#38bdf8"];
+
+function pctChange(current: number, benchmark: number): number | null {
+  if (benchmark <= 0) return null;
+  return ((current - benchmark) / benchmark) * 100;
+}
+
+function buildTableRows(
+  data: EmissionsPathwayPoint[],
+  total: number,
+  showScope2: boolean,
+): Array<{ label: string; value: string; percent?: string; color?: string; isTotal?: boolean }> {
+  const rows = data.map((point, index) => ({
+    label: String(point.year),
+    value: formatNumber(Number(point.actual_total ?? point.target_total ?? 0), 1),
+    percent: total > 0 ? `${(((point.actual_total ?? point.target_total ?? 0) / total) * 100).toFixed(1)}%` : "0.0%",
+    color: DEFAULT_SCOPE_COLORS[index % DEFAULT_SCOPE_COLORS.length],
+  }));
+
+  const scopeRows = [
+    { label: "Total", value: formatNumber(total, 1), percent: "100.0%", isTotal: true },
+  ];
+
+  return [...rows, ...scopeRows];
+}
 
 export function EmissionsReductionPathwayWidget({
   title,
@@ -58,57 +86,88 @@ export function EmissionsReductionPathwayWidget({
   targetYear,
   interimYear,
   showScope2 = true,
+  presentation = "card",
+  storedPngUrl,
   widgetKey = REPORT_WIDGET_IDS.emissionsReductionPathway,
   showWidgetRef = false,
   className,
-  valueFormatter = (value) => `${formatNumber(Number(value || 0), 1)} tCO₂e`,
+  valueFormatter = (value) => `${formatNumber(Number(value || 0), 1)} tCO2e`,
 }: EmissionsReductionPathwayWidgetProps) {
   const yearLookup = new Map<number, EmissionsPathwayPoint>(data.map((point) => [Number(point.year), point]));
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
 
-  const renderTooltip = (props: any) => {
-    if (!props.active) return null;
-    const year = Number(props.label);
-    const point = yearLookup.get(year);
-    if (!point) return null;
+  const total = useMemo(() => Number(data.reduce((sum, item) => sum + Number(item.actual_total ?? item.target_total ?? 0), 0)), [data]);
 
-    const rows: Array<{ label: string; value: number | null | undefined }> = [
-      { label: "Total", value: point.actual_total ?? point.target_total },
-      { label: "Scope 1", value: point.actual_s1 ?? point.target_s1 },
-      ...(showScope2 ? [{ label: "Scope 2", value: point.actual_s2 ?? point.target_s2 }] : []),
-      { label: "Scope 3", value: point.actual_s3 ?? point.target_s3 },
-    ];
+  const benchmarkPill = useMemo(() => {
+    const currentYear = data.length ? Math.max(...data.map((point) => Number(point.year))) : null;
+    if (benchmarkYear == null || currentYear == null || benchmarkYear === currentYear) return null;
 
-    return (
-      <div className="rounded-md border bg-background px-3 py-2 shadow-sm">
-        <div className="text-sm font-medium">Year: {year}</div>
-        <div className="mt-2 space-y-1">
-          {rows.map((row) => (
-            <div key={row.label} className="flex items-center justify-between gap-4 text-sm">
-              <span>{row.label}</span>
-              <span className="font-medium">{valueFormatter(row.value)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
+    const benchmarkTotal = data.find((point) => Number(point.year) === benchmarkYear)?.actual_total ?? null;
+    if (benchmarkTotal != null) {
+      const pct = pctChange(total, Number(benchmarkTotal || 0));
+      if (pct != null) {
+        const direction = pct <= 0 ? "down" : "up";
+        const absPct = Math.abs(pct);
+        const label = `${direction === "down" ? "▼" : "▲"} ${absPct.toFixed(1)}% vs benchmark (${formatNumber(Number(benchmarkTotal || 0), 1)} tCO2e)`;
+        return {
+          label,
+          tone: direction,
+          callout: {
+            text: label,
+            backgroundColor: direction === "down" ? "#dcfce7" : "#fee2e2",
+            borderColor: direction === "down" ? "#bbf7d0" : "#fecaca",
+            textColor: direction === "down" ? "#166534" : "#b91c1c",
+          },
+        };
+      }
+    }
 
-  const downloadPng = async () => {
-    const svg = findLargestSvg(chartWrapRef.current);
-    if (!svg) return;
-    await downloadChartAsPng({
+    const label = `vs benchmark ${benchmarkYear}`;
+    return {
+      label,
+      tone: "neutral",
+      callout: {
+        text: label,
+        backgroundColor: "#e2e8f0",
+        borderColor: "#cbd5e1",
+        textColor: "#0f172a",
+      },
+    };
+  }, [benchmarkYear, data, total]);
+
+  const exportPngDataUrl = useCallback(async () => {
+    const svg = chartWrapRef.current?.querySelector("svg") as SVGSVGElement | null;
+    if (!svg) return "";
+
+    return renderChartAsPngDataUrl({
       svg,
-      filename: buildPngFilename(title, clientName),
       title,
+      subtitle,
       legendItems: [
         { label: "Total", color: "#0f766e" },
         { label: "Scope 1", color: DEFAULT_SCOPE_COLORS[0] },
         ...(showScope2 ? [{ label: "Scope 2", color: DEFAULT_SCOPE_COLORS[1] }] : []),
         { label: "Scope 3", color: DEFAULT_SCOPE_COLORS[2] },
       ],
+      tableRows: buildTableRows(data, total, showScope2),
+      callout: benchmarkPill?.callout ?? null,
+      canvasWidth: 960,
     });
-  };
+  }, [benchmarkPill?.callout, data, showScope2, subtitle, title, total]);
+
+  const downloadPng = useCallback(async () => {
+    const pngUrl = await exportPngDataUrl();
+    if (!pngUrl) return;
+    const a = document.createElement("a");
+    a.href = pngUrl;
+    a.download = buildPngFilename(title, clientName);
+    a.click();
+  }, [clientName, exportPngDataUrl, title]);
+
+  useEffect(() => {
+    if (!widgetKey) return;
+    return registerWidgetPngExporter(widgetKey, exportPngDataUrl);
+  }, [exportPngDataUrl, widgetKey]);
 
   if (!data.length) {
     return (
@@ -121,6 +180,19 @@ export function EmissionsReductionPathwayWidget({
           <div className="text-sm text-muted-foreground">No pathway data available.</div>
         </CardContent>
       </Card>
+    );
+  }
+
+  if (presentation === "image" && storedPngUrl) {
+    return (
+      <div className={className} data-widget-key={widgetKey}>
+        <img
+          src={storedPngUrl}
+          alt={title}
+          className="mx-auto block max-w-full h-auto object-contain"
+          style={{ width: "100%" }}
+        />
+      </div>
     );
   }
 
@@ -153,7 +225,35 @@ export function EmissionsReductionPathwayWidget({
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="year" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toLocaleString("en-GB", { maximumFractionDigits: 0 })} />
-              <Tooltip content={renderTooltip} />
+              <Tooltip
+                content={(props: any) => {
+                  if (!props.active) return null;
+                  const year = Number(props.label);
+                  const point = yearLookup.get(year);
+                  if (!point) return null;
+
+                  const rows: Array<{ label: string; value: number | null | undefined }> = [
+                    { label: "Total", value: point.actual_total ?? point.target_total },
+                    { label: "Scope 1", value: point.actual_s1 ?? point.target_s1 },
+                    ...(showScope2 ? [{ label: "Scope 2", value: point.actual_s2 ?? point.target_s2 }] : []),
+                    { label: "Scope 3", value: point.actual_s3 ?? point.target_s3 },
+                  ];
+
+                  return (
+                    <div className="rounded-md border bg-background px-3 py-2 shadow-sm">
+                      <div className="text-sm font-medium">Year: {year}</div>
+                      <div className="mt-2 space-y-1">
+                        {rows.map((row) => (
+                          <div key={row.label} className="flex items-center justify-between gap-4 text-sm">
+                            <span>{row.label}</span>
+                            <span className="font-medium">{valueFormatter(row.value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }}
+              />
               <Legend iconType="circle" />
               {interimYear && interimYear > (benchmarkYear ?? 0) && (
                 <ReferenceLine
