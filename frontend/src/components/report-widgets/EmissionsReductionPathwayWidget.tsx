@@ -20,7 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatNumber } from "@/lib/format";
 import { REPORT_WIDGET_IDS } from "./registry";
 import { registerWidgetPngExporter } from "./export-registry";
-import { buildPngFilename, renderChartAsPngDataUrl } from "./png-export";
+import { buildPngFilename, findLargestSvg, renderChartAsPngDataUrl } from "./png-export";
 
 export type EmissionsPathwayPoint = {
   year: number;
@@ -136,7 +136,7 @@ export function EmissionsReductionPathwayWidget({
   }, [benchmarkYear, data, total]);
 
   const exportPngDataUrl = useCallback(async () => {
-    const svg = chartWrapRef.current?.querySelector("svg") as SVGSVGElement | null;
+    const svg = findLargestSvg(chartWrapRef.current);
     if (!svg) return "";
 
     return renderChartAsPngDataUrl({
