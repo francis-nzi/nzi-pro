@@ -696,6 +696,7 @@ export default function JobAdvancedReports({
   const [activeTemplate, setActiveTemplate] = useState<"crp" | "secr">("crp");
   const [sendingToPortal, setSendingToPortal] = useState(false);
   const [sendToPortalResult, setSendToPortalResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [storedWidgetPngs, setStoredWidgetPngs] = useState<Record<string, string>>({});
 
   function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
     const headers: Record<string, string> = {
@@ -724,6 +725,22 @@ export default function JobAdvancedReports({
       .catch(e => setFetchError(String(e)))
       .finally(() => setLoading(false));
   }, [jobId, baseUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When Playwright renders for PDF (use_widget_pngs=1), fetch stored PNGs so
+  // widgets can render them as <img> tags instead of live Recharts charts.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("use_widget_pngs") !== "1") return;
+    void (async () => {
+      try {
+        const res = await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, { credentials: "include" });
+        if (!res.ok) return;
+        const d = await res.json() as { pngs?: Record<string, string> };
+        if (d.pngs && Object.keys(d.pngs).length > 0) setStoredWidgetPngs(d.pngs);
+      } catch { /* silently ignore */ }
+    })();
+  }, [jobId, baseUrl]);
 
   async function downloadPdf() {
     setDownloading(true);
@@ -1393,6 +1410,7 @@ export default function JobAdvancedReports({
                 benchmarkYear={donutBenchmarkYear}
                 benchmarkTotal={donutBenchmarkTotal}
                 showWidgetRef={false}
+                storedPngUrl={storedWidgetPngs["emissions_scope_donut"] ?? null}
               />
             </div>
 

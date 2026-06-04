@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef } from "react";
-import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +29,8 @@ type ScopeSummaryDonutWidgetProps = {
   showPngButton?: boolean;
   compact?: boolean;
   className?: string;
+  /** When provided (PDF generation mode), renders this PNG instead of the live Recharts chart */
+  storedPngUrl?: string | null;
 };
 
 const SCOPE_COLORS = ["#0f766e", "#0891b2", "#38bdf8"];
@@ -52,6 +54,7 @@ export function ScopeSummaryDonutWidget({
   showPngButton = true,
   compact = false,
   className,
+  storedPngUrl,
 }: ScopeSummaryDonutWidgetProps) {
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
   const total = Number(currentTotal ?? data.reduce((sum, item) => sum + Number(item.value || 0), 0));
@@ -117,6 +120,12 @@ export function ScopeSummaryDonutWidget({
     });
   };
 
+  const gridClass = compact
+    ? "lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:items-center"
+    : "w-full lg:w-fit lg:grid-cols-[minmax(0,360px)_300px] lg:items-center";
+
+  const maxW = compact ? "max-w-[220px]" : "max-w-[360px]";
+
   return (
     <Card className={className} data-widget-key={widgetKey}>
       <CardHeader className="space-y-1">
@@ -142,39 +151,45 @@ export function ScopeSummaryDonutWidget({
         </div>
       </CardHeader>
       <CardContent>
-        <div className={`mx-auto grid gap-3 ${compact ? "lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:items-center" : "w-full lg:w-fit lg:grid-cols-[minmax(0,360px)_300px] lg:items-center"}`}>
-          <div className={`relative mx-auto flex aspect-square w-full justify-center ${compact ? "max-w-[220px]" : "max-w-[360px]"}`} ref={chartWrapRef}>
-            <ResponsiveContainer width="100%" aspect={1}>
-              <PieChart>
-                <Pie data={data} dataKey="value" nameKey="name" innerRadius={compact ? "58%" : "72%"} outerRadius={compact ? "80%" : "94%"} paddingAngle={2}>
-                  {data.map((_, index) => (
-                    <Cell key={index} fill={SCOPE_COLORS[index % SCOPE_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value: unknown) => [`${formatNumber(Number(value || 0), 1)} tCO₂e`, ""]} />
-                <g aria-hidden="true">
-                  <text x="50%" y="48%" textAnchor="middle" dominantBaseline="middle" fill="#111827" fontSize="32" fontWeight="600" fontFamily="Arial, sans-serif">
-                    {formatNumber(total, 1)}
-                  </text>
-                  <text x="50%" y="56%" textAnchor="middle" dominantBaseline="middle" fill="#6b7280" fontSize="12" fontFamily="Arial, sans-serif">
-                    tCO₂e total
-                  </text>
-                  {currentYear ? (
-                    <text x="50%" y="64%" textAnchor="middle" dominantBaseline="middle" fill="#9ca3af" fontSize="10" fontFamily="Arial, sans-serif">
-                      {currentYear}
-                    </text>
-                  ) : null}
-                </g>
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                <div className="text-3xl font-semibold tabular-nums">{formatNumber(total, 1)}</div>
-                <div className="text-xs text-muted-foreground">tCO₂e total</div>
-                {currentYear ? <div className="mt-1 text-[10px] text-muted-foreground/70">{currentYear}</div> : null}
-              </div>
-            </div>
+        <div className={`mx-auto grid gap-3 ${gridClass}`}>
+          {/* Chart area — stored PNG in PDF mode, live Recharts otherwise */}
+          <div className={`relative mx-auto flex aspect-square w-full justify-center ${maxW}`} ref={chartWrapRef}>
+            {storedPngUrl ? (
+              <img
+                src={storedPngUrl}
+                alt={title}
+                style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+              />
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" aspect={1}>
+                  <PieChart>
+                    <Pie data={data} dataKey="value" nameKey="name" innerRadius={compact ? "58%" : "72%"} outerRadius={compact ? "80%" : "94%"} paddingAngle={2}>
+                      {data.map((_, index) => (
+                        <Cell key={index} fill={SCOPE_COLORS[index % SCOPE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: unknown) => [`${formatNumber(Number(value || 0), 1)} tCO₂e`, ""]} />
+                    <g aria-hidden="true">
+                      <text x="50%" y="48%" textAnchor="middle" dominantBaseline="middle" fill="#111827" fontSize="32" fontWeight="600" fontFamily="Arial, sans-serif">
+                        {formatNumber(total, 1)}
+                      </text>
+                      <text x="50%" y="56%" textAnchor="middle" dominantBaseline="middle" fill="#6b7280" fontSize="12" fontFamily="Arial, sans-serif">
+                        tCO₂e total
+                      </text>
+                      {currentYear ? (
+                        <text x="50%" y="64%" textAnchor="middle" dominantBaseline="middle" fill="#9ca3af" fontSize="10" fontFamily="Arial, sans-serif">
+                          {currentYear}
+                        </text>
+                      ) : null}
+                    </g>
+                  </PieChart>
+                </ResponsiveContainer>
+              </>
+            )}
           </div>
+
+          {/* Data table — always shown */}
           <div className={compact ? "space-y-2" : "min-w-0 space-y-3 w-[300px]"}>
             {data.map((scope, index) => (
               <div key={scope.name} className="grid grid-cols-[130px_170px] items-center gap-0 text-sm">
@@ -208,3 +223,4 @@ export function ScopeSummaryDonutWidget({
     </Card>
   );
 }
+

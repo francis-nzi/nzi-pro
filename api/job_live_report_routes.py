@@ -495,14 +495,28 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
     frontend_base = _frontend_base_url(request)
     bearer = _extract_bearer_token(request)
 
+    # Check whether stored widget PNGs exist so we can signal the React page
+    # to render them instead of live Recharts charts (avoids SVG rendering issues).
+    _has_stored_pngs = False
+    try:
+        with get_conn() as _chk_con:
+            _chk_row = _chk_con.execute(
+                "SELECT 1 FROM job_widget_pngs WHERE job_id = %s LIMIT 1",
+                [int(job_id)],
+            ).fetchone()
+            _has_stored_pngs = _chk_row is not None
+    except Exception:
+        _has_stored_pngs = False
+
     # Target the Advanced Reports page directly so the PDF matches the UI.
     # Pass the bearer token as a query param so the in-page fetch calls
     # can include it — the /api/backend proxy forwards Authorization to the API.
+    _png_param = "&use_widget_pngs=1" if _has_stored_pngs else ""
     report_url = (
         f"{frontend_base}/jobs/{int(job_id)}/advanced-reports"
-        f"?print=1&pdf_token={urllib.parse.quote(bearer)}"
+        f"?print=1{_png_param}&pdf_token={urllib.parse.quote(bearer)}"
         if bearer
-        else f"{frontend_base}/jobs/{int(job_id)}/advanced-reports?print=1"
+        else f"{frontend_base}/jobs/{int(job_id)}/advanced-reports?print=1{_png_param}"
     )
 
     # Non-cookie headers to pass to all requests Playwright makes itself.
@@ -559,6 +573,11 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
                 )
             except Exception:
                 pass
+
+            # If stored PNGs are being used, give React time to fetch them and
+            # replace chart elements with <img> tags before we start the PDF render.
+            if _has_stored_pngs:
+                page.wait_for_timeout(3000)
 
             # Inject stored widget PNGs BEFORE entering print media mode so that
             # aspect-ratio and responsive containers still have natural dimensions.
