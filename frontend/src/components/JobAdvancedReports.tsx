@@ -930,6 +930,16 @@ export default function JobAdvancedReports({
   const scope1 = toNum(scope_totals?.["Scope 1"]);
   const scope2 = toNum(scope_totals?.["Scope 2"]);
   const scope3 = toNum(scope_totals?.["Scope 3"]);
+  const currentReportYear =
+    toYearNumber(data.job_data.reporting_period_start, data.job_data.reporting_period_end) ??
+    toNum(data.job_data.reporting_year) ??
+    new Date().getFullYear();
+  const firstHistoricalYear = Array.isArray(yearly_emissions) && yearly_emissions.length > 0 ? yearly_emissions[0]?.year ?? null : null;
+  const donutBenchmarkYear =
+    toYearNumber(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end) ??
+    firstHistoricalYear ??
+    currentReportYear;
+  const donutBenchmarkTotal = toNum(summary?.benchmark_total) || null;
 
   const baselineYear =
     toNum(target_data?.baseline_year) || new Date().getFullYear() - 1;
@@ -1375,13 +1385,13 @@ export default function JobAdvancedReports({
             <div className="mt-6">
               <ScopeSummaryDonutWidget
                 title={`${data.job_data.client_name ?? "Client"} Emissions Summary by Scope`}
-                subtitle={`Reporting year ${toYearNumber(data.job_data.reporting_period_start, data.job_data.reporting_period_end) ?? toNum(data.job_data.reporting_year) ?? ""}`}
+                subtitle={`Reporting year ${currentReportYear}`}
                 clientName={data.job_data.client_name}
                 data={scopeDonutData}
-                currentYear={(toYearNumber(data.job_data.reporting_period_start, data.job_data.reporting_period_end) ?? toNum(data.job_data.reporting_year)) || null}
+                currentYear={currentReportYear}
                 currentTotal={totalEmissions}
-                benchmarkYear={toYearNumber(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end)}
-                benchmarkTotal={toNum(summary?.benchmark_total)}
+                benchmarkYear={donutBenchmarkYear}
+                benchmarkTotal={donutBenchmarkTotal}
                 showWidgetRef={false}
               />
             </div>
@@ -1690,13 +1700,13 @@ export default function JobAdvancedReports({
               <p className="text-sm font-semibold text-gray-700 mb-4">Emissions by Scope</p>
               <ScopeSummaryDonutWidget
                 title={`${data.job_data.client_name ?? "Client"} Emissions by Scope`}
-                subtitle={`Reporting year ${toYearNumber(data.job_data.reporting_period_start, data.job_data.reporting_period_end) ?? toNum(data.job_data.reporting_year) ?? ""}`}
+                subtitle={`Reporting year ${currentReportYear}`}
                 clientName={data.job_data.client_name}
                 data={scopeDonutData}
-                currentYear={(toYearNumber(data.job_data.reporting_period_start, data.job_data.reporting_period_end) ?? toNum(data.job_data.reporting_year)) || null}
+                currentYear={currentReportYear}
                 currentTotal={totalEmissions}
-                benchmarkYear={toYearNumber(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end)}
-                benchmarkTotal={toNum(summary?.benchmark_total)}
+                benchmarkYear={donutBenchmarkYear}
+                benchmarkTotal={donutBenchmarkTotal}
                 showWidgetRef={false}
               />
             </div>
