@@ -987,37 +987,20 @@ export default function JobAdvancedReports({
   const activityChartHeight = Math.max(200, activityBarData.length * 52 + 40);
 
   const hasPathway = baselineYear > 2000 && netZeroYear > baselineYear;
-  const emissionsReductionPathwayData = useMemo(
-    () =>
-      buildEmissionsReductionPathwayData({
-        yearlyEmissions: effectiveYearlyEmissions,
-        scope1Fallback: scope1,
-        scope2Fallback: scope2,
-        scope3Fallback: scope3,
-        benchmarkYear: baselineYear,
-        currentYear: currentReportYear,
-        targetYear: netZeroYear,
-        interimYear,
-        targetReductionPct: targetPct,
-        interimS1Pct,
-        interimS2Pct,
-        interimS3Pct,
-      }),
-    [
-      baselineYear,
-      currentReportYear,
-      effectiveYearlyEmissions,
-      interimS1Pct,
-      interimS2Pct,
-      interimS3Pct,
-      interimYear,
-      netZeroYear,
-      scope1,
-      scope2,
-      scope3,
-      targetPct,
-    ],
-  );
+  const emissionsReductionPathwayData = buildEmissionsReductionPathwayData({
+    yearlyEmissions: effectiveYearlyEmissions,
+    scope1Fallback: scope1,
+    scope2Fallback: scope2,
+    scope3Fallback: scope3,
+    benchmarkYear: baselineYear,
+    currentYear: currentReportYear,
+    targetYear: netZeroYear,
+    interimYear,
+    targetReductionPct: targetPct,
+    interimS1Pct,
+    interimS2Pct,
+    interimS3Pct,
+  });
 
   const appendixRows = site_breakdowns?.appendix_rows ?? [];
   const hasAppendix = appendixRows.length > 0;
