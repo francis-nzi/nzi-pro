@@ -27,9 +27,6 @@ import {
   HistoricalEmissionsTrendWidget,
   IntensityPathwayWidget,
   buildActivityBarData,
-  captureSvgToPngDataUrl,
-  findLargestSvg,
-  getWidgetPngExporter,
   ScopeSummaryDonutWidget,
   ScopeYearOnYearBarWidget,
   buildEmissionsReductionPathwayData,
@@ -751,44 +748,18 @@ export default function JobAdvancedReports({
       return;
     }
     setUseWidgetPngs(true);
-  }, [jobId, baseUrl]);
-
-  const captureAllWidgetPngs = async () => {
-    const pngs: Record<string, string> = {};
-    const containers = document.querySelectorAll("[data-widget-key]");
-    for (const el of Array.from(containers)) {
-      const widgetId = el.getAttribute("data-widget-key");
-      if (!widgetId) continue;
+    void (async () => {
       try {
-        const exporter = getWidgetPngExporter(widgetId);
-        if (exporter) {
-          const pngData = await exporter();
-          if (pngData) {
-            pngs[widgetId] = pngData;
-            continue;
-          }
-        }
-
-        const svg = findLargestSvg(el as HTMLElement);
-        if (!svg) continue;
-        pngs[widgetId] = await captureSvgToPngDataUrl(svg);
-      } catch {
-        // Skip widgets that fail to export; the rest can still render.
+        const res = await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, { credentials: "include" });
+        if (!res.ok) return;
+        const d = await res.json() as { pngs?: Record<string, string> };
+        if (d.pngs && Object.keys(d.pngs).length > 0) setStoredWidgetPngs(d.pngs);
+      } catch { /* silently ignore */ }
+      finally {
+        setWidgetPngsReady(true);
       }
-    }
-    setStoredWidgetPngs(pngs);
-    setWidgetPngsReady(true);
-  };
-
-  useEffect(() => {
-    if (!useWidgetPngs) return;
-    if (!data) return;
-    setWidgetPngsReady(false);
-    const timer = window.setTimeout(() => {
-      void captureAllWidgetPngs();
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [data, useWidgetPngs]);
+    })();
+  }, [jobId, baseUrl]);
 
   async function downloadPdf() {
     setDownloading(true);
@@ -1083,21 +1054,6 @@ export default function JobAdvancedReports({
       return row;
     });
   }, [data?.intensity_metrics, data?.job_data, data?.scope_totals, data?.target_data, effectiveYearlyEmissions, intensityPathwaySeries]);
-
-  if (useWidgetPngs && !widgetPngsReady) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <Card className="w-full max-w-xl">
-          <CardHeader>
-            <CardTitle>Loading report data...</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-sm text-muted-foreground">Preparing widget PNGs for the PDF render.</div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   if (loading) {
     return (
