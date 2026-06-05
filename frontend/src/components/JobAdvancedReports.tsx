@@ -1171,15 +1171,18 @@ export default function JobAdvancedReports({
     scope_totals?.["Scope 2"],
     scope_totals?.["Scope 3"],
   );
+  const pdfWidgetPngs = useMemo(() => (useWidgetPngs ? storedWidgetPngs : {}), [storedWidgetPngs, useWidgetPngs]);
+  const widgetPresentation = useWidgetPngs ? "image" : "card";
+  const widgetPngsReadyState = useWidgetPngs ? (widgetPngsReady ? "1" : "0") : "1";
   const widgetPngs = useMemo(() => ({
-    emissionsScopeDonut: useWidgetPngs ? storedWidgetPngs["emissions_scope_donut"] ?? null : null,
-    scopeYearOnYearBar: useWidgetPngs ? storedWidgetPngs["scope_year_on_year_bar"] ?? null : null,
-    emissionsSiteDonut: useWidgetPngs ? storedWidgetPngs["emissions_site_donut"] ?? null : null,
-    emissionsReductionPathway: useWidgetPngs ? storedWidgetPngs["emissions_reduction_pathway"] ?? null : null,
-    emissionsByActivity: useWidgetPngs ? storedWidgetPngs["emissions_by_activity"] ?? null : null,
-    intensityPathway: useWidgetPngs ? storedWidgetPngs["intensity_pathway"] ?? null : null,
-    historicalEmissionsTrend: useWidgetPngs ? storedWidgetPngs["historical_emissions_trend"] ?? null : null,
-  }), [storedWidgetPngs, useWidgetPngs]);
+    emissionsScopeDonut: pdfWidgetPngs["emissions_scope_donut"] ?? null,
+    scopeYearOnYearBar: pdfWidgetPngs["scope_year_on_year_bar"] ?? null,
+    emissionsSiteDonut: pdfWidgetPngs["emissions_site_donut"] ?? null,
+    emissionsReductionPathway: pdfWidgetPngs["emissions_reduction_pathway"] ?? null,
+    emissionsByActivity: pdfWidgetPngs["emissions_by_activity"] ?? null,
+    intensityPathway: pdfWidgetPngs["intensity_pathway"] ?? null,
+    historicalEmissionsTrend: pdfWidgetPngs["historical_emissions_trend"] ?? null,
+  }), [pdfWidgetPngs]);
   const normalizedSiteData = useMemo(
     () => {
       const siteData = (site_breakdowns?.scope ?? [])
@@ -1242,7 +1245,7 @@ export default function JobAdvancedReports({
   return (
     <div
       data-report-ready="1"
-      data-widget-pngs-ready={useWidgetPngs ? (widgetPngsReady ? "1" : "0") : "1"}
+      data-widget-pngs-ready={widgetPngsReadyState}
     >
       {/* In-app PDF viewer overlay */}
       {pdfBlobUrl && (
@@ -1640,7 +1643,7 @@ export default function JobAdvancedReports({
                 benchmarkTotal={donutBenchmarkTotal}
                 showWidgetRef={true}
                 storedPngUrl={widgetPngs.emissionsScopeDonut}
-                presentation={useWidgetPngs ? "image" : "card"}
+                presentation={widgetPresentation}
               />
             </div>
 
@@ -1728,7 +1731,7 @@ export default function JobAdvancedReports({
                   showScope2={scope2 > 0}
                   showWidgetRef={true}
                   storedPngUrl={widgetPngs.emissionsReductionPathway}
-                  presentation={useWidgetPngs ? "image" : "card"}
+                  presentation={widgetPresentation}
                   className="w-full"
                 />
               </div>
@@ -1955,7 +1958,7 @@ export default function JobAdvancedReports({
                 benchmarkTotal={donutBenchmarkTotal}
                 showWidgetRef={true}
                 storedPngUrl={widgetPngs.emissionsScopeDonut}
-                presentation={useWidgetPngs ? "image" : "card"}
+                presentation={widgetPresentation}
               />
             </div>
 
@@ -1971,7 +1974,7 @@ export default function JobAdvancedReports({
                 showComparisonPct={scopeYearOnYearBar.showComparisonPct}
                 showWidgetRef={true}
                 storedPngUrl={widgetPngs.scopeYearOnYearBar}
-                presentation={useWidgetPngs ? "image" : "card"}
+                presentation={widgetPresentation}
                 className="w-full"
               />
             ) : null}
@@ -2041,7 +2044,7 @@ export default function JobAdvancedReports({
                     benchmarkTotal={donutBenchmarkTotal}
                     showWidgetRef={true}
                     storedPngUrl={widgetPngs.emissionsSiteDonut}
-                    presentation={useWidgetPngs ? "image" : "card"}
+                    presentation={widgetPresentation}
                     className="w-full"
                   />
                 </div>
@@ -2096,7 +2099,7 @@ export default function JobAdvancedReports({
               data={activityBarData}
               showWidgetRef={true}
               storedPngUrl={widgetPngs.emissionsByActivity}
-              presentation={useWidgetPngs ? "image" : "card"}
+              presentation={widgetPresentation}
               className="w-full"
             />
             {report_metadata?.activity_commentary && (
@@ -2473,7 +2476,7 @@ export default function JobAdvancedReports({
                   interimYear={interimYear}
                   showWidgetRef={true}
                   storedPngUrl={widgetPngs.intensityPathway}
-                  presentation={useWidgetPngs ? "image" : "card"}
+                  presentation={widgetPresentation}
                   className="w-full"
                 />
                 )}
@@ -2541,7 +2544,7 @@ export default function JobAdvancedReports({
             data={effectiveYearlyEmissions}
             showWidgetRef={true}
             storedPngUrl={widgetPngs.historicalEmissionsTrend}
-            presentation={useWidgetPngs ? "image" : "card"}
+            presentation={widgetPresentation}
             className="live-report-section"
           />
         )}
