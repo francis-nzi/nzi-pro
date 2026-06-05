@@ -2362,10 +2362,15 @@ export default function JobAdvancedReports({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
               </svg>
             );
-            return (
-              <span className="text-2xl font-bold" style={{ color: BRAND }}>{currencySymbol}</span>
-            );
-          };
+              return (
+                <span
+                  className="inline-flex h-8 w-8 items-center justify-center text-[30px] font-bold leading-none"
+                  style={{ color: BRAND, fontFamily: "Arial, sans-serif" }}
+                >
+                  {currencySymbol}
+                </span>
+              );
+            };
 
           const dedupedMetricEntries = (() => {
             const seen = new Set<string>();
