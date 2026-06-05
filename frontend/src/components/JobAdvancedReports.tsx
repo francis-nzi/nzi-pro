@@ -29,6 +29,7 @@ import {
   buildActivityBarData,
   ScopeSummaryDonutWidget,
   ScopeYearOnYearBarWidget,
+  SiteSummaryDonutWidget,
   buildEmissionsReductionPathwayData,
   buildScopeDonutItems,
   getWidgetPngExporter,
@@ -1158,6 +1159,23 @@ export default function JobAdvancedReports({
     scope_totals?.["Scope 2"],
     scope_totals?.["Scope 3"],
   );
+  const normalizedSiteData = useMemo(
+    () => {
+      const siteData = (site_breakdowns?.scope ?? [])
+        .map((row) => ({
+          name: row.site_name ?? "Unassigned",
+          value: toNum(row.total),
+        }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 8);
+
+      const rawTotal = siteData.reduce((sum, row) => sum + Number(row.value || 0), 0);
+      if (rawTotal <= 0 || totalEmissions <= 0) return siteData;
+      const scale = Math.abs(rawTotal - totalEmissions) > 0.05 ? totalEmissions / rawTotal : 1;
+      return siteData.map((row) => ({ ...row, value: Number(row.value || 0) * scale }));
+    },
+    [site_breakdowns?.scope, totalEmissions],
+  );
 
   const activityBarData = buildActivityBarData(categories ?? [], totalEmissions);
 
@@ -1991,6 +2009,21 @@ export default function JobAdvancedReports({
             {(site_breakdowns?.scope?.length ?? 0) > 0 && (
               <div>
                 <p className="text-sm font-semibold text-gray-700 mb-2">Site Breakdown by Scope</p>
+                <div className="mb-4">
+                  <SiteSummaryDonutWidget
+                    title={`${data.job_data?.client_name ?? "Client"} Emissions by Site`}
+                    clientName={data.job_data?.client_name}
+                    data={normalizedSiteData}
+                    currentYear={currentReportYear}
+                    currentTotal={totalEmissions}
+                    benchmarkYear={donutBenchmarkYear}
+                    benchmarkTotal={donutBenchmarkTotal}
+                    showWidgetRef={true}
+                    storedPngUrl={useWidgetPngs ? storedWidgetPngs["emissions_site_donut"] ?? null : null}
+                    presentation={useWidgetPngs ? "image" : "card"}
+                    className="w-full"
+                  />
+                </div>
                 <div className="overflow-hidden rounded-lg border border-gray-200">
                   <div className="grid grid-cols-[1fr_80px_80px_80px_80px] px-3 py-2" style={{ backgroundColor: BRAND }}>
                     <span className="text-xs font-semibold uppercase tracking-wide text-white">Site</span>
