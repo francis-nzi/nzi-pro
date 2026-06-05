@@ -31,8 +31,10 @@ import {
   ScopeYearOnYearBarWidget,
   buildEmissionsReductionPathwayData,
   buildScopeDonutItems,
+  getWidgetPngExporter,
   resolveScopeDonutBenchmarkTotal,
   resolveScopeDonutBenchmarkYear,
+  REPORT_WIDGET_IDS,
   type IntensityPathwayPoint,
   type IntensityPathwaySeries,
 } from "@/components/report-widgets";
@@ -765,6 +767,25 @@ export default function JobAdvancedReports({
     setDownloading(true);
     setDownloadError(null);
     try {
+      const exporter = await waitForWidgetPngExporter(REPORT_WIDGET_IDS.emissionsReductionPathway);
+      if (exporter) {
+        try {
+          const pngData = await exporter();
+          if (pngData) {
+            await authFetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                widget_id: REPORT_WIDGET_IDS.emissionsReductionPathway,
+                png_data: pngData,
+              }),
+            });
+          }
+        } catch {
+          // Continue to PDF generation even if the refresh step fails.
+        }
+      }
+
       const res = await authFetch(`${baseUrl}/jobs/${jobId}/report-live-pdf`);
       if (!res.ok) {
         let detail = `PDF generation failed (${res.status})`;
@@ -792,6 +813,16 @@ export default function JobAdvancedReports({
   function closePdfViewer() {
     if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
     setPdfBlobUrl(null);
+  }
+
+  async function waitForWidgetPngExporter(widgetId: string, timeoutMs = 3000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const exporter = getWidgetPngExporter(widgetId);
+      if (exporter) return exporter;
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+    return getWidgetPngExporter(widgetId);
   }
 
   function savePdfToDisk() {
