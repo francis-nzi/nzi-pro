@@ -551,6 +551,8 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
             page = context.new_page()
             page.goto(report_url, wait_until="domcontentloaded", timeout=30000)
             page.locator('[data-report-ready="1"]').wait_for(state="visible", timeout=90000)
+            if _has_stored_pngs:
+                page.locator('[data-widget-pngs-ready="1"]').wait_for(state="visible", timeout=90000)
 
             # Scroll each section into view to trigger any observer-based renders.
             page.evaluate("""
