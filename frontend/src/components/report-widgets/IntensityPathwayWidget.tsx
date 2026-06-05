@@ -50,6 +50,8 @@ type IntensityPathwayWidgetProps = {
   interimYear?: number | null;
   widgetKey?: string;
   showWidgetRef?: boolean;
+  presentation?: "card" | "image";
+  storedPngUrl?: string | null;
   className?: string;
   valueFormatter?: (value: number | null | undefined) => ReactNode;
 };
@@ -65,6 +67,8 @@ export function IntensityPathwayWidget({
   interimYear,
   widgetKey = REPORT_WIDGET_IDS.intensityPathway,
   showWidgetRef = false,
+  presentation = "card",
+  storedPngUrl,
   className,
   valueFormatter = (value) => `${formatNumber(Number(value || 0), 3)} tCO₂e`,
 }: IntensityPathwayWidgetProps) {
@@ -123,6 +127,19 @@ export function IntensityPathwayWidget({
           <div className="text-sm text-muted-foreground">No pathway data available.</div>
         </CardContent>
       </Card>
+    );
+  }
+
+  if (presentation === "image" && storedPngUrl) {
+    return (
+      <div className={className} data-widget-key={widgetKey}>
+        <img
+          src={storedPngUrl}
+          alt={title}
+          className="mx-auto block max-w-full h-auto object-contain"
+          style={{ width: "100%" }}
+        />
+      </div>
     );
   }
 

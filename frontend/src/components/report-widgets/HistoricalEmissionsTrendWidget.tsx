@@ -20,6 +20,8 @@ type HistoricalEmissionsTrendWidgetProps = {
   widgetKey?: string;
   showWidgetRef?: boolean;
   showPng?: boolean;
+  presentation?: "card" | "image";
+  storedPngUrl?: string | null;
   className?: string;
 };
 
@@ -37,6 +39,8 @@ export function HistoricalEmissionsTrendWidget({
   widgetKey = REPORT_WIDGET_IDS.historicalEmissionsTrend,
   showWidgetRef = true,
   showPng = true,
+  presentation = "card",
+  storedPngUrl,
   className,
 }: HistoricalEmissionsTrendWidgetProps) {
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
@@ -88,6 +92,19 @@ export function HistoricalEmissionsTrendWidget({
           </div>
         </CardContent>
       </Card>
+    );
+  }
+
+  if (presentation === "image" && storedPngUrl) {
+    return (
+      <div className={className} data-widget-key={widgetKey}>
+        <img
+          src={storedPngUrl}
+          alt={title}
+          className="mx-auto block max-w-full h-auto object-contain"
+          style={{ width: "100%" }}
+        />
+      </div>
     );
   }
 

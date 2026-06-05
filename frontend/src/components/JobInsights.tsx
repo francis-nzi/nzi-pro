@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import {
   EmissionsByActivityWidget,
   EmissionsReductionPathwayWidget,
+  HistoricalEmissionsTrendWidget,
   IntensityPathwayWidget,
   getWidgetPngExporter,
   SiteSummaryDonutWidget,
@@ -739,6 +740,16 @@ export default function JobInsights({
           targetYear={targetYear}
           interimYear={interimYear}
           showWidgetRef={true}
+        />
+      )}
+
+      {yearlyEmissions.length > 0 && (
+        <HistoricalEmissionsTrendWidget
+          title={`${clientName ?? "Client"} Historical Emissions Trend`}
+          clientName={clientName}
+          data={yearlyEmissions}
+          showWidgetRef={true}
+          className="w-full"
         />
       )}
 
