@@ -1157,7 +1157,7 @@ export default function JobAdvancedReports({
   const printPeriodStart = formatDate(data.job_data?.reporting_period_start ?? "");
   const printPeriodEnd = formatDate(data.job_data?.reporting_period_end ?? "");
   const printHeaderLine1 = printPeriodStart && printPeriodEnd
-    ? `Carbon Reduction Plan  ${printPeriodStart} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ ${printPeriodEnd}`
+    ? `Carbon Reduction Plan  ${printPeriodStart} - ${printPeriodEnd}`
     : "Carbon Reduction Plan";
   const printHeaderLine2 = printClientName;
   const printJobNumber = String(data.job_data?.job_number ?? "").replace(/['"\\]/g, "");
@@ -1221,7 +1221,7 @@ export default function JobAdvancedReports({
             vertical-align: middle;
           }
           @bottom-left {
-            content: "Ãƒâ€šÃ‚Â© Net Zero International";
+            content: "Net Zero International";
             font-size: 8pt;
             color: #666;
             font-family: Arial, sans-serif;
