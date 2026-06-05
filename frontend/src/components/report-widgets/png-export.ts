@@ -69,6 +69,7 @@ export type ChartExportTableLayout = {
   valueWidth?: number;
   rowHeight?: number;
   rowGap?: number;
+  centerVertically?: boolean;
 };
 
 type DownloadChartAsPngOptions = {
@@ -192,8 +193,29 @@ async function composeChartAsPngDataUrl({
         const legendHeight = legendRows.length ? legendRows.length * 24 + 8 : 0;
         const headerHeight = 24 + titleHeight + (subtitleHeight ? 8 + subtitleHeight : 0) + (legendHeight ? 12 + legendHeight : 0) + 16;
 
+        const chartTop = headerHeight + 24;
+        const chartAreaWidth = hasTable ? (tableLayout.chartAreaWidth ?? 560) : outputWidth;
+        const tableGap = tableLayout.tableGap ?? 24;
+        const tableTopOffset = tableLayout.tableTopOffset ?? 40;
+        const labelWidth = tableLayout.labelWidth ?? 130;
+        const valueWidth = tableLayout.valueWidth ?? 170;
+        const rowHeight = tableLayout.rowHeight ?? 42;
+        const rowGap = tableLayout.rowGap ?? 6;
+        const tableRowsHeight = hasTable ? Math.max(0, tableRows.length * (rowHeight + rowGap) - rowGap) : 0;
+        const calloutHeight = callout?.text ? 34 : 0;
+        const tableHeight = hasTable ? tableRowsHeight + calloutHeight : 0;
+        const contentHeight = hasTable && tableLayout.centerVertically ? Math.max(height, tableHeight) : height;
+        const chartX = centerChart ? Math.max(0, Math.floor((chartAreaWidth - width) / 2)) : 0;
+        const chartGroupWidth = chartAreaWidth + tableGap + labelWidth + valueWidth;
+        const chartLeft = hasTable
+          ? (tableLayout.centerVertically
+            ? Math.max(24, Math.floor((outputWidth - chartGroupWidth) / 2))
+            : 24)
+          : 0;
+        const finalChartX = chartLeft + chartX;
+
         canvas.width = outputWidth;
-        canvas.height = headerHeight + height + 24;
+        canvas.height = headerHeight + contentHeight + 24;
 
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -232,24 +254,17 @@ async function composeChartAsPngDataUrl({
           y = legendY - 8;
         }
 
-        const chartTop = headerHeight + 24;
-        const chartAreaWidth = hasTable ? (tableLayout.chartAreaWidth ?? 560) : outputWidth;
-        const tableGap = tableLayout.tableGap ?? 24;
-        const tableTopOffset = tableLayout.tableTopOffset ?? 40;
-        const labelWidth = tableLayout.labelWidth ?? 130;
-        const valueWidth = tableLayout.valueWidth ?? 170;
-        const rowHeight = tableLayout.rowHeight ?? 42;
-        const rowGap = tableLayout.rowGap ?? 6;
-        const chartX = centerChart ? Math.max(0, Math.floor((chartAreaWidth - width) / 2)) : 0;
-        const chartLeft = hasTable ? 24 : 0;
-        const finalChartX = chartLeft + chartX;
-
         if (hasTable) {
           const tableX = chartLeft + chartAreaWidth + tableGap;
-          const tableTop = chartTop + tableTopOffset;
+          const tableTop = tableLayout.centerVertically
+            ? chartTop + Math.floor((contentHeight - tableHeight) / 2)
+            : chartTop + tableTopOffset;
           let rowY = tableTop;
+          const chartY = tableLayout.centerVertically
+            ? chartTop + Math.floor((contentHeight - height) / 2)
+            : chartTop;
 
-          ctx.drawImage(image, finalChartX, chartTop, width, height);
+          ctx.drawImage(image, finalChartX, chartY, width, height);
 
           for (const row of tableRows) {
             if (row.isTotal) {
