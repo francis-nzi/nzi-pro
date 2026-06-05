@@ -2262,14 +2262,14 @@ export default function JobAdvancedReports({
           const currencySymbol = (() => {
             const country = String(data.job_data?.country ?? "").toLowerCase().trim();
             if (country.includes("united states") || country.includes("usa") || country === "us") return "$";
-            if (country.includes("europe") || country.includes("germany") || country.includes("france") || country.includes("spain") || country.includes("italy") || country.includes("netherlands") || country.includes("belgium") || country.includes("austria") || country.includes("portugal") || country.includes("ireland")) return "ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬";
+            if (country.includes("europe") || country.includes("germany") || country.includes("france") || country.includes("spain") || country.includes("italy") || country.includes("netherlands") || country.includes("belgium") || country.includes("austria") || country.includes("portugal") || country.includes("ireland")) return "€";
             if (country.includes("australia")) return "A$";
             if (country.includes("canada")) return "C$";
             if (country.includes("new zealand")) return "NZ$";
-            if (country.includes("japan")) return "Ãƒâ€šÃ‚Â¥";
+            if (country.includes("japan")) return "¥";
             if (country.includes("switzerland")) return "CHF";
             if (country.includes("sweden") || country.includes("norway") || country.includes("denmark")) return "kr";
-            return "Ãƒâ€šÃ‚Â£";
+            return "£";
           })();
 
           const MetricIcon = ({ metricKey, label }: { metricKey: string; label?: string | null }) => {
@@ -2279,7 +2279,7 @@ export default function JobAdvancedReports({
               </svg>
             );
             const lbl = String(label ?? metricKey ?? "").toLowerCase();
-            if (lbl.includes("m2") || lbl.includes("mÃƒâ€šÃ‚Â²") || lbl.includes("sqm") || lbl.includes("floor") || lbl.includes("office") || lbl.includes("space") || lbl.includes("area") || lbl.includes("building")) return (
+            if (lbl.includes("m2") || lbl.includes("m²") || lbl.includes("sqm") || lbl.includes("floor") || lbl.includes("office") || lbl.includes("space") || lbl.includes("area") || lbl.includes("building")) return (
               <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: BRAND }}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
               </svg>
