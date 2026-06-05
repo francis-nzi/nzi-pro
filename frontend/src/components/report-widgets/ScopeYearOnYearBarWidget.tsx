@@ -42,6 +42,8 @@ type ScopeYearOnYearBarWidgetProps = {
   showComparisonPct?: boolean;
   widgetKey?: string;
   showWidgetRef?: boolean;
+  presentation?: "card" | "image";
+  storedPngUrl?: string | null;
   className?: string;
 };
 
@@ -68,6 +70,8 @@ export function ScopeYearOnYearBarWidget({
   showComparisonPct = true,
   widgetKey = REPORT_WIDGET_IDS.scopeYearOnYearBar,
   showWidgetRef = true,
+  presentation = "card",
+  storedPngUrl,
   className,
 }: ScopeYearOnYearBarWidgetProps) {
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
@@ -132,6 +136,19 @@ export function ScopeYearOnYearBarWidget({
       </div>
     );
   };
+
+  if (presentation === "image" && storedPngUrl) {
+    return (
+      <div className={className} data-widget-key={widgetKey}>
+        <img
+          src={storedPngUrl}
+          alt={title}
+          className="mx-auto block max-w-full h-auto object-contain"
+          style={{ width: "100%" }}
+        />
+      </div>
+    );
+  }
 
   if (!data.length) {
     return (

@@ -1,11 +1,10 @@
-"use client";
+﻿"use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
   Legend,
   Line,
   LineChart,
@@ -22,9 +21,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import LoadingOrbit from "@/components/LoadingOrbit";
 import { formatDate } from "@/lib/format";
-import { EmissionsReductionPathwayWidget, ScopeSummaryDonutWidget, buildEmissionsReductionPathwayData } from "@/components/report-widgets";
+import {
+  EmissionsByActivityWidget,
+  EmissionsReductionPathwayWidget,
+  ScopeSummaryDonutWidget,
+  ScopeYearOnYearBarWidget,
+  buildEmissionsReductionPathwayData,
+  buildScopeDonutItems,
+  resolveScopeDonutBenchmarkTotal,
+  resolveScopeDonutBenchmarkYear,
+} from "@/components/report-widgets";
 
-/** Convert a reporting period to a compact year label: "2025" or "2022–2023". */
+/** Convert a reporting period to a compact year label: "2025" or "2022Ã¢â‚¬â€œ2023". */
 function toYearLabel(start: string | null | undefined, end: string | null | undefined): string {
   const sy = start ? new Date(start).getFullYear() : null;
   const ey = end   ? new Date(end).getFullYear()   : null;
@@ -220,7 +228,7 @@ type LiveData = {
   nzi_logo_src?: string | null;
 };
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Constants Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 const SCOPE_LABELS = ["Scope 1", "Scope 2", "Scope 3"] as const;
 
@@ -232,7 +240,7 @@ const SCOPE_COLORS: Record<string, string> = {
 
 const BRAND = "#1c3a2c";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 function toNum(v: unknown): number {
   const n = Number(v);
@@ -253,7 +261,7 @@ function fmtEnergy(kwh: number): string {
 }
 
 function boolLabel(v: boolean | null | undefined): string {
-  if (v == null) return "—";
+  if (v == null) return "Ã¢â‚¬â€";
   return v ? "Yes" : "No";
 }
 
@@ -264,7 +272,7 @@ function fmtSignatureDate(raw: string | null | undefined): string {
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-// ─── WrapLegend ──────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ WrapLegend Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // Recharts' default legend renders in a single row and overflows at narrow
 // print widths. This custom renderer allows items to wrap to multiple lines.
 
@@ -285,7 +293,7 @@ function WrapLegend({ payload }: { payload?: LegendEntry[] }) {
   );
 }
 
-// ─── NetZeroTrendChart ────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ NetZeroTrendChart Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 function NetZeroTrendChart({
   yearlyEmissions,
@@ -382,7 +390,7 @@ function NetZeroTrendChart({
             tick={{ fontSize: 10 }}
           />
           <Tooltip
-            formatter={(value: unknown) => [value != null ? `${fmt(Number(value))} tCO₂e` : "—", ""]}
+            formatter={(value: unknown) => [value != null ? `${fmt(Number(value))} tCOÃ¢â€šâ€še` : "Ã¢â‚¬â€", ""]}
             labelFormatter={(label: unknown) => `Year: ${label}`}
           />
           <Legend content={(p) => <WrapLegend payload={(p.payload as LegendEntry[] | undefined)} />} />
@@ -418,13 +426,13 @@ function NetZeroTrendChart({
         </LineChart>
       </ResponsiveContainer>
       <p className="mt-1 text-[10px] text-gray-400 text-center">
-        Solid lines = actual emissions &nbsp;·&nbsp; Dashed lines = reduction target pathway
+        Solid lines = actual emissions &nbsp;Ã‚Â·&nbsp; Dashed lines = reduction target pathway
       </p>
     </div>
   );
 }
 
-// ─── IntensityPathwayChart ────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ IntensityPathwayChart Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 const INTENSITY_COLORS = ["#0ea5e9", "#14b8a6", "#f97316", "#8b5cf6"];
 
@@ -546,7 +554,7 @@ function IntensityPathwayChart({
             tick={{ fontSize: 10 }}
           />
           <Tooltip
-            formatter={(value: unknown) => [value != null ? `${Number(value).toFixed(3)} tCO₂e` : "—", ""]}
+            formatter={(value: unknown) => [value != null ? `${Number(value).toFixed(3)} tCOÃ¢â€šâ€še` : "Ã¢â‚¬â€", ""]}
             labelFormatter={(label: unknown) => `Year: ${label}`}
           />
           <Legend content={(p) => <WrapLegend payload={(p.payload as LegendEntry[] | undefined)} />} />
@@ -569,13 +577,13 @@ function IntensityPathwayChart({
         </LineChart>
       </ResponsiveContainer>
       <p className="mt-1 text-[10px] text-gray-400 text-center">
-        Solid lines = actual &nbsp;·&nbsp; Dashed lines = target pathway
+        Solid lines = actual &nbsp;Ã‚Â·&nbsp; Dashed lines = target pathway
       </p>
     </div>
   );
 }
 
-// ─── CoverPage ────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ CoverPage Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 function CoverPage({ data }: { data: LiveData }) {
   const { job_data, report_metadata, template_variables, nzi_logo_src } = data;
@@ -648,7 +656,7 @@ function CoverPage({ data }: { data: LiveData }) {
   );
 }
 
-// ─── SectionHeader helper ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ SectionHeader helper Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 function SectionHeader({ title }: { title: string }) {
   return (
@@ -658,7 +666,7 @@ function SectionHeader({ title }: { title: string }) {
   );
 }
 
-// ─── MetaRow helper ───────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ MetaRow helper Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 function MetaRow({ label, value }: { label: string; value: string | number | null | undefined }) {
   if (value == null || String(value).trim() === "") return null;
@@ -670,7 +678,7 @@ function MetaRow({ label, value }: { label: string; value: string | number | nul
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Main component Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 export default function JobAdvancedReports({
   jobId,
@@ -901,7 +909,7 @@ export default function JobAdvancedReports({
 
   if (loading) {
     return (
-      <LoadingOrbit className="h-64" label="Loading report data…" />
+      <LoadingOrbit className="h-64" label="Loading report dataÃ¢â‚¬Â¦" />
     );
   }
 
@@ -916,7 +924,7 @@ export default function JobAdvancedReports({
     );
   }
 
-  // ── Derived values ──────────────────────────────────────────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Derived values Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
   const {
     scope_totals,
@@ -952,11 +960,12 @@ export default function JobAdvancedReports({
     toNum(data.job_data.reporting_year) ??
     new Date().getFullYear();
   const firstHistoricalYear = Array.isArray(yearly_emissions) && yearly_emissions.length > 0 ? yearly_emissions[0]?.year ?? null : null;
-  const donutBenchmarkYear =
-    toYearNumber(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end) ??
-    firstHistoricalYear ??
-    currentReportYear;
-  const donutBenchmarkTotal = toNum(summary?.benchmark_total) || null;
+  const donutBenchmarkYear = resolveScopeDonutBenchmarkYear(
+    toYearNumber(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end),
+    firstHistoricalYear,
+    currentReportYear,
+  );
+  const donutBenchmarkTotal = resolveScopeDonutBenchmarkTotal(yearly_emissions, donutBenchmarkYear);
 
   const baselineYear =
     toNum(target_data?.baseline_year) || new Date().getFullYear() - 1;
@@ -968,23 +977,59 @@ export default function JobAdvancedReports({
   const interimS2Pct = toNum(target_data?.interim_s2_pct ?? target_data?.interim_pct) || 50;
   const interimS3Pct = toNum(target_data?.interim_s3_pct ?? target_data?.interim_pct) || 50;
 
-  const scopeDonutData = SCOPE_LABELS.filter(s => toNum(scope_totals?.[s]) > 0).map(s => ({
-    name: s,
-    value: toNum(scope_totals?.[s]),
-  }));
+  const scopeDonutData = buildScopeDonutItems(
+    scope_totals?.["Scope 1"],
+    scope_totals?.["Scope 2"],
+    scope_totals?.["Scope 3"],
+  );
 
   const activityOrder = activity_group_order ?? Object.keys(activity_totals ?? {});
   const activityBarData = activityOrder
     .filter(k => toNum(activity_totals?.[k]) > 0)
     .map(k => ({
-      name: k.length > 26 ? k.slice(0, 24) + "…" : k,
+      name: k.length > 26 ? k.slice(0, 24) + "Ã¢â‚¬Â¦" : k,
       fullName: k,
       value: toNum(activity_totals?.[k]),
       fill: activity_group_colors?.[k] ?? "#999",
     }))
     .sort((a, b) => b.value - a.value);
 
-  const activityChartHeight = Math.max(200, activityBarData.length * 52 + 40);
+  const scopeYearOnYearBar = useMemo(() => {
+    if (effectiveYearlyEmissions.length === 0) return null;
+
+    const benchmarkBarYear = donutBenchmarkYear;
+    const currentRow = effectiveYearlyEmissions.find((row) => row.year === currentReportYear) ?? effectiveYearlyEmissions[effectiveYearlyEmissions.length - 1] ?? null;
+    const benchmarkRow =
+      effectiveYearlyEmissions.find((row) => row.year === benchmarkBarYear) ??
+      effectiveYearlyEmissions.find((row) => row.year === firstHistoricalYear) ??
+      effectiveYearlyEmissions[0] ??
+      null;
+    const isBenchmarkReportYear = benchmarkBarYear === currentReportYear;
+
+    if (!currentRow || !benchmarkRow) return null;
+
+    const previousRow =
+      effectiveYearlyEmissions
+        .filter((row) => row.year < currentRow.year)
+        .sort((a, b) => b.year - a.year)[0] ?? null;
+
+    const changePct = (cur: number, bm: number) => (bm > 0 ? Math.round(((cur - bm) / bm) * 1000) / 10 : null);
+
+    return {
+      benchmarkLabel: `BM ${benchmarkRow.year}`,
+      previousLabel: previousRow ? `Previous Year ${previousRow.year}` : "Previous Year",
+      currentLabel: `Current Year ${currentRow.year}`,
+      showBenchmarkBar: !isBenchmarkReportYear,
+      showPreviousBar: !isBenchmarkReportYear,
+      showComparisonPct: !isBenchmarkReportYear,
+      data: [
+        { scope: "Scope 1", benchmark: benchmarkRow.scope1, previous: previousRow?.scope1 ?? null, current: currentRow.scope1, pct: changePct(currentRow.scope1, benchmarkRow.scope1) },
+        { scope: "Scope 2", benchmark: benchmarkRow.scope2, previous: previousRow?.scope2 ?? null, current: currentRow.scope2, pct: changePct(currentRow.scope2, benchmarkRow.scope2) },
+        { scope: "Scope 3", benchmark: benchmarkRow.scope3, previous: previousRow?.scope3 ?? null, current: currentRow.scope3, pct: changePct(currentRow.scope3, benchmarkRow.scope3) },
+        { scope: "Total", benchmark: benchmarkRow.total, previous: previousRow?.total ?? null, current: currentRow.total, pct: changePct(currentRow.total, benchmarkRow.total) },
+      ],
+    };
+  }, [currentReportYear, donutBenchmarkYear, effectiveYearlyEmissions, firstHistoricalYear]);
 
   const hasPathway = baselineYear > 2000 && netZeroYear > baselineYear;
   const emissionsReductionPathwayData = buildEmissionsReductionPathwayData({
@@ -1014,13 +1059,13 @@ export default function JobAdvancedReports({
   const renewablePct = toNum(report_metadata?.renewable_energy_pct);
   const hasSecrEnergy = energyUkKwh > 0 || energyNonUkKwh > 0;
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Render Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
   const printClientName = String(data.job_data?.client_name ?? "").replace(/['"\\]/g, "");
   const printPeriodStart = formatDate(data.job_data?.reporting_period_start ?? "");
   const printPeriodEnd = formatDate(data.job_data?.reporting_period_end ?? "");
   const printHeaderLine1 = printPeriodStart && printPeriodEnd
-    ? `Carbon Reduction Plan  ${printPeriodStart} – ${printPeriodEnd}`
+    ? `Carbon Reduction Plan  ${printPeriodStart} Ã¢â‚¬â€œ ${printPeriodEnd}`
     : "Carbon Reduction Plan";
   const printHeaderLine2 = printClientName;
   const printJobNumber = String(data.job_data?.job_number ?? "").replace(/['"\\]/g, "");
@@ -1034,7 +1079,7 @@ export default function JobAdvancedReports({
           <div className="flex shrink-0 items-center justify-between border-b border-gray-700 bg-gray-800 px-4 py-2.5">
             <div className="flex items-center gap-3">
               <span className="text-sm font-semibold text-white">
-                {data?.job_data?.client_name ?? "Report"} — Carbon Reduction Plan
+                {data?.job_data?.client_name ?? "Report"} Ã¢â‚¬â€ Carbon Reduction Plan
               </span>
               <span className="rounded bg-gray-700 px-2 py-0.5 text-xs text-gray-300">
                 {pdfFilename}
@@ -1045,13 +1090,13 @@ export default function JobAdvancedReports({
                 onClick={savePdfToDisk}
                 className="flex items-center gap-1.5 rounded border border-gray-500 bg-gray-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-600"
               >
-                ⬇ Save to disk
+                Ã¢Â¬â€¡ Save to disk
               </button>
               <button
                 onClick={closePdfViewer}
                 className="flex items-center gap-1.5 rounded border border-gray-500 bg-gray-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-600"
               >
-                ✕ Close
+                Ã¢Å“â€¢ Close
               </button>
             </div>
           </div>
@@ -1084,7 +1129,7 @@ export default function JobAdvancedReports({
             vertical-align: middle;
           }
           @bottom-left {
-            content: "© Net Zero International";
+            content: "Ã‚Â© Net Zero International";
             font-size: 8pt;
             color: #666;
             font-family: Arial, sans-serif;
@@ -1144,7 +1189,7 @@ export default function JobAdvancedReports({
           .org-boundary-section {
             break-before: page !important;
           }
-          /* Emissions summary box figure: 3× the 10px base = 30px */
+          /* Emissions summary box figure: 3Ãƒâ€” the 10px base = 30px */
           .emissions-box-figure {
             font-size: 30px !important;
           }
@@ -1200,7 +1245,7 @@ export default function JobAdvancedReports({
           <div>
             <h2 className="text-sm font-semibold text-gray-700">Report Printing</h2>
             <p className="mt-0.5 text-xs text-gray-400">
-              React / Playwright renderer · vector charts · A4 print layout
+              React / Playwright renderer Ã‚Â· vector charts Ã‚Â· A4 print layout
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1229,7 +1274,7 @@ export default function JobAdvancedReports({
               {generating ? (
                 <span className="flex items-center gap-2">
                   <span className="h-3 w-3 animate-spin rounded-full border border-gray-400 border-t-transparent" />
-                  Saving…
+                  SavingÃ¢â‚¬Â¦
                 </span>
               ) : (
                 "Save for Review"
@@ -1244,7 +1289,7 @@ export default function JobAdvancedReports({
               {sendingToPortal ? (
                 <span className="flex items-center gap-2">
                   <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
-                  Sending…
+                  SendingÃ¢â‚¬Â¦
                 </span>
               ) : (
                 "Send to Portal"
@@ -1259,7 +1304,7 @@ export default function JobAdvancedReports({
               {downloading ? (
                 <span className="flex items-center gap-2">
                   <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
-                  Generating PDF…
+                  Generating PDFÃ¢â‚¬Â¦
                 </span>
               ) : (
                 "View PDF"
@@ -1273,7 +1318,7 @@ export default function JobAdvancedReports({
             {downloadError}
             {downloadError.toLowerCase().includes("frontend_base_url") && (
               <span className="ml-1 text-red-500">
-                — set the <code className="font-mono">FRONTEND_BASE_URL</code> environment variable on the API service in Render.
+                Ã¢â‚¬â€ set the <code className="font-mono">FRONTEND_BASE_URL</code> environment variable on the API service in Render.
               </span>
             )}
           </div>
@@ -1284,7 +1329,7 @@ export default function JobAdvancedReports({
             {generateError}
             {generateError.toLowerCase().includes("frontend_base_url") && (
               <span className="ml-1 text-red-500">
-                — set the <code className="font-mono">FRONTEND_BASE_URL</code> environment variable on the API service in Render.
+                Ã¢â‚¬â€ set the <code className="font-mono">FRONTEND_BASE_URL</code> environment variable on the API service in Render.
               </span>
             )}
           </div>
@@ -1304,12 +1349,12 @@ export default function JobAdvancedReports({
             Saved Versions
           </span>
           {versionsLoading && (
-            <span className="text-xs text-gray-400">Loading…</span>
+            <span className="text-xs text-gray-400">LoadingÃ¢â‚¬Â¦</span>
           )}
         </div>
         {versions.length === 0 && !versionsLoading ? (
           <p className="px-5 py-4 text-xs text-gray-400">
-            No saved versions yet — click &quot;Save for Review&quot; to create one.
+            No saved versions yet Ã¢â‚¬â€ click &quot;Save for Review&quot; to create one.
           </p>
         ) : (
           <table className="w-full text-xs">
@@ -1329,7 +1374,7 @@ export default function JobAdvancedReports({
                   ? new Date(v.generated_at).toLocaleDateString("en-GB", {
                       day: "2-digit", month: "short", year: "numeric",
                     })
-                  : "—";
+                  : "Ã¢â‚¬â€";
                 return (
                   <tr key={v.report_version_id} className="border-b border-gray-50 last:border-0">
                     <td className="py-2.5 pl-5 font-semibold text-gray-700">
@@ -1350,7 +1395,7 @@ export default function JobAdvancedReports({
                     </td>
                     <td className="py-2.5 text-gray-500">{savedAt}</td>
                     <td className="py-2.5 text-gray-500 max-w-[120px] truncate">
-                      {v.generated_by ?? "—"}
+                      {v.generated_by ?? "Ã¢â‚¬â€"}
                     </td>
                     <td className="py-2.5 pr-5">
                       <div className="flex items-center justify-end gap-2">
@@ -1368,11 +1413,11 @@ export default function JobAdvancedReports({
                             disabled={markingFinal === v.report_version_id}
                             className="text-xs text-green-700 hover:underline disabled:opacity-50"
                           >
-                            {markingFinal === v.report_version_id ? "…" : "Mark Final"}
+                            {markingFinal === v.report_version_id ? "Ã¢â‚¬Â¦" : "Mark Final"}
                           </button>
                         )}
                         {isFinal && (
-                          <span className="text-xs text-green-600 font-medium">✓ Final</span>
+                          <span className="text-xs text-green-600 font-medium">Ã¢Å“â€œ Final</span>
                         )}
                       </div>
                     </td>
@@ -1389,17 +1434,17 @@ export default function JobAdvancedReports({
 
         {activeTemplate === "crp" && <>
 
-        {/* ── 1. Cover page ──────────────────────────────────────────────── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ 1. Cover page Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         <CoverPage data={data} />
 
-        {/* ── 2. Executive Summary ───────────────────────────────────────── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ 2. Executive Summary Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         <Card className="live-report-section" data-section="Executive Summary">
           <CardHeader className="pb-3">
             <SectionHeader title="Executive Summary" />
           </CardHeader>
           <CardContent className="space-y-5">
 
-            {/* AI narrative — rendered as distinct paragraphs */}
+            {/* AI narrative Ã¢â‚¬â€ rendered as distinct paragraphs */}
             {execSummaryText ? (
               <div className="space-y-3">
                 {execSummaryText.split(/\n\n+/).map((para, i) => (
@@ -1408,14 +1453,13 @@ export default function JobAdvancedReports({
               </div>
             ) : (
               <p className="text-sm text-gray-400 italic">
-                Executive summary not yet drafted. Generate AI content in Reporting → AI Drafts.
+                Executive summary not yet drafted. Generate AI content in Reporting Ã¢â€ â€™ AI Drafts.
               </p>
             )}
 
             <div className="mt-6">
               <ScopeSummaryDonutWidget
                 title={`${data.job_data.client_name ?? "Client"} Emissions Summary by Scope`}
-                subtitle={`Reporting year ${currentReportYear}`}
                 clientName={data.job_data.client_name}
                 data={scopeDonutData}
                 currentYear={currentReportYear}
@@ -1431,7 +1475,7 @@ export default function JobAdvancedReports({
           </CardContent>
         </Card>
 
-        {/* ── 3. Net Zero Commitment ─────────────────────────────────────── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ 3. Net Zero Commitment Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         <Card className="live-report-section" data-section="Net Zero Commitment">
           <CardHeader className="pb-3">
             <SectionHeader title="Net Zero Commitment" />
@@ -1527,14 +1571,14 @@ export default function JobAdvancedReports({
           </CardContent>
         </Card>
 
-        {/* ── 4. Background & Organisation ───────────────────────────────── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ 4. Background & Organisation Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         <Card className="live-report-section" data-section="Background & Organisation">
           <CardHeader className="pb-3">
             <SectionHeader title="Background & Organisation" />
           </CardHeader>
           <CardContent className="space-y-6">
 
-            {/* Narrative description — split into paragraphs */}
+            {/* Narrative description Ã¢â‚¬â€ split into paragraphs */}
             {data.job_data.description && (
               <div className="space-y-3">
                 {data.job_data.description.split(/\r?\n\r?\n|\r?\n/).filter(p => p.trim()).map((para, i) => (
@@ -1644,7 +1688,7 @@ export default function JobAdvancedReports({
         </Card>
 
 
-        {/* ── 4b. Carbon Emissions Overview ──────────────────────────────── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ 4b. Carbon Emissions Overview Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         <Card className="live-report-section" data-section="Carbon Emissions Overview">
           <CardHeader className="pb-3">
             <SectionHeader title="Carbon Emissions Overview" />
@@ -1667,7 +1711,7 @@ export default function JobAdvancedReports({
                 <p className="emissions-box-figure text-5xl font-bold" style={{ color: BRAND }}>
                   {fmt(totalEmissions)}
                 </p>
-                <p className="mt-1 text-xs text-gray-500">tCO₂e</p>
+                <p className="mt-1 text-xs text-gray-500">tCOÃ¢â€šâ€še</p>
               </div>
             </div>
 
@@ -1686,7 +1730,7 @@ export default function JobAdvancedReports({
                 <div className="overflow-hidden rounded-lg border border-gray-200">
                   <div className="grid grid-cols-[1fr_120px_120px] px-3 py-2" style={{ backgroundColor: BRAND }}>
                     <span className="text-xs font-semibold uppercase tracking-wide text-white">Site</span>
-                    <span className="text-xs font-semibold text-white text-right" style={{ textTransform: 'none' }}>tCO₂e</span>
+                    <span className="text-xs font-semibold text-white text-right" style={{ textTransform: 'none' }}>tCOÃ¢â€šâ€še</span>
                     <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">% of Total</span>
                   </div>
                   {site_breakdowns?.overall?.map((row, i) => (
@@ -1720,7 +1764,7 @@ export default function JobAdvancedReports({
         </Card>
 
 
-        {/* ── 5. Analysis by Scope ───────────────────────────────────────── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ 5. Analysis by Scope Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         <Card className="live-report-section" data-section="Analysis by Scope">
           <CardHeader className="pb-3">
             <SectionHeader title="Analysis by Scope" />
@@ -1730,8 +1774,7 @@ export default function JobAdvancedReports({
             <div>
               <p className="text-sm font-semibold text-gray-700 mb-4">Emissions by Scope</p>
               <ScopeSummaryDonutWidget
-                title={`${data.job_data.client_name ?? "Client"} Emissions by Scope`}
-                subtitle={`Reporting year ${currentReportYear}`}
+                title={`${data.job_data.client_name ?? "Client"} Emissions Summary by Scope`}
                 clientName={data.job_data.client_name}
                 data={scopeDonutData}
                 currentYear={currentReportYear}
@@ -1744,83 +1787,25 @@ export default function JobAdvancedReports({
               />
             </div>
 
-            {/* Benchmark / Previous Year / Current Year — Scope Comparison */}
-            {(() => {
-              const bScope1 = toNum(benchmark_totals?.["Scope 1"]);
-              const bScope2 = toNum(benchmark_totals?.["Scope 2"]);
-              const bScope3 = toNum(benchmark_totals?.["Scope 3"]);
-              const bTotal  = toNum(benchmark_totals?.Total) || (bScope1 + bScope2 + bScope3);
-              if (bTotal <= 0) return null;
+            {scopeYearOnYearBar ? (
+              <ScopeYearOnYearBarWidget
+                title="Year-on-Year Comparison by Scope"
+                clientName={data.job_data.client_name}
+                data={scopeYearOnYearBar.data}
+                benchmarkLabel={scopeYearOnYearBar.benchmarkLabel}
+                previousLabel={scopeYearOnYearBar.previousLabel}
+                currentLabel={scopeYearOnYearBar.currentLabel}
+                showBenchmarkBar={scopeYearOnYearBar.showBenchmarkBar}
+                showPreviousBar={scopeYearOnYearBar.showPreviousBar}
+                showComparisonPct={scopeYearOnYearBar.showComparisonPct}
+                showWidgetRef={false}
+                storedPngUrl={storedWidgetPngs["scope_year_on_year_bar"] ?? null}
+                presentation={storedWidgetPngs["scope_year_on_year_bar"] ? "image" : "card"}
+                className="w-full"
+              />
+            ) : null}
 
-              const changePct = (cur: number, bm: number) =>
-                bm > 0 ? Math.round(((cur - bm) / bm) * 1000) / 10 : null;
-
-              const benchmarkLabel = toYearLabel(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end) || "Benchmark";
-              const currentLabel = toYearLabel(data.job_data.reporting_period_start, data.job_data.reporting_period_end) || "Current";
-
-              // Previous year scope totals from previous_year_categories
-              const pyScope1 = (previous_year_categories ?? []).filter(c => c.scope === "Scope 1").reduce((s, c) => s + toNum(c.emissions), 0);
-              const pyScope2 = (previous_year_categories ?? []).filter(c => c.scope === "Scope 2").reduce((s, c) => s + toNum(c.emissions), 0);
-              const pyScope3 = (previous_year_categories ?? []).filter(c => c.scope === "Scope 3").reduce((s, c) => s + toNum(c.emissions), 0);
-              const pyTotal  = pyScope1 + pyScope2 + pyScope3;
-              const hasPrevYear = pyTotal > 0;
-              const prevYearLabel = previous_year_label || "Previous Year";
-
-              const barData = [
-                { scope: "Scope 1", benchmark: bScope1, prevYear: pyScope1 || undefined, current: scope1, pct: changePct(scope1, bScope1) },
-                { scope: "Scope 2", benchmark: bScope2, prevYear: pyScope2 || undefined, current: scope2, pct: changePct(scope2, bScope2) },
-                { scope: "Scope 3", benchmark: bScope3, prevYear: pyScope3 || undefined, current: scope3, pct: changePct(scope3, bScope3) },
-                { scope: "Total",   benchmark: bTotal,  prevYear: pyTotal  || undefined, current: totalEmissions, pct: changePct(totalEmissions, bTotal) },
-              ];
-
-              return (
-                <div>
-                  <p className="text-sm font-semibold text-gray-700 mb-3">Year-on-Year Comparison by Scope</p>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={barData} margin={{ top: 20, right: 24, left: 8, bottom: 32 }} barCategoryGap="30%" barGap={3}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F0F0F0" />
-                      <XAxis
-                        dataKey="scope"
-                        axisLine={false}
-                        tickLine={false}
-                        interval={0}
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        tick={(tickProps: any) => {
-                          const { x, y, payload } = tickProps as { x: number; y: number; payload: { value: string } };
-                          const row = barData.find(d => d.scope === payload?.value);
-                          const pct = row?.pct ?? null;
-                          return (
-                            <g transform={`translate(${x},${y})`}>
-                              <text textAnchor="middle" fontSize={11} fill="#334155" y={14}>{payload?.value}</text>
-                              {pct != null && (
-                                <text textAnchor="middle" fontSize={10} fill={pct < 0 ? "#16a34a" : "#dc2626"} y={28}>
-                                  {pct < 0 ? "" : "+"}{pct.toFixed(1)}%
-                                </text>
-                              )}
-                            </g>
-                          );
-                        }}
-                      />
-                      <YAxis tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} label={{ value: "tCO₂e", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "#94a3b8" } }} />
-                      <Tooltip formatter={(v: unknown, name: unknown) => [typeof v === "number" ? `${fmt(v)} tCO₂e` : "—", String(name ?? "")]} />
-                      <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="top" />
-                      <Bar dataKey="benchmark" name={benchmarkLabel} fill="#94a3b8" radius={[3, 3, 0, 0]}>
-                        <LabelList dataKey="benchmark" position="top" formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmt(v, 1) : ""} style={{ fontSize: 9, fill: "#64748b" }} />
-                      </Bar>
-                      {hasPrevYear && (
-                        <Bar dataKey="prevYear" name={prevYearLabel} fill="#64748b" radius={[3, 3, 0, 0]}>
-                          <LabelList dataKey="prevYear" position="top" formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmt(v, 1) : ""} style={{ fontSize: 9, fill: "#475569" }} />
-                        </Bar>
-                      )}
-                      <Bar dataKey="current" name={currentLabel} fill={BRAND} radius={[3, 3, 0, 0]}>
-                        <LabelList dataKey="current" position="top" formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmt(v, 1) : ""} style={{ fontSize: 9, fill: BRAND }} />
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              );
-            })()}
-
+            {/* Benchmark / Previous Year / Current Year Ã¢â‚¬â€ Scope Comparison */}
             {/* Scope Descriptions table */}
             <div>
               <p className="text-sm font-semibold text-gray-700 mb-2">Scope Descriptions</p>
@@ -1828,7 +1813,7 @@ export default function JobAdvancedReports({
                 <div className="grid grid-cols-[52px_1fr_90px_58px] px-3 py-2" style={{ backgroundColor: BRAND }}>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white">Scope</span>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white">Description</span>
-                  <span className="text-xs font-semibold text-white text-right" style={{ textTransform: 'none' }}>tCO₂e</span>
+                  <span className="text-xs font-semibold text-white text-right" style={{ textTransform: 'none' }}>tCOÃ¢â€šâ€še</span>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">%</span>
                 </div>
                 {([
@@ -1916,52 +1901,23 @@ export default function JobAdvancedReports({
         </Card>
 
 
-        {/* ── 6. Emissions by activity ───────────────────────────────────── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ 6. Emissions by activity Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         {activityBarData.length > 0 && (
           <Card className="live-report-section" data-section="Emissions by Activity">
             <CardHeader className="pb-3">
               <SectionHeader title="Emissions by Activity" />
             </CardHeader>
             <CardContent>
-              <div style={{ height: activityChartHeight }}>
-                <ResponsiveContainer width="100%" height={activityChartHeight}>
-                  <BarChart
-                    layout="vertical"
-                    data={activityBarData}
-                    margin={{ top: 4, right: 64, left: 8, bottom: 4 }}
-                  >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      horizontal={false}
-                      stroke="#F0F0F0"
-                    />
-                    <XAxis
-                      type="number"
-                      tickFormatter={(v: number) =>
-                        v.toLocaleString(undefined, { maximumFractionDigits: 0 })
-                      }
-                      tick={{ fontSize: 10 }}
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      width={180}
-                      tick={{ fontSize: 9 }}
-                    />
-                    <Tooltip
-                      formatter={(v: number | undefined, _: string | undefined, props: { payload?: { fullName?: string } }) => [
-                        v != null ? `${fmt(v)} tCO₂e` : "—",
-                        props.payload?.fullName ?? "",
-                      ]}
-                    />
-                    <Bar dataKey="value" name="tCO₂e" radius={[0, 3, 3, 0]}>
-                      {activityBarData.map((entry, i) => (
-                        <Cell key={`cell-${i}`} fill={entry.fill} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+              <EmissionsByActivityWidget
+                title={`${data.job_data.client_name ?? "Client"} Emissions by Activity`}
+                clientName={data.job_data.client_name}
+                data={activityBarData}
+                showWidgetRef={false}
+                showHeader={false}
+                storedPngUrl={storedWidgetPngs["emissions_by_activity"] ?? null}
+                presentation={storedWidgetPngs["emissions_by_activity"] ? "image" : "card"}
+                className="w-full"
+              />
               {report_metadata?.activity_commentary && (
                 <p className="mt-4 text-sm text-gray-600 leading-relaxed">
                   {report_metadata.activity_commentary}
@@ -2033,7 +1989,7 @@ export default function JobAdvancedReports({
           </Card>
         )}
 
-        {/* ── 7. Emissions by Scope and Category ─────────────────────────── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ 7. Emissions by Scope and Category Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         {(categories?.length ?? 0) > 0 && (() => {
           type CatRow = { scope: string; label: string; current: number; benchmark: number; prevYear: number };
           const aggMap = new Map<string, CatRow>();
@@ -2075,11 +2031,11 @@ export default function JobAdvancedReports({
           const bmYearLabel = toYearLabel(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end) || "BM";
           const currentYearLabel = toYearLabel(data.job_data.reporting_period_start, data.job_data.reporting_period_end) || "Current";
 
-          // Shared header cell style: label on line 1, tCO₂e on line 2
+          // Shared header cell style: label on line 1, tCOÃ¢â€šâ€še on line 2
           const colHdr = (label: string) => (
             <span className="text-xs font-semibold text-white text-right leading-snug" style={{ textTransform: 'none' }}>
               <span className="block">{label}</span>
-              <span className="block opacity-80">tCO₂e</span>
+              <span className="block opacity-80">tCOÃ¢â€šâ€še</span>
             </span>
           );
 
@@ -2100,8 +2056,8 @@ export default function JobAdvancedReports({
                 <div key={`${r.scope}-${r.label}`} className={`grid ${cols} border-b border-gray-100 px-3 py-2 ${bg}`}>
                   <span className="text-xs text-gray-500">{r.scope}</span>
                   <span className="text-xs text-gray-700 pr-2">{r.label}</span>
-                  {hasBenchmark ? <span className="text-xs text-gray-600 text-right">{fmt(r.benchmark)}</span> : <span className="text-xs text-gray-400 text-right">—</span>}
-                  {hasPrevYear && <span className="text-xs text-gray-600 text-right">{r.prevYear > 0 ? fmt(r.prevYear) : "—"}</span>}
+                  {hasBenchmark ? <span className="text-xs text-gray-600 text-right">{fmt(r.benchmark)}</span> : <span className="text-xs text-gray-400 text-right">Ã¢â‚¬â€</span>}
+                  {hasPrevYear && <span className="text-xs text-gray-600 text-right">{r.prevYear > 0 ? fmt(r.prevYear) : "Ã¢â‚¬â€"}</span>}
                   <span className="text-xs text-gray-700 text-right">{fmt(r.current)}</span>
                   <span className="text-xs text-right" style={{ color: pct < 0 ? "#16a34a" : pct > 0 ? "#dc2626" : "#6b7280" }}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span>
                 </div>
@@ -2113,8 +2069,8 @@ export default function JobAdvancedReports({
               <div key={`subtotal-${scope}`} className={`grid ${cols} border-b border-gray-200 px-3 py-2`} style={{ backgroundColor: `${BRAND}12` }}>
                 <span className="text-xs font-semibold text-gray-700">{scope}</span>
                 <span className="text-xs font-semibold text-gray-700">Sub-total</span>
-                {hasBenchmark ? <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeBenchmark)}</span> : <span className="text-xs text-gray-400 text-right">—</span>}
-                {hasPrevYear && <span className="text-xs font-semibold text-gray-700 text-right">{scopePrevYear > 0 ? fmt(scopePrevYear) : "—"}</span>}
+                {hasBenchmark ? <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeBenchmark)}</span> : <span className="text-xs text-gray-400 text-right">Ã¢â‚¬â€</span>}
+                {hasPrevYear && <span className="text-xs font-semibold text-gray-700 text-right">{scopePrevYear > 0 ? fmt(scopePrevYear) : "Ã¢â‚¬â€"}</span>}
                 <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeCurrent)}</span>
                 <span className="text-xs font-semibold text-right" style={{ color: subPct < 0 ? "#16a34a" : subPct > 0 ? "#dc2626" : "#6b7280" }}>{subPct >= 0 ? "+" : ""}{subPct.toFixed(1)}%</span>
               </div>
@@ -2145,8 +2101,8 @@ export default function JobAdvancedReports({
                   {tableRows}
                   <div className={`grid ${cols} border-t-2 border-gray-300 px-3 py-2 bg-gray-50`}>
                     <span className={`text-xs font-bold text-gray-700 uppercase col-span-2`}>Total Emissions</span>
-                    {hasBenchmark ? <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandBenchmarkTotal)}</span> : <span className="text-xs text-gray-400 text-right">—</span>}
-                    {hasPrevYear && <span className="text-xs font-bold text-gray-700 text-right">{grandPrevYearTotal > 0 ? fmt(grandPrevYearTotal) : "—"}</span>}
+                    {hasBenchmark ? <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandBenchmarkTotal)}</span> : <span className="text-xs text-gray-400 text-right">Ã¢â‚¬â€</span>}
+                    {hasPrevYear && <span className="text-xs font-bold text-gray-700 text-right">{grandPrevYearTotal > 0 ? fmt(grandPrevYearTotal) : "Ã¢â‚¬â€"}</span>}
                     <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandCurrentTotal)}</span>
                     <span className="text-xs font-bold text-right" style={{ color: grandPct < 0 ? "#16a34a" : grandPct > 0 ? "#dc2626" : "#6b7280" }}>{grandPct >= 0 ? "+" : ""}{grandPct.toFixed(1)}%</span>
                   </div>
@@ -2162,7 +2118,7 @@ export default function JobAdvancedReports({
           );
         })()}
 
-        {/* ── 8. Intensity Metric Analysis ───────────────────────────────── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ 8. Intensity Metric Analysis Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         {intensity_metrics && Object.keys(intensity_metrics).length > 0 && (() => {
           const currentPeriodLabel = (() => {
             const s = data.job_data.reporting_period_start;
@@ -2170,7 +2126,7 @@ export default function JobAdvancedReports({
             if (!s && !e) return "Current Year";
             const sYear = s ? new Date(s).getFullYear() : null;
             const eYear = e ? new Date(e).getFullYear() : null;
-            if (sYear && eYear && sYear !== eYear) return `${sYear}–${eYear}`;
+            if (sYear && eYear && sYear !== eYear) return `${sYear}Ã¢â‚¬â€œ${eYear}`;
             return String(sYear ?? eYear ?? "Current Year");
           })();
 
@@ -2180,7 +2136,7 @@ export default function JobAdvancedReports({
             if (!s && !e) return "Benchmark Year";
             const sYear = s ? new Date(s).getFullYear() : null;
             const eYear = e ? new Date(e).getFullYear() : null;
-            if (sYear && eYear && sYear !== eYear) return `${sYear}–${eYear}`;
+            if (sYear && eYear && sYear !== eYear) return `${sYear}Ã¢â‚¬â€œ${eYear}`;
             return String(sYear ?? eYear ?? "Benchmark Year");
           })();
 
@@ -2199,7 +2155,7 @@ export default function JobAdvancedReports({
           };
 
           const fmtPct = (p: number | null) => {
-            if (p == null) return "—";
+            if (p == null) return "Ã¢â‚¬â€";
             const sign = p > 0 ? "+" : "";
             return `${sign}${p.toFixed(1)}%`;
           };
@@ -2216,14 +2172,14 @@ export default function JobAdvancedReports({
           const currencySymbol = (() => {
             const country = String(data.job_data?.country ?? "").toLowerCase().trim();
             if (country.includes("united states") || country.includes("usa") || country === "us") return "$";
-            if (country.includes("europe") || country.includes("germany") || country.includes("france") || country.includes("spain") || country.includes("italy") || country.includes("netherlands") || country.includes("belgium") || country.includes("austria") || country.includes("portugal") || country.includes("ireland")) return "€";
+            if (country.includes("europe") || country.includes("germany") || country.includes("france") || country.includes("spain") || country.includes("italy") || country.includes("netherlands") || country.includes("belgium") || country.includes("austria") || country.includes("portugal") || country.includes("ireland")) return "Ã¢â€šÂ¬";
             if (country.includes("australia")) return "A$";
             if (country.includes("canada")) return "C$";
             if (country.includes("new zealand")) return "NZ$";
-            if (country.includes("japan")) return "¥";
+            if (country.includes("japan")) return "Ã‚Â¥";
             if (country.includes("switzerland")) return "CHF";
             if (country.includes("sweden") || country.includes("norway") || country.includes("denmark")) return "kr";
-            return "£";
+            return "Ã‚Â£";
           })();
 
           const MetricIcon = ({ metricKey, label }: { metricKey: string; label?: string | null }) => {
@@ -2233,7 +2189,7 @@ export default function JobAdvancedReports({
               </svg>
             );
             const lbl = String(label ?? metricKey ?? "").toLowerCase();
-            if (lbl.includes("m2") || lbl.includes("m²") || lbl.includes("sqm") || lbl.includes("floor") || lbl.includes("office") || lbl.includes("space") || lbl.includes("area") || lbl.includes("building")) return (
+            if (lbl.includes("m2") || lbl.includes("mÃ‚Â²") || lbl.includes("sqm") || lbl.includes("floor") || lbl.includes("office") || lbl.includes("space") || lbl.includes("area") || lbl.includes("building")) return (
               <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: BRAND }}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
               </svg>
@@ -2261,7 +2217,7 @@ export default function JobAdvancedReports({
             const label = m.label?.trim() || key;
             const d = toNum(m.divider) || 1;
             const perStr = d === 1 ? `per ${label.toLowerCase()}` : `per ${d.toLocaleString()} ${label.toLowerCase()}`;
-            return `${fmt(intensity)} tCO₂e ${perStr}`;
+            return `${fmt(intensity)} tCOÃ¢â€šâ€še ${perStr}`;
           }).filter(Boolean);
 
           const employeeCount = toNum(intensity_metrics.employees?.value);
@@ -2281,7 +2237,7 @@ export default function JobAdvancedReports({
                 </p>
                 <div>
                   <p className="text-sm font-semibold text-center text-gray-700 mb-2">
-                    Intensity Metrics (tonnes CO₂e)
+                    Intensity Metrics (tonnes COÃ¢â€šâ€še)
                   </p>
                   <div className="overflow-hidden rounded-lg border border-gray-200">
                     {/* Header */}
@@ -2307,8 +2263,8 @@ export default function JobAdvancedReports({
                         <div key={key} className={`grid grid-cols-[56px_1fr_110px_110px_90px] items-center border-b border-gray-100 last:border-0 px-3 py-4 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
                           <div className="flex items-center justify-center"><MetricIcon metricKey={key} label={m.label} /></div>
                           <span className="text-sm font-medium text-gray-700">{perLabel(key, m)}</span>
-                          <span className="text-right text-sm text-gray-600">{benchIntensity != null ? fmt(benchIntensity) : "—"}</span>
-                          <span className="text-right text-sm font-semibold text-gray-800">{currIntensity != null ? fmt(currIntensity) : "—"}</span>
+                          <span className="text-right text-sm text-gray-600">{benchIntensity != null ? fmt(benchIntensity) : "Ã¢â‚¬â€"}</span>
+                          <span className="text-right text-sm font-semibold text-gray-800">{currIntensity != null ? fmt(currIntensity) : "Ã¢â‚¬â€"}</span>
                           <span className={`text-right text-sm font-semibold ${pctColor(pct)}`}>{fmtPct(pct)}</span>
                         </div>
                       );
@@ -2352,7 +2308,7 @@ export default function JobAdvancedReports({
           );
         })()}
 
-        {/* ── 9. Historical emissions trend ──────────────────────────────── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ 9. Historical emissions trend Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         {effectiveYearlyEmissions.length > 0 && (
           <Card className="live-report-section" data-section="Historical Emissions Trend">
             <CardHeader className="pb-3">
@@ -2384,7 +2340,7 @@ export default function JobAdvancedReports({
                       width={52}
                     />
                     <Tooltip
-                      formatter={(v: number | undefined, name: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", name ?? ""]}
+                      formatter={(v: number | undefined, name: string | undefined) => [v != null ? `${fmt(v)} tCOÃ¢â€šâ€še` : "Ã¢â‚¬â€", name ?? ""]}
                       labelFormatter={(l: unknown) => `Year: ${l}`}
                     />
                     <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
@@ -2405,7 +2361,7 @@ export default function JobAdvancedReports({
           </Card>
         )}
 
-        {/* ── 10. Carbon reduction actions ───────────────────────────────── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ 10. Carbon reduction actions Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         <Card className="live-report-section" data-section="Carbon Reduction Actions">
           <CardHeader className="pb-3">
             <SectionHeader title="Carbon Reduction Actions" />
@@ -2513,7 +2469,7 @@ export default function JobAdvancedReports({
           </CardContent>
         </Card>
 
-        {/* ── 12. Standards & Methodology ────────────────────────────────── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ 12. Standards & Methodology Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         <Card className="live-report-section" data-section="Standards & Methodology">
           <CardHeader className="pb-3">
             <SectionHeader title="Standards & Methodology" />
@@ -2551,7 +2507,7 @@ export default function JobAdvancedReports({
           </CardContent>
         </Card>
 
-        {/* ── 13. Declaration / Sign-off ──────────────────────────────────── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ 13. Declaration / Sign-off Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         <Card className="live-report-section" data-section="Declaration and Sign Off">
           <CardHeader className="pb-3">
             <SectionHeader title="Declaration and Sign Off" />
@@ -2605,7 +2561,7 @@ export default function JobAdvancedReports({
           </CardContent>
         </Card>
 
-        {/* ── 14. Glossary ───────────────────────────────────────────────── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ 14. Glossary Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         {hasGlossary && (
           <Card className="live-report-section" data-section="Glossary">
             <CardHeader className="pb-3">
@@ -2636,11 +2592,11 @@ export default function JobAdvancedReports({
           </Card>
         )}
 
-        {/* ── 15. Appendix 1 — Full Emissions Audit ──────────────────────── */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬ 15. Appendix 1 Ã¢â‚¬â€ Full Emissions Audit Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         {hasAppendix && (
-          <Card className="live-report-section" data-section="Appendix 1 — Full Emissions Audit">
+          <Card className="live-report-section" data-section="Appendix 1 Ã¢â‚¬â€ Full Emissions Audit">
             <CardHeader className="pb-3">
-              <SectionHeader title="Appendix 1 — Full Emissions Audit" />
+              <SectionHeader title="Appendix 1 Ã¢â‚¬â€ Full Emissions Audit" />
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
@@ -2653,7 +2609,7 @@ export default function JobAdvancedReports({
                       <th className="py-2 pr-3 text-left font-semibold text-gray-500">Details</th>
                       <th className="py-2 pr-3 text-right font-semibold text-gray-500">Qty</th>
                       <th className="py-2 pr-3 text-left font-semibold text-gray-500">Unit</th>
-                      <th className="py-2 text-right font-semibold text-gray-500">tCO₂e</th>
+                      <th className="py-2 text-right font-semibold text-gray-500">tCOÃ¢â€šâ€še</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2662,16 +2618,16 @@ export default function JobAdvancedReports({
                         key={i}
                         className="border-b border-gray-50 hover:bg-gray-50/60"
                       >
-                        <td className="py-1.5 pr-3 text-gray-600">{row.site_name ?? "—"}</td>
-                        <td className="py-1.5 pr-3 text-gray-600">{row.scope ?? "—"}</td>
-                        <td className="py-1.5 pr-3 text-gray-600">{row.category ?? "—"}</td>
-                        <td className="py-1.5 pr-3 text-gray-600">{row.emission_type ?? "—"}</td>
+                        <td className="py-1.5 pr-3 text-gray-600">{row.site_name ?? "Ã¢â‚¬â€"}</td>
+                        <td className="py-1.5 pr-3 text-gray-600">{row.scope ?? "Ã¢â‚¬â€"}</td>
+                        <td className="py-1.5 pr-3 text-gray-600">{row.category ?? "Ã¢â‚¬â€"}</td>
+                        <td className="py-1.5 pr-3 text-gray-600">{row.emission_type ?? "Ã¢â‚¬â€"}</td>
                         <td className="py-1.5 pr-3 text-right text-gray-700">
-                          {row.qty != null ? fmt(toNum(row.qty)) : "—"}
+                          {row.qty != null ? fmt(toNum(row.qty)) : "Ã¢â‚¬â€"}
                         </td>
-                        <td className="py-1.5 pr-3 text-gray-500">{row.uom ?? "—"}</td>
+                        <td className="py-1.5 pr-3 text-gray-500">{row.uom ?? "Ã¢â‚¬â€"}</td>
                         <td className="py-1.5 text-right font-semibold text-gray-800">
-                          {row.emissions != null ? fmt(toNum(row.emissions)) : "—"}
+                          {row.emissions != null ? fmt(toNum(row.emissions)) : "Ã¢â‚¬â€"}
                         </td>
                       </tr>
                     ))}
@@ -2696,10 +2652,10 @@ export default function JobAdvancedReports({
 
         {activeTemplate === "secr" && <>
 
-          {/* ── SECR: Cover page ───────────────────────────────────────────── */}
+          {/* Ã¢â€â‚¬Ã¢â€â‚¬ SECR: Cover page Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
           <CoverPage data={data} />
 
-          {/* ── SECR: Executive Summary ────────────────────────────────────── */}
+          {/* Ã¢â€â‚¬Ã¢â€â‚¬ SECR: Executive Summary Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
           <Card className="live-report-section">
             <CardHeader className="pb-3">
               <SectionHeader title="Executive Summary" />
@@ -2713,13 +2669,13 @@ export default function JobAdvancedReports({
                 </div>
               ) : (
                 <p className="text-sm text-gray-400 italic">
-                  Executive summary not yet drafted. Generate AI content in Report Preparation → AI Drafts.
+                  Executive summary not yet drafted. Generate AI content in Report Preparation Ã¢â€ â€™ AI Drafts.
                 </p>
               )}
               <div className="grid grid-cols-3 gap-4 rounded-xl border border-gray-100 bg-gray-50 p-4">
                 <div className="text-center">
                   <div className="text-2xl font-bold" style={{ color: BRAND }}>{fmt(totalEmissions)}</div>
-                  <div className="mt-1 text-xs text-gray-500">Total tCO₂e</div>
+                  <div className="mt-1 text-xs text-gray-500">Total tCOÃ¢â€šâ€še</div>
                 </div>
                 <div className="text-center">
                   <div className="text-2xl font-bold text-blue-600">
@@ -2737,7 +2693,7 @@ export default function JobAdvancedReports({
             </CardContent>
           </Card>
 
-          {/* ── SECR: Energy Consumption & Emissions ───────────────────────── */}
+          {/* Ã¢â€â‚¬Ã¢â€â‚¬ SECR: Energy Consumption & Emissions Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
           <Card className="live-report-section">
             <CardHeader className="pb-3">
               <SectionHeader title="Energy Consumption and Emissions" />
@@ -2761,10 +2717,10 @@ export default function JobAdvancedReports({
                       { label: "UK Energy Consumption (kWh)", value: fmt(toNum(report_metadata?.energy_consumption_uk_kwh)), unit: "kWh" },
                       { label: "Non-UK Energy Consumption (kWh)", value: fmt(toNum(report_metadata?.energy_consumption_non_uk_kwh)), unit: "kWh" },
                       { label: "Renewable Energy (kWh)", value: fmt(toNum(report_metadata?.renewable_energy_kwh)), unit: "kWh" },
-                      { label: "Energy Emissions — Location-based (tCO₂e)", value: fmt(toNum(report_metadata?.energy_emissions_tco2e)), unit: "tCO₂e" },
-                      { label: "Energy Emissions — Market-based (tCO₂e)", value: fmt(toNum(report_metadata?.energy_emissions_market_tco2e)), unit: "tCO₂e" },
-                      { label: "Total Scope 1 & 2 Emissions (tCO₂e)", value: fmt(toNum(scope_totals?.["Scope 1"]) + toNum(scope_totals?.["Scope 2"])), unit: "tCO₂e" },
-                      { label: "Total Greenhouse Gas Emissions (tCO₂e)", value: fmt(totalEmissions), unit: "tCO₂e" },
+                      { label: "Energy Emissions Ã¢â‚¬â€ Location-based (tCOÃ¢â€šâ€še)", value: fmt(toNum(report_metadata?.energy_emissions_tco2e)), unit: "tCOÃ¢â€šâ€še" },
+                      { label: "Energy Emissions Ã¢â‚¬â€ Market-based (tCOÃ¢â€šâ€še)", value: fmt(toNum(report_metadata?.energy_emissions_market_tco2e)), unit: "tCOÃ¢â€šâ€še" },
+                      { label: "Total Scope 1 & 2 Emissions (tCOÃ¢â€šâ€še)", value: fmt(toNum(scope_totals?.["Scope 1"]) + toNum(scope_totals?.["Scope 2"])), unit: "tCOÃ¢â€šâ€še" },
+                      { label: "Total Greenhouse Gas Emissions (tCOÃ¢â€šâ€še)", value: fmt(totalEmissions), unit: "tCOÃ¢â€šâ€še" },
                     ].map((row, i) => (
                       <tr key={i} className="border-b border-gray-50 last:border-0">
                         <td className="py-2.5 pl-4 text-xs text-gray-700">{row.label}</td>
@@ -2790,7 +2746,7 @@ export default function JobAdvancedReports({
             </CardContent>
           </Card>
 
-          {/* ── SECR: SECR Narrative ───────────────────────────────────────── */}
+          {/* Ã¢â€â‚¬Ã¢â€â‚¬ SECR: SECR Narrative Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
           <Card className="live-report-section">
             <CardHeader className="pb-3">
               <SectionHeader title="Energy Efficiency and Carbon Reduction Narrative" />
@@ -2829,7 +2785,7 @@ export default function JobAdvancedReports({
             </CardContent>
           </Card>
 
-          {/* ── SECR: Carbon Reduction Actions ─────────────────────────────── */}
+          {/* Ã¢â€â‚¬Ã¢â€â‚¬ SECR: Carbon Reduction Actions Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
           <Card className="live-report-section">
             <CardHeader className="pb-3">
               <SectionHeader title="Carbon Reduction Actions" />
@@ -2855,13 +2811,13 @@ export default function JobAdvancedReports({
                 </div>
               ) : (
                 <p className="text-sm text-gray-400 italic">
-                  No carbon reduction actions recorded yet. Add actions in Data → Actions.
+                  No carbon reduction actions recorded yet. Add actions in Data Ã¢â€ â€™ Actions.
                 </p>
               )}
             </CardContent>
           </Card>
 
-          {/* ── SECR: Methodology & Standards ──────────────────────────────── */}
+          {/* Ã¢â€â‚¬Ã¢â€â‚¬ SECR: Methodology & Standards Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
           <Card className="live-report-section">
             <CardHeader className="pb-3">
               <SectionHeader title="Methodology and Standards" />
@@ -2888,7 +2844,7 @@ export default function JobAdvancedReports({
             </CardContent>
           </Card>
 
-          {/* ── SECR: Declaration / Sign-off ───────────────────────────────── */}
+          {/* Ã¢â€â‚¬Ã¢â€â‚¬ SECR: Declaration / Sign-off Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
           <Card className="live-report-section">
             <CardHeader className="pb-3">
               <SectionHeader title="Declaration" />
@@ -2902,26 +2858,26 @@ export default function JobAdvancedReports({
               <div className="grid gap-8 sm:grid-cols-2">
                 <div className="space-y-1">
                   <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Prepared by</div>
-                  <div className="text-sm font-medium text-gray-800">{report_metadata?.consultant_name ?? "—"}</div>
+                  <div className="text-sm font-medium text-gray-800">{report_metadata?.consultant_name ?? "Ã¢â‚¬â€"}</div>
                   <div className="text-xs text-gray-500">{report_metadata?.consultant_position ?? ""}</div>
                   <div className="mt-3 h-px w-40 border-t border-dashed border-gray-300" />
                   <div className="text-xs text-gray-400">Signature</div>
                   <div className="mt-1 text-xs text-gray-500">
                     Date: {report_metadata?.consultant_signature_date
                       ? formatDate(String(report_metadata?.consultant_signature_date))
-                      : "—"}
+                      : "Ã¢â‚¬â€"}
                   </div>
                 </div>
                 <div className="space-y-1">
                   <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Authorised by</div>
-                  <div className="text-sm font-medium text-gray-800">{report_metadata?.client_signee_name ?? "—"}</div>
+                  <div className="text-sm font-medium text-gray-800">{report_metadata?.client_signee_name ?? "Ã¢â‚¬â€"}</div>
                   <div className="text-xs text-gray-500">{report_metadata?.client_signee_position ?? ""}</div>
                   <div className="mt-3 h-px w-40 border-t border-dashed border-gray-300" />
                   <div className="text-xs text-gray-400">Signature</div>
                   <div className="mt-1 text-xs text-gray-500">
                     Date: {report_metadata?.client_signature_date
                       ? formatDate(String(report_metadata?.client_signature_date))
-                      : "—"}
+                      : "Ã¢â‚¬â€"}
                   </div>
                 </div>
               </div>

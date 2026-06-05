@@ -26,8 +26,11 @@ import {
   ScopeYearOnYearBarWidget,
   ScopeSummaryDonutWidget,
   buildEmissionsReductionPathwayData,
+  buildScopeDonutItems,
   captureSvgToPngDataUrl,
   findLargestSvg,
+  resolveScopeDonutBenchmarkTotal,
+  resolveScopeDonutBenchmarkYear,
   type IntensityPathwayPoint,
 } from "@/components/report-widgets";
 
@@ -233,20 +236,20 @@ export default function JobInsights({
     };
   }, [baseUrl, clientId, jobId, refreshIndex]);
 
-  const scopeCards = useMemo(() => {
-    if (!scopeTotals) return [];
-    return [
-      { name: "Scope 1", value: scopeTotals.scope_1 },
-      { name: "Scope 2", value: scopeTotals.scope_2 },
-      { name: "Scope 3", value: scopeTotals.scope_3 },
-    ];
-  }, [scopeTotals]);
+  const scopeCards = useMemo(
+    () => buildScopeDonutItems(scopeTotals?.scope_1, scopeTotals?.scope_2, scopeTotals?.scope_3),
+    [scopeTotals?.scope_1, scopeTotals?.scope_2, scopeTotals?.scope_3],
+  );
 
   const benchmarkScopeTotal = useMemo(() => {
     const firstHistoricalYear = yearlyEmissions.length > 0 ? yearlyEmissions[0].year : null;
-    const benchmarkRow = yearlyEmissions.find((row) => row.year === (benchmarkYear ?? firstHistoricalYear ?? null));
-    return benchmarkRow ? Number(benchmarkRow.total || 0) : null;
-  }, [benchmarkYear, yearlyEmissions]);
+    const benchmarkBarYear = resolveScopeDonutBenchmarkYear(
+      benchmarkYear,
+      firstHistoricalYear,
+      reportingYear ?? new Date().getFullYear(),
+    );
+    return resolveScopeDonutBenchmarkTotal(yearlyEmissions, benchmarkBarYear);
+  }, [benchmarkYear, reportingYear, yearlyEmissions]);
 
   const activityData = useMemo(() => {
     const map = new Map<string, number>();
@@ -672,7 +675,7 @@ export default function JobInsights({
           data={scopeCards}
           currentYear={currentYear}
           currentTotal={scopeTotals?.total ?? 0}
-          benchmarkYear={benchmarkYear ?? firstHistoricalYear ?? currentYear}
+          benchmarkYear={resolveScopeDonutBenchmarkYear(benchmarkYear, firstHistoricalYear, currentYear)}
           benchmarkTotal={benchmarkScopeTotal}
           className="w-full"
         />
@@ -683,7 +686,7 @@ export default function JobInsights({
           data={normalizedSiteData}
           currentYear={currentYear}
           currentTotal={scopeTotals?.total ?? 0}
-          benchmarkYear={benchmarkYear ?? firstHistoricalYear ?? currentYear}
+          benchmarkYear={resolveScopeDonutBenchmarkYear(benchmarkYear, firstHistoricalYear, currentYear)}
           benchmarkTotal={benchmarkScopeTotal}
           className="w-full"
         />

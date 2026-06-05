@@ -21,6 +21,8 @@ type EmissionsByActivityWidgetProps = {
   showWidgetRef?: boolean;
   showHeader?: boolean;
   showPng?: boolean;
+  presentation?: "card" | "image";
+  storedPngUrl?: string | null;
   className?: string;
 };
 
@@ -40,10 +42,25 @@ export function EmissionsByActivityWidget({
   showWidgetRef = true,
   showHeader = true,
   showPng = true,
+  presentation = "card",
+  storedPngUrl,
   className,
 }: EmissionsByActivityWidgetProps) {
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
   const chartHeight = Math.max(200, data.length * 52 + 40);
+
+  if (presentation === "image" && storedPngUrl) {
+    return (
+      <div className={className} data-widget-key={widgetKey}>
+        <img
+          src={storedPngUrl}
+          alt={title}
+          className="mx-auto block max-w-full h-auto object-contain"
+          style={{ width: "100%" }}
+        />
+      </div>
+    );
+  }
 
   if (data.length === 0) {
     if (!showHeader) {

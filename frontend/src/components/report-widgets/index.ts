@@ -2,6 +2,7 @@ export * from "./types";
 export { captureSvgToPngDataUrl, findLargestSvg } from "./png-export";
 export * from "./export-registry";
 export * from "./pathway-data";
+export * from "./scope-donut-data";
 export * from "./ReportYearHeader";
 export * from "./registry";
 export { EmissionsReductionPathwayWidget } from "./EmissionsReductionPathwayWidget";
