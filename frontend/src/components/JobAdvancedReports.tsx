@@ -769,12 +769,12 @@ export default function JobAdvancedReports({
     setDownloadError(null);
     try {
       await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsScopeDonut);
-      await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsSiteDonut);
       await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.scopeYearOnYearBar);
+      await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsSiteDonut);
+      await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsReductionPathway);
       await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsByActivity);
       await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.intensityPathway);
       await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.historicalEmissionsTrend);
-      await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsReductionPathway);
 
       const res = await authFetch(`${baseUrl}/jobs/${jobId}/report-live-pdf`);
       if (!res.ok) {
