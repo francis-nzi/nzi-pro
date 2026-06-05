@@ -26,6 +26,7 @@ import {
   EmissionsReductionPathwayWidget,
   HistoricalEmissionsTrendWidget,
   IntensityPathwayWidget,
+  buildActivityBarData,
   ScopeSummaryDonutWidget,
   ScopeYearOnYearBarWidget,
   buildEmissionsReductionPathwayData,
@@ -198,9 +199,6 @@ type LiveData = {
   benchmark_categories?: EmissionCategory[];
   previous_year_categories?: EmissionCategory[];
   previous_year_label?: string | null;
-  activity_totals?: Record<string, number | null>;
-  activity_group_order?: string[];
-  activity_group_colors?: Record<string, string>;
   intensity_metrics?: Record<string, { label?: string; value?: number | null; divider?: number | null }>;
   job_actions?: {
     grouped?: Array<{
@@ -1074,9 +1072,6 @@ export default function JobAdvancedReports({
     benchmark_categories,
     previous_year_categories,
     previous_year_label,
-    activity_totals,
-    activity_group_order,
-    activity_group_colors,
     intensity_metrics,
     job_actions,
     target_data,
@@ -1124,16 +1119,7 @@ export default function JobAdvancedReports({
     scope_totals?.["Scope 3"],
   );
 
-  const activityOrder = activity_group_order ?? Object.keys(activity_totals ?? {});
-  const activityBarData = activityOrder
-    .filter(k => toNum(activity_totals?.[k]) > 0)
-    .map(k => ({
-      name: k.length > 26 ? k.slice(0, 24) + "ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦" : k,
-      fullName: k,
-      value: toNum(activity_totals?.[k]),
-      fill: activity_group_colors?.[k] ?? "#999",
-    }))
-    .sort((a, b) => b.value - a.value);
+  const activityBarData = buildActivityBarData(categories ?? [], totalEmissions);
 
   const hasPathway = baselineYear > 2000 && netZeroYear > baselineYear;
   const emissionsReductionPathwayData = buildEmissionsReductionPathwayData({

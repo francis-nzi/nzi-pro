@@ -22,6 +22,7 @@ import {
   EmissionsReductionPathwayWidget,
   HistoricalEmissionsTrendWidget,
   IntensityPathwayWidget,
+  buildActivityBarData,
   getWidgetPngExporter,
   SiteSummaryDonutWidget,
   ScopeYearOnYearBarWidget,
@@ -99,7 +100,6 @@ type IntensityMetricsResponse = {
 };
 
 const SCOPE_COLORS = ["#0f766e", "#0891b2", "#38bdf8"];
-const ACTIVITY_COLORS = ["#0ea5e9", "#14b8a6", "#f97316", "#8b5cf6", "#22c55e", "#ef4444", "#64748b", "#eab308"];
 
 function formatTco2e(value: number): string {
   return value.toLocaleString("en-GB", { maximumFractionDigits: 1 });
@@ -113,13 +113,6 @@ function bucketKey(value?: string | null): string {
 function formatTooltipValue(value: unknown): [string, string] {
   const amount = Array.isArray(value) ? Number(value[0] ?? 0) : Number(value ?? 0);
   return [`${formatTco2e(amount)} tCO₂e`, ""];
-}
-
-function normalizeSeries<T extends { value: number }>(rows: T[], targetTotal: number): T[] {
-  const rawTotal = rows.reduce((acc, row) => acc + Number(row.value || 0), 0);
-  if (rawTotal <= 0 || targetTotal <= 0) return rows;
-  const scale = Math.abs(rawTotal - targetTotal) > 0.05 ? targetTotal / rawTotal : 1;
-  return rows.map((row) => ({ ...row, value: Number(row.value || 0) * scale }));
 }
 
 function pct(value: number, total: number): string {
@@ -252,18 +245,6 @@ export default function JobInsights({
     return resolveScopeDonutBenchmarkTotal(yearlyEmissions, benchmarkBarYear);
   }, [benchmarkYear, reportingYear, yearlyEmissions]);
 
-  const activityData = useMemo(() => {
-    const map = new Map<string, number>();
-    rows.forEach((row) => {
-      const label = bucketKey(row.dataset_category || row.lookup_category || row.category || row.report_label);
-      map.set(label, (map.get(label) ?? 0) + Number(row.calc_tco2e || 0));
-    });
-    return Array.from(map.entries())
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 8);
-  }, [rows]);
-
   const siteData = useMemo(() => {
     const map = new Map<string, number>();
     rows.forEach((row) => {
@@ -276,25 +257,17 @@ export default function JobInsights({
       .slice(0, 8);
   }, [rows]);
 
-  const normalizedActivityData = useMemo(
-    () => normalizeSeries(activityData, Number(scopeTotals?.total || 0)),
-    [activityData, scopeTotals?.total]
-  );
+  const activityBarData = useMemo(() => buildActivityBarData(rows, Number(scopeTotals?.total || 0)), [rows, scopeTotals?.total]);
 
   const normalizedSiteData = useMemo(
-    () => normalizeSeries(siteData, Number(scopeTotals?.total || 0)),
+    () => {
+      const rawTotal = siteData.reduce((acc, row) => acc + Number(row.value || 0), 0);
+      const targetTotal = Number(scopeTotals?.total || 0);
+      if (rawTotal <= 0 || targetTotal <= 0) return siteData;
+      const scale = Math.abs(rawTotal - targetTotal) > 0.05 ? targetTotal / rawTotal : 1;
+      return siteData.map((row) => ({ ...row, value: Number(row.value || 0) * scale }));
+    },
     [scopeTotals?.total, siteData]
-  );
-
-  const activityBarData = useMemo(
-    () =>
-      normalizedActivityData.map((activity, index) => ({
-        name: activity.name,
-        fullName: activity.name,
-        value: activity.value,
-        fill: ACTIVITY_COLORS[index % ACTIVITY_COLORS.length],
-      })),
-    [normalizedActivityData]
   );
 
   const monthlyTrend = useMemo(() => {
@@ -406,7 +379,7 @@ export default function JobInsights({
         .map(([key, metric], index) => ({
           key,
           label: metric?.label?.trim() || key,
-          color: ACTIVITY_COLORS[index % ACTIVITY_COLORS.length],
+          color: ["#0ea5e9", "#14b8a6", "#f97316", "#8b5cf6"][index % 4],
           value: Number(metric?.value ?? 0),
         }))
         .filter((entry) => entry.value > 0)
@@ -488,7 +461,7 @@ export default function JobInsights({
 
   const summaryData = useMemo(() => {
     if (!scopeTotals) return "Generate the dashboard to review the job's emissions pattern, hotspots, and target path.";
-    const topDatasetCategory = normalizedActivityData[0];
+    const topDatasetCategory = activityBarData[0];
     const topSite = normalizedSiteData[0];
     const scopeRows = scopeCards
       .map((scope) => ({ ...scope, share: scopeTotals.total > 0 ? (scope.value / scopeTotals.total) * 100 : 0 }))
@@ -506,7 +479,7 @@ export default function JobInsights({
     ]
       .filter(Boolean)
       .join(" ");
-  }, [clientName, jobId, jobNumber, normalizedActivityData, normalizedSiteData, scopeCards, scopeTotals, targetYear, interimYear]);
+  }, [activityBarData, clientName, jobId, jobNumber, normalizedSiteData, scopeCards, scopeTotals, targetYear, interimYear]);
 
   async function captureAllWidgetPngs() {
     setCapturing(true);
@@ -615,9 +588,9 @@ export default function JobInsights({
         <MetricCard label="Target Year" value={targetYear ?? 2050} />
         <LinkMetricCard
           label="Top Dataset Category"
-          value={normalizedActivityData[0] ? formatTco2e(normalizedActivityData[0].value) : "0.0"}
+          value={activityBarData[0] ? formatTco2e(activityBarData[0].value) : "0.0"}
           suffix="tCO₂e"
-          name={normalizedActivityData[0]?.name ?? "No dataset category data"}
+          name={activityBarData[0]?.name ?? "No dataset category data"}
           href={`/jobs/${jobId}/data-entry`}
         />
         <LinkMetricCard
@@ -638,9 +611,9 @@ export default function JobInsights({
           <div className="grid gap-3 md:grid-cols-3">
             <div className="rounded-lg border bg-white/70 p-3">
               <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Top dataset category</div>
-              <div className="mt-1 text-sm font-medium">{normalizedActivityData[0]?.name ?? "No dataset category data"}</div>
+              <div className="mt-1 text-sm font-medium">{activityBarData[0]?.name ?? "No dataset category data"}</div>
               <div className="text-sm text-muted-foreground">
-                {normalizedActivityData[0] ? `${formatTco2e(normalizedActivityData[0].value)} tCO₂e` : "No dataset category data"}
+                {activityBarData[0] ? `${formatTco2e(activityBarData[0].value)} tCO₂e` : "No dataset category data"}
               </div>
             </div>
             <div className="rounded-lg border bg-white/70 p-3">
