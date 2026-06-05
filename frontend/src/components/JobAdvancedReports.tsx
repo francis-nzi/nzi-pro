@@ -768,24 +768,8 @@ export default function JobAdvancedReports({
     setDownloading(true);
     setDownloadError(null);
     try {
-      const exporter = await waitForWidgetPngExporter(REPORT_WIDGET_IDS.emissionsReductionPathway);
-      if (exporter) {
-        try {
-          const pngData = await exporter();
-          if (pngData) {
-            await authFetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                widget_id: REPORT_WIDGET_IDS.emissionsReductionPathway,
-                png_data: pngData,
-              }),
-            });
-          }
-        } catch {
-          // Continue to PDF generation even if the refresh step fails.
-        }
-      }
+      await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsSiteDonut);
+      await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsReductionPathway);
 
       const res = await authFetch(`${baseUrl}/jobs/${jobId}/report-live-pdf`);
       if (!res.ok) {
@@ -824,6 +808,29 @@ export default function JobAdvancedReports({
       await new Promise<void>((resolve) => setTimeout(resolve, 50));
     }
     return getWidgetPngExporter(widgetId);
+  }
+
+  async function refreshWidgetPngForPdf(widgetId: string) {
+    const exporter = await waitForWidgetPngExporter(widgetId);
+    if (!exporter) return false;
+
+    try {
+      const pngData = await exporter();
+      if (!pngData) return false;
+
+      const res = await authFetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          widget_id: widgetId,
+          png_data: pngData,
+        }),
+      });
+      return res.ok;
+    } catch {
+      // Continue to PDF generation even if a single widget refresh fails.
+      return false;
+    }
   }
 
   function savePdfToDisk() {
