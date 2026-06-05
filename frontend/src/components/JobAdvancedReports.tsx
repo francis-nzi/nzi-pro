@@ -1185,7 +1185,7 @@ export default function JobAdvancedReports({
   const printJobNumber = String(data.job_data?.job_number ?? "").replace(/['"\\]/g, "");
 
   return (
-    <>
+    <div data-report-ready="1">
       {/* In-app PDF viewer overlay */}
       {pdfBlobUrl && (
         <div className="fixed inset-0 z-50 flex flex-col bg-gray-900">
@@ -3000,7 +3000,7 @@ export default function JobAdvancedReports({
         </>}
 
       </div>
-    </>
+    </div>
   );
 }
 
