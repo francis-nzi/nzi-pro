@@ -707,6 +707,7 @@ export default function JobAdvancedReports({
   const [sendingToPortal, setSendingToPortal] = useState(false);
   const [sendToPortalResult, setSendToPortalResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [storedWidgetPngs, setStoredWidgetPngs] = useState<Record<string, string>>({});
+  const [useWidgetPngs, setUseWidgetPngs] = useState(false);
 
   function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
     const headers: Record<string, string> = {
@@ -742,6 +743,7 @@ export default function JobAdvancedReports({
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("use_widget_pngs") !== "1") return;
+    setUseWidgetPngs(true);
     void (async () => {
       try {
         const res = await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, { credentials: "include" });
@@ -1551,14 +1553,15 @@ export default function JobAdvancedReports({
               <ScopeSummaryDonutWidget
                 title={`${data.job_data.client_name ?? "Client"} Emissions Summary by Scope`}
                 clientName={data.job_data.client_name}
-              data={scopeDonutData}
-              currentYear={currentReportYear}
-              currentTotal={totalEmissions}
-              benchmarkYear={donutBenchmarkYear}
-              benchmarkTotal={donutBenchmarkTotal}
-              showWidgetRef={true}
-              presentation="card"
-            />
+                data={scopeDonutData}
+                currentYear={currentReportYear}
+                currentTotal={totalEmissions}
+                benchmarkYear={donutBenchmarkYear}
+                benchmarkTotal={donutBenchmarkTotal}
+                showWidgetRef={true}
+                storedPngUrl={useWidgetPngs ? storedWidgetPngs["emissions_scope_donut"] ?? null : null}
+                presentation={useWidgetPngs ? "image" : "card"}
+              />
             </div>
 
           </CardContent>
@@ -1644,7 +1647,8 @@ export default function JobAdvancedReports({
                   interimYear={interimYear}
                   showScope2={scope2 > 0}
                   showWidgetRef={true}
-                  presentation="card"
+                  storedPngUrl={useWidgetPngs ? storedWidgetPngs["emissions_reduction_pathway"] ?? null : null}
+                  presentation={useWidgetPngs ? "image" : "card"}
                   className="w-full"
                 />
               </div>
@@ -1870,7 +1874,8 @@ export default function JobAdvancedReports({
                 benchmarkYear={donutBenchmarkYear}
                 benchmarkTotal={donutBenchmarkTotal}
                 showWidgetRef={true}
-                presentation="card"
+                storedPngUrl={useWidgetPngs ? storedWidgetPngs["emissions_scope_donut"] ?? null : null}
+                presentation={useWidgetPngs ? "image" : "card"}
               />
             </div>
 
@@ -1885,7 +1890,8 @@ export default function JobAdvancedReports({
                 showPreviousBar={scopeYearOnYearBar.showPreviousBar}
                 showComparisonPct={scopeYearOnYearBar.showComparisonPct}
                 showWidgetRef={true}
-                presentation="card"
+                storedPngUrl={useWidgetPngs ? storedWidgetPngs["scope_year_on_year_bar"] ?? null : null}
+                presentation={useWidgetPngs ? "image" : "card"}
                 className="w-full"
               />
             ) : null}
@@ -1994,7 +2000,8 @@ export default function JobAdvancedReports({
               clientName={data.job_data.client_name}
               data={activityBarData}
               showWidgetRef={true}
-              presentation="card"
+              storedPngUrl={useWidgetPngs ? storedWidgetPngs["emissions_by_activity"] ?? null : null}
+              presentation={useWidgetPngs ? "image" : "card"}
               className="w-full"
             />
             {report_metadata?.activity_commentary && (
@@ -2368,11 +2375,12 @@ export default function JobAdvancedReports({
                     series={intensityPathwaySeries}
                     benchmarkYear={baselineYear}
                     targetYear={netZeroYear}
-                    interimYear={interimYear}
-                    showWidgetRef={true}
-                    presentation="card"
-                    className="w-full"
-                  />
+                  interimYear={interimYear}
+                  showWidgetRef={true}
+                  storedPngUrl={useWidgetPngs ? storedWidgetPngs["intensity_pathway"] ?? null : null}
+                  presentation={useWidgetPngs ? "image" : "card"}
+                  className="w-full"
+                />
                 )}
               </CardContent>
             </Card>
@@ -2437,7 +2445,8 @@ export default function JobAdvancedReports({
             clientName={data.job_data?.client_name}
             data={effectiveYearlyEmissions}
             showWidgetRef={true}
-            presentation="card"
+            storedPngUrl={useWidgetPngs ? storedWidgetPngs["historical_emissions_trend"] ?? null : null}
+            presentation={useWidgetPngs ? "image" : "card"}
             className="live-report-section"
           />
         )}
