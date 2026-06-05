@@ -96,8 +96,8 @@ export function EmissionsReductionPathwayWidget({
   const yearLookup = new Map<number, EmissionsPathwayPoint>(data.map((point) => [Number(point.year), point]));
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
   const exportPngDataUrlRef = useRef<() => Promise<string> | string>(() => "");
-  const minCaptureWidth = 300;
-  const minCaptureHeight = 200;
+  const minCaptureWidth = 320;
+  const minCaptureHeight = 220;
 
   const total = useMemo(() => Number(data.reduce((sum, item) => sum + Number(item.actual_total ?? item.target_total ?? 0), 0)), [data]);
 
@@ -139,7 +139,7 @@ export function EmissionsReductionPathwayWidget({
   }, [benchmarkYear, data, total]);
 
   const waitForRenderedSvg = useCallback(async () => {
-    for (let attempt = 0; attempt < 12; attempt += 1) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
       const svg = findLargestSvg(chartWrapRef.current);
       if (svg) {
         const rect = svg.getBoundingClientRect();
@@ -148,7 +148,7 @@ export function EmissionsReductionPathwayWidget({
         }
       }
       await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, 50);
+        window.setTimeout(resolve, 75);
       });
     }
     return findLargestSvg(chartWrapRef.current);

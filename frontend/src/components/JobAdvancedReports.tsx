@@ -2336,18 +2336,19 @@ export default function JobAdvancedReports({
             return d === 1 ? `Per ${label}` : `Per ${d.toLocaleString()} ${label}`;
           };
 
-          const currencySymbol = (() => {
-            const country = String(data.job_data?.country ?? "").toLowerCase().trim();
-            if (country.includes("united states") || country.includes("usa") || country === "us") return "$";
-            if (country.includes("europe") || country.includes("germany") || country.includes("france") || country.includes("spain") || country.includes("italy") || country.includes("netherlands") || country.includes("belgium") || country.includes("austria") || country.includes("portugal") || country.includes("ireland")) return "?";
-            if (country.includes("australia")) return "A$";
-            if (country.includes("canada")) return "C$";
-            if (country.includes("new zealand")) return "NZ$";
-            if (country.includes("japan")) return "?";
-            if (country.includes("switzerland")) return "CHF";
-            if (country.includes("sweden") || country.includes("norway") || country.includes("denmark")) return "kr";
-            return "?";
-          })();
+            const currencySymbol = (() => {
+              const country = String(data.job_data?.country ?? "").toLowerCase().trim();
+              if (country.includes("united states") || country.includes("usa") || country === "us") return "$";
+              if (country.includes("united kingdom") || country.includes("uk") || country.includes("great britain") || country.includes("britain") || country.includes("england") || country.includes("scotland") || country.includes("wales") || country.includes("northern ireland")) return "\u00A3";
+              if (country.includes("europe") || country.includes("germany") || country.includes("france") || country.includes("spain") || country.includes("italy") || country.includes("netherlands") || country.includes("belgium") || country.includes("austria") || country.includes("portugal") || country.includes("ireland")) return "\u00A3";
+              if (country.includes("australia")) return "A$";
+              if (country.includes("canada")) return "C$";
+              if (country.includes("new zealand")) return "NZ$";
+              if (country.includes("japan")) return "\u00A5";
+              if (country.includes("switzerland")) return "CHF";
+              if (country.includes("sweden") || country.includes("norway") || country.includes("denmark")) return "kr";
+              return "\u00A3";
+            })();
 
           const MetricIcon = ({ metricKey, label }: { metricKey: string; label?: string | null }) => {
             if (metricKey === "employees") return (
