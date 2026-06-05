@@ -1048,7 +1048,7 @@ export default function JobAdvancedReports({
 
   if (loading) {
     return (
-      <LoadingOrbit className="h-64" label="Loading report dataÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦" />
+      <LoadingOrbit className="h-64" label="Loading report data..." />
     );
   }
 
@@ -1180,13 +1180,13 @@ export default function JobAdvancedReports({
                 onClick={savePdfToDisk}
                 className="flex items-center gap-1.5 rounded border border-gray-500 bg-gray-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-600"
               >
-                ÃƒÂ¢Ã‚Â¬Ã¢â‚¬Â¡ Save to disk
+                Save to disk
               </button>
               <button
                 onClick={closePdfViewer}
                 className="flex items-center gap-1.5 rounded border border-gray-500 bg-gray-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-600"
               >
-                ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¢ Close
+                Close
               </button>
             </div>
           </div>
@@ -1543,7 +1543,7 @@ export default function JobAdvancedReports({
               </div>
             ) : (
               <p className="text-sm text-gray-400 italic">
-                Executive summary not yet drafted. Generate AI content in Reporting ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ AI Drafts.
+                Executive summary not yet drafted. Generate AI content in Reporting &gt; AI Drafts.
               </p>
             )}
 
@@ -2907,7 +2907,7 @@ export default function JobAdvancedReports({
                 </div>
               ) : (
                 <p className="text-sm text-gray-400 italic">
-                  No carbon reduction actions recorded yet. Add actions in Data ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ Actions.
+                  No carbon reduction actions recorded yet. Add actions in Data &gt; Actions.
                 </p>
               )}
             </CardContent>
