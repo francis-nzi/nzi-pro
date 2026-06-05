@@ -265,7 +265,7 @@ function fmtEnergy(kwh: number): string {
 }
 
 function boolLabel(v: boolean | null | undefined): string {
-  if (v == null) return "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â";
+  if (v == null) return "-";
   return v ? "Yes" : "No";
 }
 
@@ -394,7 +394,7 @@ function NetZeroTrendChart({
             tick={{ fontSize: 10 }}
           />
           <Tooltip
-            formatter={(value: unknown) => [value != null ? `${fmt(Number(value))} tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e` : "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â", ""]}
+            formatter={(value: unknown) => [value != null ? `${fmt(Number(value))} tCO2e` : "-", ""]}
             labelFormatter={(label: unknown) => `Year: ${label}`}
           />
           <Legend content={(p) => <WrapLegend payload={(p.payload as LegendEntry[] | undefined)} />} />
@@ -558,7 +558,7 @@ function IntensityPathwayChart({
             tick={{ fontSize: 10 }}
           />
           <Tooltip
-            formatter={(value: unknown) => [value != null ? `${Number(value).toFixed(3)} tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e` : "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â", ""]}
+            formatter={(value: unknown) => [value != null ? `${Number(value).toFixed(3)} tCO2e` : "-", ""]}
             labelFormatter={(label: unknown) => `Year: ${label}`}
           />
           <Legend content={(p) => <WrapLegend payload={(p.payload as LegendEntry[] | undefined)} />} />
@@ -1177,7 +1177,7 @@ export default function JobAdvancedReports({
           <div className="flex shrink-0 items-center justify-between border-b border-gray-700 bg-gray-800 px-4 py-2.5">
             <div className="flex items-center gap-3">
               <span className="text-sm font-semibold text-white">
-                {data?.job_data?.client_name ?? "Report"} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Carbon Reduction Plan
+                {data?.job_data?.client_name ?? "Report"} - Carbon Reduction Plan
               </span>
               <span className="rounded bg-gray-700 px-2 py-0.5 text-xs text-gray-300">
                 {pdfFilename}
@@ -1416,7 +1416,7 @@ export default function JobAdvancedReports({
             {downloadError}
             {downloadError.toLowerCase().includes("frontend_base_url") && (
               <span className="ml-1 text-red-500">
-                ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â set the <code className="font-mono">FRONTEND_BASE_URL</code> environment variable on the API service in Render.
+                - set the <code className="font-mono">FRONTEND_BASE_URL</code> environment variable on the API service in Render.
               </span>
             )}
           </div>
@@ -1427,7 +1427,7 @@ export default function JobAdvancedReports({
             {generateError}
             {generateError.toLowerCase().includes("frontend_base_url") && (
               <span className="ml-1 text-red-500">
-                ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â set the <code className="font-mono">FRONTEND_BASE_URL</code> environment variable on the API service in Render.
+                - set the <code className="font-mono">FRONTEND_BASE_URL</code> environment variable on the API service in Render.
               </span>
             )}
           </div>
@@ -1452,7 +1452,7 @@ export default function JobAdvancedReports({
         </div>
         {versions.length === 0 && !versionsLoading ? (
           <p className="px-5 py-4 text-xs text-gray-400">
-            No saved versions yet ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â click &quot;Save for Review&quot; to create one.
+            No saved versions yet - click &quot;Save for Review&quot; to create one.
           </p>
         ) : (
           <table className="w-full text-xs">
@@ -1472,7 +1472,7 @@ export default function JobAdvancedReports({
                   ? new Date(v.generated_at).toLocaleDateString("en-GB", {
                       day: "2-digit", month: "short", year: "numeric",
                     })
-                  : "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â";
+                  : "-";
                 return (
                   <tr key={v.report_version_id} className="border-b border-gray-50 last:border-0">
                     <td className="py-2.5 pl-5 font-semibold text-gray-700">
@@ -1493,7 +1493,7 @@ export default function JobAdvancedReports({
                     </td>
                     <td className="py-2.5 text-gray-500">{savedAt}</td>
                     <td className="py-2.5 text-gray-500 max-w-[120px] truncate">
-                      {v.generated_by ?? "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}
+                      {v.generated_by ?? "-"}
                     </td>
                     <td className="py-2.5 pr-5">
                       <div className="flex items-center justify-end gap-2">
@@ -1542,7 +1542,7 @@ export default function JobAdvancedReports({
           </CardHeader>
           <CardContent className="space-y-5">
 
-            {/* AI narrative ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â rendered as distinct paragraphs */}
+            {/* AI narrative - rendered as distinct paragraphs */}
             {execSummaryText ? (
               <div className="space-y-3">
                 {execSummaryText.split(/\n\n+/).map((para, i) => (
@@ -1676,7 +1676,7 @@ export default function JobAdvancedReports({
           </CardHeader>
           <CardContent className="space-y-6">
 
-            {/* Narrative description ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â split into paragraphs */}
+            {/* Narrative description - split into paragraphs */}
             {data.job_data.description && (
               <div className="space-y-3">
                 {data.job_data.description.split(/\r?\n\r?\n|\r?\n/).filter(p => p.trim()).map((para, i) => (
@@ -1809,7 +1809,7 @@ export default function JobAdvancedReports({
                 <p className="emissions-box-figure text-5xl font-bold" style={{ color: BRAND }}>
                   {fmt(totalEmissions)}
                 </p>
-                <p className="mt-1 text-xs text-gray-500">tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e</p>
+                <p className="mt-1 text-xs text-gray-500">tCO2e</p>
               </div>
             </div>
 
@@ -1828,7 +1828,7 @@ export default function JobAdvancedReports({
                 <div className="overflow-hidden rounded-lg border border-gray-200">
                   <div className="grid grid-cols-[1fr_120px_120px] px-3 py-2" style={{ backgroundColor: BRAND }}>
                     <span className="text-xs font-semibold uppercase tracking-wide text-white">Site</span>
-                    <span className="text-xs font-semibold text-white text-right" style={{ textTransform: 'none' }}>tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e</span>
+                    <span className="text-xs font-semibold text-white text-right" style={{ textTransform: 'none' }}>tCO2e</span>
                     <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">% of Total</span>
                   </div>
                   {site_breakdowns?.overall?.map((row, i) => (
@@ -1903,7 +1903,7 @@ export default function JobAdvancedReports({
               />
             ) : null}
 
-            {/* Benchmark / Previous Year / Current Year ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Scope Comparison */}
+            {/* Benchmark / Previous Year / Current Year - Scope Comparison */}
             {/* Scope Descriptions table */}
             <div>
               <p className="text-sm font-semibold text-gray-700 mb-2">Scope Descriptions</p>
@@ -1911,7 +1911,7 @@ export default function JobAdvancedReports({
                 <div className="grid grid-cols-[52px_1fr_90px_58px] px-3 py-2" style={{ backgroundColor: BRAND }}>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white">Scope</span>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white">Description</span>
-                  <span className="text-xs font-semibold text-white text-right" style={{ textTransform: 'none' }}>tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e</span>
+                  <span className="text-xs font-semibold text-white text-right" style={{ textTransform: 'none' }}>tCO2e</span>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">%</span>
                 </div>
                 {([
@@ -2129,11 +2129,11 @@ export default function JobAdvancedReports({
           const bmYearLabel = toYearLabel(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end) || "BM";
           const currentYearLabel = toYearLabel(data.job_data.reporting_period_start, data.job_data.reporting_period_end) || "Current";
 
-          // Shared header cell style: label on line 1, tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e on line 2
+          // Shared header cell style: label on line 1, tCO2e on line 2
           const colHdr = (label: string) => (
             <span className="text-xs font-semibold text-white text-right leading-snug" style={{ textTransform: 'none' }}>
               <span className="block">{label}</span>
-              <span className="block opacity-80">tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e</span>
+              <span className="block opacity-80">tCO2e</span>
             </span>
           );
 
@@ -2154,8 +2154,8 @@ export default function JobAdvancedReports({
                 <div key={`${r.scope}-${r.label}`} className={`grid ${cols} border-b border-gray-100 px-3 py-2 ${bg}`}>
                   <span className="text-xs text-gray-500">{r.scope}</span>
                   <span className="text-xs text-gray-700 pr-2">{r.label}</span>
-                  {hasBenchmark ? <span className="text-xs text-gray-600 text-right">{fmt(r.benchmark)}</span> : <span className="text-xs text-gray-400 text-right">ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â</span>}
-                  {hasPrevYear && <span className="text-xs text-gray-600 text-right">{r.prevYear > 0 ? fmt(r.prevYear) : "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}</span>}
+                  {hasBenchmark ? <span className="text-xs text-gray-600 text-right">{fmt(r.benchmark)}</span> : <span className="text-xs text-gray-400 text-right">-</span>}
+                  {hasPrevYear && <span className="text-xs text-gray-600 text-right">{r.prevYear > 0 ? fmt(r.prevYear) : "-"}</span>}
                   <span className="text-xs text-gray-700 text-right">{fmt(r.current)}</span>
                   <span className="text-xs text-right" style={{ color: pct < 0 ? "#16a34a" : pct > 0 ? "#dc2626" : "#6b7280" }}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span>
                 </div>
@@ -2167,8 +2167,8 @@ export default function JobAdvancedReports({
               <div key={`subtotal-${scope}`} className={`grid ${cols} border-b border-gray-200 px-3 py-2`} style={{ backgroundColor: `${BRAND}12` }}>
                 <span className="text-xs font-semibold text-gray-700">{scope}</span>
                 <span className="text-xs font-semibold text-gray-700">Sub-total</span>
-                {hasBenchmark ? <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeBenchmark)}</span> : <span className="text-xs text-gray-400 text-right">ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â</span>}
-                {hasPrevYear && <span className="text-xs font-semibold text-gray-700 text-right">{scopePrevYear > 0 ? fmt(scopePrevYear) : "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}</span>}
+                {hasBenchmark ? <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeBenchmark)}</span> : <span className="text-xs text-gray-400 text-right">-</span>}
+                {hasPrevYear && <span className="text-xs font-semibold text-gray-700 text-right">{scopePrevYear > 0 ? fmt(scopePrevYear) : "-"}</span>}
                 <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeCurrent)}</span>
                 <span className="text-xs font-semibold text-right" style={{ color: subPct < 0 ? "#16a34a" : subPct > 0 ? "#dc2626" : "#6b7280" }}>{subPct >= 0 ? "+" : ""}{subPct.toFixed(1)}%</span>
               </div>
@@ -2199,8 +2199,8 @@ export default function JobAdvancedReports({
                   {tableRows}
                   <div className={`grid ${cols} border-t-2 border-gray-300 px-3 py-2 bg-gray-50`}>
                     <span className={`text-xs font-bold text-gray-700 uppercase col-span-2`}>Total Emissions</span>
-                    {hasBenchmark ? <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandBenchmarkTotal)}</span> : <span className="text-xs text-gray-400 text-right">ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â</span>}
-                    {hasPrevYear && <span className="text-xs font-bold text-gray-700 text-right">{grandPrevYearTotal > 0 ? fmt(grandPrevYearTotal) : "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}</span>}
+                    {hasBenchmark ? <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandBenchmarkTotal)}</span> : <span className="text-xs text-gray-400 text-right">-</span>}
+                    {hasPrevYear && <span className="text-xs font-bold text-gray-700 text-right">{grandPrevYearTotal > 0 ? fmt(grandPrevYearTotal) : "-"}</span>}
                     <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandCurrentTotal)}</span>
                     <span className="text-xs font-bold text-right" style={{ color: grandPct < 0 ? "#16a34a" : grandPct > 0 ? "#dc2626" : "#6b7280" }}>{grandPct >= 0 ? "+" : ""}{grandPct.toFixed(1)}%</span>
                   </div>
@@ -2253,7 +2253,7 @@ export default function JobAdvancedReports({
           };
 
           const fmtPct = (p: number | null) => {
-            if (p == null) return "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â";
+            if (p == null) return "-";
             const sign = p > 0 ? "+" : "";
             return `${sign}${p.toFixed(1)}%`;
           };
@@ -2315,7 +2315,7 @@ export default function JobAdvancedReports({
             const label = m.label?.trim() || key;
             const d = toNum(m.divider) || 1;
             const perStr = d === 1 ? `per ${label.toLowerCase()}` : `per ${d.toLocaleString()} ${label.toLowerCase()}`;
-            return `${fmt(intensity)} tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e ${perStr}`;
+            return `${fmt(intensity)} tCO2e ${perStr}`;
           }).filter(Boolean);
 
           const employeeCount = toNum(intensity_metrics.employees?.value);
@@ -2335,7 +2335,7 @@ export default function JobAdvancedReports({
                 </p>
                 <div>
                   <p className="text-sm font-semibold text-center text-gray-700 mb-2">
-                    Intensity Metrics (tonnes COÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e)
+                    Intensity Metrics (tonnes CO2e)
                   </p>
                   <div className="overflow-hidden rounded-lg border border-gray-200">
                     {/* Header */}
@@ -2361,8 +2361,8 @@ export default function JobAdvancedReports({
                         <div key={key} className={`grid grid-cols-[56px_1fr_110px_110px_90px] items-center border-b border-gray-100 last:border-0 px-3 py-4 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
                           <div className="flex items-center justify-center"><MetricIcon metricKey={key} label={m.label} /></div>
                           <span className="text-sm font-medium text-gray-700">{perLabel(key, m)}</span>
-                          <span className="text-right text-sm text-gray-600">{benchIntensity != null ? fmt(benchIntensity) : "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}</span>
-                          <span className="text-right text-sm font-semibold text-gray-800">{currIntensity != null ? fmt(currIntensity) : "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}</span>
+                          <span className="text-right text-sm text-gray-600">{benchIntensity != null ? fmt(benchIntensity) : "-"}</span>
+                          <span className="text-right text-sm font-semibold text-gray-800">{currIntensity != null ? fmt(currIntensity) : "-"}</span>
                           <span className={`text-right text-sm font-semibold ${pctColor(pct)}`}>{fmtPct(pct)}</span>
                         </div>
                       );
@@ -2432,7 +2432,7 @@ export default function JobAdvancedReports({
                       width={52}
                     />
                     <Tooltip
-                      formatter={(v: number | undefined, name: string | undefined) => [v != null ? `${fmt(v)} tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e` : "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â", name ?? ""]}
+                      formatter={(v: number | undefined, name: string | undefined) => [v != null ? `${fmt(v)} tCO2e` : "-", name ?? ""]}
                       labelFormatter={(l: unknown) => `Year: ${l}`}
                     />
                     <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
@@ -2696,11 +2696,11 @@ export default function JobAdvancedReports({
           </Card>
         )}
 
-        {/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ 15. Appendix 1 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Full Emissions Audit ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */}
+        {/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ 15. Appendix 1 - Full Emissions Audit ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */}
         {hasAppendix && (
-          <Card className="live-report-section" data-section="Appendix 1 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Full Emissions Audit">
+          <Card className="live-report-section" data-section="Appendix 1 - Full Emissions Audit">
             <CardHeader className="pb-3">
-              <SectionHeader title="Appendix 1 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Full Emissions Audit" />
+              <SectionHeader title="Appendix 1 - Full Emissions Audit" />
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
@@ -2713,7 +2713,7 @@ export default function JobAdvancedReports({
                       <th className="py-2 pr-3 text-left font-semibold text-gray-500">Details</th>
                       <th className="py-2 pr-3 text-right font-semibold text-gray-500">Qty</th>
                       <th className="py-2 pr-3 text-left font-semibold text-gray-500">Unit</th>
-                      <th className="py-2 text-right font-semibold text-gray-500">tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e</th>
+                      <th className="py-2 text-right font-semibold text-gray-500">tCO2e</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2722,16 +2722,16 @@ export default function JobAdvancedReports({
                         key={i}
                         className="border-b border-gray-50 hover:bg-gray-50/60"
                       >
-                        <td className="py-1.5 pr-3 text-gray-600">{row.site_name ?? "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}</td>
-                        <td className="py-1.5 pr-3 text-gray-600">{row.scope ?? "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}</td>
-                        <td className="py-1.5 pr-3 text-gray-600">{row.category ?? "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}</td>
-                        <td className="py-1.5 pr-3 text-gray-600">{row.emission_type ?? "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}</td>
+                        <td className="py-1.5 pr-3 text-gray-600">{row.site_name ?? "-"}</td>
+                        <td className="py-1.5 pr-3 text-gray-600">{row.scope ?? "-"}</td>
+                        <td className="py-1.5 pr-3 text-gray-600">{row.category ?? "-"}</td>
+                        <td className="py-1.5 pr-3 text-gray-600">{row.emission_type ?? "-"}</td>
                         <td className="py-1.5 pr-3 text-right text-gray-700">
-                          {row.qty != null ? fmt(toNum(row.qty)) : "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}
+                          {row.qty != null ? fmt(toNum(row.qty)) : "-"}
                         </td>
-                        <td className="py-1.5 pr-3 text-gray-500">{row.uom ?? "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}</td>
+                        <td className="py-1.5 pr-3 text-gray-500">{row.uom ?? "-"}</td>
                         <td className="py-1.5 text-right font-semibold text-gray-800">
-                          {row.emissions != null ? fmt(toNum(row.emissions)) : "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}
+                          {row.emissions != null ? fmt(toNum(row.emissions)) : "-"}
                         </td>
                       </tr>
                     ))}
@@ -2779,7 +2779,7 @@ export default function JobAdvancedReports({
               <div className="grid grid-cols-3 gap-4 rounded-xl border border-gray-100 bg-gray-50 p-4">
                 <div className="text-center">
                   <div className="text-2xl font-bold" style={{ color: BRAND }}>{fmt(totalEmissions)}</div>
-                  <div className="mt-1 text-xs text-gray-500">Total tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e</div>
+                  <div className="mt-1 text-xs text-gray-500">Total tCO2e</div>
                 </div>
                 <div className="text-center">
                   <div className="text-2xl font-bold text-blue-600">
@@ -2821,10 +2821,10 @@ export default function JobAdvancedReports({
                       { label: "UK Energy Consumption (kWh)", value: fmt(toNum(report_metadata?.energy_consumption_uk_kwh)), unit: "kWh" },
                       { label: "Non-UK Energy Consumption (kWh)", value: fmt(toNum(report_metadata?.energy_consumption_non_uk_kwh)), unit: "kWh" },
                       { label: "Renewable Energy (kWh)", value: fmt(toNum(report_metadata?.renewable_energy_kwh)), unit: "kWh" },
-                      { label: "Energy Emissions ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Location-based (tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e)", value: fmt(toNum(report_metadata?.energy_emissions_tco2e)), unit: "tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e" },
-                      { label: "Energy Emissions ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Market-based (tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e)", value: fmt(toNum(report_metadata?.energy_emissions_market_tco2e)), unit: "tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e" },
-                      { label: "Total Scope 1 & 2 Emissions (tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e)", value: fmt(toNum(scope_totals?.["Scope 1"]) + toNum(scope_totals?.["Scope 2"])), unit: "tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e" },
-                      { label: "Total Greenhouse Gas Emissions (tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e)", value: fmt(totalEmissions), unit: "tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e" },
+                      { label: "Energy Emissions - Location-based (tCO2e)", value: fmt(toNum(report_metadata?.energy_emissions_tco2e)), unit: "tCO2e" },
+                      { label: "Energy Emissions - Market-based (tCO2e)", value: fmt(toNum(report_metadata?.energy_emissions_market_tco2e)), unit: "tCO2e" },
+                      { label: "Total Scope 1 & 2 Emissions (tCO2e)", value: fmt(toNum(scope_totals?.["Scope 1"]) + toNum(scope_totals?.["Scope 2"])), unit: "tCO2e" },
+                      { label: "Total Greenhouse Gas Emissions (tCO2e)", value: fmt(totalEmissions), unit: "tCO2e" },
                     ].map((row, i) => (
                       <tr key={i} className="border-b border-gray-50 last:border-0">
                         <td className="py-2.5 pl-4 text-xs text-gray-700">{row.label}</td>
@@ -2962,26 +2962,26 @@ export default function JobAdvancedReports({
               <div className="grid gap-8 sm:grid-cols-2">
                 <div className="space-y-1">
                   <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Prepared by</div>
-                  <div className="text-sm font-medium text-gray-800">{report_metadata?.consultant_name ?? "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}</div>
+                  <div className="text-sm font-medium text-gray-800">{report_metadata?.consultant_name ?? "-"}</div>
                   <div className="text-xs text-gray-500">{report_metadata?.consultant_position ?? ""}</div>
                   <div className="mt-3 h-px w-40 border-t border-dashed border-gray-300" />
                   <div className="text-xs text-gray-400">Signature</div>
                   <div className="mt-1 text-xs text-gray-500">
                     Date: {report_metadata?.consultant_signature_date
                       ? formatDate(String(report_metadata?.consultant_signature_date))
-                      : "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}
+                      : "-"}
                   </div>
                 </div>
                 <div className="space-y-1">
                   <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Authorised by</div>
-                  <div className="text-sm font-medium text-gray-800">{report_metadata?.client_signee_name ?? "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}</div>
+                  <div className="text-sm font-medium text-gray-800">{report_metadata?.client_signee_name ?? "-"}</div>
                   <div className="text-xs text-gray-500">{report_metadata?.client_signee_position ?? ""}</div>
                   <div className="mt-3 h-px w-40 border-t border-dashed border-gray-300" />
                   <div className="text-xs text-gray-400">Signature</div>
                   <div className="mt-1 text-xs text-gray-500">
                     Date: {report_metadata?.client_signature_date
                       ? formatDate(String(report_metadata?.client_signature_date))
-                      : "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"}
+                      : "-"}
                   </div>
                 </div>
               </div>
@@ -2994,3 +2994,4 @@ export default function JobAdvancedReports({
     </>
   );
 }
+
