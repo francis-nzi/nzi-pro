@@ -771,6 +771,7 @@ export default function JobAdvancedReports({
       await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsScopeDonut);
       await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsSiteDonut);
       await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.scopeYearOnYearBar);
+      await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsByActivity);
       await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsReductionPathway);
 
       const res = await authFetch(`${baseUrl}/jobs/${jobId}/report-live-pdf`);
