@@ -1335,7 +1335,7 @@ export default function JobAdvancedReports({
           <div>
             <h2 className="text-sm font-semibold text-gray-700">Report Printing</h2>
             <p className="mt-0.5 text-xs text-gray-400">
-              React / Playwright renderer Ãƒâ€šÃ‚Â· vector charts Ãƒâ€šÃ‚Â· A4 print layout
+              React / Playwright renderer - vector charts - A4 print layout
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1364,7 +1364,7 @@ export default function JobAdvancedReports({
               {generating ? (
                 <span className="flex items-center gap-2">
                   <span className="h-3 w-3 animate-spin rounded-full border border-gray-400 border-t-transparent" />
-                  SavingÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦
+                  Saving...
                 </span>
               ) : (
                 "Save for Review"
@@ -1379,7 +1379,7 @@ export default function JobAdvancedReports({
               {sendingToPortal ? (
                 <span className="flex items-center gap-2">
                   <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
-                  SendingÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦
+                  Sending...
                 </span>
               ) : (
                 "Send to Portal"
@@ -1394,7 +1394,7 @@ export default function JobAdvancedReports({
               {downloading ? (
                 <span className="flex items-center gap-2">
                   <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
-                  Generating PDFÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦
+                  Generating PDF...
                 </span>
               ) : (
                 "View PDF"
@@ -2751,7 +2751,7 @@ export default function JobAdvancedReports({
                 </div>
               ) : (
                 <p className="text-sm text-gray-400 italic">
-                  Executive summary not yet drafted. Generate AI content in Report Preparation ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ AI Drafts.
+                  Executive summary not yet drafted. Generate AI content in Report Preparation &gt; AI Drafts.
                 </p>
               )}
               <div className="grid grid-cols-3 gap-4 rounded-xl border border-gray-100 bg-gray-50 p-4">
