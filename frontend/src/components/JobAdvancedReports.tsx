@@ -955,6 +955,99 @@ export default function JobAdvancedReports({
       ],
     };
   }, [data, effectiveYearlyEmissions]);
+  const intensityPathwaySeries = useMemo(
+    () =>
+      Object.entries(data?.intensity_metrics ?? {})
+        .map(([key, metric], index) => ({
+          key,
+          label: metric?.label?.trim() || key,
+          color: ["#0ea5e9", "#14b8a6", "#f97316", "#8b5cf6"][index % 4],
+          value: toNum(metric?.value),
+        }))
+        .filter((entry) => entry.value > 0)
+        .slice(0, 4),
+    [data?.intensity_metrics],
+  );
+
+  const intensityPathwayData = useMemo(() => {
+    if (!intensityPathwaySeries.length) return [];
+
+    const jobData = data?.job_data;
+    const targetData = data?.target_data;
+    const scopeTotalsData = data?.scope_totals;
+    const metrics = data?.intensity_metrics ?? {};
+    const yearly = effectiveYearlyEmissions;
+
+    const currentReportYear =
+      toYearNumber(jobData?.reporting_period_start, jobData?.reporting_period_end) ??
+      toNum(jobData?.reporting_year) ??
+      new Date().getFullYear();
+    const scope1 = toNum(scopeTotalsData?.["Scope 1"]);
+    const scope2 = toNum(scopeTotalsData?.["Scope 2"]);
+    const scope3 = toNum(scopeTotalsData?.["Scope 3"]);
+    const baselineYear = toNum(targetData?.baseline_year) || new Date().getFullYear() - 1;
+    const targetPct = toNum(targetData?.net_zero_target_reduction_pct ?? targetData?.target_pct) || 90;
+    const interimS1Pct = toNum(targetData?.interim_s1_pct ?? targetData?.interim_pct) || 50;
+    const interimS2Pct = toNum(targetData?.interim_s2_pct ?? targetData?.interim_pct) || 50;
+    const interimS3Pct = toNum(targetData?.interim_s3_pct ?? targetData?.interim_pct) || 50;
+    const interimYear = toNum(targetData?.interim_target_year ?? targetData?.interim_year) || null;
+    const netZeroYear = toNum(targetData?.net_zero_target_year) || 2050;
+
+    const firstHistoricalYear = yearly.length > 0 ? yearly[0]?.year ?? null : null;
+    const baseline = baselineYear > 1900 ? baselineYear : (firstHistoricalYear ?? currentReportYear);
+    const endYear = netZeroYear > baseline ? netZeroYear : Math.max(baseline + 1, 2050);
+    const benchmarkRow = yearly.find((row) => row.year === baseline);
+    const benchS1 = benchmarkRow ? benchmarkRow.scope1 : scope1;
+    const benchS2 = benchmarkRow ? benchmarkRow.scope2 : scope2;
+    const benchS3 = benchmarkRow ? benchmarkRow.scope3 : scope3;
+    const finalFactor = (100 - targetPct) / 100;
+    const iYear = interimYear && interimYear > baseline && interimYear < endYear ? interimYear : null;
+
+    const forecastScope = (bench: number, iPct: number | null, year: number): number => {
+      if (year <= baseline) return bench;
+      const finalTarget = bench * finalFactor;
+      const iTarget = iYear != null && iPct != null ? bench * (1 - iPct / 100) : null;
+      if (iYear != null && iTarget != null && year <= iYear) {
+        const span = iYear - baseline;
+        const t = span > 0 ? (year - baseline) / span : 1;
+        return bench + (iTarget - bench) * t;
+      }
+      const segStart = iYear ?? baseline;
+      const segVal = iTarget ?? bench;
+      const span = endYear - segStart;
+      const t = span > 0 ? (year - segStart) / span : 1;
+      return Math.max(segVal + (finalTarget - segVal) * t, 0);
+    };
+
+    const forecastTotal = (year: number): number =>
+      forecastScope(benchS1, interimS1Pct, year) +
+      forecastScope(benchS2, interimS2Pct, year) +
+      forecastScope(benchS3, interimS3Pct, year);
+
+    const yearSet = new Set<number>();
+    for (let y = baseline; y <= endYear; y++) yearSet.add(y);
+    yearly.forEach((row) => {
+      if (row.year <= endYear) yearSet.add(row.year);
+    });
+    const years = Array.from(yearSet).sort((a, b) => a - b);
+
+    return years.map((year) => {
+      const actual = yearly.find((row) => row.year === year);
+      const forecast = forecastTotal(year);
+      const row: IntensityPathwayPoint = { year };
+      intensityPathwaySeries.forEach((entry) => {
+        const metric = metrics?.[entry.key];
+        const value = Number(metric?.value ?? 0) || 1;
+        const divider = Number(metric?.divider ?? 1) || 1;
+        row[`${entry.label}_actual`] = actual
+          ? Number(((actual.total * divider) / value).toFixed(3))
+          : null;
+        row[`${entry.label}_target`] = Number(((forecast * divider) / value).toFixed(3));
+      });
+      return row;
+    });
+  }, [data?.intensity_metrics, data?.job_data, data?.scope_totals, data?.target_data, effectiveYearlyEmissions, intensityPathwaySeries]);
+
   if (loading) {
     return (
       <LoadingOrbit className="h-64" label="Loading report dataÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦" />
@@ -1057,93 +1150,6 @@ export default function JobAdvancedReports({
     interimS2Pct,
     interimS3Pct,
   });
-
-  const intensityPathwaySeries = useMemo(
-    () =>
-      Object.entries(intensity_metrics ?? {})
-        .map(([key, metric], index) => ({
-          key,
-          label: metric?.label?.trim() || key,
-          color: ["#0ea5e9", "#14b8a6", "#f97316", "#8b5cf6"][index % 4],
-          value: toNum(metric?.value),
-        }))
-        .filter((entry) => entry.value > 0)
-        .slice(0, 4),
-    [intensity_metrics],
-  );
-
-  const intensityPathwayData = useMemo(() => {
-    if (!intensityPathwaySeries.length) return [];
-
-    const firstHistoricalYear = effectiveYearlyEmissions.length > 0 ? effectiveYearlyEmissions[0]?.year ?? null : null;
-    const baseline = baselineYear > 1900 ? baselineYear : (firstHistoricalYear ?? currentReportYear);
-    const endYear = netZeroYear > baseline ? netZeroYear : Math.max(baseline + 1, 2050);
-    const benchmarkRow = effectiveYearlyEmissions.find((row) => row.year === baseline);
-    const benchS1 = benchmarkRow ? benchmarkRow.scope1 : scope1;
-    const benchS2 = benchmarkRow ? benchmarkRow.scope2 : scope2;
-    const benchS3 = benchmarkRow ? benchmarkRow.scope3 : scope3;
-    const finalFactor = (100 - targetPct) / 100;
-    const iYear = interimYear && interimYear > baseline && interimYear < endYear ? interimYear : null;
-
-    const forecastScope = (bench: number, iPct: number | null, year: number): number => {
-      if (year <= baseline) return bench;
-      const finalTarget = bench * finalFactor;
-      const iTarget = iYear != null && iPct != null ? bench * (1 - iPct / 100) : null;
-      if (iYear != null && iTarget != null && year <= iYear) {
-        const span = iYear - baseline;
-        const t = span > 0 ? (year - baseline) / span : 1;
-        return bench + (iTarget - bench) * t;
-      }
-      const segStart = iYear ?? baseline;
-      const segVal = iTarget ?? bench;
-      const span = endYear - segStart;
-      const t = span > 0 ? (year - segStart) / span : 1;
-      return Math.max(segVal + (finalTarget - segVal) * t, 0);
-    };
-
-    const forecastTotal = (year: number): number =>
-      forecastScope(benchS1, interimS1Pct, year) +
-      forecastScope(benchS2, interimS2Pct, year) +
-      forecastScope(benchS3, interimS3Pct, year);
-
-    const yearSet = new Set<number>();
-    for (let y = baseline; y <= endYear; y++) yearSet.add(y);
-    effectiveYearlyEmissions.forEach((row) => {
-      if (row.year <= endYear) yearSet.add(row.year);
-    });
-    const years = Array.from(yearSet).sort((a, b) => a - b);
-
-    return years.map((year) => {
-      const actual = effectiveYearlyEmissions.find((row) => row.year === year);
-      const forecast = forecastTotal(year);
-      const row: IntensityPathwayPoint = { year };
-      intensityPathwaySeries.forEach((entry) => {
-        const metric = intensity_metrics?.[entry.key];
-        const value = Number(metric?.value ?? 0) || 1;
-        const divider = Number(metric?.divider ?? 1) || 1;
-        row[`${entry.label}_actual`] = actual
-          ? Number(((actual.total * divider) / value).toFixed(3))
-          : null;
-        row[`${entry.label}_target`] = Number(((forecast * divider) / value).toFixed(3));
-      });
-      return row;
-    });
-  }, [
-    baselineYear,
-    currentReportYear,
-    effectiveYearlyEmissions,
-    intensity_metrics,
-    intensityPathwaySeries,
-    interimS1Pct,
-    interimS2Pct,
-    interimS3Pct,
-    interimYear,
-    netZeroYear,
-    scope1,
-    scope2,
-    scope3,
-    targetPct,
-  ]);
 
   const appendixRows = site_breakdowns?.appendix_rows ?? [];
   const hasAppendix = appendixRows.length > 0;
