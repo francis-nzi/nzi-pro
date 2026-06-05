@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Download } from "lucide-react";
 
@@ -9,7 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatNumber } from "@/lib/format";
 
 import { REPORT_WIDGET_IDS } from "./registry";
-import { buildPngFilename, downloadChartAsPng, findLargestSvg } from "./png-export";
+import { registerWidgetPngExporter } from "./export-registry";
+import { buildPngFilename, downloadChartAsPng, findLargestSvg, renderChartAsPngDataUrl } from "./png-export";
 import type { ActivityBarPoint } from "./types";
 
 type EmissionsByActivityWidgetProps = {
@@ -48,6 +49,21 @@ export function EmissionsByActivityWidget({
 }: EmissionsByActivityWidgetProps) {
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
   const chartHeight = Math.max(200, data.length * 52 + 40);
+
+  const exportPngDataUrl = async () => {
+    const svg = findLargestSvg(chartWrapRef.current);
+    if (!svg) return "";
+    return renderChartAsPngDataUrl({
+      svg,
+      title,
+      subtitle,
+    });
+  };
+
+  useEffect(() => {
+    if (!widgetKey) return;
+    return registerWidgetPngExporter(widgetKey, exportPngDataUrl);
+  }, [exportPngDataUrl, widgetKey]);
 
   if (presentation === "image" && storedPngUrl) {
     return (

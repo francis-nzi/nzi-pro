@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   Bar,
   BarChart,
@@ -17,7 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatNumber } from "@/lib/format";
 import { REPORT_WIDGET_IDS } from "./registry";
-import { buildPngFilename, downloadChartAsPng, findLargestSvg } from "./png-export";
+import { registerWidgetPngExporter } from "./export-registry";
+import { buildPngFilename, downloadChartAsPng, findLargestSvg, renderChartAsPngDataUrl } from "./png-export";
 
 export type ScopeYoYBarPoint = {
   scope: string;
@@ -97,6 +98,22 @@ export function ScopeYearOnYearBarWidget({
       legendItems,
     });
   };
+
+  const exportPngDataUrl = async () => {
+    const svg = findLargestSvg(chartWrapRef.current);
+    if (!svg) return "";
+    return renderChartAsPngDataUrl({
+      svg,
+      title: resolvedTitle,
+      subtitle,
+      legendItems,
+    });
+  };
+
+  useEffect(() => {
+    if (!widgetKey) return;
+    return registerWidgetPngExporter(widgetKey, exportPngDataUrl);
+  }, [exportPngDataUrl, widgetKey]);
 
   const renderTooltip = (props: any) => {
     if (!props.active) return null;

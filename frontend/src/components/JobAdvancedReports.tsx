@@ -708,6 +708,7 @@ export default function JobAdvancedReports({
   const [sendToPortalResult, setSendToPortalResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [storedWidgetPngs, setStoredWidgetPngs] = useState<Record<string, string>>({});
   const [useWidgetPngs, setUseWidgetPngs] = useState(false);
+  const [widgetPngsReady, setWidgetPngsReady] = useState(false);
 
   function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
     const headers: Record<string, string> = {
@@ -742,7 +743,10 @@ export default function JobAdvancedReports({
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("use_widget_pngs") !== "1") return;
+    if (params.get("use_widget_pngs") !== "1") {
+      setWidgetPngsReady(true);
+      return;
+    }
     setUseWidgetPngs(true);
     void (async () => {
       try {
@@ -751,6 +755,9 @@ export default function JobAdvancedReports({
         const d = await res.json() as { pngs?: Record<string, string> };
         if (d.pngs && Object.keys(d.pngs).length > 0) setStoredWidgetPngs(d.pngs);
       } catch { /* silently ignore */ }
+      finally {
+        setWidgetPngsReady(true);
+      }
     })();
   }, [jobId, baseUrl]);
 
@@ -968,6 +975,21 @@ export default function JobAdvancedReports({
         .slice(0, 4),
     [data?.intensity_metrics],
   );
+
+  if (useWidgetPngs && !widgetPngsReady) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <Card className="w-full max-w-xl">
+          <CardHeader>
+            <CardTitle>Loading report data...</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-sm text-muted-foreground">Preparing widget PNGs for the PDF render.</div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const intensityPathwayData = useMemo(() => {
     if (!intensityPathwaySeries.length) return [];

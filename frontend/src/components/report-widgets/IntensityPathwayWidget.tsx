@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -18,7 +18,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Download } from "lucide-react";
 import { formatNumber } from "@/lib/format";
 import { REPORT_WIDGET_IDS } from "./registry";
-import { buildPngFilename, downloadChartAsPng, findLargestSvg } from "./png-export";
+import { registerWidgetPngExporter } from "./export-registry";
+import { buildPngFilename, downloadChartAsPng, findLargestSvg, renderChartAsPngDataUrl } from "./png-export";
 
 export type IntensityPathwayPoint = {
   year: number;
@@ -74,6 +75,25 @@ export function IntensityPathwayWidget({
 }: IntensityPathwayWidgetProps) {
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
   const yearLookup = new Map<number, IntensityPathwayPoint>(data.map((point) => [Number(point.year), point]));
+
+  const exportPngDataUrl = async () => {
+    const svg = findLargestSvg(chartWrapRef.current);
+    if (!svg) return "";
+    return renderChartAsPngDataUrl({
+      svg,
+      title,
+      subtitle,
+      legendItems: series.map((entry) => ({
+        label: formatIntensityLabel(entry.label),
+        color: entry.color,
+      })),
+    });
+  };
+
+  useEffect(() => {
+    if (!widgetKey) return;
+    return registerWidgetPngExporter(widgetKey, exportPngDataUrl);
+  }, [exportPngDataUrl, widgetKey]);
 
   const renderTooltip = (props: any) => {
     if (!props.active) return null;

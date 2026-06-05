@@ -26,7 +26,12 @@ export function buildPngFilename(title: string, clientName?: string | null): str
 
 export function findLargestSvg(container: HTMLElement | null): SVGSVGElement | null {
   if (!container) return null;
-  const svgs = Array.from(container.querySelectorAll("svg")) as SVGSVGElement[];
+  const preferredSvgs = Array.from(
+    container.querySelectorAll("svg.recharts-surface, .recharts-wrapper svg"),
+  ) as SVGSVGElement[];
+  const svgs = preferredSvgs.length
+    ? preferredSvgs
+    : (Array.from(container.querySelectorAll("svg")) as SVGSVGElement[]);
   if (!svgs.length) return null;
 
   return svgs

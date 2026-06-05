@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { Bar, BarChart, CartesianGrid, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Download } from "lucide-react";
 
@@ -9,7 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatNumber } from "@/lib/format";
 
 import { REPORT_WIDGET_IDS } from "./registry";
-import { buildPngFilename, downloadChartAsPng, findLargestSvg } from "./png-export";
+import { registerWidgetPngExporter } from "./export-registry";
+import { buildPngFilename, downloadChartAsPng, findLargestSvg, renderChartAsPngDataUrl } from "./png-export";
 import type { HistoricalEmissionsPoint } from "./types";
 
 type HistoricalEmissionsTrendWidgetProps = {
@@ -44,6 +45,26 @@ export function HistoricalEmissionsTrendWidget({
   className,
 }: HistoricalEmissionsTrendWidgetProps) {
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
+
+  const exportPngDataUrl = async () => {
+    const svg = findLargestSvg(chartWrapRef.current);
+    if (!svg) return "";
+    return renderChartAsPngDataUrl({
+      svg,
+      title,
+      subtitle,
+      legendItems: [
+        { label: "Scope 1", color: SCOPE_COLORS["Scope 1"] },
+        { label: "Scope 2", color: SCOPE_COLORS["Scope 2"] },
+        { label: "Scope 3", color: SCOPE_COLORS["Scope 3"] },
+      ],
+    });
+  };
+
+  useEffect(() => {
+    if (!widgetKey) return;
+    return registerWidgetPngExporter(widgetKey, exportPngDataUrl);
+  }, [exportPngDataUrl, widgetKey]);
 
   const downloadPng = async () => {
     const svg = findLargestSvg(chartWrapRef.current);
