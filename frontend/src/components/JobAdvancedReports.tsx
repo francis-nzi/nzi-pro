@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -907,6 +907,50 @@ export default function JobAdvancedReports({
     }
   }
 
+  const scopeYearOnYearBar = useMemo(() => {
+    if (effectiveYearlyEmissions.length === 0) return null;
+
+    const currentYear =
+      toYearNumber(data!.job_data.reporting_period_start, data!.job_data.reporting_period_end) ??
+      toNum(data!.job_data.reporting_year) ??
+      new Date().getFullYear();
+    const firstHistoricalYear = effectiveYearlyEmissions.length > 0 ? effectiveYearlyEmissions[0]?.year ?? null : null;
+    const benchmarkBarYear =
+      toYearNumber(data!.job_data.benchmark_period_start, data!.job_data.benchmark_period_end) ??
+      firstHistoricalYear ??
+      currentYear;
+    const currentRow = effectiveYearlyEmissions.find((row) => row.year === currentYear) ?? effectiveYearlyEmissions[effectiveYearlyEmissions.length - 1] ?? null;
+    const benchmarkRow =
+      effectiveYearlyEmissions.find((row) => row.year === benchmarkBarYear) ??
+      effectiveYearlyEmissions.find((row) => row.year === firstHistoricalYear) ??
+      effectiveYearlyEmissions[0] ??
+      null;
+    const isBenchmarkReportYear = benchmarkBarYear === currentYear;
+
+    if (!currentRow || !benchmarkRow) return null;
+
+    const previousRow =
+      effectiveYearlyEmissions
+        .filter((row) => row.year < currentRow.year)
+        .sort((a, b) => b.year - a.year)[0] ?? null;
+
+    const changePct = (cur: number, bm: number) => (bm > 0 ? Math.round(((cur - bm) / bm) * 1000) / 10 : null);
+
+    return {
+      benchmarkLabel: `BM ${benchmarkRow.year}`,
+      previousLabel: previousRow ? `Previous Year ${previousRow.year}` : "Previous Year",
+      currentLabel: `Current Year ${currentRow.year}`,
+      showBenchmarkBar: !isBenchmarkReportYear,
+      showPreviousBar: !isBenchmarkReportYear,
+      showComparisonPct: !isBenchmarkReportYear,
+      data: [
+        { scope: "Scope 1", benchmark: benchmarkRow.scope1, previous: previousRow?.scope1 ?? null, current: currentRow.scope1, pct: changePct(currentRow.scope1, benchmarkRow.scope1) },
+        { scope: "Scope 2", benchmark: benchmarkRow.scope2, previous: previousRow?.scope2 ?? null, current: currentRow.scope2, pct: changePct(currentRow.scope2, benchmarkRow.scope2) },
+        { scope: "Scope 3", benchmark: benchmarkRow.scope3, previous: previousRow?.scope3 ?? null, current: currentRow.scope3, pct: changePct(currentRow.scope3, benchmarkRow.scope3) },
+        { scope: "Total", benchmark: benchmarkRow.total, previous: previousRow?.total ?? null, current: currentRow.total, pct: changePct(currentRow.total, benchmarkRow.total) },
+      ],
+    };
+  }, [data, effectiveYearlyEmissions]);
   if (loading) {
     return (
       <LoadingOrbit className="h-64" label="Loading report dataÃ¢â‚¬Â¦" />
@@ -993,43 +1037,6 @@ export default function JobAdvancedReports({
       fill: activity_group_colors?.[k] ?? "#999",
     }))
     .sort((a, b) => b.value - a.value);
-
-  const scopeYearOnYearBar = useMemo(() => {
-    if (effectiveYearlyEmissions.length === 0) return null;
-
-    const benchmarkBarYear = donutBenchmarkYear;
-    const currentRow = effectiveYearlyEmissions.find((row) => row.year === currentReportYear) ?? effectiveYearlyEmissions[effectiveYearlyEmissions.length - 1] ?? null;
-    const benchmarkRow =
-      effectiveYearlyEmissions.find((row) => row.year === benchmarkBarYear) ??
-      effectiveYearlyEmissions.find((row) => row.year === firstHistoricalYear) ??
-      effectiveYearlyEmissions[0] ??
-      null;
-    const isBenchmarkReportYear = benchmarkBarYear === currentReportYear;
-
-    if (!currentRow || !benchmarkRow) return null;
-
-    const previousRow =
-      effectiveYearlyEmissions
-        .filter((row) => row.year < currentRow.year)
-        .sort((a, b) => b.year - a.year)[0] ?? null;
-
-    const changePct = (cur: number, bm: number) => (bm > 0 ? Math.round(((cur - bm) / bm) * 1000) / 10 : null);
-
-    return {
-      benchmarkLabel: `BM ${benchmarkRow.year}`,
-      previousLabel: previousRow ? `Previous Year ${previousRow.year}` : "Previous Year",
-      currentLabel: `Current Year ${currentRow.year}`,
-      showBenchmarkBar: !isBenchmarkReportYear,
-      showPreviousBar: !isBenchmarkReportYear,
-      showComparisonPct: !isBenchmarkReportYear,
-      data: [
-        { scope: "Scope 1", benchmark: benchmarkRow.scope1, previous: previousRow?.scope1 ?? null, current: currentRow.scope1, pct: changePct(currentRow.scope1, benchmarkRow.scope1) },
-        { scope: "Scope 2", benchmark: benchmarkRow.scope2, previous: previousRow?.scope2 ?? null, current: currentRow.scope2, pct: changePct(currentRow.scope2, benchmarkRow.scope2) },
-        { scope: "Scope 3", benchmark: benchmarkRow.scope3, previous: previousRow?.scope3 ?? null, current: currentRow.scope3, pct: changePct(currentRow.scope3, benchmarkRow.scope3) },
-        { scope: "Total", benchmark: benchmarkRow.total, previous: previousRow?.total ?? null, current: currentRow.total, pct: changePct(currentRow.total, benchmarkRow.total) },
-      ],
-    };
-  }, [currentReportYear, donutBenchmarkYear, effectiveYearlyEmissions, firstHistoricalYear]);
 
   const hasPathway = baselineYear > 2000 && netZeroYear > baselineYear;
   const emissionsReductionPathwayData = buildEmissionsReductionPathwayData({
