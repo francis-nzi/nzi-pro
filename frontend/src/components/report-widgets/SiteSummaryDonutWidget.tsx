@@ -11,6 +11,13 @@ import { REPORT_WIDGET_IDS } from "./registry";
 import { buildPngFilename, downloadChartAsPng, renderChartAsPngDataUrl } from "./png-export";
 import { registerWidgetPngExporter } from "./export-registry";
 import type { ScopeDonutItem } from "./ScopeSummaryDonutWidget";
+import {
+  DONUT_CHART_WRAPPER_CLASS,
+  DONUT_EXPORT_LAYOUT,
+  DONUT_ROW_GRID_CLASS,
+  DONUT_TABLE_CLASS,
+  DONUT_WIDGET_GRID_CLASS,
+} from "./donut-layout";
 
 type SiteSummaryDonutWidgetProps = {
   title: string;
@@ -109,6 +116,7 @@ export function SiteSummaryDonutWidget({
       ],
       callout: benchmarkPill?.callout ?? null,
       canvasWidth: 960,
+      tableLayout: DONUT_EXPORT_LAYOUT,
     });
   };
 
@@ -141,6 +149,7 @@ export function SiteSummaryDonutWidget({
       ],
       callout: benchmarkPill?.callout ?? null,
       canvasWidth: 960,
+      tableLayout: DONUT_EXPORT_LAYOUT,
     });
   };
 
@@ -180,8 +189,8 @@ export function SiteSummaryDonutWidget({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="mx-auto grid gap-3 w-full lg:w-fit lg:grid-cols-[minmax(0,360px)_300px] lg:items-center">
-          <div className="relative mx-auto flex aspect-square w-full max-w-[360px] justify-center" ref={chartWrapRef}>
+        <div className={`mx-auto grid gap-2 ${DONUT_WIDGET_GRID_CLASS}`}>
+          <div className={DONUT_CHART_WRAPPER_CLASS} ref={chartWrapRef}>
             <ResponsiveContainer width="100%" aspect={1}>
               <PieChart>
                 <Pie data={data} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2}>
@@ -206,9 +215,9 @@ export function SiteSummaryDonutWidget({
               </PieChart>
             </ResponsiveContainer>
           </div>
-          <div className="min-w-0 space-y-3 w-[300px]">
+          <div className={DONUT_TABLE_CLASS}>
             {data.map((site, index) => (
-              <div key={site.name} className="grid grid-cols-[130px_170px] items-center gap-0 text-sm">
+              <div key={site.name} className={DONUT_ROW_GRID_CLASS}>
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SITE_COLORS[index % SITE_COLORS.length] }} />
                   <span className="truncate">{site.name}</span>

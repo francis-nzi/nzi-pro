@@ -10,6 +10,13 @@ import { formatNumber } from "@/lib/format";
 import { REPORT_WIDGET_IDS } from "./registry";
 import { buildPngFilename, downloadChartAsPng, renderChartAsPngDataUrl } from "./png-export";
 import { registerWidgetPngExporter } from "./export-registry";
+import {
+  DONUT_CHART_WRAPPER_CLASS,
+  DONUT_EXPORT_LAYOUT,
+  DONUT_ROW_GRID_CLASS,
+  DONUT_TABLE_CLASS,
+  DONUT_WIDGET_GRID_CLASS,
+} from "./donut-layout";
 
 export type ScopeDonutItem = {
   name: string;
@@ -119,6 +126,7 @@ export function ScopeSummaryDonutWidget({
       ],
       callout: benchmarkPill?.callout ?? null,
       canvasWidth: 960,
+      tableLayout: DONUT_EXPORT_LAYOUT,
     });
   };
 
@@ -151,6 +159,7 @@ export function ScopeSummaryDonutWidget({
       ],
       callout: benchmarkPill?.callout ?? null,
       canvasWidth: 960,
+      tableLayout: DONUT_EXPORT_LAYOUT,
     });
   };
 
@@ -169,9 +178,7 @@ export function ScopeSummaryDonutWidget({
 
   const gridClass = compact
     ? "lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:items-center"
-    : "w-full lg:w-fit lg:grid-cols-[minmax(0,360px)_300px] lg:items-center";
-
-  const maxW = compact ? "max-w-[220px]" : "max-w-[360px]";
+    : DONUT_WIDGET_GRID_CLASS;
 
   return (
     <Card className={className} data-widget-key={widgetKey}>
@@ -198,8 +205,8 @@ export function ScopeSummaryDonutWidget({
         </div>
       </CardHeader>
       <CardContent>
-        <div className={`mx-auto grid gap-3 ${gridClass}`}>
-          <div className={`relative mx-auto flex aspect-square w-full justify-center ${maxW}`} ref={chartWrapRef}>
+        <div className={`mx-auto grid gap-2 ${gridClass}`}>
+          <div className={compact ? "relative mx-auto flex aspect-square w-full justify-center max-w-[220px]" : DONUT_CHART_WRAPPER_CLASS} ref={chartWrapRef}>
             {storedPngUrl ? (
               <img
                 src={storedPngUrl}
@@ -233,9 +240,9 @@ export function ScopeSummaryDonutWidget({
             )}
           </div>
 
-          <div className={compact ? "space-y-2" : "min-w-0 space-y-3 w-[300px]"}>
+          <div className={compact ? "space-y-2" : DONUT_TABLE_CLASS}>
             {data.map((scope, index) => (
-              <div key={scope.name} className="grid grid-cols-[130px_170px] items-center gap-0 text-sm">
+              <div key={scope.name} className={compact ? "grid grid-cols-[130px_170px] items-center gap-0 text-sm" : DONUT_ROW_GRID_CLASS}>
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SCOPE_COLORS[index % SCOPE_COLORS.length] }} />
                   <span className="truncate">{scope.name}</span>

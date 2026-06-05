@@ -61,6 +61,16 @@ export type ChartExportTableRow = {
   isTotal?: boolean;
 };
 
+export type ChartExportTableLayout = {
+  chartAreaWidth?: number;
+  tableGap?: number;
+  tableTopOffset?: number;
+  labelWidth?: number;
+  valueWidth?: number;
+  rowHeight?: number;
+  rowGap?: number;
+};
+
 type DownloadChartAsPngOptions = {
   svg: SVGSVGElement;
   filename: string;
@@ -71,6 +81,7 @@ type DownloadChartAsPngOptions = {
   callout?: ChartExportCallout | null;
   canvasWidth?: number;
   centerChart?: boolean;
+  tableLayout?: ChartExportTableLayout;
 };
 
 function measureLegendRows(ctx: CanvasRenderingContext2D, width: number, items: ChartExportLegendItem[]): ChartExportLegendItem[][] {
@@ -146,6 +157,7 @@ async function composeChartAsPngDataUrl({
   callout = null,
   canvasWidth,
   centerChart = true,
+  tableLayout = {},
 }: Omit<DownloadChartAsPngOptions, "filename">): Promise<string> {
   const clone = svg.cloneNode(true) as SVGSVGElement;
   const rect = svg.getBoundingClientRect();
@@ -221,18 +233,20 @@ async function composeChartAsPngDataUrl({
         }
 
         const chartTop = headerHeight + 24;
-        const chartAreaWidth = hasTable ? 560 : outputWidth;
+        const chartAreaWidth = hasTable ? (tableLayout.chartAreaWidth ?? 560) : outputWidth;
+        const tableGap = tableLayout.tableGap ?? 24;
+        const tableTopOffset = tableLayout.tableTopOffset ?? 40;
+        const labelWidth = tableLayout.labelWidth ?? 130;
+        const valueWidth = tableLayout.valueWidth ?? 170;
+        const rowHeight = tableLayout.rowHeight ?? 42;
+        const rowGap = tableLayout.rowGap ?? 6;
         const chartX = centerChart ? Math.max(0, Math.floor((chartAreaWidth - width) / 2)) : 0;
         const chartLeft = hasTable ? 24 : 0;
         const finalChartX = chartLeft + chartX;
 
         if (hasTable) {
-          const tableX = chartLeft + chartAreaWidth + 24;
-          const tableTop = chartTop + 40;
-          const labelWidth = 130;
-          const valueWidth = 170;
-          const rowHeight = 42;
-          const rowGap = 6;
+          const tableX = chartLeft + chartAreaWidth + tableGap;
+          const tableTop = chartTop + tableTopOffset;
           let rowY = tableTop;
 
           ctx.drawImage(image, finalChartX, chartTop, width, height);
