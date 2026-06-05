@@ -1170,10 +1170,10 @@ export default function JobAdvancedReports({
     scope_totals?.["Scope 2"],
     scope_totals?.["Scope 3"],
   );
-  const pdfWidgetPngs = useMemo(() => (useWidgetPngs ? storedWidgetPngs : {}), [storedWidgetPngs, useWidgetPngs]);
+  const pdfWidgetPngs = useWidgetPngs ? storedWidgetPngs : {};
   const widgetPresentation = useWidgetPngs ? "image" : "card";
   const widgetPngsReadyState = useWidgetPngs ? (widgetPngsReady ? "1" : "0") : "1";
-  const widgetPngs = useMemo(() => ({
+  const widgetPngs = {
     emissionsScopeDonut: pdfWidgetPngs["emissions_scope_donut"] ?? null,
     scopeYearOnYearBar: pdfWidgetPngs["scope_year_on_year_bar"] ?? null,
     emissionsSiteDonut: pdfWidgetPngs["emissions_site_donut"] ?? null,
@@ -1181,24 +1181,21 @@ export default function JobAdvancedReports({
     emissionsByActivity: pdfWidgetPngs["emissions_by_activity"] ?? null,
     intensityPathway: pdfWidgetPngs["intensity_pathway"] ?? null,
     historicalEmissionsTrend: pdfWidgetPngs["historical_emissions_trend"] ?? null,
-  }), [pdfWidgetPngs]);
-  const normalizedSiteData = useMemo(
-    () => {
-      const siteData = (site_breakdowns?.scope ?? [])
-        .map((row) => ({
-          name: row.site_name ?? "Unassigned",
-          value: toNum(row.total),
-        }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 8);
+  };
+  const normalizedSiteData = (() => {
+    const siteData = (site_breakdowns?.scope ?? [])
+      .map((row) => ({
+        name: row.site_name ?? "Unassigned",
+        value: toNum(row.total),
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
 
-      const rawTotal = siteData.reduce((sum, row) => sum + Number(row.value || 0), 0);
-      if (rawTotal <= 0 || totalEmissions <= 0) return siteData;
-      const scale = Math.abs(rawTotal - totalEmissions) > 0.05 ? totalEmissions / rawTotal : 1;
-      return siteData.map((row) => ({ ...row, value: Number(row.value || 0) * scale }));
-    },
-    [site_breakdowns?.scope, totalEmissions],
-  );
+    const rawTotal = siteData.reduce((sum, row) => sum + Number(row.value || 0), 0);
+    if (rawTotal <= 0 || totalEmissions <= 0) return siteData;
+    const scale = Math.abs(rawTotal - totalEmissions) > 0.05 ? totalEmissions / rawTotal : 1;
+    return siteData.map((row) => ({ ...row, value: Number(row.value || 0) * scale }));
+  })();
 
   const activityBarData = buildActivityBarData(categories ?? [], totalEmissions);
 
