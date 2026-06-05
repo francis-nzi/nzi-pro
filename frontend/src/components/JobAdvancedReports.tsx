@@ -768,6 +768,7 @@ export default function JobAdvancedReports({
     setDownloading(true);
     setDownloadError(null);
     try {
+      await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsScopeDonut);
       await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsSiteDonut);
       await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsReductionPathway);
 
