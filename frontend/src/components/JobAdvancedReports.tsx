@@ -1876,7 +1876,6 @@ export default function JobAdvancedReports({
 
             {scopeYearOnYearBar ? (
               <ScopeYearOnYearBarWidget
-                title="Year-on-Year Comparison by Scope"
                 clientName={data.job_data.client_name}
                 data={scopeYearOnYearBar.data}
                 benchmarkLabel={scopeYearOnYearBar.benchmarkLabel}

@@ -30,7 +30,7 @@ export type ScopeYoYBarPoint = {
 type LegendItem = { label: string; color: string };
 
 type ScopeYearOnYearBarWidgetProps = {
-  title: string;
+  title?: string;
   subtitle?: string;
   clientName?: string | null;
   data: ScopeYoYBarPoint[];
@@ -75,6 +75,7 @@ export function ScopeYearOnYearBarWidget({
   className,
 }: ScopeYearOnYearBarWidgetProps) {
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
+  const resolvedTitle = title ?? `${clientName ?? "Client"} Year-on-Year Comparison by Scope`;
 
   const legendItems = useMemo<LegendItem[]>(
     () => [
@@ -90,8 +91,8 @@ export function ScopeYearOnYearBarWidget({
     if (!svg) return;
     await downloadChartAsPng({
       svg,
-      filename: buildPngFilename(title, clientName),
-      title,
+      filename: buildPngFilename(resolvedTitle, clientName),
+      title: resolvedTitle,
       subtitle,
       legendItems,
     });
@@ -142,7 +143,7 @@ export function ScopeYearOnYearBarWidget({
       <div className={className} data-widget-key={widgetKey}>
         <img
           src={storedPngUrl}
-          alt={title}
+          alt={resolvedTitle}
           className="mx-auto block max-w-full h-auto object-contain"
           style={{ width: "100%" }}
         />
@@ -154,7 +155,7 @@ export function ScopeYearOnYearBarWidget({
     return (
       <Card className={className}>
         <CardHeader className="space-y-1">
-          <CardTitle>{title}</CardTitle>
+          <CardTitle>{resolvedTitle}</CardTitle>
           {subtitle ? <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{subtitle}</div> : null}
         </CardHeader>
         <CardContent>
@@ -169,7 +170,7 @@ export function ScopeYearOnYearBarWidget({
       <CardHeader className="space-y-1">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <CardTitle>{title}</CardTitle>
+            <CardTitle>{resolvedTitle}</CardTitle>
             {subtitle ? <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{subtitle}</div> : null}
           </div>
           <div className="flex items-center gap-2">

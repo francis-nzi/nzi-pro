@@ -676,8 +676,7 @@ export default function JobInsights({
       </div>
 
         {scopeYearOnYearBar ? (
-          <ScopeYearOnYearBarWidget
-              title="Year-on-Year Comparison by Scope"
+        <ScopeYearOnYearBarWidget
               clientName={clientName}
               data={scopeYearOnYearBar.data}
               benchmarkLabel={scopeYearOnYearBar.benchmarkLabel}
