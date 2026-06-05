@@ -976,21 +976,6 @@ export default function JobAdvancedReports({
     [data?.intensity_metrics],
   );
 
-  if (useWidgetPngs && !widgetPngsReady) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <Card className="w-full max-w-xl">
-          <CardHeader>
-            <CardTitle>Loading report data...</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-sm text-muted-foreground">Preparing widget PNGs for the PDF render.</div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   const intensityPathwayData = useMemo(() => {
     if (!intensityPathwaySeries.length) return [];
 
