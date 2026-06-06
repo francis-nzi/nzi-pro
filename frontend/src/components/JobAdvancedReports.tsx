@@ -15,6 +15,7 @@ import {
   YAxis,
   LabelList,
 } from "recharts";
+import { PoundSterling } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -2336,20 +2337,6 @@ export default function JobAdvancedReports({
             return d === 1 ? `Per ${label}` : `Per ${d.toLocaleString()} ${label}`;
           };
 
-            const currencySymbol = (() => {
-              const country = String(data.job_data?.country ?? "").toLowerCase().trim();
-              if (country.includes("united states") || country.includes("usa") || country === "us") return "$";
-              if (country.includes("united kingdom") || country.includes("uk") || country.includes("great britain") || country.includes("britain") || country.includes("england") || country.includes("scotland") || country.includes("wales") || country.includes("northern ireland")) return "\u00A3";
-              if (country.includes("europe") || country.includes("germany") || country.includes("france") || country.includes("spain") || country.includes("italy") || country.includes("netherlands") || country.includes("belgium") || country.includes("austria") || country.includes("portugal") || country.includes("ireland")) return "\u00A3";
-              if (country.includes("australia")) return "A$";
-              if (country.includes("canada")) return "C$";
-              if (country.includes("new zealand")) return "NZ$";
-              if (country.includes("japan")) return "\u00A5";
-              if (country.includes("switzerland")) return "CHF";
-              if (country.includes("sweden") || country.includes("norway") || country.includes("denmark")) return "kr";
-              return "\u00A3";
-            })();
-
           const MetricIcon = ({ metricKey, label }: { metricKey: string; label?: string | null }) => {
             if (metricKey === "employees") return (
               <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: BRAND }}>
@@ -2362,14 +2349,7 @@ export default function JobAdvancedReports({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
               </svg>
             );
-              return (
-                <span
-                  className="inline-flex h-8 w-8 items-center justify-center text-[30px] font-bold leading-none"
-                  style={{ color: BRAND, fontFamily: "Arial, sans-serif" }}
-                >
-                  {currencySymbol}
-                </span>
-              );
+            return <PoundSterling className="w-8 h-8" strokeWidth={1.5} style={{ color: BRAND }} />;
             };
 
           const dedupedMetricEntries = (() => {
