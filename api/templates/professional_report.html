@@ -188,7 +188,6 @@
     .chart-wrap { display: flex; align-items: center; justify-content: center; min-height: 76mm; padding: 1.5mm; background: #fff; }
     .chart { width: 100%; max-height: 90mm; object-fit: contain; }
     .chart-full { width: 100%; max-height: 78mm; object-fit: contain; }
-    .donut-card { max-width: 372px; margin: 0 auto 4mm; }
     .chart-donut { width: 372px; max-width: 100%; object-fit: contain; }
 
     /* ── TABLES ───────────────────────────────────────── */
@@ -540,17 +539,19 @@
   <section class="section">
     <div class="sec-head"><h2 class="sec-title">5. Analysis by Scope</h2></div>
 
-    <div class="sub-head">Emissions by Scope</div>
-    <div class="card donut-card">
-      <div class="chart-wrap">
-        {% if wp.get("emissions_scope_donut") %}
-          <img class="chart chart-donut" src="{{ wp['emissions_scope_donut'] }}" alt="Scope breakdown">
-        {% elif assets and assets.get("total_emissions") %}
-          <img class="chart chart-donut" src="data:image/png;base64,{{ assets.get('total_emissions') }}" alt="Scope breakdown">
-        {% else %}
-          <p style="color:var(--muted);font-style:italic;">Chart not available.</p>
-        {% endif %}
+    <div class="grid-2" style="align-items:start;">
+      <div class="card">
+        <div class="chart-wrap">
+          {% if wp.get("emissions_scope_donut") %}
+            <img class="chart chart-donut" src="{{ wp['emissions_scope_donut'] }}" alt="Scope breakdown">
+          {% elif assets and assets.get("total_emissions") %}
+            <img class="chart chart-donut" src="data:image/png;base64,{{ assets.get('total_emissions') }}" alt="Scope breakdown">
+          {% else %}
+            <p style="color:var(--muted);font-style:italic;">Chart not available.</p>
+          {% endif %}
+        </div>
       </div>
+      <div></div>
     </div>
 
     <div class="sub-head">Scope Descriptions</div>
