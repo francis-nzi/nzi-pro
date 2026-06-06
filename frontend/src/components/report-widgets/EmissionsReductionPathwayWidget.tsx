@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -53,11 +53,6 @@ type EmissionsReductionPathwayWidgetProps = {
 
 const DEFAULT_SCOPE_COLORS = ["#4b8b3b", "#4d4d4d", "#38bdf8"];
 
-function pctChange(current: number, benchmark: number): number | null {
-  if (benchmark <= 0) return null;
-  return ((current - benchmark) / benchmark) * 100;
-}
-
 export function EmissionsReductionPathwayWidget({
   title,
   subtitle,
@@ -80,44 +75,6 @@ export function EmissionsReductionPathwayWidget({
   const minCaptureWidth = 320;
   const minCaptureHeight = 220;
 
-  const total = useMemo(() => Number(data.reduce((sum, item) => sum + Number(item.actual_total ?? item.target_total ?? 0), 0)), [data]);
-
-  const benchmarkPill = useMemo(() => {
-    const currentYear = data.length ? Math.max(...data.map((point) => Number(point.year))) : null;
-    if (benchmarkYear == null || currentYear == null || benchmarkYear === currentYear) return null;
-
-    const benchmarkTotal = data.find((point) => Number(point.year) === benchmarkYear)?.actual_total ?? null;
-    if (benchmarkTotal != null) {
-      const pct = pctChange(total, Number(benchmarkTotal || 0));
-      if (pct != null) {
-        const direction = pct <= 0 ? "down" : "up";
-        const absPct = Math.abs(pct);
-        const label = `${direction === "down" ? "▼" : "▲"} ${absPct.toFixed(1)}% vs benchmark (${formatNumber(Number(benchmarkTotal || 0), 1)} tCO2e)`;
-        return {
-          label,
-          tone: direction,
-          callout: {
-            text: label,
-            backgroundColor: direction === "down" ? "#dcfce7" : "#fee2e2",
-            borderColor: direction === "down" ? "#bbf7d0" : "#fecaca",
-            textColor: direction === "down" ? "#166534" : "#b91c1c",
-          },
-        };
-      }
-    }
-
-    const label = `vs benchmark ${benchmarkYear}`;
-    return {
-      label,
-      tone: "neutral",
-      callout: {
-        text: label,
-        backgroundColor: "#e2e8f0",
-        borderColor: "#cbd5e1",
-        textColor: "#0f172a",
-      },
-    };
-  }, [benchmarkYear, data, total]);
 
   const waitForRenderedSvg = useCallback(async () => {
     for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -149,9 +106,8 @@ export function EmissionsReductionPathwayWidget({
         ...(showScope2 ? [{ label: "Scope 2", color: DEFAULT_SCOPE_COLORS[1] }] : []),
         { label: "Scope 3", color: DEFAULT_SCOPE_COLORS[2] },
       ],
-      callout: benchmarkPill?.callout ?? null,
     });
-  }, [benchmarkPill?.callout, showScope2, subtitle, title, waitForRenderedSvg]);
+  }, [showScope2, subtitle, title, waitForRenderedSvg]);
 
   useEffect(() => {
     exportPngDataUrlRef.current = exportPngDataUrl;
@@ -363,3 +319,4 @@ export function EmissionsReductionPathwayWidget({
     </Card>
   );
 }
+
