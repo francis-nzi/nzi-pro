@@ -336,8 +336,49 @@ async function composeChartAsPngDataUrl({
             ctx.fillText(callout.text, pillX + paddingX, pillY + 19);
           }
         } else {
+          const chartSpacer = callout?.text ? 44 : 0;
+          const chartX = centerChart ? Math.max(0, Math.floor((outputWidth - width) / 2)) : 0;
+          canvas.height = headerHeight + chartSpacer + height + 24;
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          ctx.fillStyle = "#111827";
+          ctx.font = "600 18px Arial, sans-serif";
+          ctx.textBaseline = "alphabetic";
+          ctx.fillText(title, 24, 40);
+
+          y = 40;
+          if (subtitle) {
+            ctx.fillStyle = "#6b7280";
+            ctx.font = "12px Arial, sans-serif";
+            ctx.fillText(subtitle, 24, 60);
+            y = 60;
+          }
+
+          if (legendRows.length) {
+            const dotRadius = 5;
+            const rowGap = 24;
+            let legendY = y + 32;
+            ctx.font = "14px Arial, sans-serif";
+            for (const row of legendRows) {
+              let x = 24;
+              for (const item of row) {
+                ctx.beginPath();
+                ctx.fillStyle = item.color;
+                ctx.arc(x + dotRadius, legendY - 5, dotRadius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = "#111827";
+                ctx.fillText(item.label, x + 16, legendY);
+                x += 16 + ctx.measureText(item.label).width + 20;
+              }
+              legendY += rowGap;
+            }
+            y = legendY - 8;
+          }
+
           if (callout?.text) {
             const paddingX = 12;
+            ctx.font = "600 13px Arial, sans-serif";
             const textWidth = ctx.measureText(callout.text).width;
             const pillWidth = Math.min(canvas.width - 48, textWidth + paddingX * 2);
             const pillHeight = 28;
@@ -366,13 +407,10 @@ async function composeChartAsPngDataUrl({
             ctx.stroke();
 
             ctx.fillStyle = fg;
-            ctx.font = "600 13px Arial, sans-serif";
             ctx.fillText(callout.text, pillX + paddingX, pillY + 19);
-            y = pillY + pillHeight;
           }
 
-          const chartX = centerChart ? Math.max(0, Math.floor((outputWidth - width) / 2)) : 0;
-          ctx.drawImage(image, chartX, headerHeight, width, height);
+          ctx.drawImage(image, chartX, headerHeight + chartSpacer, width, height);
         }
 
         resolve(canvas.toDataURL("image/png"));
