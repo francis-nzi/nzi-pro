@@ -1629,6 +1629,58 @@ export default function JobAdvancedReports({
               {" "}
               Version: <code className="font-mono">{manifestValidationResult.manifest?.version ?? "?"}</code>
             </div>
+            {manifestValidationResult.validation?.missing_required_widgets?.length ? (
+              <div className="mt-2">
+                <div className="font-medium text-red-700">Missing required widgets</div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {manifestValidationResult.validation.missing_required_widgets.map((widgetId) => (
+                    <span
+                      key={`missing-${widgetId}`}
+                      className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 font-mono text-[11px] text-red-700"
+                    >
+                      {widgetId}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {manifestValidationResult.validation?.stale_widgets?.length ? (
+              <div className="mt-2">
+                <div className="font-medium text-amber-800">Stale widgets</div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {manifestValidationResult.validation.stale_widgets.map((widgetId) => (
+                    <span
+                      key={`stale-${widgetId}`}
+                      className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-mono text-[11px] text-amber-800"
+                    >
+                      {widgetId}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {manifestValidationResult.validation?.issues?.length ? (
+              <div className="mt-2 space-y-1">
+                <div className="font-medium text-gray-700">Issues</div>
+                {manifestValidationResult.validation.issues.map((issue, index) => (
+                  <div
+                    key={`${issue.code ?? "issue"}-${issue.widget_id ?? "none"}-${index}`}
+                    className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-700"
+                  >
+                    <span className="font-semibold uppercase tracking-wide text-gray-500">
+                      {issue.severity ?? "info"}
+                    </span>
+                    {" "}
+                    <span className="font-mono">{issue.code ?? "unknown"}</span>
+                    {" "}
+                    <span>{issue.message ?? ""}</span>
+                    {issue.widget_id ? (
+                      <span className="ml-1 text-gray-500">[{issue.widget_id}]</span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -3153,4 +3205,3 @@ export default function JobAdvancedReports({
     </div>
   );
 }
-
