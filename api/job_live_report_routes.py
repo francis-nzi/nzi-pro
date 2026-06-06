@@ -495,28 +495,14 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
     frontend_base = _frontend_base_url(request)
     bearer = _extract_bearer_token(request)
 
-    # Check whether stored widget PNGs exist so we can signal the React page
-    # to render them instead of live Recharts charts (avoids SVG rendering issues).
-    _has_stored_pngs = False
-    try:
-        with get_conn() as _chk_con:
-            _chk_row = _chk_con.execute(
-                "SELECT 1 FROM job_widget_pngs WHERE job_id = %s LIMIT 1",
-                [int(job_id)],
-            ).fetchone()
-            _has_stored_pngs = _chk_row is not None
-    except Exception:
-        _has_stored_pngs = False
-
     # Target the Advanced Reports page directly so the PDF matches the UI.
     # Pass the bearer token as a query param so the in-page fetch calls
     # can include it — the /api/backend proxy forwards Authorization to the API.
-    _png_param = "&use_widget_pngs=1" if _has_stored_pngs else ""
     report_url = (
         f"{frontend_base}/jobs/{int(job_id)}/advanced-reports"
-        f"?print=1{_png_param}&pdf_token={urllib.parse.quote(bearer)}"
+        f"?print=1&pdf_token={urllib.parse.quote(bearer)}"
         if bearer
-        else f"{frontend_base}/jobs/{int(job_id)}/advanced-reports?print=1{_png_param}"
+        else f"{frontend_base}/jobs/{int(job_id)}/advanced-reports?print=1"
     )
 
     # Non-cookie headers to pass to all requests Playwright makes itself.
@@ -574,25 +560,53 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
             except Exception:
                 pass
 
-            # If stored PNGs are being used, give React time to fetch them and
-            # replace chart elements with <img> tags before we start the PDF render.
-            if _has_stored_pngs:
-                page.wait_for_timeout(3000)
-
-            # Inject stored widget PNGs BEFORE entering print media mode so that
-            # aspect-ratio and responsive containers still have natural dimensions.
-            # Recharts SVGs often fail to render in headless print mode; this replaces
-            # the chart wrap div with a pre-captured <img> regardless.
+            # Capture fresh widget PNGs directly from the live page before
+            # entering print mode. This avoids relying on stale database PNGs
+            # when a widget's export layout has changed.
             _widget_pngs: dict[str, str] = {}
+            try:
+                _widget_pngs = page.evaluate(
+                    """
+                    async () => {
+                        const exporters = window.__nziWidgetPngExporters?.exporters ?? {};
+                        const wanted = new Set([
+                            'emissions_scope_donut',
+                            'scope_year_on_year_bar',
+                            'emissions_site_donut',
+                            'emissions_reduction_pathway',
+                            'emissions_by_activity',
+                            'intensity_pathway',
+                            'historical_emissions_trend',
+                        ]);
+                        const result = {};
+                        for (const [widgetId, exporter] of Object.entries(exporters)) {
+                            if (!wanted.has(widgetId)) continue;
+                            try {
+                                const dataUrl = await exporter();
+                                if (dataUrl) result[widgetId] = dataUrl;
+                            } catch {
+                                // Fall back to the database PNG if capture fails.
+                            }
+                        }
+                        return result;
+                    }
+                    """
+                ) or {}
+            except Exception:
+                _widget_pngs = {}
+
+            # Merge stored PNGs as a fallback for widgets that do not export
+            # cleanly on this run. Fresh captures always win.
             try:
                 with get_conn() as _wp_con:
                     _wp_rows = _wp_con.execute(
                         "SELECT widget_id, png_data FROM job_widget_pngs WHERE job_id = %s",
                         [int(job_id)],
                     ).fetchall()
-                    _widget_pngs = {r[0]: r[1] for r in (_wp_rows or [])}
+                    for r in (_wp_rows or []):
+                        _widget_pngs.setdefault(r[0], r[1])
             except Exception:
-                _widget_pngs = {}
+                pass
 
             if _widget_pngs:
                 _inject_log = page.evaluate(
