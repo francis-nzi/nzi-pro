@@ -10,7 +10,7 @@ import {
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
-  type TooltipProps,
+  type TooltipContentProps,
   XAxis,
   YAxis,
 } from "recharts";
@@ -261,7 +261,7 @@ export function EmissionsReductionPathwayWidget({
               <XAxis dataKey="year" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toLocaleString("en-GB", { maximumFractionDigits: 0 })} />
               <Tooltip
-                content={(props: TooltipProps<number, string>) => {
+                content={(props: TooltipContentProps<number, string>) => {
                   if (!props.active) return null;
                   const year = Number(props.label);
                   const point = yearLookup.get(year);
