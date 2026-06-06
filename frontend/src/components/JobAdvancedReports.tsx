@@ -709,6 +709,31 @@ export default function JobAdvancedReports({
   const [activeTemplate, setActiveTemplate] = useState<"crp" | "secr">("crp");
   const [sendingToPortal, setSendingToPortal] = useState(false);
   const [sendToPortalResult, setSendToPortalResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [manifestValidationLoading, setManifestValidationLoading] = useState(false);
+  const [manifestValidationResult, setManifestValidationResult] = useState<{
+    ok: boolean;
+    template_key: string;
+    job_id: number;
+    manifest?: {
+      template_key?: string;
+      template_name?: string;
+      version?: number;
+    };
+    validation?: {
+      is_valid?: boolean;
+      missing_required_widgets?: string[];
+      stale_widgets?: string[];
+      issues?: Array<{
+        severity?: string;
+        code?: string;
+        message?: string;
+        widget_id?: string | null;
+        section_id?: string | null;
+      }>;
+    };
+    message: string;
+  } | null>(null);
+  const [manifestValidationError, setManifestValidationError] = useState<string | null>(null);
   const [storedWidgetPngs, setStoredWidgetPngs] = useState<Record<string, string>>({});
   const [useWidgetPngs, setUseWidgetPngs] = useState(false);
   const [widgetPngsReady, setWidgetPngsReady] = useState(false);
@@ -797,6 +822,65 @@ export default function JobAdvancedReports({
       setDownloadError((e as Error).message);
     } finally {
       setDownloading(false);
+    }
+  }
+
+  async function checkManifestValidation() {
+    setManifestValidationLoading(true);
+    setManifestValidationError(null);
+    setManifestValidationResult(null);
+    try {
+      const res = await authFetch(`${baseUrl}/jobs/${jobId}/report-manifest-validation?template_key=professional`);
+      if (!res.ok) {
+        let detail = `Manifest validation failed (${res.status})`;
+        try {
+          const body = await res.json() as { detail?: string };
+          if (body.detail) detail = body.detail;
+        } catch { /* ignore */ }
+        throw new Error(detail);
+      }
+
+      const payload = await res.json() as {
+        job_id?: number;
+        template_key?: string;
+        validation?: {
+          is_valid?: boolean;
+          missing_required_widgets?: string[];
+          stale_widgets?: string[];
+          issues?: Array<{
+            severity?: string;
+            code?: string;
+            message?: string;
+            widget_id?: string | null;
+            section_id?: string | null;
+          }>;
+        };
+        manifest?: {
+          template_key?: string;
+          template_name?: string;
+          version?: number;
+        };
+      };
+
+      const validation = payload.validation ?? {};
+      const missing = validation.missing_required_widgets ?? [];
+      const stale = validation.stale_widgets ?? [];
+      const ok = Boolean(validation.is_valid);
+      const issueCount = validation.issues?.length ?? 0;
+      setManifestValidationResult({
+        ok,
+        job_id: Number(payload.job_id ?? jobId),
+        template_key: String(payload.template_key ?? "professional"),
+        manifest: payload.manifest,
+        validation,
+        message: ok
+          ? `Manifest OK: ${payload.manifest?.template_name ?? payload.template_key ?? "report"} has ${issueCount} issue(s), ${missing.length} missing required widget(s), and ${stale.length} stale widget(s).`
+          : `Manifest has ${issueCount} issue(s): ${missing.length} missing required widget(s), ${stale.length} stale widget(s).`,
+      });
+    } catch (e) {
+      setManifestValidationError((e as Error).message);
+    } finally {
+      setManifestValidationLoading(false);
     }
   }
 
@@ -1482,6 +1566,22 @@ export default function JobAdvancedReports({
                 "View PDF"
               )}
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void checkManifestValidation()}
+              disabled={manifestValidationLoading || generating || downloading}
+              className="border-gray-300 text-xs text-gray-700 hover:bg-gray-50"
+            >
+              {manifestValidationLoading ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-3 w-3 animate-spin rounded-full border border-gray-500 border-t-transparent" />
+                  Checking manifest...
+                </span>
+              ) : (
+                "Check Manifest"
+              )}
+            </Button>
           </div>
         </div>
         {downloadError && (
@@ -1509,6 +1609,26 @@ export default function JobAdvancedReports({
         {sendToPortalResult && (
           <div className={`border-t px-5 py-2 text-xs ${sendToPortalResult.ok ? "bg-green-50 text-green-700 border-green-100" : "bg-red-50 text-red-700 border-red-100"}`}>
             {sendToPortalResult.message}
+          </div>
+        )}
+        {manifestValidationError && (
+          <div className="border-t border-red-100 bg-red-50 px-5 py-2 text-xs text-red-700">
+            <span className="font-medium">Manifest check failed: </span>
+            {manifestValidationError}
+          </div>
+        )}
+        {manifestValidationResult && (
+          <div className={`border-t px-5 py-3 text-xs ${manifestValidationResult.ok ? "bg-slate-50 text-slate-700 border-slate-100" : "bg-amber-50 text-amber-800 border-amber-100"}`}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{manifestValidationResult.ok ? "Manifest OK" : "Manifest issues found"}</span>
+              <span>•</span>
+              <span>{manifestValidationResult.message}</span>
+            </div>
+            <div className="mt-1 text-[11px] text-gray-500">
+              Template: <code className="font-mono">{manifestValidationResult.manifest?.template_key ?? manifestValidationResult.template_key}</code>
+              {" "}
+              Version: <code className="font-mono">{manifestValidationResult.manifest?.version ?? "?"}</code>
+            </div>
           </div>
         )}
       </div>
