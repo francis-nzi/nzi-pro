@@ -2018,7 +2018,7 @@ export default function JobAdvancedReports({
 
             {/* Site Breakdown by Scope */}
             {(site_breakdowns?.scope?.length ?? 0) > 0 && (
-              <div>
+              <div style={{ breakBefore: "page", pageBreakBefore: "always" }} className="break-inside-avoid">
                 <p className="text-sm font-semibold text-gray-700 mb-2">Site Breakdown by Scope</p>
                 <div className="mb-4">
                   <SiteSummaryDonutWidget
