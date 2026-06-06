@@ -204,8 +204,11 @@ async function composeChartAsPngDataUrl({
         const tableRowsHeight = hasTable ? Math.max(0, tableRows.length * (rowHeight + rowGap) - rowGap) : 0;
         const calloutHeight = callout?.text ? 34 : 0;
         const tableHeight = hasTable ? tableRowsHeight + calloutHeight : 0;
-        const contentHeight = hasTable && tableLayout.centerVertically ? Math.max(height, tableHeight) : height;
-        const chartX = centerChart ? Math.max(0, Math.floor((chartAreaWidth - width) / 2)) : 0;
+        const chartScale = hasTable ? Math.min(1, chartAreaWidth / width) : 1;
+        const renderedChartWidth = Math.max(1, Math.round(width * chartScale));
+        const renderedChartHeight = Math.max(1, Math.round(height * chartScale));
+        const contentHeight = hasTable && tableLayout.centerVertically ? Math.max(renderedChartHeight, tableHeight) : renderedChartHeight;
+        const chartX = centerChart ? Math.max(0, Math.floor((chartAreaWidth - renderedChartWidth) / 2)) : 0;
         const chartGroupWidth = chartAreaWidth + tableGap + labelWidth + valueWidth;
         const chartLeft = hasTable
           ? (tableLayout.centerVertically
@@ -261,10 +264,10 @@ async function composeChartAsPngDataUrl({
             : chartTop + tableTopOffset;
           let rowY = tableTop;
           const chartY = tableLayout.centerVertically
-            ? chartTop + Math.floor((contentHeight - height) / 2)
+            ? chartTop + Math.floor((contentHeight - renderedChartHeight) / 2)
             : chartTop;
 
-          ctx.drawImage(image, finalChartX, chartY, width, height);
+          ctx.drawImage(image, finalChartX, chartY, renderedChartWidth, renderedChartHeight);
 
           for (const row of tableRows) {
             if (row.isTotal) {

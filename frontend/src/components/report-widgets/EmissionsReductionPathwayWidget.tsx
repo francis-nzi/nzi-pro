@@ -10,12 +10,12 @@ import {
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
+  type TooltipProps,
   XAxis,
   YAxis,
 } from "recharts";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatNumber } from "@/lib/format";
 import { REPORT_WIDGET_IDS } from "./registry";
@@ -52,6 +52,16 @@ type EmissionsReductionPathwayWidgetProps = {
 };
 
 const DEFAULT_SCOPE_COLORS = ["#4b8b3b", "#4d4d4d", "#38bdf8"];
+const EMISSIONS_REDUCTION_EXPORT_LAYOUT = {
+  chartAreaWidth: 620,
+  tableGap: 18,
+  tableTopOffset: 36,
+  labelWidth: 114,
+  valueWidth: 120,
+  rowHeight: 40,
+  rowGap: 6,
+  centerVertically: true,
+};
 
 function pctChange(current: number, benchmark: number): number | null {
   if (benchmark <= 0) return null;
@@ -61,7 +71,6 @@ function pctChange(current: number, benchmark: number): number | null {
 function buildTableRows(
   data: EmissionsPathwayPoint[],
   total: number,
-  showScope2: boolean,
 ): Array<{ label: string; value: string; percent?: string; color?: string; isTotal?: boolean }> {
   const rows = data.map((point, index) => ({
     label: String(point.year),
@@ -168,9 +177,10 @@ export function EmissionsReductionPathwayWidget({
         ...(showScope2 ? [{ label: "Scope 2", color: DEFAULT_SCOPE_COLORS[1] }] : []),
         { label: "Scope 3", color: DEFAULT_SCOPE_COLORS[2] },
       ],
-      tableRows: buildTableRows(data, total, showScope2),
+      tableRows: buildTableRows(data, total),
       callout: benchmarkPill?.callout ?? null,
       canvasWidth: 960,
+      tableLayout: EMISSIONS_REDUCTION_EXPORT_LAYOUT,
     });
   }, [benchmarkPill?.callout, data, showScope2, subtitle, title, total, waitForRenderedSvg]);
 
@@ -251,7 +261,7 @@ export function EmissionsReductionPathwayWidget({
               <XAxis dataKey="year" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toLocaleString("en-GB", { maximumFractionDigits: 0 })} />
               <Tooltip
-                content={(props: any) => {
+                content={(props: TooltipProps<number, string>) => {
                   if (!props.active) return null;
                   const year = Number(props.label);
                   const point = yearLookup.get(year);
