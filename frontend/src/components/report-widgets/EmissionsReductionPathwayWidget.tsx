@@ -52,38 +52,10 @@ type EmissionsReductionPathwayWidgetProps = {
 };
 
 const DEFAULT_SCOPE_COLORS = ["#4b8b3b", "#4d4d4d", "#38bdf8"];
-const EMISSIONS_REDUCTION_EXPORT_LAYOUT = {
-  chartAreaWidth: 620,
-  tableGap: 18,
-  tableTopOffset: 36,
-  labelWidth: 114,
-  valueWidth: 120,
-  rowHeight: 40,
-  rowGap: 6,
-  centerVertically: true,
-};
 
 function pctChange(current: number, benchmark: number): number | null {
   if (benchmark <= 0) return null;
   return ((current - benchmark) / benchmark) * 100;
-}
-
-function buildTableRows(
-  data: EmissionsPathwayPoint[],
-  total: number,
-): Array<{ label: string; value: string; percent?: string; color?: string; isTotal?: boolean }> {
-  const rows = data.map((point, index) => ({
-    label: String(point.year),
-    value: formatNumber(Number(point.actual_total ?? point.target_total ?? 0), 1),
-    percent: total > 0 ? `${(((point.actual_total ?? point.target_total ?? 0) / total) * 100).toFixed(1)}%` : "0.0%",
-    color: DEFAULT_SCOPE_COLORS[index % DEFAULT_SCOPE_COLORS.length],
-  }));
-
-  const scopeRows = [
-    { label: "Total", value: formatNumber(total, 1), percent: "100.0%", isTotal: true },
-  ];
-
-  return [...rows, ...scopeRows];
 }
 
 export function EmissionsReductionPathwayWidget({
@@ -177,12 +149,9 @@ export function EmissionsReductionPathwayWidget({
         ...(showScope2 ? [{ label: "Scope 2", color: DEFAULT_SCOPE_COLORS[1] }] : []),
         { label: "Scope 3", color: DEFAULT_SCOPE_COLORS[2] },
       ],
-      tableRows: buildTableRows(data, total),
       callout: benchmarkPill?.callout ?? null,
-      canvasWidth: 960,
-      tableLayout: EMISSIONS_REDUCTION_EXPORT_LAYOUT,
     });
-  }, [benchmarkPill?.callout, data, showScope2, subtitle, title, total, waitForRenderedSvg]);
+  }, [benchmarkPill?.callout, showScope2, subtitle, title, waitForRenderedSvg]);
 
   useEffect(() => {
     exportPngDataUrlRef.current = exportPngDataUrl;
