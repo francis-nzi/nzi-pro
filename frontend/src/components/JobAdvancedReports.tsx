@@ -2101,6 +2101,174 @@ export default function JobAdvancedReports({
           </CardContent>
         </Card>
         {/* 5. Analysis by Scope */}
+        {/* 8. Intensity Metric Analysis */}
+        {intensity_metrics && Object.keys(intensity_metrics).length > 0 && (() => {
+          const currentPeriodLabel = (() => {
+            const s = data.job_data.reporting_period_start;
+            const e = data.job_data.reporting_period_end;
+            if (!s && !e) return "Current Year";
+            const sYear = s ? new Date(s).getFullYear() : null;
+            const eYear = e ? new Date(e).getFullYear() : null;
+            if (sYear && eYear && sYear !== eYear) return `${sYear}-${eYear}`;
+            return String(sYear ?? eYear ?? "Current Year");
+          })();
+
+          const benchmarkPeriodLabel = (() => {
+            const s = data.job_data.benchmark_period_start;
+            const e = data.job_data.benchmark_period_end;
+            if (!s && !e) return "Benchmark Year";
+            const sYear = s ? new Date(s).getFullYear() : null;
+            const eYear = e ? new Date(e).getFullYear() : null;
+            if (sYear && eYear && sYear !== eYear) return `${sYear}-${eYear}`;
+            return String(sYear ?? eYear ?? "Benchmark Year");
+          })();
+
+          const benchmarkTotal = toNum(benchmark_totals?.Total) ||
+            (toNum(benchmark_totals?.["Scope 1"]) + toNum(benchmark_totals?.["Scope 2"]) + toNum(benchmark_totals?.["Scope 3"]));
+
+          const calcIntensity = (m: { value?: number | null; divider?: number | null }, emissions: number) => {
+            const v = toNum(m.value);
+            const d = toNum(m.divider) || 1;
+            return v > 0 && emissions > 0 ? (emissions * d) / v : null;
+          };
+
+          const pctChange = (curr: number | null, bench: number | null): number | null => {
+            if (curr == null || bench == null || bench === 0) return null;
+            return ((curr - bench) / Math.abs(bench)) * 100;
+          };
+
+          const fmtPct = (p: number | null) => {
+            if (p == null) return "-";
+            const sign = p > 0 ? "+" : "";
+            return `${sign}${p.toFixed(1)}%`;
+          };
+
+          const pctColor = (p: number | null) =>
+            p == null ? "text-gray-400" : p < 0 ? "text-green-600" : p > 0 ? "text-red-600" : "text-gray-600";
+
+          const perLabel = (key: string, m: { label?: string | null; divider?: number | null }) => {
+            const label = m.label?.trim() || key;
+            const d = toNum(m.divider) || 1;
+            return d === 1 ? `Per ${label}` : `Per ${d.toLocaleString()} ${label}`;
+          };
+
+          const MetricIcon = ({ metricKey, label }: { metricKey: string; label?: string | null }) => {
+            if (metricKey === "employees") return (
+              <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: BRAND }}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+              </svg>
+            );
+            const lbl = String(label ?? metricKey ?? "").toLowerCase();
+            if (lbl.includes("m2") || lbl.includes("m?") || lbl.includes("sqm") || lbl.includes("floor") || lbl.includes("office") || lbl.includes("space") || lbl.includes("area") || lbl.includes("building")) return (
+              <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: BRAND }}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+              </svg>
+            );
+            return <PoundSterling className="w-8 h-8" strokeWidth={1.5} style={{ color: BRAND }} />;
+            };
+
+          const dedupedMetricEntries = (() => {
+            const seen = new Set<string>();
+            return [...Object.entries(intensity_metrics)]
+              .sort(([a], [b]) => (a === "employees" ? -1 : b === "employees" ? 1 : 0))
+              .filter(([key, m]) => {
+                const lbl = perLabel(key, m);
+                if (seen.has(lbl)) return false;
+                seen.add(lbl);
+                return true;
+              });
+          })();
+
+          const summaryParts = dedupedMetricEntries.map(([key, m]) => {
+            const intensity = calcIntensity(m, totalEmissions);
+            if (intensity == null) return null;
+            const label = m.label?.trim() || key;
+            const d = toNum(m.divider) || 1;
+            const perStr = d === 1 ? `per ${label.toLowerCase()}` : `per ${d.toLocaleString()} ${label.toLowerCase()}`;
+            return `${fmt(intensity)} tCO2e ${perStr}`;
+          }).filter(Boolean);
+
+          const employeeCount = toNum(intensity_metrics.employees?.value);
+
+          return (
+            <Card className="live-report-section" data-section="Intensity Metric Analysis">
+              <CardHeader className="pb-3">
+                <SectionHeader title="Intensity Metric Analysis" />
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <p className="text-sm text-gray-700 leading-relaxed">
+                  Intensity metrics help normalise emissions data, taking into account variations in
+                  production levels or activity volumes. This allows for a more accurate assessment
+                  of emission trends over time, regardless of changes in business operations. The
+                  initial intensity metrics for the company are below and will be used for
+                  comparative purposes in following years.
+                </p>
+                <div>
+                  <p className="text-sm font-semibold text-center text-gray-700 mb-2">
+                    Intensity Metrics (tonnes CO2e)
+                  </p>
+                  <div className="overflow-hidden rounded-lg border border-gray-200">
+                    {/* Header */}
+                    <div className="grid grid-cols-[56px_1fr_110px_110px_90px] border-b border-gray-200 bg-gray-50 px-3 py-1.5">
+                      <span /><span />
+                      <div className="text-right">
+                        <p className="text-xs font-semibold text-gray-600">Benchmark</p>
+                        <p className="text-xs text-gray-500">{benchmarkPeriodLabel}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-semibold text-gray-600">Current</p>
+                        <p className="text-xs text-gray-500">{currentPeriodLabel}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-semibold text-gray-600">Change</p>
+                      </div>
+                    </div>
+                    {dedupedMetricEntries.map(([key, m], i) => {
+                      const benchIntensity = calcIntensity(m, benchmarkTotal);
+                      const currIntensity  = calcIntensity(m, totalEmissions);
+                      const pct = pctChange(currIntensity, benchIntensity);
+                      return (
+                        <div key={key} className={`grid grid-cols-[56px_1fr_110px_110px_90px] items-center border-b border-gray-100 last:border-0 px-3 py-4 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                          <div className="flex items-center justify-center"><MetricIcon metricKey={key} label={m.label} /></div>
+                          <span className="text-sm font-medium text-gray-700">{perLabel(key, m)}</span>
+                          <span className="text-right text-sm text-gray-600">{benchIntensity != null ? fmt(benchIntensity) : "-"}</span>
+                          <span className="text-right text-sm font-semibold text-gray-800">{currIntensity != null ? fmt(currIntensity) : "-"}</span>
+                          <span className={`text-right text-sm font-semibold ${pctColor(pct)}`}>{fmtPct(pct)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                {summaryParts.length > 0 && (
+                  <p className="text-sm text-gray-700 leading-relaxed">
+                    The chosen intensity metrics shows a carbon emissions value of{" "}
+                    {summaryParts.map((part, i) => (
+                      <React.Fragment key={i}>{i > 0 && " and "}<strong>{part}</strong></React.Fragment>
+                    ))}.
+                    {employeeCount > 0 && (
+                      <> The business headcount averaged {employeeCount} {employeeCount === 1 ? "person" : "people"} during the reporting period.</>
+                    )}
+                  </p>
+                )}
+                {hasPathway && intensityPathwayData.length > 0 && (
+                  <IntensityPathwayWidget
+                    title={`${data.job_data?.client_name ?? "Client"} Intensity Metrics Targets to ${netZeroYear}`}
+                    clientName={data.job_data?.client_name}
+                    data={intensityPathwayData}
+                    series={intensityPathwaySeries}
+                    benchmarkYear={baselineYear}
+                    targetYear={netZeroYear}
+                  interimYear={interimYear}
+                  showWidgetRef={true}
+                  storedPngUrl={widgetPngs.intensityPathway}
+                  presentation={widgetPresentation}
+                  className="w-full"
+                />
+                )}
+              </CardContent>
+            </Card>
+          );
+        })()}
         <Card className="live-report-section" data-section="Analysis by Scope">
           <CardHeader className="pb-3">
             <SectionHeader title="Analysis by Scope" />
@@ -2452,174 +2620,6 @@ export default function JobAdvancedReports({
                     <span className="font-semibold">Note:</span> Emissions figures are rounded to the nearest 1 decimal place. As a consequence, small differences in totals may occur due to rounding.
                   </p>
                 </div>
-              </CardContent>
-            </Card>
-          );
-        })()}
-        {/* 8. Intensity Metric Analysis */}
-        {intensity_metrics && Object.keys(intensity_metrics).length > 0 && (() => {
-          const currentPeriodLabel = (() => {
-            const s = data.job_data.reporting_period_start;
-            const e = data.job_data.reporting_period_end;
-            if (!s && !e) return "Current Year";
-            const sYear = s ? new Date(s).getFullYear() : null;
-            const eYear = e ? new Date(e).getFullYear() : null;
-            if (sYear && eYear && sYear !== eYear) return `${sYear}-${eYear}`;
-            return String(sYear ?? eYear ?? "Current Year");
-          })();
-
-          const benchmarkPeriodLabel = (() => {
-            const s = data.job_data.benchmark_period_start;
-            const e = data.job_data.benchmark_period_end;
-            if (!s && !e) return "Benchmark Year";
-            const sYear = s ? new Date(s).getFullYear() : null;
-            const eYear = e ? new Date(e).getFullYear() : null;
-            if (sYear && eYear && sYear !== eYear) return `${sYear}-${eYear}`;
-            return String(sYear ?? eYear ?? "Benchmark Year");
-          })();
-
-          const benchmarkTotal = toNum(benchmark_totals?.Total) ||
-            (toNum(benchmark_totals?.["Scope 1"]) + toNum(benchmark_totals?.["Scope 2"]) + toNum(benchmark_totals?.["Scope 3"]));
-
-          const calcIntensity = (m: { value?: number | null; divider?: number | null }, emissions: number) => {
-            const v = toNum(m.value);
-            const d = toNum(m.divider) || 1;
-            return v > 0 && emissions > 0 ? (emissions * d) / v : null;
-          };
-
-          const pctChange = (curr: number | null, bench: number | null): number | null => {
-            if (curr == null || bench == null || bench === 0) return null;
-            return ((curr - bench) / Math.abs(bench)) * 100;
-          };
-
-          const fmtPct = (p: number | null) => {
-            if (p == null) return "-";
-            const sign = p > 0 ? "+" : "";
-            return `${sign}${p.toFixed(1)}%`;
-          };
-
-          const pctColor = (p: number | null) =>
-            p == null ? "text-gray-400" : p < 0 ? "text-green-600" : p > 0 ? "text-red-600" : "text-gray-600";
-
-          const perLabel = (key: string, m: { label?: string | null; divider?: number | null }) => {
-            const label = m.label?.trim() || key;
-            const d = toNum(m.divider) || 1;
-            return d === 1 ? `Per ${label}` : `Per ${d.toLocaleString()} ${label}`;
-          };
-
-          const MetricIcon = ({ metricKey, label }: { metricKey: string; label?: string | null }) => {
-            if (metricKey === "employees") return (
-              <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: BRAND }}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-              </svg>
-            );
-            const lbl = String(label ?? metricKey ?? "").toLowerCase();
-            if (lbl.includes("m2") || lbl.includes("m?") || lbl.includes("sqm") || lbl.includes("floor") || lbl.includes("office") || lbl.includes("space") || lbl.includes("area") || lbl.includes("building")) return (
-              <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: BRAND }}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
-              </svg>
-            );
-            return <PoundSterling className="w-8 h-8" strokeWidth={1.5} style={{ color: BRAND }} />;
-            };
-
-          const dedupedMetricEntries = (() => {
-            const seen = new Set<string>();
-            return [...Object.entries(intensity_metrics)]
-              .sort(([a], [b]) => (a === "employees" ? -1 : b === "employees" ? 1 : 0))
-              .filter(([key, m]) => {
-                const lbl = perLabel(key, m);
-                if (seen.has(lbl)) return false;
-                seen.add(lbl);
-                return true;
-              });
-          })();
-
-          const summaryParts = dedupedMetricEntries.map(([key, m]) => {
-            const intensity = calcIntensity(m, totalEmissions);
-            if (intensity == null) return null;
-            const label = m.label?.trim() || key;
-            const d = toNum(m.divider) || 1;
-            const perStr = d === 1 ? `per ${label.toLowerCase()}` : `per ${d.toLocaleString()} ${label.toLowerCase()}`;
-            return `${fmt(intensity)} tCO2e ${perStr}`;
-          }).filter(Boolean);
-
-          const employeeCount = toNum(intensity_metrics.employees?.value);
-
-          return (
-            <Card className="live-report-section" data-section="Intensity Metric Analysis">
-              <CardHeader className="pb-3">
-                <SectionHeader title="Intensity Metric Analysis" />
-              </CardHeader>
-              <CardContent className="space-y-5">
-                <p className="text-sm text-gray-700 leading-relaxed">
-                  Intensity metrics help normalise emissions data, taking into account variations in
-                  production levels or activity volumes. This allows for a more accurate assessment
-                  of emission trends over time, regardless of changes in business operations. The
-                  initial intensity metrics for the company are below and will be used for
-                  comparative purposes in following years.
-                </p>
-                <div>
-                  <p className="text-sm font-semibold text-center text-gray-700 mb-2">
-                    Intensity Metrics (tonnes CO2e)
-                  </p>
-                  <div className="overflow-hidden rounded-lg border border-gray-200">
-                    {/* Header */}
-                    <div className="grid grid-cols-[56px_1fr_110px_110px_90px] border-b border-gray-200 bg-gray-50 px-3 py-1.5">
-                      <span /><span />
-                      <div className="text-right">
-                        <p className="text-xs font-semibold text-gray-600">Benchmark</p>
-                        <p className="text-xs text-gray-500">{benchmarkPeriodLabel}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs font-semibold text-gray-600">Current</p>
-                        <p className="text-xs text-gray-500">{currentPeriodLabel}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs font-semibold text-gray-600">Change</p>
-                      </div>
-                    </div>
-                    {dedupedMetricEntries.map(([key, m], i) => {
-                      const benchIntensity = calcIntensity(m, benchmarkTotal);
-                      const currIntensity  = calcIntensity(m, totalEmissions);
-                      const pct = pctChange(currIntensity, benchIntensity);
-                      return (
-                        <div key={key} className={`grid grid-cols-[56px_1fr_110px_110px_90px] items-center border-b border-gray-100 last:border-0 px-3 py-4 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
-                          <div className="flex items-center justify-center"><MetricIcon metricKey={key} label={m.label} /></div>
-                          <span className="text-sm font-medium text-gray-700">{perLabel(key, m)}</span>
-                          <span className="text-right text-sm text-gray-600">{benchIntensity != null ? fmt(benchIntensity) : "-"}</span>
-                          <span className="text-right text-sm font-semibold text-gray-800">{currIntensity != null ? fmt(currIntensity) : "-"}</span>
-                          <span className={`text-right text-sm font-semibold ${pctColor(pct)}`}>{fmtPct(pct)}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-                {summaryParts.length > 0 && (
-                  <p className="text-sm text-gray-700 leading-relaxed">
-                    The chosen intensity metrics shows a carbon emissions value of{" "}
-                    {summaryParts.map((part, i) => (
-                      <React.Fragment key={i}>{i > 0 && " and "}<strong>{part}</strong></React.Fragment>
-                    ))}.
-                    {employeeCount > 0 && (
-                      <> The business headcount averaged {employeeCount} {employeeCount === 1 ? "person" : "people"} during the reporting period.</>
-                    )}
-                  </p>
-                )}
-                {hasPathway && intensityPathwayData.length > 0 && (
-                  <IntensityPathwayWidget
-                    title={`${data.job_data?.client_name ?? "Client"} Intensity Metrics Targets to ${netZeroYear}`}
-                    clientName={data.job_data?.client_name}
-                    data={intensityPathwayData}
-                    series={intensityPathwaySeries}
-                    benchmarkYear={baselineYear}
-                    targetYear={netZeroYear}
-                  interimYear={interimYear}
-                  showWidgetRef={true}
-                  storedPngUrl={widgetPngs.intensityPathway}
-                  presentation={widgetPresentation}
-                  className="w-full"
-                />
-                )}
               </CardContent>
             </Card>
           );
