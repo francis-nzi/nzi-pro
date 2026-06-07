@@ -194,9 +194,9 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
 
 // ── Main page ────────────────────────────────────────────────────────────────
 
-type TabKey = "dashboard" | "reporting" | "reports";
+type TabKey = "dashboard" | "data" | "reports" | "actions" | "insights";
 
-const VALID_TABS: TabKey[] = ["dashboard", "reporting", "reports"];
+const VALID_TABS: TabKey[] = ["dashboard", "data", "reports", "actions", "insights"];
 
 export default function DashboardPage() {
   return (
@@ -210,8 +210,9 @@ function DashboardPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const tabFromUrl = searchParams.get("tab") as TabKey | null;
-  const initialTab: TabKey = tabFromUrl && VALID_TABS.includes(tabFromUrl) ? tabFromUrl : "dashboard";
+  const tabFromUrl = searchParams.get("tab");
+  const resolvedTab = tabFromUrl === "reporting" ? "data" : (tabFromUrl as TabKey | null);
+  const initialTab: TabKey = resolvedTab && VALID_TABS.includes(resolvedTab) ? resolvedTab : "dashboard";
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
 
   function handleTabChange(tab: TabKey) {
@@ -320,8 +321,10 @@ function DashboardPageInner() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: "dashboard", label: "Dashboard" },
-    { key: "reporting", label: "Reporting" },
+    { key: "data", label: "Data" },
     { key: "reports", label: "Reports" },
+    { key: "actions", label: "Actions" },
+    { key: "insights", label: "Insights" },
   ];
 
   return (
@@ -426,10 +429,28 @@ function DashboardPageInner() {
           </div>
         )}
 
-        {/* ── Reporting tab ─────────────────────────────────────────────── */}
-        {activeTab === "reporting" && (
+        {/* ── Data tab ──────────────────────────────────────────────────── */}
+        {activeTab === "data" && (
           <div className="pt-2">
             <PortalReporting />
+          </div>
+        )}
+
+        {/* ── Actions tab ───────────────────────────────────────────────── */}
+        {activeTab === "actions" && (
+          <div className="pt-2">
+            <div className="rounded-xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-400">
+              Actions coming soon.
+            </div>
+          </div>
+        )}
+
+        {/* ── Insights tab ──────────────────────────────────────────────── */}
+        {activeTab === "insights" && (
+          <div className="pt-2">
+            <div className="rounded-xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-400">
+              Insights coming soon.
+            </div>
           </div>
         )}
 
