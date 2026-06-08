@@ -586,7 +586,7 @@ export default function PortalActions() {
       </div>
 
       {/* Filter tabs */}
-      <div className="flex gap-1 border-b border-gray-200">
+      <div className="flex border-b border-gray-200">
         {(["all", "open", "in_progress", "completed"] as FilterKey[]).map(f => (
           <button
             key={f}
