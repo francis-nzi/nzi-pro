@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from api.portal_auth_routes import portal_user_dep
 from core.database import get_conn
+from pydantic import BaseModel as _BaseModel, Field as _Field
 from services.portal import (
     add_comment,
     approve_review,
@@ -1313,3 +1314,245 @@ def portal_status_bar(current_user: dict = Depends(portal_user_dep)):
         })
 
     return {"ok": True, "broadcasts": broadcasts, "actions": actions}
+
+
+# ---------------------------------------------------------------------------
+# Actions — client portal action tracker
+# ---------------------------------------------------------------------------
+
+class _PortalUpdateActionPayload(_BaseModel):
+    status: str | None = None
+    progress: int | None = None
+    note: str | None = None
+    target_date: str | None = None
+    owner_contact_id: int | None = None
+
+
+class _PortalAddActionPayload(_BaseModel):
+    action_name: str = _Field(..., min_length=1)
+    description: str | None = None
+    action_category: str | None = None
+    action_term: str = "medium"
+    scope_focus: str | None = None
+    target_date: str | None = None
+    owner_contact_id: int | None = None
+
+
+@router.get("/portal/actions/contacts")
+def portal_action_contacts(current_user: dict = Depends(portal_user_dep)):
+    """Return client contacts for the owner dropdown."""
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        rows = con.execute(
+            """
+            SELECT contact_id, full_name, job_title, email
+            FROM client_contacts
+            WHERE client_db_id = %s
+            ORDER BY full_name ASC
+            """,
+            [client_db_id],
+        ).fetchall()
+    return {
+        "ok": True,
+        "contacts": [
+            {
+                "contact_id": int(r[0]),
+                "full_name": str(r[1] or ""),
+                "job_title": str(r[2] or "") or None,
+                "email": str(r[3] or "") or None,
+            }
+            for r in (rows or [])
+        ],
+    }
+
+
+@router.get("/portal/actions/categories")
+def portal_action_categories(current_user: dict = Depends(portal_user_dep)):
+    """Return active action categories for the category dropdown."""
+    with get_conn() as con:
+        from services.report_actions import ensure_report_actions_schema
+        ensure_report_actions_schema(con)
+        rows = con.execute(
+            "SELECT category_id, name FROM action_categories_lookup WHERE is_active = TRUE ORDER BY name ASC",
+        ).fetchall()
+    return {
+        "ok": True,
+        "categories": [{"category_id": int(r[0]), "name": str(r[1] or "")} for r in (rows or [])],
+    }
+
+
+@router.get("/portal/actions")
+def portal_list_actions(current_user: dict = Depends(portal_user_dep)):
+    """Return all actions for this client across all their jobs."""
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        from services.report_actions import ensure_report_actions_schema
+        ensure_report_actions_schema(con)
+        rows = con.execute(
+            """
+            SELECT
+                a.job_action_id,
+                a.job_id,
+                j.reporting_year,
+                j.title           AS job_title,
+                a.action_name,
+                a.description,
+                a.action_term,
+                a.action_category,
+                a.scope_focus,
+                a.is_custom,
+                COALESCE(a.status, 'open')  AS status,
+                COALESCE(a.progress, 0)     AS progress,
+                a.target_date,
+                a.completed_at,
+                a.owner_contact_id,
+                cc.full_name                AS owner_name,
+                a.created_at,
+                a.updated_at
+            FROM job_report_actions a
+            JOIN jobs j ON j.job_id = a.job_id
+            LEFT JOIN client_contacts cc ON cc.contact_id = a.owner_contact_id
+            WHERE j.client_db_id = %s
+            ORDER BY
+                CASE COALESCE(a.status, 'open')
+                    WHEN 'in_progress' THEN 1
+                    WHEN 'open'        THEN 2
+                    WHEN 'completed'   THEN 3
+                    WHEN 'cancelled'   THEN 4
+                    ELSE 5
+                END,
+                a.sort_order ASC, a.action_name ASC
+            """,
+            [client_db_id],
+        ).fetchall()
+
+        items = []
+        for r in rows or []:
+            items.append({
+                "job_action_id": int(r[0]),
+                "job_id": int(r[1]),
+                "reporting_year": int(r[2]) if r[2] is not None else None,
+                "job_title": str(r[3] or ""),
+                "action_name": str(r[4] or ""),
+                "description": str(r[5] or "") or None,
+                "action_term": str(r[6] or "medium"),
+                "action_category": str(r[7] or "") or None,
+                "scope_focus": str(r[8] or "") or None,
+                "is_custom": bool(r[9]),
+                "status": str(r[10] or "open"),
+                "progress": int(r[11] or 0),
+                "target_date": str(r[12]) if r[12] is not None else None,
+                "completed_at": str(r[13]) if r[13] is not None else None,
+                "owner_contact_id": int(r[14]) if r[14] is not None else None,
+                "owner_name": str(r[15] or "") or None,
+                "created_at": str(r[16]) if r[16] is not None else None,
+                "updated_at": str(r[17]) if r[17] is not None else None,
+            })
+
+    return {"ok": True, "items": items}
+
+
+@router.patch("/portal/actions/{job_action_id}")
+def portal_update_action(
+    job_action_id: int,
+    payload: _PortalUpdateActionPayload = Body(...),
+    current_user: dict = Depends(portal_user_dep),
+):
+    """Update progress/status/note on an action owned by this client."""
+    from services.report_actions import update_job_action
+
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        row = con.execute(
+            """
+            SELECT j.job_id FROM job_report_actions a
+            JOIN jobs j ON j.job_id = a.job_id
+            WHERE a.job_action_id = %s AND j.client_db_id = %s
+            """,
+            [int(job_action_id), client_db_id],
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Action not found")
+        job_id = int(row[0])
+
+    actor = str(current_user.get("email") or current_user.get("full_name") or "portal")
+    item = update_job_action(
+        job_id,
+        int(job_action_id),
+        payload=payload.model_dump(exclude_unset=True),
+        actor=actor,
+        source="portal",
+    )
+    return {"ok": True, "item": item}
+
+
+@router.post("/portal/actions")
+def portal_add_action(
+    payload: _PortalAddActionPayload = Body(...),
+    current_user: dict = Depends(portal_user_dep),
+):
+    """Add a new custom action for this client, assigned to their most recent job."""
+    from services.report_actions import ensure_report_actions_schema, list_job_report_actions, normalize_action_term
+
+    client_db_id = int(current_user["client_db_id"])
+    actor = str(current_user.get("email") or current_user.get("full_name") or "portal")
+
+    with get_conn(autocommit=False) as con:
+        ensure_report_actions_schema(con)
+
+        job_row = con.execute(
+            """
+            SELECT job_id FROM jobs WHERE client_db_id = %s
+            ORDER BY reporting_year DESC NULLS LAST, job_id DESC LIMIT 1
+            """,
+            [client_db_id],
+        ).fetchone()
+        if not job_row:
+            raise HTTPException(status_code=400, detail="No job found for this client")
+        job_id = int(job_row[0])
+
+        action_term = normalize_action_term(payload.action_term or "medium")
+        max_row = con.execute(
+            "SELECT COALESCE(MAX(sort_order), 0) FROM job_report_actions WHERE job_id = %s",
+            [job_id],
+        ).fetchone()
+        sort_order = int(max_row[0] or 0) + 10
+
+        new_row = con.execute(
+            """
+            INSERT INTO job_report_actions
+              (job_id, action_name, description, action_term, action_category, scope_focus,
+               is_custom, sort_order, status, progress, target_date, owner_contact_id,
+               created_by, updated_by)
+            VALUES (%s, %s, %s, %s, %s, %s, TRUE, %s, 'open', 0, %s, %s, %s, %s)
+            RETURNING job_action_id
+            """,
+            [
+                job_id,
+                payload.action_name.strip(),
+                str(payload.description or "").strip() or None,
+                action_term,
+                str(payload.action_category or "").strip() or None,
+                str(payload.scope_focus or "").strip() or None,
+                sort_order,
+                str(payload.target_date or "").strip() or None,
+                int(payload.owner_contact_id) if payload.owner_contact_id else None,
+                actor, actor,
+            ],
+        ).fetchone()
+        new_action_id = int(new_row[0])
+
+        con.execute(
+            """
+            INSERT INTO job_report_action_updates
+              (job_action_id, changed_by, source, old_status, new_status, old_progress, new_progress, note)
+            VALUES (%s, %s, 'portal', NULL, 'open', NULL, 0, 'Action created via client portal')
+            """,
+            [new_action_id, actor],
+        )
+
+    rows = list_job_report_actions(job_id)
+    for r in rows:
+        if int(r["job_action_id"]) == new_action_id:
+            return {"ok": True, "item": r}
+    raise HTTPException(status_code=500, detail="Created action could not be reloaded")
