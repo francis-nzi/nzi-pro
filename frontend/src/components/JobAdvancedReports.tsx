@@ -1241,7 +1241,9 @@ export default function JobAdvancedReports({
   const donutBenchmarkTotal = resolveScopeDonutBenchmarkTotal(yearly_emissions, donutBenchmarkYear);
 
   const baselineYear =
-    toNum(target_data?.baseline_year) || new Date().getFullYear() - 1;
+    toNum(target_data?.baseline_year) ||
+    toNum(data.job_data?.benchmark_year) ||
+    new Date().getFullYear() - 1;
   const netZeroYear = toNum(target_data?.net_zero_target_year) || 2050;
   const interimYear =
     toNum(target_data?.interim_target_year ?? target_data?.interim_year) || null;

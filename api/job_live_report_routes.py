@@ -206,6 +206,16 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
     _jid = int(job_id)
     _client_db_id = int(job_data.get("client_db_id") or 0)
     _benchmark_year = job_data.get("benchmark_year")
+    # Derive effective benchmark year early (before parallel tasks) so
+    # get_benchmark_emissions uses it. Falls back to benchmark_period_end year.
+    _early_benchmark_year = _benchmark_year
+    if _early_benchmark_year is None:
+        _bm_pe_early = job_data.get("benchmark_period_end")
+        if _bm_pe_early:
+            try:
+                _early_benchmark_year = int(str(_bm_pe_early)[:4])
+            except Exception:
+                pass
 
     scope_totals: dict[str, Any] = {}
     categories: list[dict[str, Any]] = []
@@ -225,7 +235,7 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
         return "categories", get_emissions_by_category(_jid)
 
     def _fetch_benchmark_totals():
-        return "benchmark_totals", get_benchmark_emissions(_jid, _benchmark_year)
+        return "benchmark_totals", get_benchmark_emissions(_jid, _early_benchmark_year)
 
     def _fetch_intensity_metrics():
         return "intensity_metrics", _load_job_intensity_metrics(_jid)

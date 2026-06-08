@@ -2354,14 +2354,14 @@ def get_benchmark_emissions(job_id: int, benchmark_year: int | None):
     with get_conn() as con:
         ensure_client_benchmark_columns(con)
         job_row = con.execute(
-            "SELECT client_db_id FROM jobs WHERE job_id = %s",
+            "SELECT client_db_id, baseline_year FROM jobs WHERE job_id = %s",
             [int(job_id)],
         ).fetchone()
         if job_row and job_row[0] is not None:
             client_benchmark = get_client_benchmark_metrics(con, int(job_row[0]))
             _log.warning(
-                "[BENCHMARK DEBUG] job=%s client=%s benchmark_year=%s client_benchmark=%s",
-                job_id, job_row[0], benchmark_year, client_benchmark,
+                "[BENCHMARK DEBUG] job=%s client=%s benchmark_year=%s baseline_year=%s client_benchmark=%s",
+                job_id, job_row[0], benchmark_year, job_row[1], client_benchmark,
             )
             if client_benchmark:
                 result = {
@@ -2372,6 +2372,11 @@ def get_benchmark_emissions(job_id: int, benchmark_year: int | None):
                 }
                 _log.warning("[BENCHMARK DEBUG] returning client_benchmark result: %s", result)
                 return result
+
+        # If benchmark_year not provided, fall back to the job's own baseline_year
+        if benchmark_year is None and job_row and job_row[1] is not None:
+            benchmark_year = int(job_row[1])
+            _log.warning("[BENCHMARK DEBUG] job=%s derived benchmark_year from baseline_year: %s", job_id, benchmark_year)
 
     benchmark_job_id = _resolve_benchmark_reference_job(int(job_id), benchmark_year)
     _log.warning(
@@ -2859,7 +2864,8 @@ def get_job_target_data(job_id: int) -> dict:
                    c.interim_s1_pct, c.interim_s2_pct, c.interim_s3_pct,
                    c.target_s1_year, c.target_s2_year, c.target_s3_year,
                    c.target_s1_pct, c.target_s2_pct, c.target_s3_pct,
-                   c.net_zero_target_reduction_pct
+                   c.net_zero_target_reduction_pct,
+                   c.benchmark_year
             FROM jobs j
             LEFT JOIN clients c ON c.db_id = j.client_db_id
             WHERE j.job_id = %s
@@ -2877,14 +2883,16 @@ def get_job_target_data(job_id: int) -> dict:
         # Client-level fallback values
         client_net_zero_year = job_row[4] or 2050
         client_interim_year = job_row[5] or 2035
+        client_benchmark_year = job_row[16]
 
         # Use job-specific if set, otherwise fall back to client values
         if net_zero_target_year is None:
             net_zero_target_year = client_net_zero_year
         if interim_target_year is None:
             interim_target_year = client_interim_year
+        # Fall back to clients.benchmark_year if jobs.baseline_year not set
         if baseline_year is None:
-            baseline_year = None
+            baseline_year = client_benchmark_year
 
         # Per-scope interim percentages
         interim_s1_pct = job_row[6] or 50
