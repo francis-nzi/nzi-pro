@@ -1648,7 +1648,7 @@ def create_donut_chart(data_dict, colors_dict, title, total_value, center_label=
     for text in texts:
         text.set_fontsize(9)
         text.set_weight('normal')
-    """ 
+
     # Add center circle for donut effect
     centre_circle = Circle((0, 0), 0.60, fc='white', ec='none')
     ax.add_artist(centre_circle)
