@@ -1703,3 +1703,63 @@ def portal_add_action(
         if int(r["job_action_id"]) == new_action_id:
             return {"ok": True, "item": r}
     raise HTTPException(status_code=500, detail="Created action could not be reloaded")
+
+
+# ── Insights ──────────────────────────────────────────────────────────────────
+
+
+@portal_router.get("/portal/insights/widget-pngs")
+def portal_insights_widget_pngs(
+    year: int | None = None,
+    current_user: dict = Depends(portal_user_dep),
+):
+    """Return stored widget PNGs for the client's job in the specified year."""
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        jobs_df = _portal_load_jobs(con, client_db_id)
+        if jobs_df.empty:
+            return {
+                "ok": True, "year": year, "job_id": None,
+                "available_years": [], "pngs": {}, "captured_at": None,
+            }
+
+        available_years = sorted(
+            int(y) for y in jobs_df["dashboard_year"].dropna().unique()
+        )
+
+        selected_year = year or (max(available_years) if available_years else None)
+
+        job_row = None
+        if selected_year is not None:
+            yr_rows = jobs_df[jobs_df["dashboard_year"] == selected_year]
+            if not yr_rows.empty:
+                job_row = yr_rows.iloc[-1]
+        if job_row is None and not jobs_df.empty:
+            job_row = jobs_df.iloc[-1]
+
+        job_id = int(job_row["job_id"]) if job_row is not None else None
+        if job_id is None:
+            return {
+                "ok": True, "year": selected_year, "job_id": None,
+                "available_years": available_years, "pngs": {}, "captured_at": None,
+            }
+
+        try:
+            rows = con.execute(
+                "SELECT widget_id, png_data, captured_at FROM job_widget_pngs WHERE job_id = %s",
+                [job_id],
+            ).fetchall()
+        except Exception:
+            rows = []
+
+        pngs = {r[0]: r[1] for r in rows} if rows else {}
+        captured_at = str(rows[0][2]) if rows else None
+
+    return {
+        "ok": True,
+        "year": selected_year,
+        "job_id": job_id,
+        "available_years": available_years,
+        "pngs": pngs,
+        "captured_at": captured_at,
+    }
