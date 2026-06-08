@@ -1708,7 +1708,7 @@ def portal_add_action(
 # ── Insights ──────────────────────────────────────────────────────────────────
 
 
-@portal_router.get("/portal/insights/widget-pngs")
+@router.get("/portal/insights/widget-pngs")
 def portal_insights_widget_pngs(
     year: int | None = None,
     current_user: dict = Depends(portal_user_dep),
