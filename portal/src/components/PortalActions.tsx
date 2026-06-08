@@ -75,6 +75,245 @@ function ProgressBar({ value }: { value: number }) {
   );
 }
 
+// ── Library modal ────────────────────────────────────────────────────────────
+
+type LibraryAction = {
+  action_option_id: number;
+  action_name: string;
+  description: string | null;
+  action_term: string;
+  action_category: string | null;
+  scope_focus: string | null;
+  already_added: boolean;
+};
+
+const SCOPE_OPTIONS = ["Scope 1", "Scope 2", "Scope 3", "Scope 1 and Scope 2", "All scopes"];
+
+function LibraryModal({
+  categories,
+  onClose,
+  onAdded,
+}: {
+  categories: Category[];
+  onClose: () => void;
+  onAdded: () => void;
+}) {
+  const [library, setLibrary] = useState<LibraryAction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQ, setSearchQ] = useState("");
+  const [filterCategory, setFilterCategory] = useState("");
+  const [filterScope, setFilterScope] = useState("");
+  const [filterTerm, setFilterTerm] = useState("");
+  const [adding, setAdding] = useState<number | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    apiFetch("/portal/actions/library")
+      .then(r => r.json() as Promise<{ items: LibraryAction[] }>)
+      .then(d => setLibrary(d.items ?? []))
+      .catch(e => setError((e as Error).message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered = library.filter(a => {
+    if (searchQ.trim()) {
+      const q = searchQ.trim().toLowerCase();
+      if (!a.action_name.toLowerCase().includes(q) && !(a.description ?? "").toLowerCase().includes(q))
+        return false;
+    }
+    if (filterCategory && (a.action_category ?? "").toLowerCase() !== filterCategory.toLowerCase()) return false;
+    if (filterScope && (a.scope_focus ?? "").toLowerCase() !== filterScope.toLowerCase()) return false;
+    if (filterTerm && (a.action_term ?? "").toLowerCase() !== filterTerm.toLowerCase()) return false;
+    return true;
+  });
+
+  const hasFilters = !!(searchQ || filterCategory || filterScope || filterTerm);
+
+  async function handleAdd(optionId: number) {
+    setAdding(optionId);
+    setError("");
+    try {
+      const res = await apiFetch("/portal/actions/from-library", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action_option_id: optionId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { detail?: string } | null;
+        throw new Error(data?.detail || `Error ${res.status}`);
+      }
+      setLibrary(prev => prev.map(a =>
+        a.action_option_id === optionId ? { ...a, already_added: true } : a
+      ));
+      onAdded();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setAdding(null);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl flex flex-col max-h-[90vh]">
+
+        {/* Header */}
+        <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Action library</h2>
+              <p className="mt-0.5 text-sm text-gray-500">
+                Browse recommended actions and add them to your plan.
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 transition-colors text-lg leading-none mt-0.5"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Search */}
+          <div className="mt-4">
+            <input
+              type="text"
+              value={searchQ}
+              onChange={e => setSearchQ(e.target.value)}
+              placeholder="Search by name or description…"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              autoFocus
+            />
+          </div>
+
+          {/* Filters */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <select
+              value={filterCategory}
+              onChange={e => setFilterCategory(e.target.value)}
+              className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-orange-400"
+            >
+              <option value="">All categories</option>
+              {categories.map(c => (
+                <option key={c.category_id} value={c.name}>{c.name}</option>
+              ))}
+            </select>
+
+            <select
+              value={filterScope}
+              onChange={e => setFilterScope(e.target.value)}
+              className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-orange-400"
+            >
+              <option value="">All scopes</option>
+              {SCOPE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+
+            <select
+              value={filterTerm}
+              onChange={e => setFilterTerm(e.target.value)}
+              className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-orange-400"
+            >
+              <option value="">All timeframes</option>
+              <option value="short">Short term (0–12 months)</option>
+              <option value="medium">Medium term (1–3 years)</option>
+              <option value="long">Long term (3+ years)</option>
+            </select>
+
+            {hasFilters && (
+              <button
+                onClick={() => { setSearchQ(""); setFilterCategory(""); setFilterScope(""); setFilterTerm(""); }}
+                className="text-xs text-orange-600 hover:text-orange-700 font-medium"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+
+          {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        </div>
+
+        {/* Results */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2.5">
+          {loading ? (
+            <div className="py-8 text-center text-sm text-gray-400">Loading library…</div>
+          ) : filtered.length === 0 ? (
+            <div className="py-8 text-center text-sm text-gray-400">
+              {hasFilters ? "No actions match your filters. Try clearing some." : "No actions in library yet."}
+            </div>
+          ) : (
+            filtered.map(action => (
+              <div
+                key={action.action_option_id}
+                className={`flex items-start gap-3 rounded-xl border p-4 transition-colors ${
+                  action.already_added ? "border-green-200 bg-green-50/40" : "border-gray-200 hover:border-gray-300"
+                }`}
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 leading-snug">
+                    {action.action_name}
+                  </p>
+                  {action.description && (
+                    <p className="mt-0.5 text-xs text-gray-500 leading-snug line-clamp-2">
+                      {action.description}
+                    </p>
+                  )}
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {action.action_category && (
+                      <span className="inline-flex items-center rounded-full bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700">
+                        {action.action_category}
+                      </span>
+                    )}
+                    {action.scope_focus && (
+                      <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                        {action.scope_focus}
+                      </span>
+                    )}
+                    {action.action_term && (
+                      <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                        {TERM_LABEL[action.action_term] ?? action.action_term}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex-shrink-0 pt-0.5">
+                  {action.already_added ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-3 py-1.5 text-xs font-medium text-green-700">
+                      ✓ In plan
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => handleAdd(action.action_option_id)}
+                      disabled={adding === action.action_option_id}
+                      className="rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-50"
+                      style={{ backgroundColor: "#F26624" }}
+                    >
+                      {adding === action.action_option_id ? "Adding…" : "+ Add"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between flex-shrink-0">
+          <span className="text-xs text-gray-400">
+            {filtered.length} action{filtered.length !== 1 ? "s" : ""} shown
+          </span>
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 // ── Update modal ─────────────────────────────────────────────────────────────
 
 function UpdateModal({
@@ -516,6 +755,7 @@ export default function PortalActions() {
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showLibraryModal, setShowLibraryModal] = useState(false);
 
   const loadActions = useCallback(() => {
     return apiFetch("/portal/actions")
@@ -576,13 +816,21 @@ export default function PortalActions() {
             <div className="text-xs text-gray-500">Completed</div>
           </div>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors"
-          style={{ backgroundColor: "#F26624" }}
-        >
-          + Add action
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowLibraryModal(true)}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Browse library
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors"
+            style={{ backgroundColor: "#F26624" }}
+          >
+            + Add action
+          </button>
+        </div>
       </div>
 
       {/* Filter tabs */}
@@ -624,6 +872,14 @@ export default function PortalActions() {
           categories={categories}
           onClose={() => setShowAddModal(false)}
           onSaved={() => { setShowAddModal(false); void loadActions(); }}
+        />
+      )}
+
+      {showLibraryModal && (
+        <LibraryModal
+          categories={categories}
+          onClose={() => setShowLibraryModal(false)}
+          onAdded={() => void loadActions()}
         />
       )}
     </div>

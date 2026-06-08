@@ -1338,6 +1338,153 @@ class _PortalAddActionPayload(_BaseModel):
     owner_contact_id: int | None = None
 
 
+@router.get("/portal/actions/library")
+def portal_actions_library(current_user: dict = Depends(portal_user_dep)):
+    """Return full active action library with 'already_added' flag for this client."""
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        from services.report_actions import ensure_report_actions_schema
+        ensure_report_actions_schema(con)
+
+        existing_rows = con.execute(
+            """
+            SELECT DISTINCT a.action_option_id
+            FROM job_report_actions a
+            JOIN jobs j ON j.job_id = a.job_id
+            WHERE j.client_db_id = %s
+              AND a.action_option_id IS NOT NULL
+              AND COALESCE(a.status, 'open') != 'cancelled'
+            """,
+            [client_db_id],
+        ).fetchall()
+        existing_ids = {int(r[0]) for r in (existing_rows or [])}
+
+        rows = con.execute(
+            """
+            SELECT action_option_id, action_name, description,
+                   action_term, action_category, scope_focus, sort_order
+            FROM report_action_options
+            WHERE COALESCE(is_active, TRUE) = TRUE
+            ORDER BY sort_order ASC, action_name ASC
+            """,
+        ).fetchall()
+
+        items = [
+            {
+                "action_option_id": int(r[0]),
+                "action_name": str(r[1] or ""),
+                "description": str(r[2] or "") or None,
+                "action_term": str(r[3] or "medium"),
+                "action_category": str(r[4] or "") or None,
+                "scope_focus": str(r[5] or "") or None,
+                "sort_order": int(r[6] or 0),
+                "already_added": int(r[0]) in existing_ids,
+            }
+            for r in (rows or [])
+        ]
+
+    return {"ok": True, "items": items}
+
+
+@router.post("/portal/actions/from-library")
+def portal_add_action_from_library(
+    body: dict = Body(...),
+    current_user: dict = Depends(portal_user_dep),
+):
+    """Add a library action template to this client's plan."""
+    from services.report_actions import ensure_report_actions_schema, list_job_report_actions, normalize_action_term
+
+    action_option_id = body.get("action_option_id")
+    if not action_option_id:
+        raise HTTPException(status_code=400, detail="action_option_id is required")
+    action_option_id = int(action_option_id)
+
+    client_db_id = int(current_user["client_db_id"])
+    actor = str(current_user.get("email") or current_user.get("full_name") or "portal")
+
+    with get_conn(autocommit=False) as con:
+        ensure_report_actions_schema(con)
+
+        template = con.execute(
+            """
+            SELECT action_name, description, action_term, action_category, scope_focus
+            FROM report_action_options
+            WHERE action_option_id = %s AND COALESCE(is_active, TRUE) = TRUE
+            """,
+            [action_option_id],
+        ).fetchone()
+        if not template:
+            raise HTTPException(status_code=404, detail="Action option not found")
+
+        already = con.execute(
+            """
+            SELECT a.job_action_id FROM job_report_actions a
+            JOIN jobs j ON j.job_id = a.job_id
+            WHERE j.client_db_id = %s AND a.action_option_id = %s
+              AND COALESCE(a.status, 'open') != 'cancelled'
+            LIMIT 1
+            """,
+            [client_db_id, action_option_id],
+        ).fetchone()
+        if already:
+            raise HTTPException(status_code=409, detail="This action is already in your plan")
+
+        job_row = con.execute(
+            """
+            SELECT job_id FROM jobs WHERE client_db_id = %s
+            ORDER BY reporting_year DESC NULLS LAST, job_id DESC LIMIT 1
+            """,
+            [client_db_id],
+        ).fetchone()
+        if not job_row:
+            raise HTTPException(status_code=400, detail="No job found for this client")
+        job_id = int(job_row[0])
+
+        action_term = normalize_action_term(template[2] or "medium")
+        max_row = con.execute(
+            "SELECT COALESCE(MAX(sort_order), 0) FROM job_report_actions WHERE job_id = %s",
+            [job_id],
+        ).fetchone()
+        sort_order = int(max_row[0] or 0) + 10
+
+        new_row = con.execute(
+            """
+            INSERT INTO job_report_actions
+              (job_id, action_option_id, action_name, description, action_term,
+               action_category, scope_focus, is_custom, sort_order, status, progress,
+               created_by, updated_by)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE, %s, 'open', 0, %s, %s)
+            RETURNING job_action_id
+            """,
+            [
+                job_id, action_option_id,
+                str(template[0] or ""),
+                str(template[1] or "") or None,
+                action_term,
+                str(template[3] or "") or None,
+                str(template[4] or "") or None,
+                sort_order,
+                actor, actor,
+            ],
+        ).fetchone()
+        new_action_id = int(new_row[0])
+
+        con.execute(
+            """
+            INSERT INTO job_report_action_updates
+              (job_action_id, changed_by, source, old_status, new_status, old_progress, new_progress, note)
+            VALUES (%s, %s, 'portal', NULL, 'open', NULL, 0, 'Added from library via client portal')
+            """,
+            [new_action_id, actor],
+        )
+
+    rows = list_job_report_actions(job_id)
+    for r in rows:
+        if int(r["job_action_id"]) == new_action_id:
+            return {"ok": True, "item": r}
+    raise HTTPException(status_code=500, detail="Created action could not be reloaded")
+
+
 @router.get("/portal/actions/contacts")
 def portal_action_contacts(current_user: dict = Depends(portal_user_dep)):
     """Return client contacts for the owner dropdown."""
