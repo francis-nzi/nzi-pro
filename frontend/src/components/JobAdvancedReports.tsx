@@ -74,6 +74,7 @@ type ReportJob = {
   country?: string | null;
   benchmark_period_start?: string | null;
   benchmark_period_end?: string | null;
+  benchmark_year?: number | null;
 };
 
 type ReportMetadata = {

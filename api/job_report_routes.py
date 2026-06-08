@@ -1739,11 +1739,11 @@ def get_job_data(job_id: int, org_id: str | None = None):
         """, [int(job_id)]).fetchone()
         
         # Fetch CRP job details for Reporting Elements
-        crp_details = con.execute("""
-            SELECT num_employees, premises_owned, premises_leased, vehicles_owned, vehicles_leased
-            FROM crp_job_details
-            WHERE job_id = % """s
-        """, [int(job_id)]).fetchone()
+        crp_details = con.execute(
+            "SELECT num_employees, premises_owned, premises_leased, vehicles_owned, vehicles_leased"
+            " FROM crp_job_details WHERE job_id = %s",
+            [int(job_id)],
+        ).fetchone()
         
         return {
             'job_id': job_row[0],
