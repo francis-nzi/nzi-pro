@@ -24,6 +24,11 @@ const PortalActions = dynamic(() => import("@/components/PortalActions"), {
   loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading actions…</div>,
 });
 
+const PortalInsights = dynamic(() => import("@/components/PortalInsights"), {
+  ssr: false,
+  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading insights…</div>,
+});
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type Job = {
@@ -451,9 +456,7 @@ function DashboardPageInner() {
         {/* ── Insights tab ──────────────────────────────────────────────── */}
         {activeTab === "insights" && (
           <div className="pt-2">
-            <div className="rounded-xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-400">
-              Insights coming soon.
-            </div>
+            <PortalInsights />
           </div>
         )}
 
