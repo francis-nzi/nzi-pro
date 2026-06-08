@@ -14,6 +14,7 @@ from services.report_actions import (
     get_job_report_actions_payload,
     list_report_action_options,
     replace_job_report_actions,
+    update_job_action,
     upsert_report_action_option,
 )
 
@@ -43,6 +44,7 @@ class ActionOptionPayload(BaseModel):
 
 
 class JobActionPayload(BaseModel):
+    job_action_id: int | None = None
     action_option_id: int | None = None
     action_name: str | None = None
     description: str | None = None
@@ -51,6 +53,18 @@ class JobActionPayload(BaseModel):
     scope_focus: str | None = None
     is_custom: bool | None = None
     sort_order: int | None = None
+    status: str | None = None
+    progress: int | None = None
+    target_date: str | None = None
+    owner_contact_id: int | None = None
+
+
+class UpdateJobActionPayload(BaseModel):
+    status: str | None = None
+    progress: int | None = None
+    target_date: str | None = None
+    owner_contact_id: int | None = None
+    note: str | None = None
 
 
 class SaveJobActionsPayload(BaseModel):
@@ -199,3 +213,25 @@ def save_job_report_actions(
         "ok": True,
         **response,
     }
+
+
+@router.patch("/jobs/{job_id}/report-actions/{job_action_id}")
+def patch_job_report_action(
+    job_id: int,
+    job_action_id: int,
+    payload: UpdateJobActionPayload = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+    actor = _actor_identifier(_user)
+    with get_conn(autocommit=False) as con:
+        item = update_job_action(
+            int(job_id),
+            int(job_action_id),
+            payload=payload.model_dump(exclude_unset=True),
+            actor=actor,
+            source="crm",
+            con=con,
+        )
+    return {"ok": True, "item": item}
