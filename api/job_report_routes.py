@@ -1648,7 +1648,7 @@ def create_donut_chart(data_dict, colors_dict, title, total_value, center_label=
     for text in texts:
         text.set_fontsize(9)
         text.set_weight('normal')
-    
+    """ 
     # Add center circle for donut effect
     centre_circle = Circle((0, 0), 0.60, fc='white', ec='none')
     ax.add_artist(centre_circle)
@@ -1742,7 +1742,7 @@ def get_job_data(job_id: int, org_id: str | None = None):
         crp_details = con.execute("""
             SELECT num_employees, premises_owned, premises_leased, vehicles_owned, vehicles_leased
             FROM crp_job_details
-            WHERE job_id = %s
+            WHERE job_id = % """s
         """, [int(job_id)]).fetchone()
         
         return {
@@ -2349,6 +2349,8 @@ def _resolve_benchmark_reference_job(job_id: int, benchmark_year: int | None) ->
 
 def get_benchmark_emissions(job_id: int, benchmark_year: int | None):
     """Get benchmark emissions for comparison using period-aware benchmark resolution."""
+    import logging
+    _log = logging.getLogger(__name__)
     with get_conn() as con:
         ensure_client_benchmark_columns(con)
         job_row = con.execute(
@@ -2357,18 +2359,30 @@ def get_benchmark_emissions(job_id: int, benchmark_year: int | None):
         ).fetchone()
         if job_row and job_row[0] is not None:
             client_benchmark = get_client_benchmark_metrics(con, int(job_row[0]))
+            _log.warning(
+                "[BENCHMARK DEBUG] job=%s client=%s benchmark_year=%s client_benchmark=%s",
+                job_id, job_row[0], benchmark_year, client_benchmark,
+            )
             if client_benchmark:
-                return {
+                result = {
                     "Scope 1": float(client_benchmark.get("scope1") or 0),
                     "Scope 2": float(client_benchmark.get("scope2") or 0),
                     "Scope 3": float(client_benchmark.get("scope3") or 0),
                     "Total": float(client_benchmark.get("total") or 0),
                 }
+                _log.warning("[BENCHMARK DEBUG] returning client_benchmark result: %s", result)
+                return result
 
     benchmark_job_id = _resolve_benchmark_reference_job(int(job_id), benchmark_year)
+    _log.warning(
+        "[BENCHMARK DEBUG] job=%s benchmark_year=%s resolved benchmark_job_id=%s",
+        job_id, benchmark_year, benchmark_job_id,
+    )
     if benchmark_job_id is None:
         return {'Scope 1': 0, 'Scope 2': 0, 'Scope 3': 0, 'Total': 0}
-    return get_scope_totals(int(benchmark_job_id))
+    result = get_scope_totals(int(benchmark_job_id))
+    _log.warning("[BENCHMARK DEBUG] benchmark_job_id=%s scope_totals=%s", benchmark_job_id, result)
+    return result
 
 
 def get_intensity_metrics(job_id: int):
