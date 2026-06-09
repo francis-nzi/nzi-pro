@@ -1240,6 +1240,7 @@ export default function JobAdvancedReports({
   const baselineYear =
     toNum(target_data?.baseline_year) ||
     toNum(data.job_data?.benchmark_year) ||
+    firstHistoricalYear ||
     new Date().getFullYear() - 1;
   const netZeroYear = toNum(target_data?.net_zero_target_year) || 2050;
   const interimYear =
