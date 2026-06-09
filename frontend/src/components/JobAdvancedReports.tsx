@@ -794,14 +794,10 @@ export default function JobAdvancedReports({
     setDownloading(true);
     setDownloadError(null);
     try {
-      await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsScopeDonut);
-      await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.scopeYearOnYearBar);
-      await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsSiteDonut);
-      await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsReductionPathway);
-      await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.emissionsByActivity);
-      await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.intensityPathway);
-      await refreshWidgetPngForPdf(REPORT_WIDGET_IDS.historicalEmissionsTrend);
-
+      // Do NOT re-capture widgets here. Charts are captured from Job → Insights
+      // ("Capture Charts for PDF") and stored in job_widget_pngs as the single
+      // source of truth. Re-capturing from this page would overwrite them with
+      // a different data calculation and break consistency.
       const res = await authFetch(`${baseUrl}/jobs/${jobId}/report-live-pdf`);
       if (!res.ok) {
         let detail = `PDF generation failed (${res.status})`;
