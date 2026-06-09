@@ -2092,14 +2092,22 @@ export default function JobAdvancedReports({
                   </div>
                 </div>
                 {footprintSummaryText && (
-                  <p className="mt-4 text-sm leading-relaxed text-gray-700">{footprintSummaryText}</p>
+                  <div className="mt-4 space-y-3">
+                    {footprintSummaryText.split(/\n\n+/).map((para, i) => (
+                      <p key={i} className="text-sm leading-relaxed text-gray-700">{para.trim()}</p>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
 
             {/* Footprint summary when no site breakdown is available */}
             {(site_breakdowns?.overall?.length ?? 0) === 0 && footprintSummaryText && (
-              <p className="text-sm leading-relaxed text-gray-700">{footprintSummaryText}</p>
+              <div className="space-y-3">
+                {footprintSummaryText.split(/\n\n+/).map((para, i) => (
+                  <p key={i} className="text-sm leading-relaxed text-gray-700">{para.trim()}</p>
+                ))}
+              </div>
             )}
 
           </CardContent>
