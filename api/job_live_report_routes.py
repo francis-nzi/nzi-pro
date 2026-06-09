@@ -361,6 +361,14 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
     except Exception:
         benchmark_categories = []
 
+    # Load benchmark year intensity metrics (basis counts may differ from current year)
+    benchmark_intensity_metrics: dict[str, Any] = {}
+    if bm_job_id and bm_job_id != _jid:
+        try:
+            benchmark_intensity_metrics = _load_job_intensity_metrics(int(bm_job_id)) or {}
+        except Exception:
+            pass
+
     # Previous year (one year before the current reporting year)
     previous_year_categories: list[dict[str, Any]] = []
     previous_year_label: str = ""
@@ -473,6 +481,7 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
         "activity_group_colors": ACTIVITY_GROUP_COLORS,
         "job_actions": job_actions,
         "intensity_metrics": intensity_metrics,
+        "benchmark_intensity_metrics": benchmark_intensity_metrics,
         "yearly_emissions": yearly_emissions,
         "target_data": target_data,
         "report_metadata": report_metadata,

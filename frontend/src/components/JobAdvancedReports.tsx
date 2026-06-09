@@ -205,6 +205,7 @@ type LiveData = {
   previous_year_categories?: EmissionCategory[];
   previous_year_label?: string | null;
   intensity_metrics?: Record<string, { label?: string; value?: number | null; divider?: number | null }>;
+  benchmark_intensity_metrics?: Record<string, { label?: string; value?: number | null; divider?: number | null }>;
   job_actions?: {
     grouped?: Array<{
       term?: string;
@@ -1117,7 +1118,6 @@ export default function JobAdvancedReports({
     const scope1 = toNum(scopeTotalsData?.["Scope 1"]);
     const scope2 = toNum(scopeTotalsData?.["Scope 2"]);
     const scope3 = toNum(scopeTotalsData?.["Scope 3"]);
-    const baselineYear = toNum(targetData?.baseline_year) || new Date().getFullYear() - 1;
     const targetPct = toNum(targetData?.net_zero_target_reduction_pct ?? targetData?.target_pct) || 90;
     const interimS1Pct = toNum(targetData?.interim_s1_pct ?? targetData?.interim_pct) || 50;
     const interimS2Pct = toNum(targetData?.interim_s2_pct ?? targetData?.interim_pct) || 50;
@@ -1126,7 +1126,11 @@ export default function JobAdvancedReports({
     const netZeroYear = toNum(targetData?.net_zero_target_year) || 2050;
 
     const firstHistoricalYear = yearly.length > 0 ? yearly[0]?.year ?? null : null;
-    const baseline = baselineYear > 1900 ? baselineYear : (firstHistoricalYear ?? currentReportYear);
+    const baseline =
+      toNum(targetData?.baseline_year) ||
+      toNum(jobData?.benchmark_year) ||
+      firstHistoricalYear ||
+      currentReportYear;
     const endYear = netZeroYear > baseline ? netZeroYear : Math.max(baseline + 1, 2050);
     const benchmarkRow = yearly.find((row) => row.year === baseline);
     const benchS1 = benchmarkRow ? benchmarkRow.scope1 : scope1;
@@ -2224,7 +2228,8 @@ export default function JobAdvancedReports({
                       </div>
                     </div>
                     {dedupedMetricEntries.map(([key, m], i) => {
-                      const benchIntensity = calcIntensity(m, benchmarkTotal);
+                      const bmM = data.benchmark_intensity_metrics?.[key] ?? m;
+                      const benchIntensity = calcIntensity(bmM, benchmarkTotal);
                       const currIntensity  = calcIntensity(m, totalEmissions);
                       const pct = pctChange(currIntensity, benchIntensity);
                       return (
