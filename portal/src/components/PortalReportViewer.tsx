@@ -120,6 +120,7 @@ type LiveData = {
   activity_group_order?: string[];
   activity_group_colors?: Record<string, string>;
   intensity_metrics?: Record<string, { label?: string; value?: number | null; divider?: number | null }>;
+  benchmark_intensity_metrics?: Record<string, { label?: string; value?: number | null; divider?: number | null }>;
   job_actions?: {
     grouped?: Array<{ term?: string; label?: string; count?: number; items?: Array<Record<string, unknown>> }>;
     total_actions?: number;
@@ -616,7 +617,8 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
   const scope2 = toNum(scope_totals?.["Scope 2"]);
   const scope3 = toNum(scope_totals?.["Scope 3"]);
 
-  const baselineYear = toNum(target_data?.baseline_year) || new Date().getFullYear() - 1;
+  const firstHistoricalYear = effectiveYearlyEmissions.length > 0 ? effectiveYearlyEmissions[0].year : null;
+  const baselineYear = toNum(target_data?.baseline_year) || toNum(data.job_data?.benchmark_period_end ? new Date(String(data.job_data.benchmark_period_end)).getFullYear() : 0) || firstHistoricalYear || new Date().getFullYear() - 1;
   const netZeroYear = toNum(target_data?.net_zero_target_year) || 2050;
   const interimYear = toNum(target_data?.interim_target_year ?? target_data?.interim_year) || null;
   const targetPct = toNum(target_data?.net_zero_target_reduction_pct ?? target_data?.target_pct) || 90;
@@ -1416,7 +1418,8 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                     </div>
                   </div>
                   {dedupedMetricEntries.map(([key, m], i) => {
-                    const benchIntensity = calcIntensity(m, benchmarkTotal);
+                    const bmM = data.benchmark_intensity_metrics?.[key] ?? m;
+                    const benchIntensity = calcIntensity(bmM, benchmarkTotal);
                     const currIntensity  = calcIntensity(m, totalEmissions);
                     const pct = pctChange(currIntensity, benchIntensity);
                     return (
