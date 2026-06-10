@@ -8,14 +8,13 @@ import { apiFetch } from "@/lib/auth";
 // Only widgets present in this list are shown; extras are ignored.
 
 const WIDGET_DISPLAY: { id: string; title: string }[] = [
-  { id: "EMISSIONS_SCOPE_DONUT",       title: "Emissions Summary by Scope" },
-  { id: "EMISSIONS_SITE_DONUT",        title: "Emissions by Site" },
-  { id: "EMISSIONS_BY_ACTIVITY",       title: "Emissions by Activity" },
-  { id: "SCOPE_YEAR_ON_YEAR_BAR",      title: "Year-on-Year Comparison by Scope" },
-  { id: "EMISSIONS_REDUCTION_PATHWAY", title: "Emissions Reduction Pathway" },
-  { id: "INTENSITY_PATHWAY",           title: "Intensity Metrics Pathway" },
-  { id: "HISTORICAL_EMISSIONS_TREND",  title: "Historical Emissions Trend" },
-  { id: "MONTHLY_TREND",               title: "Monthly Emissions Trend" },
+  { id: "emissions_scope_donut",       title: "Emissions Summary by Scope" },
+  { id: "emissions_site_donut",        title: "Emissions by Site" },
+  { id: "emissions_by_activity",       title: "Emissions by Activity" },
+  { id: "scope_year_on_year_bar",      title: "Year-on-Year Comparison by Scope" },
+  { id: "emissions_reduction_pathway", title: "Emissions Reduction Pathway" },
+  { id: "intensity_pathway",           title: "Intensity Metrics Pathway" },
+  { id: "historical_emissions_trend",  title: "Historical Emissions Trend" },
 ];
 
 // ── Types ────────────────────────────────────────────────────────────────────
