@@ -29,7 +29,13 @@ export default function JobInsightsPage() {
           baseUrl={baseUrl}
           jobNumber={job.job_number}
           clientName={job.client_name}
-          reportingYear={job.reporting_year}
+          reportingYear={
+            job.reporting_year != null
+              ? Number(job.reporting_year)
+              : job.reporting_period_end
+                ? new Date(job.reporting_period_end).getFullYear()
+                : null
+          }
         />
       )}
     />

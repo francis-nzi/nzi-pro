@@ -300,7 +300,8 @@ export default function JobInsights({
     return months.map((month) => ({ ...month, actual: month.actual * scale }));
   }, [rows, scopeTotals?.total]);
 
-  const currentYear = reportingYear ?? new Date().getFullYear();
+  const lastHistoricalYear = yearlyEmissions.length > 0 ? yearlyEmissions[yearlyEmissions.length - 1].year : null;
+  const currentYear = reportingYear ?? lastHistoricalYear ?? new Date().getFullYear();
   const firstHistoricalYear = yearlyEmissions.length > 0 ? yearlyEmissions[0].year : null;
   const pathwayReportingLabel = `Reporting years ${firstHistoricalYear ?? benchmarkYear ?? currentYear} to ${targetYear ?? 2050}`;
 
