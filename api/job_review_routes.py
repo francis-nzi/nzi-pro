@@ -319,6 +319,95 @@ def _notify_client_review_ready(portal_user: dict, job_ref: str, job_id: int) ->
 
 
 # ---------------------------------------------------------------------------
+# Portal status — single endpoint for the Portal Management page
+# ---------------------------------------------------------------------------
+
+@router.get("/jobs/{job_id}/portal-status")
+def get_job_portal_status(
+    job_id: int,
+    _user: dict = Depends(_current_user),
+):
+    """Return a full status summary for the Client Portal Management page.
+
+    Includes the review record, active portal users, captured widget PNGs,
+    and the current portal snapshot version — everything the management page
+    needs to show readiness and allow a one-click Send to Portal.
+    """
+    assert_job_access(_user, int(job_id))
+    with get_conn() as con:
+        ensure_portal_schema(con)
+
+        review = get_or_create_review(int(job_id), con=con)
+
+        client_row = con.execute(
+            "SELECT client_db_id FROM jobs WHERE job_id = %s", [int(job_id)]
+        ).fetchone()
+        portal_users = list_portal_users(int(client_row[0]), con=con) if client_row else []
+
+        # Widget PNG metadata (IDs + timestamps, no image data)
+        widget_pngs: list[dict] = []
+        try:
+            rows = con.execute(
+                """
+                SELECT widget_id, captured_at
+                FROM job_widget_pngs
+                WHERE job_id = %s
+                ORDER BY widget_id
+                """,
+                [int(job_id)],
+            ).fetchall()
+            widget_pngs = [
+                {
+                    "widget_id": str(r[0]),
+                    "captured_at": str(r[1]) if r[1] else None,
+                }
+                for r in (rows or [])
+            ]
+        except Exception:
+            pass
+
+        # Current portal snapshot version details
+        portal_version = None
+        pid = review.get("portal_version_id")
+        if pid:
+            vrow = con.execute(
+                """
+                SELECT report_version_id, version_number, version_label, status, created_at
+                FROM job_report_versions
+                WHERE report_version_id = %s
+                LIMIT 1
+                """,
+                [int(pid)],
+            ).fetchone()
+            if vrow:
+                portal_version = {
+                    "report_version_id": int(vrow[0]),
+                    "version_number": int(vrow[1]) if vrow[1] is not None else None,
+                    "version_label": str(vrow[2] or "") or None,
+                    "status": str(vrow[3] or ""),
+                    "created_at": str(vrow[4]) if vrow[4] else None,
+                }
+
+    captured_ids = {w["widget_id"] for w in widget_pngs}
+    latest_capture = max(
+        (w["captured_at"] for w in widget_pngs if w["captured_at"]),
+        default=None,
+    )
+
+    return {
+        "ok": True,
+        "review": review,
+        "portal_users": portal_users,
+        "active_portal_users_count": sum(1 for u in portal_users if u.get("is_active")),
+        "widget_pngs": widget_pngs,
+        "widget_png_count": len(widget_pngs),
+        "captured_widget_ids": sorted(captured_ids),
+        "latest_capture_at": latest_capture,
+        "portal_version": portal_version,
+    }
+
+
+# ---------------------------------------------------------------------------
 # CRM responds to a comment
 # ---------------------------------------------------------------------------
 
