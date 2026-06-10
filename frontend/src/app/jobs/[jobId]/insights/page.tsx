@@ -30,10 +30,10 @@ export default function JobInsightsPage() {
           jobNumber={job.job_number}
           clientName={job.client_name}
           reportingYear={
-            job.reporting_year != null
-              ? Number(job.reporting_year)
-              : job.reporting_period_end
-                ? new Date(job.reporting_period_end).getFullYear()
+            job.reporting_period_end
+              ? new Date(job.reporting_period_end).getFullYear()
+              : job.reporting_year != null
+                ? Number(job.reporting_year)
                 : null
           }
         />
