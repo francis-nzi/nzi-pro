@@ -84,6 +84,33 @@ type DraftWorkspaceContext = {
   top_category?: { category?: string; dataset_category?: string; emissions?: number } | null;
 };
 
+type AiPromptProfile = {
+  profile_id: number;
+  profile_name: string;
+  industry_context?: string | null;
+  company_context?: string | null;
+  tone?: string | null;
+  audience_notes?: string | null;
+  narrative_notes?: string | null;
+  section_notes_json?: Record<string, unknown> | null;
+  status?: string | null;
+  version?: number | null;
+  updated_at?: string | null;
+};
+
+type PromptRun = {
+  run_id: number;
+  report_family_key?: string | null;
+  section_key?: string | null;
+  provider?: string | null;
+  model_name?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  total_tokens?: number | null;
+  status?: string | null;
+  created_at?: string | null;
+};
+
 type ReportDraftRow = {
   section_key?: string | null;
   section_title?: string | null;
@@ -548,6 +575,10 @@ export default function JobReportNew({
   const [draftDirty, setDraftDirty] = useState(false);
   const [draftGeneratingSection, setDraftGeneratingSection] = useState<string | null>(null);
   const [draftError, setDraftError] = useState("");
+  const [promptProfile, setPromptProfile] = useState<AiPromptProfile | null>(null);
+  const [promptRuns, setPromptRuns] = useState<PromptRun[]>([]);
+  const [promptLoading, setPromptLoading] = useState(false);
+  const [promptError, setPromptError] = useState("");
   const [activeDraftSection, setActiveDraftSection] = useState<string>("Executive Summary");
   const [loading, setLoading] = useState(true);
   const [reportVersionsLoading, setReportVersionsLoading] = useState(true);
@@ -899,6 +930,65 @@ export default function JobReportNew({
       cancelled = true;
     };
   }, [baseUrl, jobId, loading, selectedProfile.templateKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const clientDbId = Number(draftContext?.job_data?.client_db_id || 0);
+
+    async function loadPromptContext() {
+      if (!clientDbId || loading) {
+        setPromptProfile(null);
+        setPromptRuns([]);
+        return;
+      }
+
+      setPromptLoading(true);
+      setPromptError("");
+
+      try {
+        const [profileRes, runsRes] = await Promise.all([
+          fetchWithRetry(`${baseUrl}/clients/${clientDbId}/ai-prompt-profile`, { credentials: "include" }, 1),
+          fetchWithRetry(
+            `${baseUrl}/ai-prompts/runs?client_db_id=${clientDbId}&job_id=${jobId}&section_key=${encodeURIComponent(getDraftSectionKey("Executive Summary"))}&limit=5`,
+            { credentials: "include" },
+            1
+          ),
+        ]);
+
+        if (!cancelled) {
+          if (profileRes.ok) {
+            const profilePayload = (await profileRes.json()) as { profile?: AiPromptProfile | null };
+            setPromptProfile(profilePayload.profile || null);
+          } else {
+            setPromptProfile(null);
+          }
+
+          if (runsRes.ok) {
+            const runsPayload = (await runsRes.json()) as { runs?: PromptRun[] };
+            setPromptRuns(Array.isArray(runsPayload.runs) ? runsPayload.runs : []);
+          } else {
+            setPromptRuns([]);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setPromptError(err instanceof Error ? err.message : "Unable to load prompt context");
+          setPromptProfile(null);
+          setPromptRuns([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setPromptLoading(false);
+        }
+      }
+    }
+
+    void loadPromptContext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl, draftContext, jobId, loading]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1429,6 +1519,88 @@ export default function JobReportNew({
               </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle>Prompt Governance</CardTitle>
+              <CardDescription>
+                This job uses the active client prompt profile plus any job-specific override when AI drafts are generated.
+              </CardDescription>
+            </div>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/admin/ai-prompts?job=${jobId}`}>Open AI Prompts</Link>
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {promptLoading ? (
+            <p className="text-sm text-muted-foreground">Loading prompt context...</p>
+          ) : promptError ? (
+            <p className="text-sm text-red-600">Error: {promptError}</p>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-md border bg-muted/20 p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Active profile</div>
+                {promptProfile ? (
+                  <div className="mt-2 space-y-2">
+                    <div className="text-sm font-semibold">{promptProfile.profile_name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Status: {promptProfile.status || "unknown"} · Version {promptProfile.version || "n/a"}
+                    </div>
+                    {promptProfile.tone ? <div className="text-sm">Tone: {promptProfile.tone}</div> : null}
+                    {promptProfile.industry_context ? (
+                      <div className="text-sm">Industry: {promptProfile.industry_context}</div>
+                    ) : null}
+                    {promptProfile.audience_notes ? (
+                      <div className="text-sm text-muted-foreground">Audience: {promptProfile.audience_notes}</div>
+                    ) : null}
+                    {promptProfile.narrative_notes ? (
+                      <div className="text-sm text-muted-foreground">Notes: {promptProfile.narrative_notes}</div>
+                    ) : null}
+                    <div className="text-xs text-muted-foreground">
+                      Updated {promptProfile.updated_at ? new Date(promptProfile.updated_at).toLocaleString() : "unknown"}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    No active client prompt profile found yet. AI drafts will still use the global section template.
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-md border bg-muted/20 p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Recent prompt runs</div>
+                {promptRuns.length > 0 ? (
+                  <div className="mt-2 space-y-3">
+                    {promptRuns.slice(0, 3).map((run) => (
+                      <div key={run.run_id} className="rounded-md border bg-white p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-sm font-medium">
+                            {run.report_family_key || "prompt"} · {run.section_key || "section"}
+                          </div>
+                          <Badge variant="secondary">{run.provider || "unknown"}</Badge>
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {run.model_name || "model n/a"} · {run.status || "status n/a"} ·{" "}
+                          {run.created_at ? new Date(run.created_at).toLocaleString() : "time n/a"}
+                        </div>
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          Tokens: in {run.input_tokens ?? "n/a"} / out {run.output_tokens ?? "n/a"} / total{" "}
+                          {run.total_tokens ?? "n/a"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-muted-foreground">No prompt runs found yet for this job.</p>
+                )}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

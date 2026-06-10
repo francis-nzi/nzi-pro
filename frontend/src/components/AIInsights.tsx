@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -76,6 +77,40 @@ type SavedInsightDraft = {
   citations: Array<{ label?: string; value?: string; source?: string }>;
 };
 
+type AiPromptProfile = {
+  profile_id: number;
+  profile_name: string;
+  industry_context?: string | null;
+  company_context?: string | null;
+  tone?: string | null;
+  audience_notes?: string | null;
+  preferred_terms_json?: Record<string, unknown> | unknown[] | null;
+  forbidden_terms_json?: Record<string, unknown> | unknown[] | null;
+  narrative_notes?: string | null;
+  section_notes_json?: Record<string, unknown> | null;
+  status?: string | null;
+  version?: number | null;
+  updated_at?: string | null;
+};
+
+type PromptRun = {
+  run_id: number;
+  report_family_key?: string | null;
+  section_key?: string | null;
+  provider?: string | null;
+  model_name?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  total_tokens?: number | null;
+  resolved_system_prompt?: string | null;
+  resolved_user_prompt?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  prompt_template_id?: number | null;
+  client_prompt_profile_id?: number | null;
+  job_prompt_override_id?: number | null;
+};
+
 type InsightState = {
   insights: string | null;
   structured: StructuredInsights | null;
@@ -110,6 +145,11 @@ function previewText(insights?: string | null, structured?: StructuredInsights |
   if (!text) return "Saved insight";
   if (text.length <= 240) return text;
   return `${text.slice(0, 237).trimEnd()}...`;
+}
+
+function formatCount(value?: number | null): string {
+  if (value === null || value === undefined) return "n/a";
+  return String(value);
 }
 
 function InsightPanel({
@@ -238,6 +278,10 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
   const [editingInsight, setEditingInsight] = useState<SavedInsightDraft | null>(null);
   const [editingSaving, setEditingSaving] = useState(false);
+  const [promptProfile, setPromptProfile] = useState<AiPromptProfile | null>(null);
+  const [promptRuns, setPromptRuns] = useState<PromptRun[]>([]);
+  const [promptLoading, setPromptLoading] = useState(false);
+  const [promptError, setPromptError] = useState("");
 
   async function loadSavedInsights() {
     setSavedLoading(true);
@@ -257,6 +301,39 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
       setSavedInsights([]);
     } finally {
       setSavedLoading(false);
+    }
+  }
+
+  async function loadPromptContext() {
+    setPromptLoading(true);
+    setPromptError("");
+    try {
+      const [profileRes, runsRes] = await Promise.all([
+        fetch(`${baseUrl}/clients/${clientId}/ai-prompt-profile`, { credentials: "include" }),
+        fetch(`${baseUrl}/ai-prompts/runs?client_db_id=${clientId}&section_key=executive_summary&limit=5`, {
+          credentials: "include",
+        }),
+      ]);
+
+      if (profileRes.ok) {
+        const profileJson = (await profileRes.json()) as { profile?: AiPromptProfile | null };
+        setPromptProfile(profileJson.profile || null);
+      } else {
+        setPromptProfile(null);
+      }
+
+      if (runsRes.ok) {
+        const runsJson = (await runsRes.json()) as { runs?: PromptRun[] };
+        setPromptRuns(Array.isArray(runsJson.runs) ? runsJson.runs : []);
+      } else {
+        setPromptRuns([]);
+      }
+    } catch (err) {
+      setPromptError(err instanceof Error ? err.message : "Unable to load prompt context");
+      setPromptProfile(null);
+      setPromptRuns([]);
+    } finally {
+      setPromptLoading(false);
     }
   }
 
@@ -405,6 +482,11 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId, baseUrl]);
 
+  useEffect(() => {
+    void loadPromptContext();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId, baseUrl]);
+
   const latestSaved = useMemo(() => {
     const map = new Map<string, SavedInsight>();
     for (const item of savedInsights) {
@@ -418,6 +500,86 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
 
   return (
     <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle>Prompt Context</CardTitle>
+              <div className="text-xs text-muted-foreground">
+                This client uses the governed AI prompt stack behind the insight and report generators.
+              </div>
+            </div>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/admin/ai-prompts?client=${clientId}`}>Open AI Prompts</Link>
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {promptLoading ? (
+            <p className="text-sm text-muted-foreground">Loading prompt context...</p>
+          ) : promptError ? (
+            <p className="text-sm text-red-600">Error: {promptError}</p>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-md border bg-muted/20 p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Active profile</div>
+                {promptProfile ? (
+                  <div className="mt-2 space-y-2">
+                    <div className="text-sm font-semibold">{promptProfile.profile_name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Status: {promptProfile.status || "unknown"} · Version {promptProfile.version || "n/a"}
+                    </div>
+                    {promptProfile.tone ? <div className="text-sm">Tone: {promptProfile.tone}</div> : null}
+                    {promptProfile.industry_context ? (
+                      <div className="text-sm">Industry: {promptProfile.industry_context}</div>
+                    ) : null}
+                    {promptProfile.audience_notes ? (
+                      <div className="text-sm text-muted-foreground">Audience: {promptProfile.audience_notes}</div>
+                    ) : null}
+                    {promptProfile.narrative_notes ? (
+                      <div className="text-sm text-muted-foreground">Notes: {promptProfile.narrative_notes}</div>
+                    ) : null}
+                    <div className="text-xs text-muted-foreground">
+                      Updated {promptProfile.updated_at ? new Date(promptProfile.updated_at).toLocaleString() : "unknown"}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-muted-foreground">No saved prompt profile found for this client yet.</p>
+                )}
+              </div>
+
+              <div className="rounded-md border bg-muted/20 p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Recent runs</div>
+                {promptRuns.length > 0 ? (
+                  <div className="mt-2 space-y-3">
+                    {promptRuns.slice(0, 3).map((run) => (
+                      <div key={run.run_id} className="rounded-md border bg-white p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-sm font-medium">
+                            {run.report_family_key || "prompt"} · {run.section_key || "section"}
+                          </div>
+                          <Badge variant="secondary">{run.provider || "unknown"}</Badge>
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {run.model_name || "model n/a"} · {run.status || "status n/a"} ·{" "}
+                          {run.created_at ? new Date(run.created_at).toLocaleString() : "time n/a"}
+                        </div>
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          Tokens: in {formatCount(run.input_tokens)} / out {formatCount(run.output_tokens)} / total{" "}
+                          {formatCount(run.total_tokens)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-muted-foreground">No prompt runs found yet for this client.</p>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <InsightPanel
           title="Insights"

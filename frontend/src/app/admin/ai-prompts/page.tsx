@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Bot, Loader2, RefreshCw, Save, Search, WandSparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -219,6 +220,7 @@ function familySections(familyKey: string): PromptSectionKey[] {
 }
 
 export default function AiPromptsAdminPage() {
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState("templates");
 
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
@@ -372,6 +374,31 @@ export default function AiPromptsAdminPage() {
   useEffect(() => {
     void loadRuns();
   }, [loadRuns]);
+
+  useEffect(() => {
+    const clientParam = searchParams.get("client");
+    const jobParam = searchParams.get("job");
+
+    if (clientParam) {
+      const id = Number(clientParam);
+      if (!Number.isNaN(id)) {
+        setActiveTab("clients");
+        setSelectedClientId(id);
+        setRunFilters((prev) => ({ ...prev, clientDbId: String(id) }));
+        void loadClientProfile(id);
+      }
+    }
+
+    if (jobParam) {
+      const id = Number(jobParam);
+      if (!Number.isNaN(id)) {
+        setActiveTab("jobs");
+        setSelectedJobId(id);
+        setRunFilters((prev) => ({ ...prev, jobId: String(id) }));
+        void loadJobOverrides(id);
+      }
+    }
+  }, [loadClientProfile, loadJobOverrides, searchParams]);
 
   useEffect(() => {
     if (!selectedTemplateId) return;
