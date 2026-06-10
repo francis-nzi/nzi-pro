@@ -21,7 +21,7 @@ function PortalManagementInner() {
       baseUrl={baseUrl}
       sectionLabel="Portal Management"
       sectionHref={`/jobs/${jobId}/portal-management`}
-      activeGroup="report"
+      activeGroup="portal"
       activeSubtab="portal-management"
     >
       <JobPortalManagement jobId={jobId} baseUrl={baseUrl} />

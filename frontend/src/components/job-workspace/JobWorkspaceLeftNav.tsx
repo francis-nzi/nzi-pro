@@ -71,10 +71,9 @@ function buildGroups(jobId: number): GroupDef[] {
       icon: FileText,
       href: `/jobs/${j}/report-new`,
       subtabs: [
-        { key: "report-new",        label: "Report Preparation", href: `/jobs/${j}/report-new` },
-        { key: "advanced-reports", label: "Report Printing",    href: `/jobs/${j}/advanced-reports` },
-        { key: "client-review",    label: "Client Review",      href: `/jobs/${j}/client-review` },
-        { key: "portal-management", label: "Portal Management", href: `/jobs/${j}/portal-management` },
+        { key: "report-new",       label: "Report Preparation", href: `/jobs/${j}/report-new` },
+        { key: "advanced-reports", label: "Report Printing",   href: `/jobs/${j}/advanced-reports` },
+        { key: "client-review",    label: "Client Review",     href: `/jobs/${j}/client-review` },
       ],
     },
     {
@@ -91,6 +90,13 @@ function buildGroups(jobId: number): GroupDef[] {
       label: "Insights",
       icon: Lightbulb,
       href: `/jobs/${j}/insights`,
+      subtabs: [],
+    },
+    {
+      key: "portal",
+      label: "Portal",
+      icon: MonitorSmartphone,
+      href: `/jobs/${j}/portal-management`,
       subtabs: [],
     },
     {
