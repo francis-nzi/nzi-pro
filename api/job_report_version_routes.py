@@ -301,6 +301,7 @@ def generate_report_draft(
             section_key,
             provider=payload.provider or "anthropic",
             model=payload.model,
+            template_id=payload.prompt_template_id,
         )
         draft_json = dict(draft)
         draft_json.setdefault("origin", "ai")

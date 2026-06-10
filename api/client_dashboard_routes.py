@@ -3,7 +3,7 @@ Client Dashboard API Routes
 Provides aggregated emissions data and metrics for client dashboards
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Body
 from copy import deepcopy
 import json
 import logging
@@ -849,13 +849,23 @@ def get_client_dashboard(
 
 
 @router.post("/clients/{client_db_id}/insights")
-def get_client_insights(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
+def get_client_insights(
+    client_db_id: int,
+    payload: dict[str, Any] | None = Body(default=None),
+    _user: dict[str, str] = Depends(_current_user),
+):
     """Generate AI insights for a client using external LLM."""
     try:
         assert_client_access(_user, int(client_db_id))
         org_id = require_org(_user)
+        template_id = None
+        if isinstance(payload, dict) and payload.get("prompt_template_id") is not None:
+            try:
+                template_id = int(payload.get("prompt_template_id"))
+            except Exception:
+                template_id = None
         with org_context(org_id):
-            payload = ai_insights.generate_client_insights(client_db_id, org_id=org_id)
+            payload = ai_insights.generate_client_insights(client_db_id, org_id=org_id, template_id=template_id)
         return payload
     except HTTPException:
         # Re-raise known HTTP exceptions (e.g., our 400 for missing key)
@@ -878,13 +888,28 @@ def get_client_insights(client_db_id: int, _user: dict[str, str] = Depends(_curr
 
 
 @router.post("/clients/{client_db_id}/insights-openai")
-def get_client_insights_openai(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
+def get_client_insights_openai(
+    client_db_id: int,
+    payload: dict[str, Any] | None = Body(default=None),
+    _user: dict[str, str] = Depends(_current_user),
+):
     """Generate non-Anthropic insights (OpenAI provider with rule-based fallback)."""
     try:
         assert_client_access(_user, int(client_db_id))
         org_id = require_org(_user)
+        template_id = None
+        if isinstance(payload, dict) and payload.get("prompt_template_id") is not None:
+            try:
+                template_id = int(payload.get("prompt_template_id"))
+            except Exception:
+                template_id = None
         with org_context(org_id):
-            payload = ai_insights.generate_client_insights(client_db_id, provider="openai", org_id=org_id)
+            payload = ai_insights.generate_client_insights(
+                client_db_id,
+                provider="openai",
+                org_id=org_id,
+                template_id=template_id,
+            )
         return payload
     except HTTPException:
         raise

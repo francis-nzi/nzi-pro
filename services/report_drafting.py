@@ -933,6 +933,7 @@ def generate_report_section_draft(
     *,
     provider: str = "anthropic",
     model: str | None = None,
+    template_id: int | None = None,
 ) -> dict[str, Any]:
     _load_env()
     section_key = (section_key or "").strip().lower()
@@ -952,6 +953,7 @@ def generate_report_section_draft(
             report_family_key=report_family_key,
             section_key=section_key,
             facts=prompt_facts,
+            template_id=template_id,
         )
     except Exception:
         compiled_prompt = None

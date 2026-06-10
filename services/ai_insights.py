@@ -437,7 +437,12 @@ def _local_insight_payload(
     return {"insights": summary, "structured": structured, "citations": citations}
 
 
-def generate_client_insights(client_db_id: int, provider: str = "anthropic", org_id: str | None = None) -> dict[str, Any]:
+def generate_client_insights(
+    client_db_id: int,
+    provider: str = "anthropic",
+    org_id: str | None = None,
+    template_id: int | None = None,
+) -> dict[str, Any]:
     """Fetch client data, call the LLM, and return structured + raw insight output.
 
     Returns:
@@ -656,6 +661,7 @@ def generate_client_insights(client_db_id: int, provider: str = "anthropic", org
                     str(prompt_facts["databank_context"]),
                 ]
             )},
+            template_id=template_id,
         )
     except Exception:
         compiled_prompt = None

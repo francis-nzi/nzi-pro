@@ -8,6 +8,7 @@ import {
   FileText,
   Lightbulb,
   MessageCircle,
+  MonitorSmartphone,
   Settings2,
   ShieldCheck,
   TrendingUp,
@@ -70,9 +71,10 @@ function buildGroups(jobId: number): GroupDef[] {
       icon: FileText,
       href: `/jobs/${j}/report-new`,
       subtabs: [
-        { key: "report-new",       label: "Report Preparation", href: `/jobs/${j}/report-new` },
+        { key: "report-new",        label: "Report Preparation", href: `/jobs/${j}/report-new` },
         { key: "advanced-reports", label: "Report Printing",    href: `/jobs/${j}/advanced-reports` },
         { key: "client-review",    label: "Client Review",      href: `/jobs/${j}/client-review` },
+        { key: "portal-management", label: "Portal Management", href: `/jobs/${j}/portal-management` },
       ],
     },
     {

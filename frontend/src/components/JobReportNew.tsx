@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +11,8 @@ import EmissionsSummary from "@/components/EmissionsSummary";
 import ReportingElements from "@/components/ReportingElements";
 import ReportVariablesPanel from "@/components/job-workspace/ReportVariablesPanel";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, CheckCircle2, ChevronDown, CircleX, FileText, Search, Sparkles, Target } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowRight, CheckCircle2, ChevronDown, CircleX, FileText, Loader2, Search, Sparkles, Target } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { apiUrl } from "@/lib/auth-client";
 
@@ -111,6 +113,27 @@ type PromptRun = {
   created_at?: string | null;
 };
 
+type PromptTemplateRow = {
+  template_id: number;
+  prompt_key: string;
+  report_family_key: string;
+  section_key: string;
+  name: string;
+  status: string;
+  version: number;
+  system_prompt?: string | null;
+  user_prompt?: string | null;
+  updated_at?: string | null;
+};
+
+type PromptPreviewResult = {
+  system_prompt?: string;
+  user_prompt?: string;
+  warnings?: string[];
+  metadata?: Record<string, unknown>;
+  resolved_versions?: Record<string, unknown>;
+};
+
 type ReportDraftRow = {
   section_key?: string | null;
   section_title?: string | null;
@@ -188,6 +211,7 @@ const SECTION_LABEL_ALIASES: Record<string, string> = {
 };
 
 const AI_DRAFT_SECTIONS = new Set(["Executive Summary", "Emissions Overview", "Actions"]);
+const ACTIVE_TEMPLATE_VALUE = "__active__";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -579,6 +603,11 @@ export default function JobReportNew({
   const [promptRuns, setPromptRuns] = useState<PromptRun[]>([]);
   const [promptLoading, setPromptLoading] = useState(false);
   const [promptError, setPromptError] = useState("");
+  const [promptTemplates, setPromptTemplates] = useState<PromptTemplateRow[]>([]);
+  const [draftPromptTemplateIds, setDraftPromptTemplateIds] = useState<Record<string, string>>({});
+  const [promptStackPreview, setPromptStackPreview] = useState<PromptPreviewResult | null>(null);
+  const [promptStackOpen, setPromptStackOpen] = useState(false);
+  const [promptStackLoading, setPromptStackLoading] = useState(false);
   const [activeDraftSection, setActiveDraftSection] = useState<string>("Executive Summary");
   const [loading, setLoading] = useState(true);
   const [reportVersionsLoading, setReportVersionsLoading] = useState(true);
@@ -993,6 +1022,95 @@ export default function JobReportNew({
   useEffect(() => {
     let cancelled = false;
 
+    async function loadPromptTemplates() {
+      try {
+        const res = await fetch(`${baseUrl}/ai-prompts/templates`, { credentials: "include" });
+        if (!res.ok) {
+          return;
+        }
+        const json = (await res.json()) as { templates?: PromptTemplateRow[] };
+        if (!cancelled) {
+          setPromptTemplates(Array.isArray(json.templates) ? json.templates : []);
+        }
+      } catch {
+        if (!cancelled) {
+          setPromptTemplates([]);
+        }
+      }
+    }
+
+    void loadPromptTemplates();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl]);
+
+  const draftPromptTemplateOptions = useMemo(
+    () =>
+      promptTemplates
+        .filter((template) => template.report_family_key === selectedProfile.templateKey)
+        .filter((template) => template.section_key === getDraftSectionKey(activeDraftSection))
+        .sort((a, b) => b.version - a.version || b.template_id - a.template_id),
+    [activeDraftSection, promptTemplates, selectedProfile.templateKey]
+  );
+
+  const activePromptTemplateId = draftPromptTemplateIds[activeDraftSection] || "";
+  const activePromptTemplate = useMemo(
+    () => draftPromptTemplateOptions.find((template) => String(template.template_id) === activePromptTemplateId) || null,
+    [activePromptTemplateId, draftPromptTemplateOptions]
+  );
+
+  useEffect(() => {
+    if (!activePromptTemplateId && draftPromptTemplateOptions.length > 0) {
+      setDraftPromptTemplateIds((prev) => ({
+        ...prev,
+        [activeDraftSection]: String(draftPromptTemplateOptions[0].template_id),
+      }));
+    }
+  }, [activeDraftSection, activePromptTemplateId, draftPromptTemplateOptions]);
+
+  async function openPromptStackPreview(section: string) {
+    setPromptStackLoading(true);
+    try {
+      const sectionKey = getDraftSectionKey(section);
+      const templateId = draftPromptTemplateIds[section] ? Number(draftPromptTemplateIds[section]) : undefined;
+      const body: Record<string, unknown> = {
+        report_family_key: selectedProfile.templateKey,
+        section_key: sectionKey,
+        client_db_id: draftContext?.job_data?.client_db_id ? Number(draftContext.job_data.client_db_id) : undefined,
+        job_id: jobId,
+        facts: {
+          context_summary: draftContext?.context_summary || "",
+          selected_actions: selectedActions,
+        },
+      };
+      if (templateId) {
+        body.template_id = templateId;
+      }
+      const res = await fetch(`${baseUrl}/ai-prompts/preview`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(detail || `Unable to preview prompt stack (${res.status}).`);
+      }
+      const json = (await res.json()) as { compiled_prompt?: PromptPreviewResult | null };
+      setPromptStackPreview(json.compiled_prompt || null);
+      setPromptStackOpen(true);
+    } catch (error) {
+      setDraftError(error instanceof Error ? error.message : "Unable to preview prompt stack");
+    } finally {
+      setPromptStackLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
     async function loadReportDrafts() {
       if (loading) {
         return;
@@ -1338,6 +1456,10 @@ export default function JobReportNew({
           template_key: selectedProfile.templateKey,
           provider: "anthropic",
         };
+        const selectedTemplateId = draftPromptTemplateIds[section];
+        if (selectedTemplateId) {
+          body.prompt_template_id = Number(selectedTemplateId);
+        }
         if (siblingDrafts && Object.keys(siblingDrafts).length > 0) {
           body.sibling_drafts = siblingDrafts;
         }
@@ -1393,7 +1515,7 @@ export default function JobReportNew({
         setDraftGeneratingSection(null);
       }
     },
-    [baseUrl, jobId, selectedProfile.templateKey]
+    [baseUrl, draftPromptTemplateIds, jobId, selectedProfile.templateKey]
   );
 
   const generateAllAiDrafts = useCallback(async () => {
@@ -1423,6 +1545,8 @@ export default function JobReportNew({
         template_key: selectedProfile.templateKey,
         provider: "anthropic",
       };
+      const selectedTemplateId = draftPromptTemplateIds[section];
+      if (selectedTemplateId) body.prompt_template_id = Number(selectedTemplateId);
       if (Object.keys(siblingDrafts).length > 0) body.sibling_drafts = siblingDrafts;
 
       try {
@@ -1466,7 +1590,7 @@ export default function JobReportNew({
 
     setDraftGeneratingSection(null);
     setStatus(`Generated AI drafts for ${toGenerate.length} sections.`);
-  }, [baseUrl, jobId, selectedProfile]);
+  }, [baseUrl, draftPromptTemplateIds, jobId, selectedProfile]);
 
   return (
     <div className="space-y-6">
@@ -1849,17 +1973,30 @@ export default function JobReportNew({
                     <div className="mt-1.5 max-w-2xl text-sm text-slate-600">{getDraftSectionMeta(activeDraftSection).hint}</div>
                   </div>
                   {AI_DRAFT_SECTIONS.has(activeDraftSection) ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="gap-2 w-fit justify-self-start xl:justify-self-end"
-                      onClick={() => void generateSectionDraft(activeDraftSection)}
-                      disabled={draftGeneratingSection === activeDraftSection}
-                    >
-                      <Sparkles className="h-4 w-4" />
+                    <div className="flex flex-wrap items-center gap-2 justify-self-start xl:justify-self-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                        onClick={() => void openPromptStackPreview(activeDraftSection)}
+                        disabled={promptStackLoading}
+                      >
+                        {promptStackLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CircleX className="h-4 w-4" />}
+                        View prompt stack
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                        onClick={() => void generateSectionDraft(activeDraftSection)}
+                        disabled={draftGeneratingSection === activeDraftSection}
+                      >
+                        <Sparkles className="h-4 w-4" />
                         {draftGeneratingSection === activeDraftSection ? "Generating..." : "Generate Draft"}
-                    </Button>
+                      </Button>
+                    </div>
                   ) : null}
                 </div>
 
@@ -1871,6 +2008,44 @@ export default function JobReportNew({
                     {getDraftSectionMeta(activeDraftSection).badge}
                   </Badge>
                 </div>
+
+                {AI_DRAFT_SECTIONS.has(activeDraftSection) ? (
+                  <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                    <div className="space-y-1.5">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Prompt template</div>
+                      <Select
+                        value={draftPromptTemplateIds[activeDraftSection] || ACTIVE_TEMPLATE_VALUE}
+                        onValueChange={(value) =>
+                          setDraftPromptTemplateIds((prev) => ({
+                            ...prev,
+                            [activeDraftSection]: value === ACTIVE_TEMPLATE_VALUE ? "" : value,
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="bg-white">
+                          <SelectValue placeholder="Use active section template" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={ACTIVE_TEMPLATE_VALUE}>Use active section template</SelectItem>
+                          {draftPromptTemplateOptions.map((template) => (
+                            <SelectItem key={template.template_id} value={String(template.template_id)}>
+                              {template.name || template.prompt_key} v{template.version} {template.status ? `(${template.status})` : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {activePromptTemplate ? (
+                        <span>
+                          Using {activePromptTemplate.name || activePromptTemplate.prompt_key} v{activePromptTemplate.version}
+                        </span>
+                      ) : (
+                        <span>Using the active prompt template for this section.</span>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
 
                 <Textarea
                   className="mt-3 min-h-[260px]"
@@ -2112,6 +2287,66 @@ export default function JobReportNew({
                 </Button>
               </div>
       </AccordionSection>
+
+      <Dialog open={promptStackOpen} onOpenChange={setPromptStackOpen}>
+        <DialogContent className="max-w-5xl w-[min(96vw,1100px)]">
+          <DialogHeader>
+            <DialogTitle>Active prompt stack</DialogTitle>
+            <DialogDescription>
+              The resolved prompt for the current draft section, including the selected template, client context, and inherited instructions.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-md border p-3">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Section</div>
+                <div className="mt-1 text-sm font-medium">{activeDraftSection}</div>
+              </div>
+              <div className="rounded-md border p-3">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Template</div>
+                <div className="mt-1 text-sm font-medium">
+                  {activePromptTemplate ? `${activePromptTemplate.name || activePromptTemplate.prompt_key} v${activePromptTemplate.version}` : "Active template"}
+                </div>
+              </div>
+              <div className="rounded-md border p-3">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Client profile</div>
+                <div className="mt-1 text-sm font-medium">{promptProfile?.profile_name || "None found"}</div>
+              </div>
+            </div>
+            {promptStackPreview ? (
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-md border p-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">System prompt</div>
+                  <pre className="mt-2 max-h-[360px] overflow-auto whitespace-pre-wrap break-words text-xs text-slate-800">
+                    {promptStackPreview.system_prompt || ""}
+                  </pre>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">User prompt</div>
+                  <pre className="mt-2 max-h-[360px] overflow-auto whitespace-pre-wrap break-words text-xs text-slate-800">
+                    {promptStackPreview.user_prompt || ""}
+                  </pre>
+                </div>
+              </div>
+            ) : null}
+            {promptStackPreview?.warnings?.length ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="font-semibold">Warnings</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {promptStackPreview.warnings.map((warning, index) => (
+                    <li key={index}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPromptStackOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

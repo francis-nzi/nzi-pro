@@ -149,6 +149,7 @@ class GenerateReportDraftPayload(BaseModel):
     provider: Optional[str] = "anthropic"
     model: Optional[str] = None
     template_key: Optional[str] = None
+    prompt_template_id: Optional[int] = None
     sibling_drafts: Optional[dict] = None
 
 

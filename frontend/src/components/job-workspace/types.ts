@@ -13,7 +13,8 @@ export type WorkspaceGroupKey =
   | "communications"
   | "financial"
   | "job-notes"
-  | "admin";
+  | "admin"
+  | "portal";
 
 export type WorkspaceTab = {
   key: WorkspaceGroupKey;

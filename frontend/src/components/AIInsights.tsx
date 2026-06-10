@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 interface AIInsightsProps {
@@ -111,6 +112,27 @@ type PromptRun = {
   job_prompt_override_id?: number | null;
 };
 
+type PromptTemplateRow = {
+  template_id: number;
+  prompt_key: string;
+  report_family_key: string;
+  section_key: string;
+  name: string;
+  status: string;
+  version: number;
+  system_prompt?: string | null;
+  user_prompt?: string | null;
+  updated_at?: string | null;
+};
+
+type PromptPreviewResult = {
+  system_prompt?: string;
+  user_prompt?: string;
+  warnings?: string[];
+  metadata?: Record<string, unknown>;
+  resolved_versions?: Record<string, unknown>;
+};
+
 type InsightState = {
   insights: string | null;
   structured: StructuredInsights | null;
@@ -151,6 +173,8 @@ function formatCount(value?: number | null): string {
   if (value === null || value === undefined) return "n/a";
   return String(value);
 }
+
+const ACTIVE_TEMPLATE_VALUE = "__active__";
 
 function InsightPanel({
   title,
@@ -282,6 +306,11 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
   const [promptRuns, setPromptRuns] = useState<PromptRun[]>([]);
   const [promptLoading, setPromptLoading] = useState(false);
   const [promptError, setPromptError] = useState("");
+  const [promptTemplates, setPromptTemplates] = useState<PromptTemplateRow[]>([]);
+  const [selectedPromptTemplateId, setSelectedPromptTemplateId] = useState<string>("");
+  const [promptStackPreview, setPromptStackPreview] = useState<PromptPreviewResult | null>(null);
+  const [promptStackOpen, setPromptStackOpen] = useState(false);
+  const [promptStackLoading, setPromptStackLoading] = useState(false);
 
   async function loadSavedInsights() {
     setSavedLoading(true);
@@ -337,12 +366,55 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
     }
   }
 
-  async function fetchFor(endpoint: string, setState: SetInsightState) {
+  async function loadPromptTemplates() {
+    try {
+      const res = await fetch(`${baseUrl}/ai-prompts/templates`, { credentials: "include" });
+      if (!res.ok) {
+        return;
+      }
+      const json = (await res.json()) as { templates?: PromptTemplateRow[] };
+      const templates = Array.isArray(json.templates) ? json.templates : [];
+      setPromptTemplates(templates);
+    } catch {
+      setPromptTemplates([]);
+    }
+  }
+
+  const insightPromptTemplates = useMemo(
+    () =>
+      promptTemplates
+        .filter((template) => template.report_family_key === "client_insights" && template.section_key === "executive_summary")
+        .sort((a, b) => b.version - a.version || b.template_id - a.template_id),
+    [promptTemplates]
+  );
+
+  const selectedPromptTemplate = useMemo(
+    () => insightPromptTemplates.find((template) => String(template.template_id) === selectedPromptTemplateId) || null,
+    [insightPromptTemplates, selectedPromptTemplateId]
+  );
+
+  useEffect(() => {
+    void loadPromptTemplates();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseUrl]);
+
+  useEffect(() => {
+    if (!selectedPromptTemplateId && insightPromptTemplates.length > 0) {
+      setSelectedPromptTemplateId(String(insightPromptTemplates[0].template_id));
+    }
+  }, [insightPromptTemplates, selectedPromptTemplateId]);
+
+  async function fetchFor(endpoint: string, setState: SetInsightState, templateId?: number | null) {
     try {
       setState((prev) => ({ ...prev, loading: true, error: null }));
+      const body: Record<string, unknown> = {};
+      if (templateId) {
+        body.prompt_template_id = templateId;
+      }
       const res = await fetch(`${baseUrl}/clients/${clientId}/${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
         credentials: "include",
       });
       if (!res.ok) {
@@ -365,6 +437,37 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
       });
     } catch (e) {
       setState((prev) => ({ ...prev, loading: false, error: (e as Error).message }));
+    }
+  }
+
+  async function openPromptStackPreview() {
+    setPromptStackLoading(true);
+    try {
+      const body: Record<string, unknown> = {
+        report_family_key: "client_insights",
+        section_key: "executive_summary",
+        client_db_id: clientId,
+      };
+      if (selectedPromptTemplateId.trim()) {
+        body.template_id = Number(selectedPromptTemplateId);
+      }
+      const res = await fetch(`${baseUrl}/ai-prompts/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(detail || `Unable to preview prompt stack (${res.status}).`);
+      }
+      const json = (await res.json()) as { compiled_prompt?: PromptPreviewResult | null };
+      setPromptStackPreview(json.compiled_prompt || null);
+      setPromptStackOpen(true);
+    } catch (error) {
+      setPromptError(error instanceof Error ? error.message : "Unable to preview prompt stack");
+    } finally {
+      setPromptStackLoading(false);
     }
   }
 
@@ -515,6 +618,31 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
           </div>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+            <div className="space-y-1.5">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Prompt template</div>
+              <Select
+                value={selectedPromptTemplateId || ACTIVE_TEMPLATE_VALUE}
+                onValueChange={(value) => setSelectedPromptTemplateId(value === ACTIVE_TEMPLATE_VALUE ? "" : value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Use active Client Insights template" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ACTIVE_TEMPLATE_VALUE}>Use active Client Insights template</SelectItem>
+                  {insightPromptTemplates.map((template) => (
+                    <SelectItem key={template.template_id} value={String(template.template_id)}>
+                      {template.name || template.prompt_key} v{template.version} {template.status ? `(${template.status})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button type="button" variant="outline" onClick={() => void openPromptStackPreview()} disabled={promptStackLoading}>
+              {promptStackLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              View prompt stack
+            </Button>
+          </div>
           {promptLoading ? (
             <p className="text-sm text-muted-foreground">Loading prompt context...</p>
           ) : promptError ? (
@@ -585,7 +713,7 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
           title="Insights"
           subtitle="Provider: Anthropic"
           state={anthropic}
-          onGenerate={() => void fetchFor("insights", setAnthropic)}
+          onGenerate={() => void fetchFor("insights", setAnthropic, selectedPromptTemplateId ? Number(selectedPromptTemplateId) : null)}
           onSave={() => void saveInsight("anthropic", anthropic)}
           canSave={Boolean(anthropic.insights)}
           saving={savingProvider === "anthropic"}
@@ -594,7 +722,7 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
           title="Insights"
           subtitle="Provider: OpenAI (with rule-based fallback)"
           state={alternative}
-          onGenerate={() => void fetchFor("insights-openai", setAlternative)}
+          onGenerate={() => void fetchFor("insights-openai", setAlternative, selectedPromptTemplateId ? Number(selectedPromptTemplateId) : null)}
           onSave={() => void saveInsight("openai", alternative)}
           canSave={Boolean(alternative.insights)}
           saving={savingProvider === "openai"}
@@ -693,6 +821,66 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
             <Button onClick={() => void updateSavedInsight()} disabled={!editingInsight?.insights?.trim() || editingSaving}>
               {editingSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={promptStackOpen} onOpenChange={setPromptStackOpen}>
+        <DialogContent className="max-w-5xl w-[min(96vw,1100px)]">
+          <DialogHeader>
+            <DialogTitle>Active prompt stack</DialogTitle>
+            <DialogDescription>
+              The resolved prompt for Client Insights, including the selected template, client profile, and any inherited instructions.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-md border p-3">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Template</div>
+                <div className="mt-1 text-sm font-medium">
+                  {selectedPromptTemplate ? `${selectedPromptTemplate.name || selectedPromptTemplate.prompt_key} v${selectedPromptTemplate.version}` : "Active template"}
+                </div>
+              </div>
+              <div className="rounded-md border p-3">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Client profile</div>
+                <div className="mt-1 text-sm font-medium">{promptProfile?.profile_name || "None found"}</div>
+              </div>
+              <div className="rounded-md border p-3">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Latest run count</div>
+                <div className="mt-1 text-sm font-medium">{promptRuns.length}</div>
+              </div>
+            </div>
+            {promptStackPreview ? (
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-md border p-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">System prompt</div>
+                  <pre className="mt-2 max-h-[360px] overflow-auto whitespace-pre-wrap break-words text-xs text-slate-800">
+                    {promptStackPreview.system_prompt || ""}
+                  </pre>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">User prompt</div>
+                  <pre className="mt-2 max-h-[360px] overflow-auto whitespace-pre-wrap break-words text-xs text-slate-800">
+                    {promptStackPreview.user_prompt || ""}
+                  </pre>
+                </div>
+              </div>
+            ) : null}
+            {promptStackPreview?.warnings?.length ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="font-semibold">Warnings</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {promptStackPreview.warnings.map((warning, index) => (
+                    <li key={index}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPromptStackOpen(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
