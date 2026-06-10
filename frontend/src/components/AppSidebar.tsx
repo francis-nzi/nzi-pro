@@ -51,6 +51,7 @@ const ADMIN_CENTER_LINKS = [
   { label: "Datasets & Factors",      href: "/admin-center/datasets",      domain: "Reference Data" },
   { label: "Reusable Factors",        href: "/admin-center/custom-factors",domain: "Reference Data" },
   { label: "Templates",               href: "/admin-center/templates",     domain: "Reporting & Delivery" },
+  { label: "AI Prompts",              href: "/admin-center/ai-prompts",     domain: "Reporting & Delivery" },
   { label: "Milestone Templates",     href: "/admin-center/milestone-templates", domain: "Reporting & Delivery" },
   { label: "Automation Rules",        href: "/admin-center/automations",   domain: "Reporting & Delivery" },
   { label: "Action Options",          href: "/admin-center/actions-options",domain: "Reporting & Delivery" },

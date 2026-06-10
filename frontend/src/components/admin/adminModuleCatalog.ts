@@ -133,6 +133,15 @@ export const ADMIN_MODULES: AdminModule[] = [
     highlight: true,
   },
   {
+    title: "AI Prompts",
+    description: "Govern reusable AI prompt templates, client profiles, job overrides, and prompt previews.",
+    href: "/admin/ai-prompts",
+    cta: "Open AI prompts",
+    domain: "Reporting & Delivery",
+    icon: Sparkles,
+    highlight: true,
+  },
+  {
     title: "Milestone Templates",
     description: "Define milestone schedules for each job type.",
     href: "/admin/milestone-templates",

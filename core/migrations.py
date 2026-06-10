@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from core.database import db_backend, get_conn
+from services.ai_prompt_schema import ensure_ai_prompt_schema
 from services.permissions import ensure_permission_schema
 
 logger = logging.getLogger(__name__)
@@ -693,6 +694,8 @@ def run_migrations():
             
             con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_template_id INTEGER")
             con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS crm_name VARCHAR")
+
+            ensure_ai_prompt_schema(con)
 
             con.execute(
                 """

@@ -128,6 +128,7 @@ from api.theme_routes import router as theme_router
 from api.time_routes import router as time_router
 from api.report_template_routes import router as report_template_router
 from api.report_actions_routes import router as report_actions_router
+from api.ai_prompt_routes import router as ai_prompt_router
 from api.report_manifest_routes import router as report_manifest_router
 from api.portal_auth_routes import router as portal_auth_router
 from api.portal_routes import router as portal_router
@@ -318,6 +319,7 @@ app.include_router(report_template_router)
 
 # Include report actions routes
 app.include_router(report_actions_router)
+app.include_router(ai_prompt_router)
 app.include_router(report_manifest_router)
 
 # Include client portal routes

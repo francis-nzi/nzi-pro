@@ -2,8 +2,6 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { Loader2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdminCenterShell } from "./AdminCenterShell";
 import {
@@ -21,6 +19,7 @@ const modulePages = {
   billing: dynamic(() => import("@/app/admin/billing/page"), { ssr: false }),
   "custom-factors": dynamic(() => import("@/app/admin/custom-factors/page"), { ssr: false }),
   "custom-fields": dynamic(() => import("@/app/admin/custom-fields/page"), { ssr: false }),
+  "ai-prompts": dynamic(() => import("@/app/admin/ai-prompts/page"), { ssr: false }),
   datasets: dynamic(() => import("@/app/admin/datasets/page"), { ssr: false }),
   "email-outbox": dynamic(() => import("@/app/admin/email-outbox/page"), { ssr: false }),
   "import-export": dynamic(() => import("@/app/admin/import-export/page"), { ssr: false }),
@@ -42,20 +41,6 @@ const modulePages = {
 
 type ModuleSlug = keyof typeof modulePages;
 
-function LoadingState() {
-  return (
-    <Card className="border-slate-200/80 bg-white/90 shadow-sm">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Loader2 className="h-4 w-4 animate-spin text-[#1c5026]" />
-          Loading admin module
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="text-sm text-slate-600">Please wait while the module loads.</CardContent>
-    </Card>
-  );
-}
-
 function NotFoundState({ href }: { href: string }) {
   return (
     <Card className="border-dashed border-slate-200/80 bg-white/90 shadow-sm">
@@ -75,8 +60,8 @@ function NotFoundState({ href }: { href: string }) {
 export function AdminCenterModuleRouteView({ slug }: { slug: string[] }) {
   const slugKey = slug.join("/") as ModuleSlug;
   const legacyHref = `/admin/${slugKey}`;
-  const module = getAdminCenterModuleByHref(legacyHref);
-  void module;
+  const adminModule = getAdminCenterModuleByHref(legacyHref);
+  void adminModule;
   const Page = modulePages[slugKey];
 
   return (

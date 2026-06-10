@@ -6,6 +6,8 @@ from typing import Any, Optional
 
 from dotenv import load_dotenv
 from core.database import get_conn
+from services.ai_prompt_compiler import compile_prompt
+from services.ai_prompt_runs import record_ai_prompt_run
 
 # allow customers to override the model via environment variable if new models
 # are released; default to a model that works with the newer "messages" API.
@@ -98,6 +100,56 @@ def _build_prompt(
 
     prompt = "\n".join(parts)
     return prompt
+
+
+def _build_prompt_facts(
+    client_info: dict[str, Any],
+    yearly_rows: list[dict[str, Any]],
+    top_categories: list[dict[str, Any]],
+    databank_context: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    valid_years = [r for r in yearly_rows if r.get("year") is not None]
+    ordered_years = sorted(valid_years, key=lambda x: x["year"])
+    latest = ordered_years[-1] if ordered_years else None
+    previous = ordered_years[-2] if len(ordered_years) > 1 else None
+
+    top_lines = []
+    for c in top_categories[:5]:
+        top_lines.append(
+            f"- {c.get('category')}: {float(c.get('emissions') or 0):.1f} tCO₂e ({float(c.get('percentage') or 0):.1f}%)"
+        )
+
+    databank_lines = []
+    for row in (databank_context or [])[:20]:
+        databank_lines.append(
+            "- "
+            f"[{row.get('subject_name') or 'Subject'} | {row.get('category') or 'Category'} | "
+            f"{row.get('country') or 'Global'} | {row.get('reporting_year') or 'N/A'}] "
+            f"{row.get('title') or ''} :: {row.get('content') or ''} "
+            f"(ref: {row.get('reference_text') or 'n/a'}, url: {row.get('source_url') or 'n/a'})"
+        )
+
+    latest_total = float(latest.get("total") or 0) if latest else 0.0
+    previous_total = float(previous.get("total") or 0) if previous else 0.0
+    change_sentence = "No prior year available for change analysis."
+    if latest and previous and previous_total > 0:
+        yoy_change = ((latest_total - previous_total) / previous_total) * 100
+        change_sentence = f"Year-over-year change is {yoy_change:+.1f}%."
+
+    return {
+        "client_name": client_info.get("client_name") or "Client",
+        "industry": client_info.get("industry") or "",
+        "website": client_info.get("website") or "",
+        "addr_country": client_info.get("addr_country") or "",
+        "reporting_period": "Annual client insights",
+        "latest_year": latest.get("year") if latest else None,
+        "latest_total_tco2e": latest_total,
+        "previous_year": previous.get("year") if previous else None,
+        "previous_total_tco2e": previous_total,
+        "change_sentence": change_sentence,
+        "top_categories": "\n".join(top_lines) if top_lines else "No category data available.",
+        "databank_context": "\n".join(databank_lines) if databank_lines else "No Data Bank context provided.",
+    }
 
 
 def _extract_json(text: str) -> dict[str, Any] | None:
@@ -578,28 +630,105 @@ def generate_client_insights(client_db_id: int, provider: str = "anthropic", org
                 }
             )
 
-    prompt = _build_prompt(client_info, emissions_summary, top_categories, databank_context)
+    prompt_facts = _build_prompt_facts(client_info, yearly_rows, top_categories, databank_context)
+
+    compiled_prompt = None
+    try:
+        compiled_prompt = compile_prompt(
+            org_id=org_id_text or "global",
+            report_family_key="client_insights",
+            section_key="executive_summary",
+            facts={**prompt_facts, "prompt_facts": "\n".join(
+                [
+                    f"Client: {prompt_facts['client_name']}",
+                    f"Industry: {prompt_facts['industry']}",
+                    f"Website: {prompt_facts['website']}",
+                    f"Country: {prompt_facts['addr_country']}",
+                    f"Reporting period: {prompt_facts['reporting_period']}",
+                    f"Latest year: {prompt_facts['latest_year']}",
+                    f"Latest total tCO2e: {prompt_facts['latest_total_tco2e']:.1f}",
+                    f"Previous year: {prompt_facts['previous_year']}",
+                    f"Previous total tCO2e: {prompt_facts['previous_total_tco2e']:.1f}",
+                    f"Change note: {prompt_facts['change_sentence']}",
+                    "Top categories:",
+                    str(prompt_facts["top_categories"]),
+                    "Data Bank context:",
+                    str(prompt_facts["databank_context"]),
+                ]
+            )},
+        )
+    except Exception:
+        compiled_prompt = None
+
+    if compiled_prompt:
+        system_prompt = compiled_prompt.system_prompt
+        user_prompt = compiled_prompt.user_prompt
+        prompt_metadata = compiled_prompt.model_dump()
+    else:
+        prompt = _build_prompt(client_info, emissions_summary, top_categories, databank_context)
+        system_prompt = "You are an expert sustainability consultant."
+        user_prompt = prompt
+        prompt_metadata = {
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+            "metadata": {},
+            "warnings": [],
+            "resolved_versions": {},
+        }
 
     provider_key = (provider or "anthropic").strip().lower()
     raw_text = ""
+    input_tokens = None
+    output_tokens = None
+    total_tokens = None
+    model_name = DEFAULT_OPENAI_MODEL if provider_key == "openai" else DEFAULT_ANTHROPIC_MODEL
     if provider_key == "openai":
         try:
             client = _get_openai_client()
             response = client.chat.completions.create(
-                model=DEFAULT_OPENAI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
+                model=model_name,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
                 max_tokens=1000,
                 temperature=0.2,
             )
             raw_text = (response.choices[0].message.content or "").strip() if response.choices else ""
+            usage = getattr(response, "usage", None)
+            input_tokens = int(getattr(usage, "prompt_tokens", None) or 0) or None
+            output_tokens = int(getattr(usage, "completion_tokens", None) or 0) or None
+            total_tokens = int(getattr(usage, "total_tokens", None) or 0) or None
         except Exception as exc:
-            return _local_insight_payload(client_info, yearly_rows, top_categories, f"OpenAI unavailable: {exc}")
+            fallback_payload = _local_insight_payload(client_info, yearly_rows, top_categories, f"OpenAI unavailable: {exc}")
+            try:
+                record_ai_prompt_run(
+                    org_id=org_id_text or "global",
+                    user_id=None,
+                    report_family_key="client_insights",
+                    section_key="executive_summary",
+                    provider=provider_key,
+                    model_name=model_name,
+                    client_db_id=int(client_db_id),
+                    compiled_prompt=prompt_metadata,
+                    input_facts=prompt_facts,
+                    output_text=str(fallback_payload.get("insights") or ""),
+                    output_json=fallback_payload,
+                    status="fallback",
+                    input_tokens=None,
+                    output_tokens=None,
+                    total_tokens=None,
+                )
+            except Exception:
+                pass
+            return fallback_payload
     else:
         try:
             client = _get_anthropic_client()
             response = client.messages.create(
-                model=DEFAULT_ANTHROPIC_MODEL,
-                messages=[{"role": "user", "content": prompt}],
+                model=model_name,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
                 max_tokens=1000,
                 temperature=0.2,
             )
@@ -607,8 +736,33 @@ def generate_client_insights(client_db_id: int, provider: str = "anthropic", org
                 raw_text = response.content[0].text.strip()
             else:
                 raw_text = str(response)
+            usage = getattr(response, "usage", None)
+            input_tokens = int(getattr(usage, "input_tokens", None) or 0) or None
+            output_tokens = int(getattr(usage, "output_tokens", None) or 0) or None
+            total_tokens = (input_tokens + output_tokens) if input_tokens is not None and output_tokens is not None else None
         except Exception as exc:
-            return _local_insight_payload(client_info, yearly_rows, top_categories, f"Anthropic unavailable: {exc}")
+            fallback_payload = _local_insight_payload(client_info, yearly_rows, top_categories, f"Anthropic unavailable: {exc}")
+            try:
+                record_ai_prompt_run(
+                    org_id=org_id_text or "global",
+                    user_id=None,
+                    report_family_key="client_insights",
+                    section_key="executive_summary",
+                    provider=provider_key,
+                    model_name=model_name,
+                    client_db_id=int(client_db_id),
+                    compiled_prompt=prompt_metadata,
+                    input_facts=prompt_facts,
+                    output_text=str(fallback_payload.get("insights") or ""),
+                    output_json=fallback_payload,
+                    status="fallback",
+                    input_tokens=None,
+                    output_tokens=None,
+                    total_tokens=None,
+                )
+            except Exception:
+                pass
+            return fallback_payload
 
     parsed = _extract_json(raw_text)
     structured = _normalize_structured(parsed or {}, raw_text) if parsed else _fallback_structured(raw_text)
@@ -640,5 +794,26 @@ def generate_client_insights(client_db_id: int, provider: str = "anthropic", org
                 "source": "databank_cards",
             }
         )
+
+    try:
+        record_ai_prompt_run(
+            org_id=org_id_text or "global",
+            user_id=None,
+            report_family_key="client_insights",
+            section_key="executive_summary",
+            provider=provider_key,
+            model_name=model_name,
+            client_db_id=int(client_db_id),
+            compiled_prompt=prompt_metadata,
+            input_facts=prompt_facts,
+            output_text=raw_text,
+            output_json={"insights": raw_text, "structured": structured, "citations": citations},
+            status="completed",
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+        )
+    except Exception:
+        pass
 
     return {"insights": raw_text, "structured": structured, "citations": citations}

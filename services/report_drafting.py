@@ -10,6 +10,9 @@ from typing import Any
 from dotenv import load_dotenv
 
 from services.ai_insights import _get_anthropic_client, _get_openai_client
+from services.ai_prompt_compiler import compile_prompt
+from services.ai_prompt_registry import normalize_report_family_key
+from services.ai_prompt_runs import record_ai_prompt_run
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +59,99 @@ def _get_section_config(section_key: str) -> dict[str, str]:
             "focus": "client-ready narrative grounded in the evidence pack",
         },
     )
+
+
+def _build_prompt_facts(context: dict[str, Any], section_key: str) -> dict[str, Any]:
+    job_data = context.get("job_data") or {}
+    previous_job_data = context.get("previous_job_data") or {}
+    scope_totals = context.get("scope_totals") or {}
+    benchmark_totals = context.get("benchmark_totals") or {}
+    categories = _sort_categories(context.get("categories") or [])
+    previous_categories = _sort_categories(context.get("previous_categories") or [])
+    job_actions = context.get("job_actions") or {}
+    items = job_actions.get("items") or []
+    current_total = _as_float(scope_totals.get("Total"))
+    previous_total = _as_float(benchmark_totals.get("Total"))
+    change_sentence, change_pct = _change_text(current_total, previous_total)
+    top = _top_category(categories)
+    top_previous = _top_category(previous_categories)
+
+    action_lines = []
+    for item in items[:5]:
+        action_lines.append(
+            f"- {_text(item.get('action_name') or item.get('name') or 'Untitled action')} "
+            f"({_text(item.get('action_term_label') or item.get('action_term') or 'no term')}, "
+            f"{_text(item.get('action_category') or 'no category')})"
+        )
+
+    category_lines = []
+    for item in categories[:5]:
+        category_lines.append(
+            f"- {_text(item.get('category') or 'Uncategorised')}: {_as_float(item.get('emissions')):.1f} tCO2e "
+            f"({_as_float(item.get('percentage')):.1f}%)"
+        )
+
+    facts = {
+        "client_name": _text(job_data.get("client_name") or "Client"),
+        "reporting_year": _text(job_data.get("reporting_year") or "the reporting period"),
+        "previous_reporting_year": _text(previous_job_data.get("reporting_year") or "the comparison period"),
+        "comparison_job_number": _text(previous_job_data.get("job_number") or ""),
+        "current_total_emissions": f"{current_total:.1f}",
+        "scope_1_total": f"{_as_float(scope_totals.get('Scope 1')):.1f}",
+        "scope_2_total": f"{_as_float(scope_totals.get('Scope 2')):.1f}",
+        "scope_3_total": f"{_as_float(scope_totals.get('Scope 3')):.1f}",
+        "change_sentence": change_sentence,
+        "change_pct": f"{change_pct:.1f}" if change_pct is not None else "",
+        "top_category_name": _text(top.get("category") if top else ""),
+        "top_category_emissions": f"{_as_float(top.get('emissions') if top else 0.0):.1f}",
+        "top_category_percentage": f"{_as_float(top.get('percentage') if top else 0.0):.1f}",
+        "previous_top_category_name": _text(top_previous.get("category") if top_previous else ""),
+        "previous_top_category_emissions": f"{_as_float(top_previous.get('emissions') if top_previous else 0.0):.1f}",
+        "selected_actions_count": str(len(items)),
+        "short_term_actions": str(int((job_actions.get("term_counts") or {}).get("short") or 0)),
+        "medium_term_actions": str(int((job_actions.get("term_counts") or {}).get("medium") or 0)),
+        "long_term_actions": str(int((job_actions.get("term_counts") or {}).get("long") or 0)),
+        "headcount": f"{_as_float(job_data.get('no_of_staff')):.0f}" if _as_float(job_data.get("no_of_staff")) > 0 else "",
+        "premises_owned": f"{_as_float(job_data.get('no_premises_owned')):.0f}" if _as_float(job_data.get("no_premises_owned")) > 0 else "",
+        "premises_leased": f"{_as_float(job_data.get('no_premises_leased')):.0f}" if _as_float(job_data.get("no_premises_leased")) > 0 else "",
+        "vehicles_owned": f"{_as_float(job_data.get('no_vehicles_owned')):.0f}" if _as_float(job_data.get("no_vehicles_owned")) > 0 else "",
+        "vehicles_leased": f"{_as_float(job_data.get('no_vehicles_leased')):.0f}" if _as_float(job_data.get("no_vehicles_leased")) > 0 else "",
+        "net_zero_year": _text(job_data.get("net_zero_year") or ""),
+        "interim_year": _text(job_data.get("interim_year") or ""),
+        "context_summary": _text(context.get("context_summary") or ""),
+        "top_categories": "\n".join(category_lines) if category_lines else "No category data available.",
+        "selected_actions": "\n".join(action_lines) if action_lines else "No action data available.",
+    }
+    facts["prompt_facts"] = "\n".join(
+        [
+            f"Client: {facts['client_name']}",
+            f"Reporting year: {facts['reporting_year']}",
+            f"Previous reporting year: {facts['previous_reporting_year']}",
+            f"Comparison job number: {facts['comparison_job_number']}",
+            f"Current total emissions: {facts['current_total_emissions']} tCO2e",
+            f"Scope 1 total: {facts['scope_1_total']} tCO2e",
+            f"Scope 2 total: {facts['scope_2_total']} tCO2e",
+            f"Scope 3 total: {facts['scope_3_total']} tCO2e",
+            f"Change summary: {facts['change_sentence']}",
+            f"Top category: {facts['top_category_name']} ({facts['top_category_emissions']} tCO2e, {facts['top_category_percentage']}%)",
+            f"Previous top category: {facts['previous_top_category_name']} ({facts['previous_top_category_emissions']} tCO2e)",
+            f"Action counts: {facts['selected_actions_count']} total, {facts['short_term_actions']} short-term, {facts['medium_term_actions']} medium-term, {facts['long_term_actions']} long-term",
+            f"Headcount: {facts['headcount'] or 'N/A'}",
+            f"Premises owned: {facts['premises_owned'] or 'N/A'}",
+            f"Premises leased: {facts['premises_leased'] or 'N/A'}",
+            f"Vehicles owned: {facts['vehicles_owned'] or 'N/A'}",
+            f"Vehicles leased: {facts['vehicles_leased'] or 'N/A'}",
+            f"Net zero year: {facts['net_zero_year'] or 'N/A'}",
+            f"Interim year: {facts['interim_year'] or 'N/A'}",
+            "Top categories:",
+            facts["top_categories"],
+            "Selected actions:",
+            facts["selected_actions"],
+            "Context summary:",
+            facts["context_summary"] or "N/A",
+        ]
+    )
+    return facts
 
 
 def _as_float(value: Any) -> float:
@@ -843,13 +939,45 @@ def generate_report_section_draft(
     if section_key not in SECTION_CONFIGS:
         raise ValueError(f"Unsupported draft section: {section_key}")
 
-    prompt = _build_prompt(context, section_key)
-    system_prompt = _build_system_prompt(section_key)
+    prompt_facts = _build_prompt_facts(context, section_key)
+    job_data_for_org = context.get("job_data") or {}
+    report_family_key = normalize_report_family_key(context.get("template_key") or "crp")
+    if report_family_key not in {"client_insights", "crp", "secr", "annual_carbon_report"}:
+        report_family_key = "crp"
+
+    compiled_prompt = None
+    try:
+        compiled_prompt = compile_prompt(
+            org_id=str(job_data_for_org.get("org_id") or "global"),
+            report_family_key=report_family_key,
+            section_key=section_key,
+            facts=prompt_facts,
+        )
+    except Exception:
+        compiled_prompt = None
+
+    if compiled_prompt:
+        system_prompt = compiled_prompt.system_prompt
+        prompt = compiled_prompt.user_prompt
+        prompt_metadata = compiled_prompt.model_dump()
+    else:
+        prompt = _build_prompt(context, section_key)
+        system_prompt = _build_system_prompt(section_key)
+        prompt_metadata = {
+            "system_prompt": system_prompt,
+            "user_prompt": prompt,
+            "metadata": {},
+            "warnings": [],
+            "resolved_versions": {},
+        }
     provider_key = (provider or "anthropic").strip().lower()
     raw_text = ""
     model_name = model or (DEFAULT_OPENAI_MODEL if provider_key == "openai" else DEFAULT_ANTHROPIC_MODEL)
     temperature = 0.1 if section_key == "executive_summary" else 0.2
     max_tokens = 800 if section_key == "executive_summary" else 1200
+    input_tokens = None
+    output_tokens = None
+    total_tokens = None
 
     if provider_key == "openai":
         try:
@@ -864,9 +992,35 @@ def generate_report_section_draft(
                 max_tokens=max_tokens,
             )
             raw_text = (response.choices[0].message.content or "").strip() if response.choices else ""
+            usage = getattr(response, "usage", None)
+            input_tokens = int(getattr(usage, "prompt_tokens", None) or 0) or None
+            output_tokens = int(getattr(usage, "completion_tokens", None) or 0) or None
+            total_tokens = int(getattr(usage, "total_tokens", None) or 0) or None
         except Exception as exc:
             logger.warning("OpenAI draft generation failed; falling back to rule-based draft", exc_info=True)
-            return _fallback_payload(context, section_key, reason=f"OpenAI unavailable: {exc}")
+            fallback = _fallback_payload(context, section_key, reason=f"OpenAI unavailable: {exc}")
+            try:
+                record_ai_prompt_run(
+                    org_id=str(job_data_for_org.get("org_id") or "global"),
+                    user_id=None,
+                    report_family_key=report_family_key,
+                    section_key=section_key,
+                    provider=provider_key,
+                    model_name=model_name,
+                    client_db_id=int(job_data_for_org.get("client_db_id") or 0) or None,
+                    job_id=int(context.get("job_id") or 0) or None,
+                    compiled_prompt=prompt_metadata,
+                    input_facts=prompt_facts,
+                    output_text=str(fallback.get("draft_text") or ""),
+                    output_json=fallback,
+                    status="fallback",
+                    input_tokens=None,
+                    output_tokens=None,
+                    total_tokens=None,
+                )
+            except Exception:
+                pass
+            return fallback
     else:
         try:
             client = _get_anthropic_client()
@@ -881,9 +1035,35 @@ def generate_report_section_draft(
                 raw_text = response.content[0].text.strip()
             else:
                 raw_text = str(response)
+            usage = getattr(response, "usage", None)
+            input_tokens = int(getattr(usage, "input_tokens", None) or 0) or None
+            output_tokens = int(getattr(usage, "output_tokens", None) or 0) or None
+            total_tokens = (input_tokens + output_tokens) if input_tokens is not None and output_tokens is not None else None
         except Exception as exc:
             logger.warning("Anthropic draft generation failed; falling back to rule-based draft", exc_info=True)
-            return _fallback_payload(context, section_key, reason=f"Anthropic unavailable: {exc}")
+            fallback = _fallback_payload(context, section_key, reason=f"Anthropic unavailable: {exc}")
+            try:
+                record_ai_prompt_run(
+                    org_id=str(job_data_for_org.get("org_id") or "global"),
+                    user_id=None,
+                    report_family_key=report_family_key,
+                    section_key=section_key,
+                    provider=provider_key,
+                    model_name=model_name,
+                    client_db_id=int(job_data_for_org.get("client_db_id") or 0) or None,
+                    job_id=int(context.get("job_id") or 0) or None,
+                    compiled_prompt=prompt_metadata,
+                    input_facts=prompt_facts,
+                    output_text=str(fallback.get("draft_text") or ""),
+                    output_json=fallback,
+                    status="fallback",
+                    input_tokens=None,
+                    output_tokens=None,
+                    total_tokens=None,
+                )
+            except Exception:
+                pass
+            return fallback
 
     parsed = _extract_json(raw_text)
     if parsed:
@@ -908,4 +1088,26 @@ def generate_report_section_draft(
             "raw_text": raw_text,
         }
     )
+
+    try:
+        record_ai_prompt_run(
+            org_id=str(job_data_for_org.get("org_id") or "global"),
+            user_id=None,
+            report_family_key=report_family_key,
+            section_key=section_key,
+            provider=provider_key,
+            model_name=model_name,
+            client_db_id=int(job_data_for_org.get("client_db_id") or 0) or None,
+            job_id=int(context.get("job_id") or 0) or None,
+            compiled_prompt=prompt_metadata,
+            input_facts=prompt_facts,
+            output_text=str(normalized.get("draft_text") or ""),
+            output_json=normalized,
+            status="completed",
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+        )
+    except Exception:
+        pass
     return normalized
