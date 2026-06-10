@@ -1,4 +1,4 @@
-export type PromptFamilyKey = "crp" | "secr" | "annual_carbon_report";
+export type PromptFamilyKey = "client_insights" | "crp" | "secr" | "annual_carbon_report";
 
 export type PromptSectionKey = "executive_summary" | "emissions_overview" | "actions" | "declaration";
 
