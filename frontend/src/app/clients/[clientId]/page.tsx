@@ -36,6 +36,10 @@ const CustomFields = dynamic(() => import("@/components/CustomFields"), {
   ssr: false,
   loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading custom fields...</div>,
 });
+const ClientPortalManagement = dynamic(() => import("@/components/ClientPortalManagement"), {
+  ssr: false,
+  loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading portal data...</div>,
+});
 const CompanyIdentityBlock = dynamic(
   () => import("@/components/CompanyIdentityBlock").then((mod) => mod.CompanyIdentityBlock),
   {
@@ -211,7 +215,8 @@ type ClientSection =
   | "contacts"
   | "jobs"
   | "reporting"
-  | "custom-fields";
+  | "custom-fields"
+  | "portal";
 
 type ProfileSubSection = "details" | "contacts" | "sites" | "custom-fields";
 
@@ -221,6 +226,7 @@ const SECTIONS: Array<{ id: ClientSection; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "carbon", label: "Carbon Analytics" },
   { id: "reporting", label: "Reporting" },
+  { id: "portal", label: "Portal" },
   { id: "notes", label: "Notes" },
   { id: "timeline", label: "Communications" },
   { id: "profile", label: "Company Profile" },
@@ -480,6 +486,8 @@ function ClientDetailPageContent() {
       targetSubTab = "custom-fields";
     } else if (section === "financial" || section === "financials") {
       targetSection = "financial";
+    } else if (section === "portal") {
+      targetSection = "portal";
     } else if (section === "overview") {
       targetSection = "overview";
     }
@@ -518,8 +526,10 @@ function ClientDetailPageContent() {
       targetSection = "profile";
     } else if (section === "financial") {
       targetSection = "financial";
+    } else if (section === "portal") {
+      targetSection = "portal";
     }
-    
+
     setActiveSection(targetSection);
     setActiveProfileSubTab(targetSubTab);
     
@@ -2062,6 +2072,7 @@ function ClientDetailPageContent() {
     if (activeSection === "contacts") return renderContactsSection();
     if (activeSection === "jobs") return <ClientJobsSection loading={jobsLoading || !jobsLoaded} jobs={jobs} />;
     if (activeSection === "reporting") return <ClientReporting clientId={clientId} baseUrl={baseUrl} />;
+    if (activeSection === "portal") return <ClientPortalManagement clientId={clientId} baseUrl={baseUrl} />;
     if (activeSection === "custom-fields") return <CustomFields entityId={clientId} entityType="client" baseUrl={baseUrl} />;
     return renderFinancialSection();
   }

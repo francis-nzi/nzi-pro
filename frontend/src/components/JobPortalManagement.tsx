@@ -51,6 +51,7 @@ type PortalStatus = {
   captured_widget_ids: string[];
   latest_capture_at: string | null;
   portal_version: PortalVersion | null;
+  client_db_id: number | null;
 };
 
 // The seven standard chart widgets that should be captured for a complete portal submission
@@ -299,6 +300,15 @@ export default function JobPortalManagement({ jobId, baseUrl }: JobPortalManagem
             <p className="text-xs text-amber-700 mt-1">
               No active portal users. Add users from the client record before sending.
             </p>
+          )}
+          {status.client_db_id && (
+            <Link
+              href={`/clients/${status.client_db_id}?section=portal`}
+              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"
+            >
+              Manage portal users
+              <ExternalLink className="h-3 w-3" />
+            </Link>
           )}
         </ReadinessCard>
 

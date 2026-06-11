@@ -152,6 +152,59 @@ def reset_portal_user_password(
     return {"ok": True}
 
 
+@router.get("/clients/{client_db_id}/portal-history")
+def get_client_portal_history(
+    client_db_id: int,
+    _user: dict = Depends(_current_user),
+):
+    """Return all jobs for this client that have been sent to the portal."""
+    assert_client_access(_user, int(client_db_id))
+    with get_conn() as con:
+        rows = con.execute(
+            """
+            SELECT
+                j.job_id,
+                j.job_number,
+                j.title          AS job_title,
+                j.reporting_year,
+                j.reporting_period_start,
+                j.reporting_period_end,
+                rr.status        AS review_status,
+                rr.portal_version_id,
+                rr.sent_for_review_at,
+                rr.sent_by,
+                rr.published_at,
+                rr.published_by
+            FROM jobs j
+            JOIN report_reviews rr ON rr.job_id = j.job_id
+            WHERE j.client_db_id = %s
+              AND rr.portal_version_id IS NOT NULL
+            ORDER BY j.reporting_year DESC NULLS LAST, j.job_id DESC
+            """,
+            [int(client_db_id)],
+        ).fetchall()
+
+    items = [
+        {
+            "job_id": int(r[0]),
+            "job_number": str(r[1] or ""),
+            "job_title": str(r[2] or ""),
+            "reporting_year": int(r[3]) if r[3] is not None else None,
+            "reporting_period_start": str(r[4]) if r[4] else None,
+            "reporting_period_end": str(r[5]) if r[5] else None,
+            "review_status": str(r[6] or ""),
+            "portal_version_id": int(r[7]) if r[7] is not None else None,
+            "sent_for_review_at": str(r[8]) if r[8] else None,
+            "sent_by": str(r[9]) if r[9] else None,
+            "published_at": str(r[10]) if r[10] else None,
+            "published_by": str(r[11]) if r[11] else None,
+        }
+        for r in (rows or [])
+    ]
+
+    return {"ok": True, "items": items}
+
+
 def _send_welcome_email(portal_user: dict) -> None:
     from api.portal_auth_routes import _portal_base_url
     try:
@@ -404,6 +457,7 @@ def get_job_portal_status(
         "captured_widget_ids": sorted(captured_ids),
         "latest_capture_at": latest_capture,
         "portal_version": portal_version,
+        "client_db_id": int(client_row[0]) if client_row else None,
     }
 
 
