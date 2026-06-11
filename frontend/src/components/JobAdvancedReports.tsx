@@ -2516,7 +2516,7 @@ export default function JobAdvancedReports({
           const addEmissions = (rows: EmissionCategory[] | undefined, field: keyof CatRow) => {
             for (const row of (rows ?? [])) {
               const scope = row.scope ?? "";
-              const label = row.activity_group?.trim() || "Other Emissions";
+              const label = row.category?.trim() || row.activity_group?.trim() || "Other Emissions";
               const key = `${scope}||${label}`;
               const existing = aggMap.get(key);
               if (existing) {
