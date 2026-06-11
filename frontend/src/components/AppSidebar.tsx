@@ -22,6 +22,7 @@ import {
   Lightbulb,
   LogOut,
   MessageCircle,
+  MonitorSmartphone,
   Settings2,
   Shield,
   ShieldCheck,
@@ -160,6 +161,7 @@ const JOB_NAV_GROUPS: JobNavGroup[] = [
     subtabs: [{ key: "lca", label: "Life Cycle Analysis", href: (j) => `/jobs/${j}/lca` }],
   },
   { key: "insights", label: "Insights", icon: Lightbulb, href: (j) => `/jobs/${j}/insights`, subtabs: [] },
+  { key: "portal", label: "Portal", icon: MonitorSmartphone, href: (j) => `/jobs/${j}/portal-management`, subtabs: [] },
   { key: "communications", label: "Comms", icon: MessageCircle, href: (j) => `/jobs/${j}/communications/timeline`,
     subtabs: [
       { key: "communications-timeline",   label: "Timeline",     href: (j) => `/jobs/${j}/communications/timeline` },
@@ -194,6 +196,7 @@ function getJobActiveGroup(pathname: string, jobId: number): string {
   if (pathname?.startsWith(`${b}/report-new`) || pathname?.startsWith(`${b}/advanced-reports`) || pathname?.startsWith(`${b}/client-review`)) return "report";
   if (pathname?.startsWith(`${b}/lca`)) return "analysis";
   if (pathname?.startsWith(`${b}/insights`)) return "insights";
+  if (pathname?.startsWith(`${b}/portal-management`)) return "portal";
   if (pathname?.startsWith(`${b}/communications`)) return "communications";
   if (pathname?.startsWith(`${b}/financial`)) return "financial";
   if (pathname?.startsWith(`${b}/admin`)) return "admin";
