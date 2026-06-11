@@ -249,7 +249,8 @@ def get_job_review(
 
         # Fetch portal users for this job's client
         row = con.execute("SELECT client_db_id FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
-        portal_users = list_portal_users(int(row[0]), con=con) if row else []
+        _cid = int(row[0]) if (row and row[0] is not None) else None
+        portal_users = list_portal_users(_cid, con=con) if _cid is not None else []
 
     open_count = sum(1 for c in comments if c["status"] == "open")
     return {
@@ -337,9 +338,10 @@ def generate_review_snapshot(
 
 def _get_active_portal_users_for_job(job_id: int, con) -> list[dict]:
     row = con.execute("SELECT client_db_id FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
-    if not row:
+    cid = int(row[0]) if (row and row[0] is not None) else None
+    if cid is None:
         return []
-    return [u for u in list_portal_users(int(row[0]), con=con) if u.get("is_active")]
+    return [u for u in list_portal_users(cid, con=con) if u.get("is_active")]
 
 
 def _notify_client_review_ready(portal_user: dict, job_ref: str, job_id: int) -> None:
@@ -395,7 +397,8 @@ def get_job_portal_status(
         client_row = con.execute(
             "SELECT client_db_id FROM jobs WHERE job_id = %s", [int(job_id)]
         ).fetchone()
-        portal_users = list_portal_users(int(client_row[0]), con=con) if client_row else []
+        client_db_id_val = int(client_row[0]) if (client_row and client_row[0] is not None) else None
+        portal_users = list_portal_users(client_db_id_val, con=con) if client_db_id_val is not None else []
 
         # Widget PNG metadata (IDs + timestamps, no image data)
         widget_pngs: list[dict] = []
@@ -457,7 +460,7 @@ def get_job_portal_status(
         "captured_widget_ids": sorted(captured_ids),
         "latest_capture_at": latest_capture,
         "portal_version": portal_version,
-        "client_db_id": int(client_row[0]) if client_row else None,
+        "client_db_id": client_db_id_val,
     }
 
 
