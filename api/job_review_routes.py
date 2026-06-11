@@ -61,6 +61,52 @@ class ResetPortalPasswordPayload(BaseModel):
     new_password: str = Field(..., min_length=8)
 
 
+@router.get("/clients/{client_db_id}/portal-candidate-users")
+def list_portal_candidate_users(
+    client_db_id: int,
+    _user: dict = Depends(_current_user),
+):
+    """Return client contacts + NZI team members as candidates for portal user creation."""
+    assert_client_access(_user, int(client_db_id))
+    with get_conn() as con:
+        contact_rows = con.execute(
+            """
+            SELECT contact_id, full_name, email, job_title
+            FROM client_contacts
+            WHERE client_db_id = %s AND email IS NOT NULL AND TRIM(email) <> ''
+            ORDER BY COALESCE(NULLIF(TRIM(full_name), ''), email)
+            """,
+            [int(client_db_id)],
+        ).fetchall()
+        team_rows = con.execute(
+            """
+            SELECT user_id, full_name, email
+            FROM users
+            WHERE COALESCE(status, 'Active') = 'Active'
+              AND email IS NOT NULL AND TRIM(email) <> ''
+            ORDER BY COALESCE(NULLIF(TRIM(full_name), ''), email)
+            """
+        ).fetchall()
+    contacts = [
+        {
+            "contact_id": int(r[0]),
+            "full_name": str(r[1] or "").strip() or None,
+            "email": str(r[2]).strip(),
+            "job_title": str(r[3] or "").strip() or None,
+        }
+        for r in contact_rows
+    ]
+    team = [
+        {
+            "user_id": str(r[0]),
+            "full_name": str(r[1] or "").strip() or None,
+            "email": str(r[2]).strip(),
+        }
+        for r in team_rows
+    ]
+    return {"ok": True, "contacts": contacts, "team": team}
+
+
 @router.get("/clients/{client_db_id}/portal-users")
 def list_client_portal_users(
     client_db_id: int,

@@ -4,9 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   CheckCircle2,
+  ChevronDown,
   ExternalLink,
   History,
   RefreshCw,
+  Search,
   UserPlus,
   Users,
 } from "lucide-react";
@@ -18,6 +20,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+type Candidate = {
+  label: string;      // display name
+  email: string;
+  full_name: string;
+  contact_id?: number;
+  group: "Client Contacts" | "NZI Team";
+};
 
 type PortalUser = {
   portal_user_id: number;
@@ -107,8 +117,10 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
 
   // Add user form
   const [showAddUser, setShowAddUser] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newEmail, setNewEmail] = useState("");
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [candidateSearch, setCandidateSearch] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [addingUser, setAddingUser] = useState(false);
   const [addError, setAddError] = useState("");
@@ -122,9 +134,10 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
     setLoading(true);
     setError("");
     try {
-      const [usersRes, historyRes] = await Promise.all([
+      const [usersRes, historyRes, candidatesRes] = await Promise.all([
         fetch(`${baseUrl}/clients/${clientId}/portal-users`, { credentials: "include" }),
         fetch(`${baseUrl}/clients/${clientId}/portal-history`, { credentials: "include" }),
+        fetch(`${baseUrl}/clients/${clientId}/portal-candidate-users`, { credentials: "include" }),
       ]);
       if (usersRes.ok) {
         const data = await usersRes.json() as { items: PortalUser[] };
@@ -133,6 +146,25 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
       if (historyRes.ok) {
         const data = await historyRes.json() as { items: PortalHistoryItem[] };
         setHistory(data.items ?? []);
+      }
+      if (candidatesRes.ok) {
+        const data = await candidatesRes.json() as { contacts: { contact_id: number; full_name: string | null; email: string; job_title: string | null }[]; team: { user_id: string; full_name: string | null; email: string }[] };
+        const built: Candidate[] = [
+          ...( data.contacts ?? []).map(c => ({
+            label: c.full_name ? `${c.full_name}${c.job_title ? ` — ${c.job_title}` : ""}` : c.email,
+            email: c.email,
+            full_name: c.full_name ?? c.email,
+            contact_id: c.contact_id,
+            group: "Client Contacts" as const,
+          })),
+          ...(data.team ?? []).map(u => ({
+            label: u.full_name ?? u.email,
+            email: u.email,
+            full_name: u.full_name ?? u.email,
+            group: "NZI Team" as const,
+          })),
+        ];
+        setCandidates(built);
       }
     } catch {
       setError("Failed to load portal data");
@@ -150,19 +182,26 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
 
   async function handleAddUser(e: React.FormEvent) {
     e.preventDefault();
+    if (!selectedCandidate) { setAddError("Please select a person first."); return; }
     setAddingUser(true);
     setAddError("");
     try {
+      const body: Record<string, unknown> = {
+        email: selectedCandidate.email,
+        full_name: selectedCandidate.full_name,
+        password: newPassword,
+      };
+      if (selectedCandidate.contact_id !== undefined) body.contact_id = selectedCandidate.contact_id;
       const res = await fetch(`${baseUrl}/clients/${clientId}/portal-users`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ email: newEmail.trim(), full_name: newName.trim(), password: newPassword }),
+        body: JSON.stringify(body),
       });
       const data = await safeJson<{ ok?: boolean; detail?: string }>(res);
       if (!res.ok) throw new Error(data.detail ?? "Failed to create user");
       setShowAddUser(false);
-      setNewName(""); setNewEmail(""); setNewPassword("");
+      setSelectedCandidate(null); setCandidateSearch(""); setNewPassword("");
       setStatusMsg("Portal user created and welcome email sent.");
       await load();
     } catch (e) {
@@ -265,26 +304,85 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
 
           {showAddUser && (
             <form onSubmit={e => void handleAddUser(e)} className="rounded-lg border bg-muted/30 p-4 space-y-3">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <Label htmlFor="pu-name">Full Name</Label>
-                  <Input id="pu-name" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Jane Smith" required />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="pu-email">Email</Label>
-                  <Input id="pu-email" type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="jane@example.com" required />
+              {/* Person picker */}
+              <div className="space-y-1">
+                <Label>Person</Label>
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="w-full flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm hover:bg-accent focus:outline-none"
+                    onClick={() => { setPickerOpen(v => !v); setCandidateSearch(""); }}
+                  >
+                    {selectedCandidate ? (
+                      <span className="truncate">
+                        <span className="font-medium">{selectedCandidate.full_name}</span>
+                        <span className="ml-2 text-muted-foreground text-xs">{selectedCandidate.email}</span>
+                        <span className="ml-2 text-xs text-blue-600">{selectedCandidate.group}</span>
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Select a client contact or NZI team member…</span>
+                    )}
+                    <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-2" />
+                  </button>
+
+                  {pickerOpen && (
+                    <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-lg">
+                      <div className="flex items-center border-b px-3 py-2 gap-2">
+                        <Search className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                        <input
+                          autoFocus
+                          className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                          placeholder="Search by name or email…"
+                          value={candidateSearch}
+                          onChange={e => setCandidateSearch(e.target.value)}
+                        />
+                      </div>
+                      <div className="max-h-60 overflow-y-auto py-1">
+                        {(["Client Contacts", "NZI Team"] as const).map(group => {
+                          const q = candidateSearch.toLowerCase();
+                          const items = candidates.filter(c => c.group === group && (
+                            !q || c.label.toLowerCase().includes(q) || c.email.toLowerCase().includes(q)
+                          ));
+                          if (items.length === 0) return null;
+                          return (
+                            <div key={group}>
+                              <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/40">{group}</div>
+                              {items.map(c => (
+                                <button
+                                  key={`${c.group}-${c.email}`}
+                                  type="button"
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center justify-between gap-2"
+                                  onClick={() => { setSelectedCandidate(c); setPickerOpen(false); setCandidateSearch(""); }}
+                                >
+                                  <span className="truncate font-medium">{c.full_name}</span>
+                                  <span className="text-xs text-muted-foreground truncate">{c.email}</span>
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })}
+                        {candidates.filter(c => {
+                          const q = candidateSearch.toLowerCase();
+                          return !q || c.label.toLowerCase().includes(q) || c.email.toLowerCase().includes(q);
+                        }).length === 0 && (
+                          <div className="px-3 py-4 text-sm text-center text-muted-foreground">No matches found</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
+
               <div className="space-y-1">
                 <Label htmlFor="pu-pass">Temporary Password</Label>
                 <Input id="pu-pass" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Min 8 characters" required minLength={8} />
               </div>
               {addError && <p className="text-xs text-red-600">{addError}</p>}
               <div className="flex gap-2">
-                <Button type="submit" size="sm" disabled={addingUser}>
+                <Button type="submit" size="sm" disabled={addingUser || !selectedCandidate}>
                   {addingUser ? "Creating…" : "Create Account & Send Welcome Email"}
                 </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => setShowAddUser(false)}>Cancel</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => { setShowAddUser(false); setSelectedCandidate(null); setCandidateSearch(""); setNewPassword(""); }}>Cancel</Button>
               </div>
             </form>
           )}
