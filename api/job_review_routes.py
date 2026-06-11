@@ -428,7 +428,7 @@ def get_job_portal_status(
         if pid:
             vrow = con.execute(
                 """
-                SELECT report_version_id, version_number, version_label, status, created_at
+                SELECT report_version_id, version_number, version_label, status, generated_at
                 FROM job_report_versions
                 WHERE report_version_id = %s
                 LIMIT 1
