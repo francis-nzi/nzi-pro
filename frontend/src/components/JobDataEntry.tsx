@@ -264,6 +264,8 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const [showFactorBrowser, setShowFactorBrowser] = useState(false);
   const [factorSearchQuery, setFactorSearchQuery] = useState("");
   const [factorScopeFilter, setFactorScopeFilter] = useState<string>("All");
+  const [factorCategoryFilter, setFactorCategoryFilter] = useState<string>("All");
+  const [factorCategoryOptions, setFactorCategoryOptions] = useState<string[]>([]);
   const [addingFactorId, setAddingFactorId] = useState<string | null>(null);
   const [addingPreviousRowId, setAddingPreviousRowId] = useState<number | null>(null);
   const [selectedPreviousRowIds, setSelectedPreviousRowIds] = useState<Set<number>>(new Set());
@@ -518,16 +520,18 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     if (reset) {
       setTemplateFactors([]);
       setFactorsOffset(0);
+      setFactorCategoryOptions([]);
     }
     
     setFactorsLoading(true);
     try {
       const offset = reset ? 0 : factorsOffset;
       const scopeParam = factorScopeFilter !== "All" ? `&scope=${encodeURIComponent(factorScopeFilter)}` : "";
+      const categoryParam = factorCategoryFilter !== "All" ? `&category=${encodeURIComponent(factorCategoryFilter)}` : "";
       const searchParam = factorSearchQuery ? `&search=${encodeURIComponent(factorSearchQuery)}` : "";
       
       const factorsRes = await fetch(
-        `${effectiveBaseUrl}/jobs/${jobId}/template-factors?limit=50&offset=${offset}${scopeParam}${searchParam}`,
+        `${effectiveBaseUrl}/jobs/${jobId}/template-factors?limit=50&offset=${offset}${scopeParam}${categoryParam}${searchParam}`,
         { credentials: "include" }
       );
       
@@ -537,6 +541,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         setFactorsTotal(factorsData.total || 0);
         setFactorsHasMore(factorsData.has_more || false);
         setFactorsOffset(offset + (factorsData.factors?.length || 0));
+        setFactorCategoryOptions(Array.from(new Set([...(factorsData.category_options || [])])).filter(Boolean).sort((a: string, b: string) => a.localeCompare(b)));
       } else {
         const details = await factorsRes.text().catch(() => "");
         console.error("Failed to load template factors:", factorsRes.status, details);
@@ -581,10 +586,11 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     setLoadingMoreFactors(true);
     try {
       const scopeParam = factorScopeFilter !== "All" ? `&scope=${encodeURIComponent(factorScopeFilter)}` : "";
+      const categoryParam = factorCategoryFilter !== "All" ? `&category=${encodeURIComponent(factorCategoryFilter)}` : "";
       const searchParam = factorSearchQuery ? `&search=${encodeURIComponent(factorSearchQuery)}` : "";
       
       const factorsRes = await fetch(
-        `${effectiveBaseUrl}/jobs/${jobId}/template-factors?limit=50&offset=${factorsOffset}${scopeParam}${searchParam}`,
+        `${effectiveBaseUrl}/jobs/${jobId}/template-factors?limit=50&offset=${factorsOffset}${scopeParam}${categoryParam}${searchParam}`,
         { credentials: "include" }
       );
       
@@ -594,6 +600,11 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         setFactorsTotal(factorsData.total || 0);
         setFactorsHasMore(factorsData.has_more || false);
         setFactorsOffset(factorsOffset + (factorsData.factors?.length || 0));
+        if (Array.isArray(factorsData.category_options)) {
+          setFactorCategoryOptions((prev) =>
+            Array.from(new Set([...prev, ...factorsData.category_options])).filter(Boolean).sort((a: string, b: string) => a.localeCompare(b))
+          );
+        }
       } else {
         const details = await factorsRes.text().catch(() => "");
         console.error("Failed to load more template factors:", factorsRes.status, details);
@@ -1839,6 +1850,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
               onFactorSearchQueryChange={setFactorSearchQuery}
               factorScopeFilter={factorScopeFilter}
               onFactorScopeFilterChange={setFactorScopeFilter}
+              factorCategoryFilter={factorCategoryFilter}
+              onFactorCategoryFilterChange={setFactorCategoryFilter}
+              factorCategoryOptions={factorCategoryOptions}
               onSearch={() => loadTemplateFactors(true)}
               factorsLoading={factorsLoading}
               methodologyCountry={methodologyCountry}
@@ -2862,6 +2876,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                   onFactorSearchQueryChange={setFactorSearchQuery}
                   factorScopeFilter={factorScopeFilter}
                   onFactorScopeFilterChange={setFactorScopeFilter}
+                  factorCategoryFilter={factorCategoryFilter}
+                  onFactorCategoryFilterChange={setFactorCategoryFilter}
+                  factorCategoryOptions={factorCategoryOptions}
                   onSearch={() => loadTemplateFactors(true)}
                   factorsLoading={factorsLoading}
                   methodologyCountry={methodologyCountry}

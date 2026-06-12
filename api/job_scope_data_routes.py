@@ -2165,6 +2165,7 @@ def get_template_factors(
     offset: int = Query(0, ge=0),
     search: str = Query(""),
     scope: str = Query(""),
+    category: str = Query(""),
     _user: dict[str, str] = Depends(_current_user)
 ):
     """
@@ -2200,6 +2201,7 @@ def get_template_factors(
                     job_reporting_year = None
 
             search_term = (search or "").strip().lower()
+            category_term = str(category or "").strip()
 
             dataset_map: dict[str, int] = {}
 
@@ -2250,6 +2252,10 @@ def get_template_factors(
                     if scope and scope.strip():
                         cf_where.append("scope = %s")
                         cf_params.append(scope.strip())
+
+                    if category_term:
+                        cf_where.append("LOWER(COALESCE(category, '')) = LOWER(%s)")
+                        cf_params.append(category_term)
 
                     if job_client_db_id is not None:
                         cf_where.append("(COALESCE(is_global, TRUE) = TRUE OR client_db_id = %s)")
@@ -2371,6 +2377,10 @@ def get_template_factors(
                         jcf_where.append("scope = %s")
                         jcf_params.append(scope.strip())
 
+                    if category_term:
+                        jcf_where.append("LOWER(COALESCE(category, '')) = LOWER(%s)")
+                        jcf_params.append(category_term)
+
                     _append_multi_token_like_filters(
                         jcf_where,
                         jcf_params,
@@ -2461,6 +2471,12 @@ def get_template_factors(
                         where_clauses.append("scope = %s")
                         params.append(scope.strip())
 
+                    if category_term:
+                        where_clauses.append(
+                            f"LOWER(COALESCE({fl_parts['category_expr']}, level_2, level_1, '')) = LOWER(%s)"
+                        )
+                        params.append(category_term)
+
                     _append_multi_token_like_filters(
                         where_clauses,
                         params,
@@ -2541,6 +2557,135 @@ def get_template_factors(
                 factors = custom_factors[offset: offset + limit]
                 total_count = custom_total
 
+            category_options: list[str] = []
+            try:
+                category_seen: set[str] = set()
+
+                if has_custom_factors:
+                    cf_category_where = [
+                        "(archived = FALSE OR archived IS NULL)",
+                        "COALESCE(is_active, TRUE) = TRUE",
+                    ]
+                    cf_category_params: list = []
+                    if scope and scope.strip():
+                        cf_category_where.append("scope = %s")
+                        cf_category_params.append(scope.strip())
+                    _append_multi_token_like_filters(
+                        cf_category_where,
+                        cf_category_params,
+                        [
+                            "custom_id",
+                            "description",
+                            "report_label",
+                            "category",
+                            "uom",
+                            "source",
+                            "country",
+                        ],
+                        search_term,
+                    )
+                    cf_category_df = con.execute(
+                        f"""
+                        SELECT DISTINCT COALESCE(NULLIF(TRIM(category), ''), '') AS category
+                        FROM custom_factors
+                        WHERE {' AND '.join(cf_category_where)}
+                        ORDER BY 1
+                        """,
+                        cf_category_params,
+                    ).df()
+                    if cf_category_df is not None and not cf_category_df.empty:
+                        for _, row in cf_category_df.iterrows():
+                            category_value = _safe_text(row.get("category"))
+                            if category_value and category_value not in category_seen:
+                                category_seen.add(category_value)
+                                category_options.append(category_value)
+
+                if has_job_custom_factors:
+                    jcf_category_where = [
+                        "job_id = %s",
+                        "(archived = FALSE OR archived IS NULL)",
+                        "COALESCE(is_active, TRUE) = TRUE",
+                    ]
+                    jcf_category_params: list = [int(job_id)]
+                    if scope and scope.strip():
+                        jcf_category_where.append("scope = %s")
+                        jcf_category_params.append(scope.strip())
+                    _append_multi_token_like_filters(
+                        jcf_category_where,
+                        jcf_category_params,
+                        [
+                            "custom_id",
+                            "description",
+                            "report_label",
+                            "category",
+                            "uom",
+                            "source",
+                        ],
+                        search_term,
+                    )
+                    jcf_category_df = con.execute(
+                        f"""
+                        SELECT DISTINCT COALESCE(NULLIF(TRIM(category), ''), '') AS category
+                        FROM job_custom_factors
+                        WHERE {' AND '.join(jcf_category_where)}
+                        ORDER BY 1
+                        """,
+                        jcf_category_params,
+                    ).df()
+                    if jcf_category_df is not None and not jcf_category_df.empty:
+                        for _, row in jcf_category_df.iterrows():
+                            category_value = _safe_text(row.get("category"))
+                            if category_value and category_value not in category_seen:
+                                category_seen.add(category_value)
+                                category_options.append(category_value)
+
+                if dataset_map or extra_dataset_ids:
+                    dataset_ids = list(dataset_map.values())
+                    for dsid in extra_dataset_ids:
+                        if dsid not in dataset_ids:
+                            dataset_ids.append(dsid)
+                    if dataset_ids:
+                        category_where = [f"dataset_id IN ({','.join(['%s'] * len(dataset_ids))})"]
+                        category_params = list(dataset_ids)
+                        if scope and scope.strip():
+                            category_where.append("scope = %s")
+                            category_params.append(scope.strip())
+                        _append_multi_token_like_filters(
+                            category_where,
+                            category_params,
+                            [
+                                "report_label",
+                                "level_1",
+                                "level_2",
+                                "level_3",
+                                "level_4",
+                                "column_text",
+                                "original_id",
+                                "uom",
+                                "source",
+                                "method",
+                                "region",
+                            ],
+                            search_term,
+                        )
+                        category_df = con.execute(
+                            f"""
+                            SELECT DISTINCT COALESCE(NULLIF(TRIM(COALESCE({fl_parts['category_expr']}, level_2, level_1, '')), ''), '') AS category
+                            FROM factor_lookup
+                            WHERE {' AND '.join(category_where)}
+                            ORDER BY 1
+                            """,
+                            category_params,
+                        ).df()
+                        if category_df is not None and not category_df.empty:
+                            for _, row in category_df.iterrows():
+                                category_value = _safe_text(row.get("category"))
+                                if category_value and category_value not in category_seen:
+                                    category_seen.add(category_value)
+                                    category_options.append(category_value)
+            except Exception:
+                logger.debug("Failed to build template factor category options", exc_info=True)
+
             safe_factors = [{k: _json_safe(v) for k, v in row.items()} for row in factors]
             return {
                 "job_id": int(job_id),
@@ -2549,6 +2694,7 @@ def get_template_factors(
                 "limit": int(limit),
                 "offset": int(offset),
                 "has_more": bool((offset + limit) < total_count),
+                "category_options": category_options,
             }
             
     except HTTPException:

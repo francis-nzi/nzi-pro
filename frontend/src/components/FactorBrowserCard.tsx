@@ -32,6 +32,9 @@ type FactorBrowserCardProps = {
   onFactorSearchQueryChange: (value: string) => void;
   factorScopeFilter: string;
   onFactorScopeFilterChange: (value: string) => void;
+  factorCategoryFilter: string;
+  onFactorCategoryFilterChange: (value: string) => void;
+  factorCategoryOptions: string[];
   onSearch: () => void;
   factorsLoading: boolean;
   methodologyCountry: string;
@@ -56,6 +59,9 @@ export default function FactorBrowserCard({
   onFactorSearchQueryChange,
   factorScopeFilter,
   onFactorScopeFilterChange,
+  factorCategoryFilter,
+  onFactorCategoryFilterChange,
+  factorCategoryOptions,
   onSearch,
   factorsLoading,
   methodologyCountry,
@@ -80,7 +86,7 @@ export default function FactorBrowserCard({
       </CardHeader>
       <CardContent className="space-y-4 min-w-0">
         <div className="space-y-3">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_auto]">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_12rem_auto]">
             <div className="min-w-0">
               <Label htmlFor={`${title.replace(/\s+/g, "-").toLowerCase()}-search`}>Search Factors</Label>
               <Input
@@ -105,6 +111,22 @@ export default function FactorBrowserCard({
                   <SelectItem value="Scope 1">Scope 1</SelectItem>
                   <SelectItem value="Scope 2">Scope 2</SelectItem>
                   <SelectItem value="Scope 3">Scope 3</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-0">
+              <Label htmlFor={`${title.replace(/\s+/g, "-").toLowerCase()}-category`}>Category</Label>
+              <Select value={factorCategoryFilter} onValueChange={onFactorCategoryFilterChange}>
+                <SelectTrigger id={`${title.replace(/\s+/g, "-").toLowerCase()}-category`} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All Categories</SelectItem>
+                  {factorCategoryOptions.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
