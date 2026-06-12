@@ -59,15 +59,33 @@ class _DummyResolver:
     def __init__(self, *_args, **_kwargs):
         pass
 
-    def row_metrics(self, row):
-        return {
+    def row_metrics(self, row, include_monthly_details: bool = True):
+        metrics = {
             "display_dataset_id": row.get("dataset_id"),
             "display_qty": row.get("qty"),
             "display_uom": row.get("uom"),
             "display_factor": row.get("factor"),
             "calc_tco2e": 0.0,
             "tco2e_before_apply": 0.0,
+            "monthly_factor_details": [],
+            "uses_monthly_factors": False,
         }
+        if include_monthly_details:
+            metrics["monthly_factor_details"] = [
+                {
+                    "month_index": 1,
+                    "month_label": "Jan",
+                    "year": 2026,
+                    "dataset_name": "Dataset A",
+                    "dataset_category": "Category A",
+                    "qty": 1.0,
+                    "uom": "kWh",
+                    "factor": 2.0,
+                    "factor_original_id": "OID-1",
+                }
+            ]
+            metrics["uses_monthly_factors"] = True
+        return metrics
 
 
 class _BrokenResolver:
@@ -238,6 +256,136 @@ def test_get_job_scope_data_falls_back_when_resolver_breaks(monkeypatch) -> None
     assert result["total"] == 1
     assert result["rows"][0]["row_id"] == 11
     assert result["rows"][0]["calc_tco2e"] == 0.005
+    assert result["rows"][0]["monthly_factor_details"] == []
+
+
+def test_get_job_scope_data_can_load_monthly_detail_on_demand(monkeypatch) -> None:
+    columns = [
+        "row_id",
+        "job_id",
+        "scope",
+        "site_id",
+        "site_name",
+        "dataset_id",
+        "factor_db_id",
+        "original_id",
+        "category",
+        "level_1",
+        "level_2",
+        "level_3",
+        "level_4",
+        "column_text",
+        "report_label",
+        "qty",
+        "uom",
+        "factor",
+        "ghg_unit",
+        "calc_tco2e",
+        "apply_pct",
+        "source_qty",
+        "source_uom",
+        "month_1",
+        "month_2",
+        "month_3",
+        "month_4",
+        "month_5",
+        "month_6",
+        "month_7",
+        "month_8",
+        "month_9",
+        "month_10",
+        "month_11",
+        "month_12",
+        "data_source",
+        "data_confidence",
+        "notes",
+        "is_custom_entry",
+        "enabled",
+        "created_at",
+        "updated_at",
+        "lookup_factor",
+        "lookup_ghg_unit",
+        "lookup_category",
+        "lookup_level_1",
+        "lookup_level_2",
+        "lookup_level_3",
+        "lookup_level_4",
+        "lookup_column_text",
+        "lookup_report_label",
+    ]
+    rows = [
+        (
+            11,
+            175,
+            "Scope 1",
+            22,
+            "HQ",
+            7,
+            91,
+            "OID-1",
+            "Category A",
+            "Level 1",
+            "Level 2",
+            "Level 3",
+            "Level 4",
+            "Column",
+            "Report",
+            10.0,
+            "kWh",
+            0.5,
+            "kgCO2e",
+            5.0,
+            100.0,
+            None,
+            None,
+            1.0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "Company Data",
+            "H",
+            "storage_reason=annual",
+            True,
+            True,
+            "2026-04-01",
+            "2026-04-02",
+            0.5,
+            "kgCO2e",
+            "Lookup category",
+            "Lookup level 1",
+            "Lookup level 2",
+            "Lookup level 3",
+            "Lookup level 4",
+            "Lookup column",
+            "Lookup report",
+        )
+    ]
+    conn = _ScopeDataConn(rows=rows, description=[(name,) for name in columns])
+
+    monkeypatch.setattr(job_scope_data_routes, "get_conn", lambda: conn)
+    monkeypatch.setattr(job_scope_data_routes, "_ensure_job_scope_rows_schema", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(job_scope_data_routes, "_table_columns", lambda *_args, **_kwargs: {"category"})
+    monkeypatch.setattr(job_scope_data_routes, "JobMonthlyEmissionsResolver", _DummyResolver)
+
+    result = job_scope_data_routes.get_job_scope_data(
+        175,
+        row_id=11,
+        include_monthly_details=True,
+        _user={"user_id": "u1", "org_id": "org-123"},
+    )
+
+    assert conn.params[-1] == 11
+    assert result["total"] == 1
+    assert result["rows"][0]["monthly_factor_details"]
+    assert result["rows"][0]["uses_monthly_factors"] is True
 
 
 def test_build_scope_summary_orders_scopes_categories_and_sites(monkeypatch) -> None:

@@ -576,7 +576,7 @@ class JobMonthlyEmissionsResolver:
         factor_val = (weighted_sum / qty_total) if qty_total > 0 else _safe_float(non_zero_factor_details[0].get("factor"))
         return factor_val, None, "; ".join(dataset_parts) if dataset_parts else None
 
-    def row_metrics(self, row: Mapping[str, Any]) -> dict[str, Any]:
+    def row_metrics(self, row: Mapping[str, Any], include_monthly_details: bool = True) -> dict[str, Any]:
         scope = str(row.get("scope") or "").strip()
         notes = row.get("notes")
         apply_pct = _safe_float(row.get("apply_pct")) or 100.0
@@ -684,6 +684,7 @@ class JobMonthlyEmissionsResolver:
             emissions = 0.0
             emissions_before = 0.0
             total_qty = 0.0
+            dataset_id = _safe_int(row.get("dataset_id"))
             for idx in range(1, 13):
                 raw_val = row.get(f"month_{idx}")
                 month_qty = _safe_float(raw_val) or 0.0
@@ -706,26 +707,34 @@ class JobMonthlyEmissionsResolver:
                 emissions_before += month_before
                 emissions += month_after
 
-                month_details.append(
-                    {
-                        "month_index": idx,
-                        "month_label": self.month_label_map.get(idx) or f"M{idx}",
-                        "year": self.month_year_map.get(idx),
-                        "qty": month_qty,
-                        "uom": storage_uom,
-                        "dataset_id": month_dataset_id,
-                        "dataset_name": (factor_info or {}).get("dataset_name") or self.dataset_name_by_id.get(month_dataset_id or -1),
-                        "dataset_category": month_dataset_category,
-                        "factor": month_factor,
-                        "ghg_unit": month_ghg_unit,
-                        "original_id": month_original_id,
-                        "factor_db_id": _safe_int((factor_info or {}).get("db_id")),
-                        "factor_year": _safe_int((factor_info or {}).get("factor_year")),
-                        "emissions_tco2e": month_after,
-                    }
-                )
+                if include_monthly_details:
+                    month_details.append(
+                        {
+                            "month_index": idx,
+                            "month_label": self.month_label_map.get(idx) or f"M{idx}",
+                            "year": self.month_year_map.get(idx),
+                            "qty": month_qty,
+                            "uom": storage_uom,
+                            "dataset_id": month_dataset_id,
+                            "dataset_name": (factor_info or {}).get("dataset_name") or self.dataset_name_by_id.get(month_dataset_id or -1),
+                            "dataset_category": month_dataset_category,
+                            "factor": month_factor,
+                            "ghg_unit": month_ghg_unit,
+                            "original_id": month_original_id,
+                            "factor_db_id": _safe_int((factor_info or {}).get("db_id")),
+                            "factor_year": _safe_int((factor_info or {}).get("factor_year")),
+                            "emissions_tco2e": month_after,
+                        }
+                    )
 
-            display_factor, factor_label, dataset_label = self._build_monthly_factor_summary(month_details)
+            if include_monthly_details:
+                display_factor, factor_label, dataset_label = self._build_monthly_factor_summary(month_details)
+            else:
+                display_factor = storage_factor
+                factor_label = "Monthly factors"
+                dataset_label = self.dataset_name_by_id.get(dataset_id) if dataset_id is not None else None
+                if not dataset_label:
+                    dataset_label = "Monthly factors"
             return {
                 "display_qty": total_qty,
                 "display_uom": storage_uom,
@@ -734,7 +743,7 @@ class JobMonthlyEmissionsResolver:
                 "display_factor": display_factor,
                 "factor_label": factor_label,
                 "dataset_label": dataset_label,
-                "monthly_factor_details": month_details,
+                "monthly_factor_details": month_details if include_monthly_details else [],
                 "uses_monthly_factors": True,
                 "source_qty": source_qty,
                 "source_uom": source_uom,

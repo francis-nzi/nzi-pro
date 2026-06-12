@@ -669,6 +669,8 @@ def get_job_scope_data(
     job_id,
     scope: str = None,
     include_disabled: bool = Query(False),
+    row_id: int | None = Query(None),
+    include_monthly_details: bool = Query(False),
     _user: dict[str, str] = Depends(_current_user),
 ):
     """
@@ -676,6 +678,12 @@ def get_job_scope_data(
     Optionally filter by scope.
     """
     try:
+        if hasattr(include_disabled, "default"):
+            include_disabled = bool(getattr(include_disabled, "default", False))
+        if hasattr(include_monthly_details, "default"):
+            include_monthly_details = bool(getattr(include_monthly_details, "default", False))
+        if hasattr(row_id, "default"):
+            row_id = getattr(row_id, "default", None)
         with get_conn() as con:
             _ensure_job_scope_rows_schema(con)
             cols = _table_columns(con, "job_scope_rows")
@@ -703,6 +711,10 @@ def get_job_scope_data(
             if scope:
                 where_clause += " AND jsr.scope=%s"
                 params.append(scope)
+
+            if row_id is not None:
+                where_clause += " AND jsr.row_id=%s"
+                params.append(int(row_id))
             
             query = f"""
                 SELECT 
@@ -774,7 +786,13 @@ def get_job_scope_data(
                             return False
                     
                     try:
-                        metrics = resolver.row_metrics(r) if resolver is not None else _scope_data_fallback_metrics(r)
+                        if resolver is not None:
+                            try:
+                                metrics = resolver.row_metrics(r, include_monthly_details=include_monthly_details)
+                            except TypeError:
+                                metrics = resolver.row_metrics(r)
+                        else:
+                            metrics = _scope_data_fallback_metrics(r)
                     except Exception as metrics_error:
                         logger.warning("Scope-data resolver failed for row %s", r.get("row_id"), exc_info=True)
                         metrics = _scope_data_fallback_metrics(r)
@@ -818,7 +836,7 @@ def get_job_scope_data(
                         "source_volume_available": bool(metrics.get("source_volume_available")),
                         "factor_label": metrics.get("factor_label"),
                         "dataset_label": metrics.get("dataset_label"),
-                        "monthly_factor_details": metrics.get("monthly_factor_details") or [],
+                        "monthly_factor_details": (metrics.get("monthly_factor_details") or []) if include_monthly_details else [],
                         "uses_monthly_factors": bool(metrics.get("uses_monthly_factors")),
                         "ghg_unit": r.get("ghg_unit"),
                         "calc_tco2e": round(float(metrics.get("calc_tco2e") or 0.0), 4),

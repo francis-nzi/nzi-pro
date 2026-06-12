@@ -280,6 +280,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const [showMonthlyModal, setShowMonthlyModal] = useState(false);
   const [monthlyEditRow, setMonthlyEditRow] = useState<ScopeDataRow | null>(null);
   const [monthlyValues, setMonthlyValues] = useState<number[]>(Array(12).fill(0));
+  const [monthlyDetailCache, setMonthlyDetailCache] = useState<Record<number, ScopeDataRow>>({});
+  const [monthlyDetailLoadingRowId, setMonthlyDetailLoadingRowId] = useState<number | null>(null);
+  const [monthlyDetailError, setMonthlyDetailError] = useState("");
   const [showRowEditorModal, setShowRowEditorModal] = useState(false);
   const [rowEditorRow, setRowEditorRow] = useState<ScopeDataRow | null>(null);
   const [rowEditorSiteId, setRowEditorSiteId] = useState<string>("");
@@ -363,6 +366,15 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     setScopeData((prev) => prev.map((row) => (row.row_id === updatedRow.row_id ? { ...row, ...updatedRow } : row)));
   }
 
+  function invalidateMonthlyDetailCache(rowId: number) {
+    setMonthlyDetailCache((prev) => {
+      if (!(rowId in prev)) return prev;
+      const next = { ...prev };
+      delete next[rowId];
+      return next;
+    });
+  }
+
   function removeScopeDataRow(rowId: number) {
     setScopeData((prev) => prev.filter((row) => row.row_id !== rowId));
   }
@@ -409,6 +421,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     setDeletingRowId(null);
     setPendingSaveRowIds(new Set());
     setDirtyRowIds(new Set());
+    setMonthlyDetailCache({});
     
     try {
       // Only load essential data on initial load (not template factors)
@@ -817,6 +830,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
       if (res.ok) {
         replaceScopeDataRow(rowId, fields);
+        invalidateMonthlyDetailCache(rowId);
         clearRowDirty(rowId);
         await refreshScopeTotals();
         dispatchJobScopeRefresh("job-data-entry");
@@ -848,6 +862,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
   function openMonthlyModal(row: ScopeDataRow) {
     setMonthlyEditRow(row);
+    setMonthlyDetailError("");
     // Initialize monthly values from row data
     const months = [
       row.month_1 || 0, row.month_2 || 0, row.month_3 || 0,
@@ -857,6 +872,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     ];
     setMonthlyValues(months);
     setShowMonthlyModal(true);
+    if (row.uses_monthly_factors) {
+      void loadMonthlyDetail(row.row_id);
+    }
   }
 
   function rowToTemplateFactor(row: ScopeDataRow): TemplateFactor {
@@ -971,6 +989,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       const result = await res.json();
       if (result?.row) {
         replaceScopeDataRowFromServer(result.row as ScopeDataRow);
+        invalidateMonthlyDetailCache(rowEditorRow.row_id);
       } else {
         await loadData();
       }
@@ -989,6 +1008,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     setShowMonthlyModal(false);
     setMonthlyEditRow(null);
     setMonthlyValues(Array(12).fill(0));
+    setMonthlyDetailError("");
   }
 
   function updateMonthlyValue(monthIndex: number, value: string) {
@@ -1064,7 +1084,41 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     const saved = await updateField(monthlyEditRow.row_id, fields);
     if (saved) {
       clearRowDirty(monthlyEditRow.row_id);
+      invalidateMonthlyDetailCache(monthlyEditRow.row_id);
       closeMonthlyModal();
+    }
+  }
+
+  async function loadMonthlyDetail(rowId: number) {
+    const cached = monthlyDetailCache[rowId];
+    if (cached?.monthly_factor_details?.length) {
+      return;
+    }
+
+    setMonthlyDetailLoadingRowId(rowId);
+    setMonthlyDetailError("");
+    try {
+      const res = await fetch(
+        `${effectiveBaseUrl}/jobs/${jobId}/scope-data?row_id=${rowId}&include_monthly_details=true`,
+        { credentials: "include" }
+      );
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Failed to load monthly detail (${res.status})${text ? `: ${text}` : ""}`);
+      }
+
+      const json = await res.json().catch(() => ({}));
+      const detailRow = Array.isArray(json?.rows) ? (json.rows[0] as ScopeDataRow | undefined) : undefined;
+      if (detailRow) {
+        setMonthlyDetailCache((prev) => ({ ...prev, [rowId]: detailRow }));
+      } else {
+        setMonthlyDetailError("Monthly detail was not returned for this row.");
+      }
+    } catch (e) {
+      setMonthlyDetailError((e as Error).message);
+    } finally {
+      setMonthlyDetailLoadingRowId(null);
     }
   }
 
@@ -2196,31 +2250,8 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                 <div className="text-xs md:col-span-2 lg:col-span-4">
                                   <div className="text-muted-foreground mb-1">Monthly Dataset / Factor Audit</div>
                                   <div className="rounded border bg-background px-3 py-2">
-                                    <div className="mb-2 text-[11px] text-muted-foreground">
-                                      Emissions for this row are calculated month by month using the setup dataset applicable to each month.
-                                    </div>
-                                    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                                      {(row.monthly_factor_details || []).map((detail) => (
-                                        <div key={`${row.row_id}-${detail.month_index}`} className="rounded border px-2 py-2 text-[11px]">
-                                          <div className="font-semibold">{detail.month_label || `M${detail.month_index}`}</div>
-                                          <div className="text-muted-foreground">Year: {detail.year ?? "-"}</div>
-                                          <div className="text-muted-foreground">{detail.dataset_name || "-"}</div>
-                                          <div className="text-muted-foreground">{detail.dataset_category || detail.lookup_category || row.dataset_category || row.lookup_category || row.level_1 || row.category || "-"}</div>
-                                          <div className="font-mono">
-                                            Qty: {detail.qty !== null && detail.qty !== undefined && !Number.isNaN(detail.qty)
-                                              ? detail.qty.toFixed(2)
-                                              : "-"} {detail.uom || ""}
-                                          </div>
-                                          <div className="font-mono">
-                                            Conversion Factor: {detail.factor !== null && detail.factor !== undefined && !Number.isNaN(detail.factor)
-                                              ? detail.factor.toFixed(5)
-                                              : "-"}
-                                          </div>
-                                          <div className="font-mono break-all">
-                                            ID: {detail.factor_original_id || "-"}
-                                          </div>
-                                        </div>
-                                      ))}
+                                    <div className="text-[11px] text-muted-foreground">
+                                      Open Monthly to load the month-by-month dataset and factor audit for this row.
                                     </div>
                                   </div>
                                 </div>
@@ -2925,6 +2956,47 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                 </div>
               )}
             </div>
+
+            {monthlyEditRow && monthlyEditRow.uses_monthly_factors && (
+              <div className="rounded-md border bg-muted/20 p-3">
+                <div className="mb-2 text-sm font-semibold">Monthly Dataset / Factor Audit</div>
+                {monthlyDetailLoadingRowId === monthlyEditRow.row_id ? (
+                  <div className="text-sm text-muted-foreground">Loading monthly audit...</div>
+                ) : monthlyDetailError ? (
+                  <div className="rounded-md bg-destructive/10 p-2 text-sm text-destructive">
+                    {monthlyDetailError}
+                  </div>
+                ) : (monthlyDetailCache[monthlyEditRow.row_id]?.monthly_factor_details || []).length ? (
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {(monthlyDetailCache[monthlyEditRow.row_id]?.monthly_factor_details || []).map((detail) => (
+                      <div key={`${monthlyEditRow.row_id}-${detail.month_index}`} className="rounded border bg-background px-2 py-2 text-[11px]">
+                        <div className="font-semibold">{detail.month_label || `M${detail.month_index}`}</div>
+                        <div className="text-muted-foreground">Year: {detail.year ?? "-"}</div>
+                        <div className="text-muted-foreground">{detail.dataset_name || "-"}</div>
+                        <div className="text-muted-foreground">{detail.dataset_category || detail.lookup_category || monthlyEditRow.dataset_category || monthlyEditRow.lookup_category || monthlyEditRow.level_1 || monthlyEditRow.category || "-"}</div>
+                        <div className="font-mono">
+                          Qty: {detail.qty !== null && detail.qty !== undefined && !Number.isNaN(detail.qty)
+                            ? detail.qty.toFixed(2)
+                            : "-"} {detail.uom || ""}
+                        </div>
+                        <div className="font-mono">
+                          Conversion Factor: {detail.factor !== null && detail.factor !== undefined && !Number.isNaN(detail.factor)
+                            ? detail.factor.toFixed(5)
+                            : "-"}
+                        </div>
+                        <div className="font-mono break-all">
+                          ID: {detail.factor_original_id || "-"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    Open and wait for the monthly audit to load, or reopen the modal if the row was just repointed.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <DialogFooter>
