@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -657,7 +657,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     return normalized;
   }
 
-  function uniqueDisplayParts(values: Array<string | null | undefined>): string[] {
+  const uniqueDisplayParts = useCallback((values: Array<string | null | undefined>): string[] => {
     const seen = new Set<string>();
     const parts: string[] = [];
     for (const value of values) {
@@ -669,9 +669,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       parts.push(normalized);
     }
     return parts;
-  }
+  }, []);
 
-  function multiTokenMatch(searchText: string, values: Array<string | null | undefined>): boolean {
+  const multiTokenMatch = useCallback((searchText: string, values: Array<string | null | undefined>): boolean => {
     const tokens = searchText
       .toLowerCase()
       .split(/\s+/)
@@ -683,13 +683,13 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       .filter(Boolean)
       .join(" ");
     return tokens.every((token) => haystack.includes(token));
-  }
+  }, []);
 
-  function rowDisplayTitle(row: ScopeDataRow | PreviousYearRow): string {
+  const rowDisplayTitle = useCallback((row: ScopeDataRow | PreviousYearRow): string => {
     return normalizeDisplayValue(row.report_label) || normalizeDisplayValue(row.column_text) || normalizeDisplayValue(row.original_id) || "Row";
-  }
+  }, []);
 
-  function rowDisplaySubtitle(row: ScopeDataRow | PreviousYearRow): string {
+  const rowDisplaySubtitle = useCallback((row: ScopeDataRow | PreviousYearRow): string => {
     return uniqueDisplayParts([
       row.category,
       row.level_4,
@@ -698,7 +698,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       row.level_1,
       row.uom,
     ]).join(" • ");
-  }
+  }, [uniqueDisplayParts]);
 
   async function updateQuantity(rowId: number, newQty: number | null) {
     return updateField(rowId, { qty: newQty });
@@ -1380,7 +1380,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     );
   }
 
-  function getMonthlyFilledCount(row: MonthlyFilterRow): number {
+  const getMonthlyFilledCount = useCallback((row: MonthlyFilterRow): number => {
     if (typeof row.previous_month_count === "number") {
       return row.previous_month_count;
     }
@@ -1399,9 +1399,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       row.month_12,
     ];
     return monthlyValues.filter((value) => value !== null && value !== undefined).length;
-  }
+  }, []);
 
-  function matchesMonthlyCompleteness(row: MonthlyFilterRow): boolean {
+  const matchesMonthlyCompleteness = useCallback((row: MonthlyFilterRow): boolean => {
     if (monthlyCompletenessFilter === "All") return true;
     const filledCount = getMonthlyFilledCount(row);
     if (monthlyCompletenessFilter === "Complete") return filledCount === 12;
@@ -1409,7 +1409,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     if (monthlyCompletenessFilter === "Empty") return filledCount === 0;
     if (monthlyCompletenessFilter === "Any") return filledCount > 0;
     return true;
-  }
+  }, [getMonthlyFilledCount, monthlyCompletenessFilter]);
 
   const siteNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -1426,82 +1426,100 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     return map;
   }, [previousYearRows, sites]);
 
-  function getSiteName(siteId: number | null | undefined): string {
+  const getSiteName = useCallback((siteId: number | null | undefined): string => {
     if (siteId == null) return "";
     return siteNameById.get(String(siteId)) || `Site ${siteId}`;
-  }
+  }, [siteNameById]);
 
-  const filteredData = scopeData.filter((row) => {
-    if (selectedScope !== "All" && row.scope !== selectedScope) return false;
-    if (confidenceFilter !== "All") {
-      const confidence = String(row.data_confidence || "M").toUpperCase();
-      if (confidence !== confidenceFilter) return false;
-    }
-    if (siteFilter !== "All" && String(row.site_id ?? "") !== siteFilter) return false;
-    if (categoryFilter !== "All" && String(row.dataset_category || row.lookup_category || row.level_1 || row.category || row.level_2 || "").trim() !== categoryFilter) {
-      return false;
-    }
-    if (!matchesMonthlyCompleteness(row)) return false;
-    if (searchQuery) {
-      return multiTokenMatch(searchQuery, [
-        rowDisplayTitle(row),
-        rowDisplaySubtitle(row),
-        row.dataset_category,
-        row.lookup_category,
-        row.category,
-        row.original_id,
-        row.level_1,
-        row.level_2,
-        row.level_3,
-        row.level_4,
-        row.column_text,
-        getSiteName(row.site_id),
-        row.data_source,
-      ]);
-    }
-    return true;
-  });
+  const filteredData = useMemo(() => {
+    return scopeData.filter((row) => {
+      if (selectedScope !== "All" && row.scope !== selectedScope) return false;
+      if (confidenceFilter !== "All") {
+        const confidence = String(row.data_confidence || "M").toUpperCase();
+        if (confidence !== confidenceFilter) return false;
+      }
+      if (siteFilter !== "All" && String(row.site_id ?? "") !== siteFilter) return false;
+      if (categoryFilter !== "All" && String(row.dataset_category || row.lookup_category || row.level_1 || row.category || row.level_2 || "").trim() !== categoryFilter) {
+        return false;
+      }
+      if (!matchesMonthlyCompleteness(row)) return false;
+      if (searchQuery) {
+        return multiTokenMatch(searchQuery, [
+          rowDisplayTitle(row),
+          rowDisplaySubtitle(row),
+          row.dataset_category,
+          row.lookup_category,
+          row.category,
+          row.original_id,
+          row.level_1,
+          row.level_2,
+          row.level_3,
+          row.level_4,
+          row.column_text,
+          getSiteName(row.site_id),
+          row.data_source,
+        ]);
+      }
+      return true;
+    });
+  }, [
+    scopeData,
+    selectedScope,
+    confidenceFilter,
+    siteFilter,
+    categoryFilter,
+    searchQuery,
+    rowDisplayTitle,
+    rowDisplaySubtitle,
+    getSiteName,
+    matchesMonthlyCompleteness,
+    multiTokenMatch,
+  ]);
 
-  const filteredPreviousYearRows = previousYearRows.filter((row) => {
-    if (selectedScope !== "All" && row.scope !== selectedScope) return false;
-    if (siteFilter !== "All" && String(row.site_id ?? "") !== siteFilter) return false;
-    if (categoryFilter !== "All" && String(row.dataset_category || row.lookup_category || row.category || row.level_2 || row.level_1 || "").trim() !== categoryFilter) {
-      return false;
-    }
-    if (!matchesMonthlyCompleteness(row)) return false;
-    if (searchQuery) {
-      return multiTokenMatch(searchQuery, [
-        rowDisplayTitle(row),
-        rowDisplaySubtitle(row),
-        row.category,
-        row.original_id,
-        row.level_1,
-        row.level_2,
-        row.level_3,
-        row.level_4,
-        row.column_text,
-        row.source_job_number,
-        row.source_job_title,
-        getSiteName(row.site_id),
-        row.data_confidence,
-      ]);
-    }
-    return true;
-  });
+  const filteredPreviousYearRows = useMemo(() => {
+    return previousYearRows.filter((row) => {
+      if (selectedScope !== "All" && row.scope !== selectedScope) return false;
+      if (siteFilter !== "All" && String(row.site_id ?? "") !== siteFilter) return false;
+      if (categoryFilter !== "All" && String(row.dataset_category || row.lookup_category || row.category || row.level_2 || row.level_1 || "").trim() !== categoryFilter) {
+        return false;
+      }
+      if (!matchesMonthlyCompleteness(row)) return false;
+      if (searchQuery) {
+        return multiTokenMatch(searchQuery, [
+          rowDisplayTitle(row),
+          rowDisplaySubtitle(row),
+          row.category,
+          row.original_id,
+          row.level_1,
+          row.level_2,
+          row.level_3,
+          row.level_4,
+          row.column_text,
+          row.source_job_number,
+          row.source_job_title,
+          getSiteName(row.site_id),
+          row.data_confidence,
+        ]);
+      }
+      return true;
+    });
+  }, [
+    previousYearRows,
+    selectedScope,
+    siteFilter,
+    categoryFilter,
+    searchQuery,
+    rowDisplayTitle,
+    rowDisplaySubtitle,
+    getSiteName,
+    matchesMonthlyCompleteness,
+    multiTokenMatch,
+  ]);
 
-  const addedOriginalIds = new Set(
-    scopeData.map((r) => `${r.original_id}::${r.site_id ?? ""}`)
+  const addedOriginalIds = useMemo(
+    () => new Set(scopeData.map((r) => `${r.original_id}::${r.site_id ?? ""}`)),
+    [scopeData],
   );
-
-  const availableSites = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const row of [...scopeData, ...previousYearRows]) {
-      if (row.site_id == null) continue;
-      const key = String(row.site_id);
-      if (!seen.has(key)) seen.set(key, siteNameById.get(key) || `Site ${row.site_id}`);
-    }
-    return Array.from(seen.entries()).map(([siteId, siteName]) => ({ siteId, siteName }));
-  }, [previousYearRows, scopeData, siteNameById]);
 
   const availableCategories = useMemo(() => {
     const seen = new Set<string>();
@@ -1519,43 +1537,48 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     return Array.from(seen).sort((a, b) => a.localeCompare(b));
   }, [previousYearRows, scopeData]);
 
-  const filteredDebugRows = debugRows.filter((row) => {
-    if (selectedScope !== "All" && row.scope !== selectedScope) return false;
-    if (!debugSearch.trim()) return true;
-    return multiTokenMatch(debugSearch, [
-      row.scope,
-      row.site_name,
-      row.report_label,
-      row.original_id,
-      row.category,
-      row.level_1,
-      row.level_2,
-      row.level_3,
-      row.level_4,
-      row.column_text,
-      String(row.row_id),
-      row.enabled ? "enabled" : "disabled",
-    ]);
-  });
+  const filteredDebugRows = useMemo(() => {
+    return debugRows.filter((row) => {
+      if (selectedScope !== "All" && row.scope !== selectedScope) return false;
+      if (!debugSearch.trim()) return true;
+      return multiTokenMatch(debugSearch, [
+        row.scope,
+        row.site_name,
+        row.report_label,
+        row.original_id,
+        row.category,
+        row.level_1,
+        row.level_2,
+        row.level_3,
+        row.level_4,
+        row.column_text,
+        String(row.row_id),
+        row.enabled ? "enabled" : "disabled",
+      ]);
+    });
+  }, [debugRows, selectedScope, debugSearch, multiTokenMatch]);
 
-  const debugDuplicateGroups = Object.values(
-    filteredDebugRows.reduce<Record<string, ScopeDataDebugRow[]>>((acc, row) => {
-      const key = [
-        row.site_id ?? "null",
-        row.scope ?? "",
-        row.original_id ?? "",
-      ].join("::");
-      if (!acc[key]) acc[key] = [];
-      acc[key].push(row);
-      return acc;
-    }, {}),
-  ).filter((group) => group.length > 1);
+  const debugDuplicateGroups = useMemo(
+    () => Object.values(
+      filteredDebugRows.reduce<Record<string, ScopeDataDebugRow[]>>((acc, row) => {
+        const key = [
+          row.site_id ?? "null",
+          row.scope ?? "",
+          row.original_id ?? "",
+        ].join("::");
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(row);
+        return acc;
+      }, {}),
+    ).filter((group) => group.length > 1),
+    [filteredDebugRows],
+  );
 
-  function factorDisplayTitle(factor: TemplateFactor): string {
+  const factorDisplayTitle = useCallback((factor: TemplateFactor): string => {
     return normalizeDisplayValue(factor.report_label) || normalizeDisplayValue(factor.column_text) || normalizeDisplayValue(factor.original_id) || "Factor";
-  }
+  }, []);
 
-  function factorDisplaySubtitle(factor: TemplateFactor): string {
+  const factorDisplaySubtitle = useCallback((factor: TemplateFactor): string => {
     return uniqueDisplayParts([
       factor.category,
       factor.column_text,
@@ -1566,9 +1589,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       factor.original_id,
       factor.source,
     ]).join(" • ");
-  }
+  }, [uniqueDisplayParts]);
 
-  function methodologyMatchesFactor(methodology: MethodologyRow, factor: TemplateFactor): boolean {
+  const methodologyMatchesFactor = useCallback((methodology: MethodologyRow, factor: TemplateFactor): boolean => {
     const scope = normalizeDisplayValue(methodology.scope);
     if (scope && normalizeDisplayValue(factor.scope).toLowerCase() !== scope.toLowerCase()) return false;
 
@@ -1636,18 +1659,20 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     }
 
     return true;
-  }
+  }, [multiTokenMatch]);
 
-  const annotatedTemplateFactors = templateFactors.map((factor) => {
-    const match = methodologyDefaults.find((methodology) => methodologyMatchesFactor(methodology, factor)) || null;
-    return {
-      ...factor,
-      methodology_default: Boolean(match),
-      methodology_default_label: match
-        ? uniqueDisplayParts([match.report_label, match.category, match.descriptor, match.uom]).join(" • ")
-        : null,
-    };
-  });
+  const annotatedTemplateFactors = useMemo(() => {
+    return templateFactors.map((factor) => {
+      const match = methodologyDefaults.find((methodology) => methodologyMatchesFactor(methodology, factor)) || null;
+      return {
+        ...factor,
+        methodology_default: Boolean(match),
+        methodology_default_label: match
+          ? uniqueDisplayParts([match.report_label, match.category, match.descriptor, match.uom]).join(" • ")
+          : null,
+      };
+    });
+  }, [templateFactors, methodologyDefaults, methodologyMatchesFactor, uniqueDisplayParts]);
 
   // Check if a factor is already added to the job
   const isFactorAdded = (originalId: string) => {
