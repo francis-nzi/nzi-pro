@@ -40,12 +40,22 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
     const probeRedirect = req.nextUrl.searchParams.get("probe_redirect") === "1";
 
     const body = method === "GET" || method === "HEAD" ? undefined : await req.arrayBuffer();
+
+    // PDF generation via Playwright can take 60–120 s. Use a generous timeout
+    // so the proxy doesn't silently hang; 180 s matches the Playwright page-wait.
+    const isPdfRoute = subPath.includes("report-live-pdf") || subPath.includes("generate-report-react");
+    const timeoutMs = isPdfRoute ? 180_000 : 30_000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
     const res = await fetch(target, {
       method,
       headers: forwardHeaders(req),
       body,
       redirect: probeRedirect ? "manual" : "follow",
+      signal: controller.signal,
     });
+    clearTimeout(timer);
 
     const payload = await res.arrayBuffer();
     const outHeaders = new Headers();
