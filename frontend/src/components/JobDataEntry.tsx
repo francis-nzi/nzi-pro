@@ -1729,6 +1729,34 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
               `(${(factorsTotal || templateFactors.length).toLocaleString()} factors available)`}
           </Button>
         </CardContent>
+        {showFactorBrowser && (
+          <div className="px-6 pb-6">
+            <FactorBrowserCard
+              title="Browse & Add Factors"
+              factorSearchQuery={factorSearchQuery}
+              onFactorSearchQueryChange={setFactorSearchQuery}
+              factorScopeFilter={factorScopeFilter}
+              onFactorScopeFilterChange={setFactorScopeFilter}
+              onSearch={() => loadTemplateFactors(true)}
+              factorsLoading={factorsLoading}
+              methodologyCountry={methodologyCountry}
+              templateFactors={annotatedTemplateFactors}
+              factorsTotal={factorsTotal}
+              factorsHasMore={factorsHasMore}
+              loadingMoreFactors={loadingMoreFactors}
+              onLoadMore={loadMoreFactors}
+              getFactorTitle={factorDisplayTitle}
+              getFactorSubtitle={factorDisplaySubtitle}
+              getActionProps={(factor) => ({
+                label: isFactorAdded(factor.original_id) ? "Add Again" : "Add to Job",
+                variant: isFactorAdded(factor.original_id) ? "outline" : "default",
+                disabled: addingFactorId === factor.original_id,
+              })}
+              onSelectFactor={addFactorToJob}
+              emptyMessage="No factors found. Try adjusting your search or filters."
+            />
+          </div>
+        )}
       </Card>
 
       {/* Filters */}
@@ -2621,34 +2649,6 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Factor Browser */}
-      {showFactorBrowser && (
-        <FactorBrowserCard
-          title="Browse & Add Factors"
-          factorSearchQuery={factorSearchQuery}
-          onFactorSearchQueryChange={setFactorSearchQuery}
-          factorScopeFilter={factorScopeFilter}
-          onFactorScopeFilterChange={setFactorScopeFilter}
-          onSearch={() => loadTemplateFactors(true)}
-          factorsLoading={factorsLoading}
-          methodologyCountry={methodologyCountry}
-          templateFactors={annotatedTemplateFactors}
-          factorsTotal={factorsTotal}
-          factorsHasMore={factorsHasMore}
-          loadingMoreFactors={loadingMoreFactors}
-          onLoadMore={loadMoreFactors}
-          getFactorTitle={factorDisplayTitle}
-          getFactorSubtitle={factorDisplaySubtitle}
-          getActionProps={(factor) => ({
-            label: isFactorAdded(factor.original_id) ? "Add Again" : "Add to Job",
-            variant: isFactorAdded(factor.original_id) ? "outline" : "default",
-            disabled: addingFactorId === factor.original_id,
-          })}
-          onSelectFactor={addFactorToJob}
-          emptyMessage="No factors found. Try adjusting your search or filters."
-        />
-      )}
 
       <Dialog open={showRowEditorModal} onOpenChange={(open) => (open ? setShowRowEditorModal(true) : closeRowEditorModal())}>
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
