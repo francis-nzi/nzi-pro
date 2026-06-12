@@ -42,6 +42,8 @@ type ScopeDataRow = {
   row_id: number;
   scope: string;
   category: string | null;
+  dataset_id?: number | null;
+  factor_db_id?: number | null;
   lookup_category?: string | null;
   level_1?: string | null;
   level_2?: string | null;
@@ -277,6 +279,15 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const [showMonthlyModal, setShowMonthlyModal] = useState(false);
   const [monthlyEditRow, setMonthlyEditRow] = useState<ScopeDataRow | null>(null);
   const [monthlyValues, setMonthlyValues] = useState<number[]>(Array(12).fill(0));
+  const [showRowEditorModal, setShowRowEditorModal] = useState(false);
+  const [rowEditorRow, setRowEditorRow] = useState<ScopeDataRow | null>(null);
+  const [rowEditorSiteId, setRowEditorSiteId] = useState<string>("");
+  const [rowEditorCategory, setRowEditorCategory] = useState<string>("");
+  const [rowEditorDataSource, setRowEditorDataSource] = useState<string>("");
+  const [rowEditorNotes, setRowEditorNotes] = useState<string>("");
+  const [rowEditorSelectedFactor, setRowEditorSelectedFactor] = useState<TemplateFactor | null>(null);
+  const [rowEditorSaving, setRowEditorSaving] = useState(false);
+  const [rowEditorError, setRowEditorError] = useState("");
   const [deletingRowId, setDeletingRowId] = useState<number | null>(null);
   const [pendingSaveRowIds, setPendingSaveRowIds] = useState<Set<number>>(new Set());
   const [dirtyRowIds, setDirtyRowIds] = useState<Set<number>>(new Set());
@@ -345,6 +356,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
   function replaceScopeDataRow(rowId: number, patch: Partial<ScopeDataRow>) {
     setScopeData((prev) => prev.map((row) => (row.row_id === rowId ? recalculateRowEmissions(row, patch) : row)));
+  }
+
+  function replaceScopeDataRowFromServer(updatedRow: ScopeDataRow) {
+    setScopeData((prev) => prev.map((row) => (row.row_id === updatedRow.row_id ? { ...row, ...updatedRow } : row)));
   }
 
   function removeScopeDataRow(rowId: number) {
@@ -841,6 +856,132 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     ];
     setMonthlyValues(months);
     setShowMonthlyModal(true);
+  }
+
+  function rowToTemplateFactor(row: ScopeDataRow): TemplateFactor {
+    return {
+      scope: row.scope,
+      category: row.category || row.dataset_category || row.lookup_category || row.level_1 || "",
+      report_label: row.report_label || row.column_text || row.original_id || "",
+      original_id: row.original_id,
+      uom: row.uom || "",
+      dataset_id: row.dataset_id ?? null,
+      factor_db_id: row.factor_db_id ?? null,
+      factor: row.factor ?? null,
+      ghg_unit: row.ghg_unit ?? null,
+      level_1: row.level_1 ?? null,
+      level_2: row.level_2 ?? null,
+      level_3: row.level_3 ?? null,
+      level_4: row.level_4 ?? null,
+      column_text: row.column_text ?? null,
+      is_custom: Boolean(row.is_custom_entry),
+    };
+  }
+
+  function openRowEditorModal(row: ScopeDataRow) {
+    setShowFactorBrowser(false);
+    setRowEditorRow(row);
+    setRowEditorSiteId(row.site_id !== null && row.site_id !== undefined ? String(row.site_id) : "none");
+    setRowEditorCategory(row.category || row.dataset_category || row.lookup_category || row.level_1 || "");
+    setRowEditorDataSource(row.data_source || "Company Data");
+    setRowEditorNotes(row.notes || "");
+    setRowEditorSelectedFactor(rowToTemplateFactor(row));
+    setRowEditorError("");
+    setShowRowEditorModal(true);
+    if (!templateFactors.length && !factorsLoading) {
+      void loadTemplateFactors(true);
+    }
+  }
+
+  function closeRowEditorModal() {
+    setShowRowEditorModal(false);
+    setRowEditorRow(null);
+    setRowEditorSiteId("");
+    setRowEditorCategory("");
+    setRowEditorDataSource("");
+    setRowEditorNotes("");
+    setRowEditorSelectedFactor(null);
+    setRowEditorError("");
+    setRowEditorSaving(false);
+  }
+
+  async function saveRowEditor() {
+    if (!rowEditorRow) return;
+    if (!rowEditorSelectedFactor) {
+      setRowEditorError("Choose a replacement factor before saving.");
+      return;
+    }
+
+    const siteId =
+      rowEditorSiteId.trim() === "" || rowEditorSiteId === "none"
+        ? null
+        : Number.isNaN(Number(rowEditorSiteId))
+          ? null
+          : parseInt(rowEditorSiteId, 10);
+
+    if (rowEditorSiteId.trim() !== "" && siteId === null) {
+      setRowEditorError("Site must be a valid number.");
+      return;
+    }
+
+    setRowEditorSaving(true);
+    setRowEditorError("");
+    try {
+      const payload = {
+        original_id: rowEditorSelectedFactor.original_id,
+        dataset_id: rowEditorSelectedFactor.dataset_id,
+        factor_db_id: rowEditorSelectedFactor.factor_db_id,
+        factor: rowEditorSelectedFactor.factor,
+        ghg_unit: rowEditorSelectedFactor.ghg_unit,
+        uom: rowEditorSelectedFactor.uom,
+        site_id: siteId,
+        category: rowEditorCategory.trim() || null,
+        data_source: rowEditorDataSource.trim() || "Company Data",
+        notes: rowEditorNotes.trim() || null,
+      };
+
+      const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data/${rowEditorRow.row_id}/repoint`, {
+        method: "POST",
+        headers: withAuditHeaders(
+          { "Content-Type": "application/json" },
+          { page: "Jobs", section: "Data Entry", container: "Row Editor" }
+        ),
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        let message = text;
+        try {
+          const parsed = JSON.parse(text);
+          if (typeof parsed?.detail === "string") {
+            message = parsed.detail;
+          } else if (parsed?.detail && typeof parsed.detail === "object" && typeof parsed.detail.message === "string") {
+            message = parsed.detail.message;
+          }
+        } catch {
+          // Fall back to raw response text.
+        }
+        setRowEditorError(message || "Failed to repoint row.");
+        return;
+      }
+
+      const result = await res.json();
+      if (result?.row) {
+        replaceScopeDataRowFromServer(result.row as ScopeDataRow);
+      } else {
+        await loadData();
+      }
+      clearRowDirty(rowEditorRow.row_id);
+      await refreshScopeTotals();
+      dispatchJobScopeRefresh("job-data-entry");
+      closeRowEditorModal();
+    } catch (e) {
+      setRowEditorError((e as Error).message);
+    } finally {
+      setRowEditorSaving(false);
+    }
   }
 
   function closeMonthlyModal() {
@@ -1886,6 +2027,14 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             <Button
                               variant="outline"
                               size="sm"
+                              onClick={() => openRowEditorModal(row)}
+                              disabled={pendingSaveRowIds.has(row.row_id) || deletingRowId === row.row_id}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
                               onClick={() => openMonthlyModal(row)}
                               disabled={pendingSaveRowIds.has(row.row_id) || deletingRowId === row.row_id}
                               title={
@@ -2622,6 +2771,271 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={showRowEditorModal} onOpenChange={(open) => (open ? setShowRowEditorModal(true) : closeRowEditorModal())}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Row Source</DialogTitle>
+            {rowEditorRow && (
+              <div className="mt-2">
+                <div className="font-semibold">{rowDisplayTitle(rowEditorRow)}</div>
+                <div className="text-xs text-muted-foreground">
+                  {uniqueDisplayParts([
+                    rowEditorRow.scope,
+                    rowEditorRow.category,
+                    rowEditorRow.original_id,
+                  ]).join(" • ")}
+                </div>
+              </div>
+            )}
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {rowEditorError && (
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {rowEditorError}
+              </div>
+            )}
+
+            {rowEditorRow && (
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Row Details</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="rowEditorSite">Site</Label>
+                        <Select value={rowEditorSiteId} onValueChange={setRowEditorSiteId}>
+                          <SelectTrigger id="rowEditorSite" className="w-full">
+                            <SelectValue placeholder="No site assigned" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No Site Assigned</SelectItem>
+                            {sites.map((site) => (
+                              <SelectItem key={site.site_id} value={String(site.site_id)}>
+                                {site.site_name}{site.is_registered_office ? " ★" : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="rowEditorCategory">Category</Label>
+                        <Input
+                          id="rowEditorCategory"
+                          value={rowEditorCategory}
+                          onChange={(e) => setRowEditorCategory(e.target.value)}
+                          placeholder="Category"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="rowEditorDataSource">Data Source</Label>
+                      <Input
+                        id="rowEditorDataSource"
+                        value={rowEditorDataSource}
+                        onChange={(e) => setRowEditorDataSource(e.target.value)}
+                        placeholder="Company Data"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="rowEditorNotes">Notes</Label>
+                      <textarea
+                        id="rowEditorNotes"
+                        value={rowEditorNotes}
+                        onChange={(e) => setRowEditorNotes(e.target.value)}
+                        placeholder="Optional notes"
+                        className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      />
+                    </div>
+
+                    <div className="rounded-md border bg-muted/30 p-3 text-sm">
+                      <div className="text-xs text-muted-foreground">Current factor on row</div>
+                      <div className="font-mono break-all">{rowEditorRow.factor_reference || rowEditorRow.original_id || "-"}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {uniqueDisplayParts([rowEditorRow.uom, rowEditorRow.ghg_unit]).join(" • ") || "Unit information unavailable"}
+                      </div>
+                    </div>
+
+                    <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                      <div className="text-xs text-muted-foreground">Selected replacement</div>
+                      {rowEditorSelectedFactor ? (
+                        <>
+                          <div className="font-medium break-words">
+                            {rowEditorSelectedFactor.report_label || rowEditorSelectedFactor.column_text || rowEditorSelectedFactor.original_id}
+                          </div>
+                          <div className="font-mono text-xs break-all">
+                            {rowEditorSelectedFactor.original_id} {rowEditorSelectedFactor.dataset_id !== null ? `• Dataset ${rowEditorSelectedFactor.dataset_id}` : ""} {rowEditorSelectedFactor.factor_db_id !== null ? `• Factor ${rowEditorSelectedFactor.factor_db_id}` : ""}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {uniqueDisplayParts([rowEditorSelectedFactor.uom, rowEditorSelectedFactor.ghg_unit]).join(" • ") || "Unit information unavailable"}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-muted-foreground">Choose a factor below.</div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Choose Replacement Factor</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4 min-w-0">
+                    <div className="space-y-3">
+                      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_auto]">
+                        <div className="min-w-0">
+                          <Label htmlFor="rowEditorFactorSearch">Search Factors</Label>
+                          <Input
+                            id="rowEditorFactorSearch"
+                            placeholder="Search by label, category, or ID..."
+                            value={factorSearchQuery}
+                            className="w-full min-w-0"
+                            onChange={(e) => setFactorSearchQuery(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") loadTemplateFactors(true);
+                            }}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <Label htmlFor="rowEditorFactorScopeFilter">Scope</Label>
+                          <Select value={factorScopeFilter} onValueChange={setFactorScopeFilter}>
+                            <SelectTrigger id="rowEditorFactorScopeFilter" className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="All">All Scopes</SelectItem>
+                              <SelectItem value="Scope 1">Scope 1</SelectItem>
+                              <SelectItem value="Scope 2">Scope 2</SelectItem>
+                              <SelectItem value="Scope 3">Scope 3</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex items-end md:justify-self-end">
+                          <Button onClick={() => loadTemplateFactors(true)} disabled={factorsLoading} className="w-full md:w-auto">
+                            {factorsLoading ? "Searching..." : "Search"}
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        Methodology defaults loaded for <span className="font-medium text-foreground">{methodologyCountry}</span>.
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        Showing {templateFactors.length} of {factorsTotal} factors
+                      </div>
+                    </div>
+
+                    <div className="border rounded-md max-h-[28rem] overflow-y-auto min-w-0">
+                      {templateFactors.length === 0 && !factorsLoading ? (
+                        <div className="p-4 text-center text-sm text-muted-foreground">
+                          No factors found. Try adjusting your search or filters.
+                        </div>
+                      ) : (
+                        <div className="divide-y">
+                          {annotatedTemplateFactors.map((factor, index) => {
+                            const selected = Boolean(
+                              rowEditorSelectedFactor &&
+                              rowEditorSelectedFactor.original_id === factor.original_id &&
+                              rowEditorSelectedFactor.dataset_id === factor.dataset_id &&
+                              rowEditorSelectedFactor.factor_db_id === factor.factor_db_id
+                            );
+                            const uniqueKey = `${factor.original_id}_${factor.dataset_id}_${factor.factor_db_id}_${index}`;
+
+                            return (
+                              <div
+                                key={uniqueKey}
+                                className={`p-3 transition-colors ${selected ? "bg-primary/5" : "hover:bg-muted/50"}`}
+                              >
+                                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <span className={`inline-block px-2 py-0.5 rounded text-xs ${
+                                        factor.scope === "Scope 1" ? "bg-red-100 text-red-800" :
+                                        factor.scope === "Scope 2" ? "bg-orange-100 text-orange-800" :
+                                        "bg-blue-100 text-blue-800"
+                                      }`}>
+                                        {factor.scope}
+                                      </span>
+                                      {factor.is_custom && (
+                                        <span className="inline-block px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-800 font-semibold">
+                                          CUSTOM
+                                        </span>
+                                      )}
+                                      {factor.methodology_default && (
+                                        <span
+                                          className="inline-block px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-800 font-semibold"
+                                          title={factor.methodology_default_label || "Matches company methodology default"}
+                                        >
+                                          DEFAULT
+                                        </span>
+                                      )}
+                                      <span className="min-w-0 flex-1 break-words text-sm font-medium leading-snug">
+                                        {factorDisplayTitle(factor)}
+                                      </span>
+                                    </div>
+                                    <div className="mt-1 text-xs text-muted-foreground break-words">
+                                      {factorDisplaySubtitle(factor) || factor.original_id}
+                                    </div>
+                                    <div className="mt-1 flex flex-wrap items-center gap-3 text-xs">
+                                      <span className="font-mono">
+                                        Factor: {factor.factor?.toFixed(5) || "N/A"}
+                                      </span>
+                                      <span className="text-muted-foreground">
+                                        {factor.uom} {"->"} {factor.ghg_unit}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="md:justify-self-end">
+                                    <Button
+                                      size="sm"
+                                      onClick={() => setRowEditorSelectedFactor(factor)}
+                                      disabled={selected}
+                                      variant={selected ? "outline" : "default"}
+                                      className="w-full md:w-auto"
+                                    >
+                                      {selected ? "Selected" : "Use This Factor"}
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {factorsHasMore && (
+                            <div className="p-4 text-center">
+                              <Button
+                                onClick={loadMoreFactors}
+                                disabled={loadingMoreFactors}
+                                variant="outline"
+                                className="w-full"
+                              >
+                                {loadingMoreFactors ? "Loading..." : `Load More (${factorsTotal - templateFactors.length} remaining)`}
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeRowEditorModal} disabled={rowEditorSaving}>
+              Cancel
+            </Button>
+            <Button onClick={saveRowEditor} disabled={rowEditorSaving || !rowEditorRow}>
+              {rowEditorSaving ? "Saving..." : "Save Repoint"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Monthly Data Entry Modal */}
       <Dialog open={showMonthlyModal} onOpenChange={setShowMonthlyModal}>
