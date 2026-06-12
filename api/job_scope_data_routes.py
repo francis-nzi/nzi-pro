@@ -311,7 +311,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
         attempts.append(
             (
                 """
-                SELECT db_id, factor, ghg_unit
+                SELECT db_id, factor, ghg_unit, uom
                 FROM factor_lookup
                 WHERE dataset_id=%s AND scope=%s AND original_id=%s
                 ORDER BY db_id ASC
@@ -324,7 +324,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
         attempts.append(
             (
                 """
-                SELECT db_id, factor, ghg_unit
+                SELECT db_id, factor, ghg_unit, uom
                 FROM factor_lookup
                 WHERE dataset_id=%s AND original_id=%s
                 ORDER BY CASE WHEN scope=%s THEN 0 ELSE 1 END, db_id ASC
@@ -337,7 +337,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
         attempts.append(
             (
                 """
-                SELECT db_id, factor, ghg_unit
+                SELECT db_id, factor, ghg_unit, uom
                 FROM factor_lookup
                 WHERE scope=%s AND original_id=%s
                 ORDER BY dataset_id DESC, db_id ASC
@@ -349,7 +349,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
     attempts.append(
         (
             """
-            SELECT db_id, factor, ghg_unit
+            SELECT db_id, factor, ghg_unit, uom
             FROM factor_lookup
             WHERE original_id=%s
             ORDER BY CASE WHEN scope=%s THEN 0 ELSE 1 END, dataset_id DESC, db_id ASC
@@ -367,13 +367,113 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
             row = None
         if not row:
             continue
-        db_id, factor, ghg_unit = row
+        db_id, factor, ghg_unit, uom = row
         return {
             "db_id": _safe_int(db_id),
             "factor": _safe_float(factor),
             "ghg_unit": str(ghg_unit).strip() if ghg_unit is not None else None,
+            "uom": str(uom).strip() if uom is not None else None,
         }
     return None
+
+
+def _normalize_unit(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text.lower() or None
+
+
+def _resolve_repoint_factor(
+    con,
+    *,
+    scope: str | None,
+    original_id: str | None,
+    dataset_id: int | None,
+    factor_db_id: int | None,
+    factor: Any = None,
+    ghg_unit: Any = None,
+    uom: Any = None,
+) -> dict[str, Any]:
+    """Resolve the replacement factor for a row repoint operation.
+
+    We prefer a lookup by dataset/original ID when possible, but we still allow
+    the caller to supply a fully specified custom factor payload when the
+    replacement does not live in factor_lookup.
+    """
+
+    target_original_id = str(original_id or "").strip()
+    if not target_original_id:
+        raise HTTPException(status_code=400, detail="original_id is required")
+
+    resolved_dataset_id = _safe_int(dataset_id)
+    resolved_factor_db_id = _safe_int(factor_db_id)
+    resolved_factor = _safe_float(factor)
+    resolved_ghg_unit = str(ghg_unit).strip() if ghg_unit is not None else None
+    resolved_uom = str(uom).strip() if uom is not None else None
+
+    lookup = None
+    if resolved_dataset_id is not None:
+        lookup = _lookup_factor_from_reference(con, resolved_dataset_id, scope, target_original_id)
+
+    if lookup is None and resolved_factor_db_id is not None:
+        try:
+            row = con.execute(
+                """
+                SELECT db_id, dataset_id, factor, ghg_unit, uom
+                FROM factor_lookup
+                WHERE db_id=%s
+                LIMIT 1
+                """,
+                [int(resolved_factor_db_id)],
+            ).fetchone()
+        except Exception:
+            logger.debug("Optional factor lookup by db_id failed during repoint resolution", exc_info=True)
+            row = None
+        if row:
+            lookup = {
+                "db_id": _safe_int(row[0]),
+                "dataset_id": _safe_int(row[1]),
+                "factor": _safe_float(row[2]),
+                "ghg_unit": str(row[3]).strip() if row[3] is not None else None,
+                "uom": str(row[4]).strip() if row[4] is not None else None,
+            }
+
+    if lookup:
+        if resolved_dataset_id is None:
+            resolved_dataset_id = _safe_int(lookup.get("dataset_id")) or resolved_dataset_id
+        if resolved_factor_db_id is None:
+            resolved_factor_db_id = _safe_int(lookup.get("db_id")) or resolved_factor_db_id
+        if resolved_factor is None:
+            resolved_factor = _safe_float(lookup.get("factor"))
+        if resolved_ghg_unit is None:
+            resolved_ghg_unit = str(lookup.get("ghg_unit")).strip() if lookup.get("ghg_unit") is not None else None
+        if resolved_uom is None:
+            resolved_uom = str(lookup.get("uom")).strip() if lookup.get("uom") is not None else None
+    elif resolved_dataset_id is not None or resolved_factor_db_id is not None:
+        raise HTTPException(
+            status_code=404,
+            detail="replacement factor could not be found for the requested dataset or factor ID",
+        )
+
+    if resolved_factor is None:
+        raise HTTPException(
+            status_code=400,
+            detail="factor could not be resolved for the requested replacement row",
+        )
+
+    if resolved_uom is None:
+        raise HTTPException(
+            status_code=400,
+            detail="uom is required for a repoint operation",
+        )
+
+    return {
+        "dataset_id": resolved_dataset_id,
+        "factor_db_id": resolved_factor_db_id,
+        "original_id": target_original_id,
+        "factor": resolved_factor,
+        "ghg_unit": resolved_ghg_unit,
+        "uom": resolved_uom,
+    }
 
 
 def _job_scope_row_snapshot(con, job_id: int, row_id: int) -> dict[str, Any] | None:
@@ -1726,6 +1826,242 @@ def update_scope_data_row(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update scope data row: {e}")
+
+
+@router.post("/jobs/{job_id}/scope-data/{row_id}/repoint")
+def repoint_scope_data_row(
+    request: Request,
+    job_id: int,
+    row_id: int,
+    payload: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user)
+):
+    """
+    Repoint an existing scope data row to a different factor/source reference.
+
+    This preserves the row and its monthly values while updating the source
+    mapping metadata and recalculating the stored emissions total.
+    """
+    try:
+        with get_conn() as con:
+            _ensure_job_scope_rows_schema(con)
+            before = _job_scope_row_snapshot(con, int(job_id), int(row_id))
+
+            row_exists = con.execute(
+                "SELECT 1 FROM job_scope_rows WHERE row_id=%s AND job_id=%s",
+                [int(row_id), int(job_id)],
+            ).fetchone()
+            if not row_exists:
+                raise HTTPException(status_code=404, detail="Row not found")
+            if not before:
+                raise HTTPException(status_code=404, detail="Row snapshot unavailable")
+
+            if "original_id" not in payload:
+                raise HTTPException(status_code=400, detail="original_id is required")
+
+            target_site_id = before.get("site_id")
+            if "site_id" in payload:
+                raw_site_id = payload.get("site_id")
+                if raw_site_id is not None:
+                    try:
+                        target_site_id = int(raw_site_id)
+                    except (ValueError, TypeError):
+                        raise HTTPException(status_code=400, detail="site_id must be a valid integer or null")
+                else:
+                    target_site_id = None
+
+            resolved = _resolve_repoint_factor(
+                con,
+                scope=str(before.get("scope") or ""),
+                original_id=payload.get("original_id"),
+                dataset_id=payload.get("dataset_id"),
+                factor_db_id=payload.get("factor_db_id"),
+                factor=payload.get("factor"),
+                ghg_unit=payload.get("ghg_unit"),
+                uom=payload.get("uom"),
+            )
+
+            before_uom = _normalize_unit(before.get("uom"))
+            target_uom = _normalize_unit(resolved.get("uom"))
+            if not before_uom or not target_uom or before_uom != target_uom:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "This row cannot be repointed safely because the unit of measure would change. "
+                        "Keep the current row or recreate it intentionally."
+                    ),
+                )
+
+            duplicate_query = """
+                SELECT row_id
+                FROM job_scope_rows
+                WHERE job_id=%s
+                  AND site_id IS NOT DISTINCT FROM %s
+                  AND scope=%s
+                  AND original_id=%s
+                  AND COALESCE(enabled, TRUE) = TRUE
+                  AND row_id<>%s
+                LIMIT 1
+            """
+            conflict = con.execute(
+                duplicate_query,
+                [
+                    int(job_id),
+                    target_site_id,
+                    str(before.get("scope") or ""),
+                    str(resolved.get("original_id") or ""),
+                    int(row_id),
+                ],
+            ).fetchone()
+            if conflict:
+                conflict_row_id = int(conflict[0])
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Another row already exists for this site, scope, and reference ID "
+                        f"(conflicting row_id {conflict_row_id}). "
+                        "Please keep one row per site/reference or delete the existing duplicate first."
+                    ),
+                )
+
+            qty = _safe_float(before.get("qty")) or 0.0
+            apply_pct = _safe_float(before.get("apply_pct")) or 100.0
+            factor_value = _safe_float(resolved.get("factor")) or 0.0
+            ghg_unit = str(resolved.get("ghg_unit") or before.get("ghg_unit") or "").strip() or None
+            calc_tco2e = qty * factor_value * (apply_pct / 100.0)
+            if "kg" in str(ghg_unit or "kgCO2e").lower():
+                calc_tco2e /= 1000.0
+            calc_tco2e = round(float(calc_tco2e), 4)
+
+            update_values = {
+                "dataset_id": resolved.get("dataset_id"),
+                "factor_db_id": resolved.get("factor_db_id"),
+                "original_id": resolved.get("original_id"),
+                "category": payload["category"] if "category" in payload else before.get("category"),
+                "level_1": payload["level_1"] if "level_1" in payload else before.get("level_1"),
+                "level_2": payload["level_2"] if "level_2" in payload else before.get("level_2"),
+                "level_3": payload["level_3"] if "level_3" in payload else before.get("level_3"),
+                "level_4": payload["level_4"] if "level_4" in payload else before.get("level_4"),
+                "column_text": payload["column_text"] if "column_text" in payload else before.get("column_text"),
+                "report_label": payload["report_label"] if "report_label" in payload else before.get("report_label"),
+                "uom": resolved.get("uom"),
+                "factor": resolved.get("factor"),
+                "ghg_unit": ghg_unit,
+                "site_id": target_site_id,
+                "data_source": payload["data_source"] if "data_source" in payload else before.get("data_source"),
+                "data_confidence": payload["data_confidence"] if "data_confidence" in payload else before.get("data_confidence"),
+                "notes": payload["notes"] if "notes" in payload else before.get("notes"),
+                "calc_tco2e": calc_tco2e,
+            }
+
+            con.execute(
+                """
+                UPDATE job_scope_rows
+                SET dataset_id=%s,
+                    factor_db_id=%s,
+                    original_id=%s,
+                    category=%s,
+                    level_1=%s,
+                    level_2=%s,
+                    level_3=%s,
+                    level_4=%s,
+                    column_text=%s,
+                    report_label=%s,
+                    uom=%s,
+                    factor=%s,
+                    ghg_unit=%s,
+                    site_id=%s,
+                    data_source=%s,
+                    data_confidence=%s,
+                    notes=%s,
+                    calc_tco2e=%s,
+                    updated_at=NOW()
+                WHERE row_id=%s
+                """,
+                [
+                    update_values["dataset_id"],
+                    update_values["factor_db_id"],
+                    update_values["original_id"],
+                    update_values["category"],
+                    update_values["level_1"],
+                    update_values["level_2"],
+                    update_values["level_3"],
+                    update_values["level_4"],
+                    update_values["column_text"],
+                    update_values["report_label"],
+                    update_values["uom"],
+                    update_values["factor"],
+                    update_values["ghg_unit"],
+                    update_values["site_id"],
+                    update_values["data_source"],
+                    update_values["data_confidence"],
+                    update_values["notes"],
+                    update_values["calc_tco2e"],
+                    int(row_id),
+                ],
+            )
+
+            after = _job_scope_row_snapshot(con, int(job_id), int(row_id))
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="update",
+                entity_type="job_scope_row",
+                entity_id=int(row_id),
+                job_id=int(job_id),
+                before=before,
+                after=after,
+                metadata={
+                    "operation": "repoint",
+                    "updated_fields": [
+                        "dataset_id",
+                        "factor_db_id",
+                        "original_id",
+                        "category",
+                        "level_1",
+                        "level_2",
+                        "level_3",
+                        "level_4",
+                        "column_text",
+                        "report_label",
+                        "uom",
+                        "factor",
+                        "ghg_unit",
+                        "site_id",
+                        "data_source",
+                        "data_confidence",
+                        "notes",
+                        "calc_tco2e",
+                    ],
+                    "from": {
+                        "dataset_id": before.get("dataset_id"),
+                        "factor_db_id": before.get("factor_db_id"),
+                        "original_id": before.get("original_id"),
+                        "site_id": before.get("site_id"),
+                        "uom": before.get("uom"),
+                    },
+                    "to": {
+                        "dataset_id": update_values["dataset_id"],
+                        "factor_db_id": update_values["factor_db_id"],
+                        "original_id": update_values["original_id"],
+                        "site_id": update_values["site_id"],
+                        "uom": update_values["uom"],
+                    },
+                },
+            )
+
+            return {
+                "ok": True,
+                "job_id": int(job_id),
+                "row_id": int(row_id),
+                "row": after,
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to repoint scope data row: {e}")
 
 
 @router.delete("/jobs/{job_id}/scope-data/{row_id}")
