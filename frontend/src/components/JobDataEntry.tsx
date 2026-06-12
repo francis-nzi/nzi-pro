@@ -13,6 +13,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -284,6 +290,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const [rowDetailCache, setRowDetailCache] = useState<Record<number, ScopeDataRow>>({});
   const [monthlyDetailLoadingRowId, setMonthlyDetailLoadingRowId] = useState<number | null>(null);
   const [monthlyDetailError, setMonthlyDetailError] = useState("");
+  const [detailTab, setDetailTab] = useState("metadata");
   const [showRowEditorModal, setShowRowEditorModal] = useState(false);
   const [rowEditorRow, setRowEditorRow] = useState<ScopeDataRow | null>(null);
   const [rowEditorSiteId, setRowEditorSiteId] = useState<string>("");
@@ -865,6 +872,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     setMonthlyDetailError("");
     const cachedRow = rowDetailCache[row.row_id] || row;
     setMonthlyEditRow(cachedRow);
+    setDetailTab("metadata");
     // Initialize monthly values from row data
     const months = [
       cachedRow.month_1 || 0, cachedRow.month_2 || 0, cachedRow.month_3 || 0,
@@ -1010,6 +1018,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     setMonthlyEditRow(null);
     setMonthlyValues(Array(12).fill(0));
     setMonthlyDetailError("");
+    setDetailTab("metadata");
   }
 
   function updateMonthlyValue(monthIndex: number, value: string) {
@@ -2151,7 +2160,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             <Button
                               variant="outline"
                               size="sm"
-                              className="h-9 w-9 p-0"
+                              className="h-9 w-9 rounded-full p-0"
                               onClick={() => openRowEditorModal(row)}
                               disabled={pendingSaveRowIds.has(row.row_id) || deletingRowId === row.row_id}
                               aria-label="Edit row"
@@ -2163,7 +2172,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             <Button
                               variant="outline"
                               size="sm"
-                              className="h-9 w-9 p-0"
+                              className="h-9 w-9 rounded-full p-0"
                               onClick={() => openMonthlyModal(row)}
                               disabled={pendingSaveRowIds.has(row.row_id) || deletingRowId === row.row_id}
                               title={
@@ -2179,7 +2188,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-9 w-9 p-0 text-destructive hover:text-destructive"
+                              className="h-9 w-9 rounded-full p-0 text-destructive hover:text-destructive"
                               onClick={() => deleteRow(row.row_id)}
                               disabled={deletingRowId === row.row_id}
                               aria-label="Delete row"
@@ -2919,169 +2928,179 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
               </div>
             )}
 
-            {monthlyEditRow && (
-              <div className="rounded-md border bg-muted/20 p-3">
-                <div className="mb-3 text-sm font-semibold">Key Metadata</div>
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="text-xs">
-                    <div className="text-muted-foreground">Scope</div>
-                    <div className="font-medium">{monthlyEditRow.scope || "-"}</div>
-                  </div>
-                  <div className="text-xs">
-                    <div className="text-muted-foreground">Site</div>
-                    <div className="font-medium">{getSiteName(monthlyEditRow.site_id) || "No site"}</div>
-                  </div>
-                  <div className="text-xs">
-                    <div className="text-muted-foreground">Category</div>
-                    <div className="font-medium">{monthlyEditRow.dataset_category || monthlyEditRow.lookup_category || monthlyEditRow.level_1 || monthlyEditRow.category || "-"}</div>
-                  </div>
-                  <div className="text-xs">
-                    <div className="text-muted-foreground">Source</div>
-                    <div className="font-medium">{monthlyEditRow.data_source || "Company Data"}</div>
-                  </div>
-                  <div className="text-xs">
-                    <div className="text-muted-foreground">UoM</div>
-                    <div className="font-mono">{monthlyEditRow.uom || "-"}</div>
-                  </div>
-                  <div className="text-xs">
-                    <div className="text-muted-foreground">Unit</div>
-                    <div className="font-mono">{monthlyEditRow.ghg_unit || "-"}</div>
-                  </div>
-                  <div className="text-xs">
-                    <div className="text-muted-foreground">Factor ID</div>
-                    <div className="font-mono break-all">{monthlyEditRow.factor_reference || monthlyEditRow.original_id || "-"}</div>
-                  </div>
-                  <div className="text-xs">
-                    <div className="text-muted-foreground">Dataset</div>
-                    <div>{monthlyEditRow.dataset_label || "-"}</div>
-                  </div>
-                  <div className="text-xs">
-                    <div className="text-muted-foreground">Apply %</div>
-                    <div className="font-mono">{monthlyEditRow.apply_pct.toFixed(2)}%</div>
-                  </div>
-                  <div className="text-xs">
-                    <div className="text-muted-foreground">Monthly</div>
-                    <div className="font-mono">{monthlyCount(monthlyEditRow)}/12</div>
-                  </div>
-                  <div className="text-xs">
-                    <div className="text-muted-foreground">Factor</div>
-                    <div className="font-mono">{factorDisplayText(monthlyEditRow)}</div>
-                  </div>
-                  <div className="text-xs">
-                    <div className="text-muted-foreground">tCO₂e</div>
-                    <div className="font-mono">{monthlyEditRow.calc_tco2e.toFixed(4)}</div>
-                  </div>
-                </div>
-              </div>
-            )}
+            <Tabs value={detailTab} onValueChange={setDetailTab} className="space-y-4">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="metadata">Metadata</TabsTrigger>
+                <TabsTrigger value="monthly">Monthly</TabsTrigger>
+                <TabsTrigger value="audit" disabled={!monthlyEditRow?.uses_monthly_factors}>Audit</TabsTrigger>
+              </TabsList>
 
-            {/* Copy to All Months Button */}
-            <div className="flex justify-end">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={copyFirstMonthToAll}
-                type="button"
-                disabled={monthlyEditRow ? isLegacyFallbackRow(monthlyEditRow) : false}
-              >
-                Copy First Month to All
-              </Button>
-            </div>
-
-            {/* Monthly Input Grid */}
-            <div className="grid grid-cols-3 gap-3">
-              {getOrderedMonths().map((month, displayIndex) => {
-                const actualIndex = getMonthIndex(displayIndex);
-                return (
-                  <div key={`${month}-${displayIndex}`}>
-                    <Label htmlFor={`month-${displayIndex}`} className="text-xs">
-                      {month}
-                    </Label>
-                    <Input
-                      id={`month-${displayIndex}`}
-                      type="number"
-                      step="0.01"
-                      value={monthlyValues[actualIndex] || ""}
-                      onChange={(e) => updateMonthlyValue(actualIndex, e.target.value)}
-                      className="h-8 text-sm font-mono text-right"
-                      disabled={monthlyEditRow ? isLegacyFallbackRow(monthlyEditRow) : false}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Summary */}
-            <div className="border-t pt-4">
-              <div className="flex justify-between items-center mb-2">
-                <span className="font-semibold">
-                  {monthlyEditRow && isLegacyFallbackRow(monthlyEditRow) ? "Monthly Stored Total:" : "Monthly Total:"}
-                </span>
-                <span className="font-mono text-lg">
-                  {getMonthlySum().toFixed(2)} {monthlyEditRow && isLegacyFallbackRow(monthlyEditRow) ? (monthlyEditRow.storage_uom || monthlyEditRow.ghg_unit || monthlyEditRow.uom) : monthlyEditRow?.uom}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="font-semibold">
-                  {monthlyEditRow && isLegacyFallbackRow(monthlyEditRow) ? "Displayed Annual Volume:" : "Annual Qty:"}
-                </span>
-                <span className="font-mono text-lg">{monthlyEditRow?.qty?.toFixed(2) || "0.00"} {monthlyEditRow?.uom}</span>
-              </div>
-              
-              {/* Validation Warning */}
-              {monthlyEditRow && !isLegacyFallbackRow(monthlyEditRow) && monthlyEditRow.qty && Math.abs(monthlyEditRow.qty - getMonthlySum()) > 0.01 && (
-                <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-                  <div className="flex items-start gap-2">
-                    <span className="text-yellow-600 font-semibold text-sm">⚠️ Warning:</span>
-                    <div className="text-sm text-yellow-800">
-                      <p>Monthly total ({getMonthlySum().toFixed(2)}) does not match Annual Qty ({monthlyEditRow.qty.toFixed(2)}).</p>
-                      <p className="mt-1">When you save, the Annual Qty will be updated to match the monthly total.</p>
+              <TabsContent value="metadata" className="space-y-4">
+                {monthlyEditRow && (
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <div className="mb-3 text-sm font-semibold">Key Metadata</div>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="text-xs">
+                        <div className="text-muted-foreground">Scope</div>
+                        <div className="font-medium">{monthlyEditRow.scope || "-"}</div>
+                      </div>
+                      <div className="text-xs">
+                        <div className="text-muted-foreground">Site</div>
+                        <div className="font-medium">{getSiteName(monthlyEditRow.site_id) || "No site"}</div>
+                      </div>
+                      <div className="text-xs">
+                        <div className="text-muted-foreground">Category</div>
+                        <div className="font-medium">{monthlyEditRow.dataset_category || monthlyEditRow.lookup_category || monthlyEditRow.level_1 || monthlyEditRow.category || "-"}</div>
+                      </div>
+                      <div className="text-xs">
+                        <div className="text-muted-foreground">Source</div>
+                        <div className="font-medium">{monthlyEditRow.data_source || "Company Data"}</div>
+                      </div>
+                      <div className="text-xs">
+                        <div className="text-muted-foreground">UoM</div>
+                        <div className="font-mono">{monthlyEditRow.uom || "-"}</div>
+                      </div>
+                      <div className="text-xs">
+                        <div className="text-muted-foreground">Unit</div>
+                        <div className="font-mono">{monthlyEditRow.ghg_unit || "-"}</div>
+                      </div>
+                      <div className="text-xs">
+                        <div className="text-muted-foreground">Factor ID</div>
+                        <div className="font-mono break-all">{monthlyEditRow.factor_reference || monthlyEditRow.original_id || "-"}</div>
+                      </div>
+                      <div className="text-xs">
+                        <div className="text-muted-foreground">Dataset</div>
+                        <div>{monthlyEditRow.dataset_label || "-"}</div>
+                      </div>
+                      <div className="text-xs">
+                        <div className="text-muted-foreground">Apply %</div>
+                        <div className="font-mono">{monthlyEditRow.apply_pct.toFixed(2)}%</div>
+                      </div>
+                      <div className="text-xs">
+                        <div className="text-muted-foreground">Monthly</div>
+                        <div className="font-mono">{monthlyCount(monthlyEditRow)}/12</div>
+                      </div>
+                      <div className="text-xs">
+                        <div className="text-muted-foreground">Factor</div>
+                        <div className="font-mono">{factorDisplayText(monthlyEditRow)}</div>
+                      </div>
+                      <div className="text-xs">
+                        <div className="text-muted-foreground">tCO₂e</div>
+                        <div className="font-mono">{monthlyEditRow.calc_tco2e.toFixed(4)}</div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </TabsContent>
 
-            {monthlyEditRow && monthlyEditRow.uses_monthly_factors && (
-              <div className="rounded-md border bg-muted/20 p-3">
-                <div className="mb-2 text-sm font-semibold">Monthly Dataset / Factor Audit</div>
-                {monthlyDetailLoadingRowId === monthlyEditRow.row_id ? (
-                  <div className="text-sm text-muted-foreground">Loading monthly audit...</div>
-                ) : monthlyDetailError ? (
-                  <div className="rounded-md bg-destructive/10 p-2 text-sm text-destructive">
-                    {monthlyDetailError}
+              <TabsContent value="monthly" className="space-y-4">
+                <div className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={copyFirstMonthToAll}
+                    type="button"
+                    disabled={monthlyEditRow ? isLegacyFallbackRow(monthlyEditRow) : false}
+                  >
+                    Copy First Month to All
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  {getOrderedMonths().map((month, displayIndex) => {
+                    const actualIndex = getMonthIndex(displayIndex);
+                    return (
+                      <div key={`${month}-${displayIndex}`}>
+                        <Label htmlFor={`month-${displayIndex}`} className="text-xs">
+                          {month}
+                        </Label>
+                        <Input
+                          id={`month-${displayIndex}`}
+                          type="number"
+                          step="0.01"
+                          value={monthlyValues[actualIndex] || ""}
+                          onChange={(e) => updateMonthlyValue(actualIndex, e.target.value)}
+                          className="h-8 text-sm font-mono text-right"
+                          disabled={monthlyEditRow ? isLegacyFallbackRow(monthlyEditRow) : false}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="border-t pt-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-semibold">
+                      {monthlyEditRow && isLegacyFallbackRow(monthlyEditRow) ? "Monthly Stored Total:" : "Monthly Total:"}
+                    </span>
+                    <span className="font-mono text-lg">
+                      {getMonthlySum().toFixed(2)} {monthlyEditRow && isLegacyFallbackRow(monthlyEditRow) ? (monthlyEditRow.storage_uom || monthlyEditRow.ghg_unit || monthlyEditRow.uom) : monthlyEditRow?.uom}
+                    </span>
                   </div>
-                ) : (rowDetailCache[monthlyEditRow.row_id]?.monthly_factor_details || []).length ? (
-                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                    {(rowDetailCache[monthlyEditRow.row_id]?.monthly_factor_details || []).map((detail) => (
-                      <div key={`${monthlyEditRow.row_id}-${detail.month_index}`} className="rounded border bg-background px-2 py-2 text-[11px]">
-                        <div className="font-semibold">{detail.month_label || `M${detail.month_index}`}</div>
-                        <div className="text-muted-foreground">Year: {detail.year ?? "-"}</div>
-                        <div className="text-muted-foreground">{detail.dataset_name || "-"}</div>
-                        <div className="text-muted-foreground">{detail.dataset_category || detail.lookup_category || monthlyEditRow.dataset_category || monthlyEditRow.lookup_category || monthlyEditRow.level_1 || monthlyEditRow.category || "-"}</div>
-                        <div className="font-mono">
-                          Qty: {detail.qty !== null && detail.qty !== undefined && !Number.isNaN(detail.qty)
-                            ? detail.qty.toFixed(2)
-                            : "-"} {detail.uom || ""}
-                        </div>
-                        <div className="font-mono">
-                          Conversion Factor: {detail.factor !== null && detail.factor !== undefined && !Number.isNaN(detail.factor)
-                            ? detail.factor.toFixed(5)
-                            : "-"}
-                        </div>
-                        <div className="font-mono break-all">
-                          ID: {detail.factor_original_id || "-"}
+                  <div className="flex justify-between items-center">
+                    <span className="font-semibold">
+                      {monthlyEditRow && isLegacyFallbackRow(monthlyEditRow) ? "Displayed Annual Volume:" : "Annual Qty:"}
+                    </span>
+                    <span className="font-mono text-lg">{monthlyEditRow?.qty?.toFixed(2) || "0.00"} {monthlyEditRow?.uom}</span>
+                  </div>
+
+                  {monthlyEditRow && !isLegacyFallbackRow(monthlyEditRow) && monthlyEditRow.qty && Math.abs(monthlyEditRow.qty - getMonthlySum()) > 0.01 && (
+                    <div className="mt-3 rounded-md border border-yellow-200 bg-yellow-50 p-3">
+                      <div className="flex items-start gap-2">
+                        <span className="text-sm font-semibold text-yellow-600">Warning:</span>
+                        <div className="text-sm text-yellow-800">
+                          <p>Monthly total ({getMonthlySum().toFixed(2)}) does not match Annual Qty ({monthlyEditRow.qty.toFixed(2)}).</p>
+                          <p className="mt-1">When you save, the Annual Qty will be updated to match the monthly total.</p>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-sm text-muted-foreground">
-                    Open and wait for the monthly audit to load, or reopen the modal if the row was just repointed.
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="audit" className="space-y-4">
+                {monthlyEditRow && monthlyEditRow.uses_monthly_factors && (
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <div className="mb-2 text-sm font-semibold">Monthly Dataset / Factor Audit</div>
+                    {monthlyDetailLoadingRowId === monthlyEditRow.row_id ? (
+                      <div className="text-sm text-muted-foreground">Loading monthly audit...</div>
+                    ) : monthlyDetailError ? (
+                      <div className="rounded-md bg-destructive/10 p-2 text-sm text-destructive">
+                        {monthlyDetailError}
+                      </div>
+                    ) : (rowDetailCache[monthlyEditRow.row_id]?.monthly_factor_details || []).length ? (
+                      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                        {(rowDetailCache[monthlyEditRow.row_id]?.monthly_factor_details || []).map((detail) => (
+                          <div key={`${monthlyEditRow.row_id}-${detail.month_index}`} className="rounded border bg-background px-2 py-2 text-[11px]">
+                            <div className="font-semibold">{detail.month_label || `M${detail.month_index}`}</div>
+                            <div className="text-muted-foreground">Year: {detail.year ?? "-"}</div>
+                            <div className="text-muted-foreground">{detail.dataset_name || "-"}</div>
+                            <div className="text-muted-foreground">{detail.dataset_category || detail.lookup_category || monthlyEditRow.dataset_category || monthlyEditRow.lookup_category || monthlyEditRow.level_1 || monthlyEditRow.category || "-"}</div>
+                            <div className="font-mono">
+                              Qty: {detail.qty !== null && detail.qty !== undefined && !Number.isNaN(detail.qty)
+                                ? detail.qty.toFixed(2)
+                                : "-"} {detail.uom || ""}
+                            </div>
+                            <div className="font-mono">
+                              Conversion Factor: {detail.factor !== null && detail.factor !== undefined && !Number.isNaN(detail.factor)
+                                ? detail.factor.toFixed(5)
+                                : "-"}
+                            </div>
+                            <div className="font-mono break-all">
+                              ID: {detail.factor_original_id || "-"}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-muted-foreground">
+                        Open and wait for the monthly audit to load, or reopen the modal if the row was just repointed.
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
-            )}
+              </TabsContent>
+            </Tabs>
           </div>
 
           <DialogFooter>
