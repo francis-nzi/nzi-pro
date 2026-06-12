@@ -25,6 +25,7 @@ import LoadingOrbit from "@/components/LoadingOrbit";
 import { withAuditHeaders } from "@/lib/auth-client";
 import { dispatchJobScopeRefresh, JOB_SCOPE_REFRESH_EVENT } from "@/lib/job-scope-refresh";
 import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
+import FactorBrowserCard from "@/components/FactorBrowserCard";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -2623,153 +2624,30 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
       {/* Factor Browser */}
       {showFactorBrowser && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Browse & Add Factors</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 min-w-0">
-            {/* Factor Search & Filter */}
-            <div className="space-y-3">
-              <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_auto]">
-                <div className="min-w-0">
-                  <Label htmlFor="factorSearch">Search Factors</Label>
-                  <Input
-                    id="factorSearch"
-                    placeholder="Search by label, category, or ID..."
-                    value={factorSearchQuery}
-                    className="w-full min-w-0"
-                    onChange={(e) => setFactorSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") loadTemplateFactors(true);
-                    }}
-                  />
-                </div>
-                <div className="min-w-0">
-                  <Label htmlFor="factorScopeFilter">Scope</Label>
-                  <Select value={factorScopeFilter} onValueChange={(val) => {
-                    setFactorScopeFilter(val);
-                  }}>
-                    <SelectTrigger id="factorScopeFilter" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="All">All Scopes</SelectItem>
-                      <SelectItem value="Scope 1">Scope 1</SelectItem>
-                      <SelectItem value="Scope 2">Scope 2</SelectItem>
-                      <SelectItem value="Scope 3">Scope 3</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-end md:justify-self-end">
-                  <Button onClick={() => loadTemplateFactors(true)} disabled={factorsLoading} className="w-full md:w-auto">
-                    {factorsLoading ? "Searching..." : "Search"}
-                  </Button>
-                </div>
-              </div>
-              <div className="text-sm text-muted-foreground">
-                Methodology defaults loaded for <span className="font-medium text-foreground">{methodologyCountry}</span>.
-              </div>
-              <div className="text-sm text-muted-foreground">
-                Showing {templateFactors.length} of {factorsTotal} factors
-              </div>
-            </div>
-
-            {/* Factor List */}
-            <div className="border rounded-md max-h-96 overflow-y-auto min-w-0">
-              {templateFactors.length === 0 && !factorsLoading ? (
-                <div className="p-4 text-center text-sm text-muted-foreground">
-                  No factors found. Try adjusting your search or filters.
-                </div>
-              ) : (
-                <div className="divide-y">
-                  {annotatedTemplateFactors.map((factor, index) => {
-                    const alreadyAdded = isFactorAdded(factor.original_id);
-                    const isAdding = addingFactorId === factor.original_id;
-                    const uniqueKey = `${factor.original_id}_${factor.dataset_id}_${factor.factor_db_id}_${index}`;
-                    
-                    return (
-                      <div
-                        key={uniqueKey}
-                        className={`p-3 hover:bg-muted/50 transition-colors ${
-                          alreadyAdded ? "bg-muted/30" : ""
-                        }`}
-                      >
-                        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className={`inline-block px-2 py-0.5 rounded text-xs ${
-                                factor.scope === "Scope 1" ? "bg-red-100 text-red-800" :
-                                factor.scope === "Scope 2" ? "bg-orange-100 text-orange-800" :
-                                "bg-blue-100 text-blue-800"
-                              }`}>
-                                {factor.scope}
-                              </span>
-                              {factor.is_custom && (
-                                <span className="inline-block px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-800 font-semibold">
-                                  CUSTOM
-                                </span>
-                              )}
-                              {factor.methodology_default && (
-                                <span
-                                  className="inline-block px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-800 font-semibold"
-                                  title={factor.methodology_default_label || "Matches company methodology default"}
-                                >
-                                  DEFAULT
-                                </span>
-                              )}
-                              <span className="min-w-0 flex-1 break-words text-sm font-medium leading-snug">
-                                {factorDisplayTitle(factor)}
-                              </span>
-                            </div>
-                            <div className="mt-1 text-xs text-muted-foreground break-words">
-                              {factorDisplaySubtitle(factor) || factor.original_id}
-                            </div>
-                            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs">
-                              <span className="font-mono">
-                                Factor: {factor.factor?.toFixed(5) || "N/A"}
-                              </span>
-                              <span className="text-muted-foreground">
-                                {factor.uom} {"->"} {factor.ghg_unit}
-                              </span>
-                            </div>
-                            {alreadyAdded && (
-                              <div className="mt-1 text-xs text-muted-foreground">
-                                Already in this job - you can add it again for a different site.
-                              </div>
-                            )}
-                          </div>
-                          <div className="md:justify-self-end">
-                            <Button
-                              size="sm"
-                              onClick={() => addFactorToJob(factor)}
-                              disabled={isAdding}
-                              variant={alreadyAdded ? "outline" : "default"}
-                              className="w-full md:w-auto"
-                            >
-                              {isAdding ? "Adding..." : alreadyAdded ? "Add Again" : "Add to Job"}
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {factorsHasMore && (
-                    <div className="p-4 text-center">
-                      <Button
-                        onClick={loadMoreFactors}
-                        disabled={loadingMoreFactors}
-                        variant="outline"
-                        className="w-full"
-                      >
-                        {loadingMoreFactors ? "Loading..." : `Load More (${factorsTotal - templateFactors.length} remaining)`}
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        <FactorBrowserCard
+          title="Browse & Add Factors"
+          factorSearchQuery={factorSearchQuery}
+          onFactorSearchQueryChange={setFactorSearchQuery}
+          factorScopeFilter={factorScopeFilter}
+          onFactorScopeFilterChange={setFactorScopeFilter}
+          onSearch={() => loadTemplateFactors(true)}
+          factorsLoading={factorsLoading}
+          methodologyCountry={methodologyCountry}
+          templateFactors={annotatedTemplateFactors}
+          factorsTotal={factorsTotal}
+          factorsHasMore={factorsHasMore}
+          loadingMoreFactors={loadingMoreFactors}
+          onLoadMore={loadMoreFactors}
+          getFactorTitle={factorDisplayTitle}
+          getFactorSubtitle={factorDisplaySubtitle}
+          getActionProps={(factor) => ({
+            label: isFactorAdded(factor.original_id) ? "Add Again" : "Add to Job",
+            variant: isFactorAdded(factor.original_id) ? "outline" : "default",
+            disabled: addingFactorId === factor.original_id,
+          })}
+          onSelectFactor={addFactorToJob}
+          emptyMessage="No factors found. Try adjusting your search or filters."
+        />
       )}
 
       <Dialog open={showRowEditorModal} onOpenChange={(open) => (open ? setShowRowEditorModal(true) : closeRowEditorModal())}>
@@ -2885,146 +2763,37 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                   </CardContent>
                 </Card>
 
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Choose Replacement Factor</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4 min-w-0">
-                    <div className="space-y-3">
-                      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_auto]">
-                        <div className="min-w-0">
-                          <Label htmlFor="rowEditorFactorSearch">Search Factors</Label>
-                          <Input
-                            id="rowEditorFactorSearch"
-                            placeholder="Search by label, category, or ID..."
-                            value={factorSearchQuery}
-                            className="w-full min-w-0"
-                            onChange={(e) => setFactorSearchQuery(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") loadTemplateFactors(true);
-                            }}
-                          />
-                        </div>
-                        <div className="min-w-0">
-                          <Label htmlFor="rowEditorFactorScopeFilter">Scope</Label>
-                          <Select value={factorScopeFilter} onValueChange={setFactorScopeFilter}>
-                            <SelectTrigger id="rowEditorFactorScopeFilter" className="w-full">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="All">All Scopes</SelectItem>
-                              <SelectItem value="Scope 1">Scope 1</SelectItem>
-                              <SelectItem value="Scope 2">Scope 2</SelectItem>
-                              <SelectItem value="Scope 3">Scope 3</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="flex items-end md:justify-self-end">
-                          <Button onClick={() => loadTemplateFactors(true)} disabled={factorsLoading} className="w-full md:w-auto">
-                            {factorsLoading ? "Searching..." : "Search"}
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        Methodology defaults loaded for <span className="font-medium text-foreground">{methodologyCountry}</span>.
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        Showing {templateFactors.length} of {factorsTotal} factors
-                      </div>
-                    </div>
-
-                    <div className="border rounded-md max-h-[28rem] overflow-y-auto min-w-0">
-                      {templateFactors.length === 0 && !factorsLoading ? (
-                        <div className="p-4 text-center text-sm text-muted-foreground">
-                          No factors found. Try adjusting your search or filters.
-                        </div>
-                      ) : (
-                        <div className="divide-y">
-                          {annotatedTemplateFactors.map((factor, index) => {
-                            const selected = Boolean(
-                              rowEditorSelectedFactor &&
-                              rowEditorSelectedFactor.original_id === factor.original_id &&
-                              rowEditorSelectedFactor.dataset_id === factor.dataset_id &&
-                              rowEditorSelectedFactor.factor_db_id === factor.factor_db_id
-                            );
-                            const uniqueKey = `${factor.original_id}_${factor.dataset_id}_${factor.factor_db_id}_${index}`;
-
-                            return (
-                              <div
-                                key={uniqueKey}
-                                className={`p-3 transition-colors ${selected ? "bg-primary/5" : "hover:bg-muted/50"}`}
-                              >
-                                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <span className={`inline-block px-2 py-0.5 rounded text-xs ${
-                                        factor.scope === "Scope 1" ? "bg-red-100 text-red-800" :
-                                        factor.scope === "Scope 2" ? "bg-orange-100 text-orange-800" :
-                                        "bg-blue-100 text-blue-800"
-                                      }`}>
-                                        {factor.scope}
-                                      </span>
-                                      {factor.is_custom && (
-                                        <span className="inline-block px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-800 font-semibold">
-                                          CUSTOM
-                                        </span>
-                                      )}
-                                      {factor.methodology_default && (
-                                        <span
-                                          className="inline-block px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-800 font-semibold"
-                                          title={factor.methodology_default_label || "Matches company methodology default"}
-                                        >
-                                          DEFAULT
-                                        </span>
-                                      )}
-                                      <span className="min-w-0 flex-1 break-words text-sm font-medium leading-snug">
-                                        {factorDisplayTitle(factor)}
-                                      </span>
-                                    </div>
-                                    <div className="mt-1 text-xs text-muted-foreground break-words">
-                                      {factorDisplaySubtitle(factor) || factor.original_id}
-                                    </div>
-                                    <div className="mt-1 flex flex-wrap items-center gap-3 text-xs">
-                                      <span className="font-mono">
-                                        Factor: {factor.factor?.toFixed(5) || "N/A"}
-                                      </span>
-                                      <span className="text-muted-foreground">
-                                        {factor.uom} {"->"} {factor.ghg_unit}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <div className="md:justify-self-end">
-                                    <Button
-                                      size="sm"
-                                      onClick={() => setRowEditorSelectedFactor(factor)}
-                                      disabled={selected}
-                                      variant={selected ? "outline" : "default"}
-                                      className="w-full md:w-auto"
-                                    >
-                                      {selected ? "Selected" : "Use This Factor"}
-                                    </Button>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                          {factorsHasMore && (
-                            <div className="p-4 text-center">
-                              <Button
-                                onClick={loadMoreFactors}
-                                disabled={loadingMoreFactors}
-                                variant="outline"
-                                className="w-full"
-                              >
-                                {loadingMoreFactors ? "Loading..." : `Load More (${factorsTotal - templateFactors.length} remaining)`}
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
+                <FactorBrowserCard
+                  title="Choose Replacement Factor"
+                  factorSearchQuery={factorSearchQuery}
+                  onFactorSearchQueryChange={setFactorSearchQuery}
+                  factorScopeFilter={factorScopeFilter}
+                  onFactorScopeFilterChange={setFactorScopeFilter}
+                  onSearch={() => loadTemplateFactors(true)}
+                  factorsLoading={factorsLoading}
+                  methodologyCountry={methodologyCountry}
+                  templateFactors={annotatedTemplateFactors}
+                  factorsTotal={factorsTotal}
+                  factorsHasMore={factorsHasMore}
+                  loadingMoreFactors={loadingMoreFactors}
+                  onLoadMore={loadMoreFactors}
+                  getFactorTitle={factorDisplayTitle}
+                  getFactorSubtitle={factorDisplaySubtitle}
+                  getActionProps={() => ({
+                    label: "Use This Factor",
+                  })}
+                  onSelectFactor={setRowEditorSelectedFactor}
+                  isFactorSelected={(factor) =>
+                    Boolean(
+                      rowEditorSelectedFactor &&
+                      rowEditorSelectedFactor.original_id === factor.original_id &&
+                      rowEditorSelectedFactor.dataset_id === factor.dataset_id &&
+                      rowEditorSelectedFactor.factor_db_id === factor.factor_db_id
+                    )
+                  }
+                  emptyMessage="No factors found. Try adjusting your search or filters."
+                  listMaxHeightClassName="max-h-[28rem]"
+                />
               </div>
             )}
           </div>
