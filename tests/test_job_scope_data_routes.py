@@ -256,7 +256,7 @@ def test_get_job_scope_data_falls_back_when_resolver_breaks(monkeypatch) -> None
     assert result["total"] == 1
     assert result["rows"][0]["row_id"] == 11
     assert result["rows"][0]["calc_tco2e"] == 0.005
-    assert result["rows"][0]["monthly_factor_details"] == []
+    assert result["rows"][0].get("monthly_factor_details") is None
 
 
 def test_get_job_scope_data_can_load_monthly_detail_on_demand(monkeypatch) -> None:

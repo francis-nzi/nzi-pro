@@ -26,6 +26,7 @@ import { withAuditHeaders } from "@/lib/auth-client";
 import { dispatchJobScopeRefresh, JOB_SCOPE_REFRESH_EVENT } from "@/lib/job-scope-refresh";
 import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
 import FactorBrowserCard from "@/components/FactorBrowserCard";
+import { FileText, PencilLine, Trash2 } from "lucide-react";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -280,7 +281,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const [showMonthlyModal, setShowMonthlyModal] = useState(false);
   const [monthlyEditRow, setMonthlyEditRow] = useState<ScopeDataRow | null>(null);
   const [monthlyValues, setMonthlyValues] = useState<number[]>(Array(12).fill(0));
-  const [monthlyDetailCache, setMonthlyDetailCache] = useState<Record<number, ScopeDataRow>>({});
+  const [rowDetailCache, setRowDetailCache] = useState<Record<number, ScopeDataRow>>({});
   const [monthlyDetailLoadingRowId, setMonthlyDetailLoadingRowId] = useState<number | null>(null);
   const [monthlyDetailError, setMonthlyDetailError] = useState("");
   const [showRowEditorModal, setShowRowEditorModal] = useState(false);
@@ -366,8 +367,8 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     setScopeData((prev) => prev.map((row) => (row.row_id === updatedRow.row_id ? { ...row, ...updatedRow } : row)));
   }
 
-  function invalidateMonthlyDetailCache(rowId: number) {
-    setMonthlyDetailCache((prev) => {
+  function invalidateRowDetailCache(rowId: number) {
+    setRowDetailCache((prev) => {
       if (!(rowId in prev)) return prev;
       const next = { ...prev };
       delete next[rowId];
@@ -421,7 +422,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     setDeletingRowId(null);
     setPendingSaveRowIds(new Set());
     setDirtyRowIds(new Set());
-    setMonthlyDetailCache({});
+    setRowDetailCache({});
     
     try {
       // Only load essential data on initial load (not template factors)
@@ -830,7 +831,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
       if (res.ok) {
         replaceScopeDataRow(rowId, fields);
-        invalidateMonthlyDetailCache(rowId);
+        invalidateRowDetailCache(rowId);
         clearRowDirty(rowId);
         await refreshScopeTotals();
         dispatchJobScopeRefresh("job-data-entry");
@@ -861,20 +862,19 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   }
 
   function openMonthlyModal(row: ScopeDataRow) {
-    setMonthlyEditRow(row);
     setMonthlyDetailError("");
+    const cachedRow = rowDetailCache[row.row_id] || row;
+    setMonthlyEditRow(cachedRow);
     // Initialize monthly values from row data
     const months = [
-      row.month_1 || 0, row.month_2 || 0, row.month_3 || 0,
-      row.month_4 || 0, row.month_5 || 0, row.month_6 || 0,
-      row.month_7 || 0, row.month_8 || 0, row.month_9 || 0,
-      row.month_10 || 0, row.month_11 || 0, row.month_12 || 0,
+      cachedRow.month_1 || 0, cachedRow.month_2 || 0, cachedRow.month_3 || 0,
+      cachedRow.month_4 || 0, cachedRow.month_5 || 0, cachedRow.month_6 || 0,
+      cachedRow.month_7 || 0, cachedRow.month_8 || 0, cachedRow.month_9 || 0,
+      cachedRow.month_10 || 0, cachedRow.month_11 || 0, cachedRow.month_12 || 0,
     ];
     setMonthlyValues(months);
     setShowMonthlyModal(true);
-    if (row.uses_monthly_factors) {
-      void loadMonthlyDetail(row.row_id);
-    }
+    void loadRowDetail(row.row_id);
   }
 
   function rowToTemplateFactor(row: ScopeDataRow): TemplateFactor {
@@ -910,6 +910,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     if (!templateFactors.length && !factorsLoading) {
       void loadTemplateFactors(true);
     }
+    void loadRowDetail(row.row_id);
   }
 
   function closeRowEditorModal() {
@@ -989,7 +990,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       const result = await res.json();
       if (result?.row) {
         replaceScopeDataRowFromServer(result.row as ScopeDataRow);
-        invalidateMonthlyDetailCache(rowEditorRow.row_id);
+        invalidateRowDetailCache(rowEditorRow.row_id);
       } else {
         await loadData();
       }
@@ -1084,17 +1085,15 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     const saved = await updateField(monthlyEditRow.row_id, fields);
     if (saved) {
       clearRowDirty(monthlyEditRow.row_id);
-      invalidateMonthlyDetailCache(monthlyEditRow.row_id);
+      invalidateRowDetailCache(monthlyEditRow.row_id);
       closeMonthlyModal();
     }
   }
 
-  async function loadMonthlyDetail(rowId: number) {
-    const cached = monthlyDetailCache[rowId];
-    if (cached?.monthly_factor_details?.length) {
-      return;
+  async function loadRowDetail(rowId: number) {
+    if (rowDetailCache[rowId]) {
+      return rowDetailCache[rowId];
     }
-
     setMonthlyDetailLoadingRowId(rowId);
     setMonthlyDetailError("");
     try {
@@ -1111,7 +1110,17 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       const json = await res.json().catch(() => ({}));
       const detailRow = Array.isArray(json?.rows) ? (json.rows[0] as ScopeDataRow | undefined) : undefined;
       if (detailRow) {
-        setMonthlyDetailCache((prev) => ({ ...prev, [rowId]: detailRow }));
+        setRowDetailCache((prev) => ({ ...prev, [rowId]: detailRow }));
+        if (monthlyEditRow?.row_id === rowId) {
+          setMonthlyEditRow(detailRow);
+          setMonthlyValues([
+            detailRow.month_1 || 0, detailRow.month_2 || 0, detailRow.month_3 || 0,
+            detailRow.month_4 || 0, detailRow.month_5 || 0, detailRow.month_6 || 0,
+            detailRow.month_7 || 0, detailRow.month_8 || 0, detailRow.month_9 || 0,
+            detailRow.month_10 || 0, detailRow.month_11 || 0, detailRow.month_12 || 0,
+          ]);
+        }
+        return detailRow;
       } else {
         setMonthlyDetailError("Monthly detail was not returned for this row.");
       }
@@ -1120,6 +1129,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     } finally {
       setMonthlyDetailLoadingRowId(null);
     }
+    return null;
   }
 
   async function addFactorToJob(factor: TemplateFactor) {
@@ -1327,8 +1337,12 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   function toggleRowExpanded(rowId: number) {
     setExpandedRows((prev) => {
       const next = new Set(prev);
-      if (next.has(rowId)) next.delete(rowId);
-      else next.add(rowId);
+      const willExpand = !next.has(rowId);
+      if (willExpand) next.add(rowId);
+      else next.delete(rowId);
+      if (willExpand) {
+        void loadRowDetail(rowId);
+      }
       return next;
     });
   }
@@ -1990,7 +2004,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredData.map((row) => (
+                  {filteredData.map((row) => {
+                    const detailRow = rowDetailCache[row.row_id] || row;
+                    return (
                     <Fragment key={row.row_id}>
                       <tr key={`main-${row.row_id}`} className="border-b hover:bg-muted/50">
                         <td className="p-2">
@@ -2135,14 +2151,19 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             <Button
                               variant="outline"
                               size="sm"
+                              className="h-9 w-9 p-0"
                               onClick={() => openRowEditorModal(row)}
                               disabled={pendingSaveRowIds.has(row.row_id) || deletingRowId === row.row_id}
+                              aria-label="Edit row"
+                              title="Edit row"
                             >
-                              Edit
+                              <PencilLine className="h-4 w-4" />
+                              <span className="sr-only">Edit</span>
                             </Button>
                             <Button
                               variant="outline"
                               size="sm"
+                              className="h-9 w-9 p-0"
                               onClick={() => openMonthlyModal(row)}
                               disabled={pendingSaveRowIds.has(row.row_id) || deletingRowId === row.row_id}
                               title={
@@ -2150,16 +2171,22 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                   ? "This legacy row stores monthly fallback tCO₂e values while showing the original source volume above."
                                   : undefined
                               }
+                              aria-label="Open row detail"
                             >
-                              {isLegacyFallbackRow(row) ? "Detail tCO₂e" : "Detail"}
+                              <FileText className="h-4 w-4" />
+                              <span className="sr-only">Detail</span>
                             </Button>
                             <Button
                               variant="ghost"
                               size="sm"
+                              className="h-9 w-9 p-0 text-destructive hover:text-destructive"
                               onClick={() => deleteRow(row.row_id)}
                               disabled={deletingRowId === row.row_id}
+                              aria-label="Delete row"
+                              title="Delete row"
                             >
-                              {deletingRowId === row.row_id ? "Deleting..." : "Delete"}
+                              <Trash2 className="h-4 w-4" />
+                              <span className="sr-only">{deletingRowId === row.row_id ? "Deleting..." : "Delete"}</span>
                             </Button>
                           </div>
                         </td>
@@ -2170,30 +2197,30 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                               <div className="text-xs">
                                 <div className="text-muted-foreground">Category</div>
-                                <div>{row.dataset_category || row.lookup_category || row.level_1 || row.category || "-"}</div>
+                                <div>{detailRow.dataset_category || detailRow.lookup_category || detailRow.level_1 || detailRow.category || "-"}</div>
                               </div>
                               <div className="text-xs">
                                 <div className="text-muted-foreground">UOM</div>
-                                <div>{row.uom || "-"}</div>
+                                <div>{detailRow.uom || "-"}</div>
                               </div>
                               <div className="text-xs">
                                 <div className="text-muted-foreground">Factor</div>
-                                <div className="font-mono break-all">{factorDisplayText(row)}</div>
+                                <div className="font-mono break-all">{factorDisplayText(detailRow)}</div>
                               </div>
                               <div className="text-xs md:col-span-2 lg:col-span-4">
                                 <div className="text-muted-foreground">UoM</div>
-                                <div className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${uomBadgeClass(row.uom)}`}>
-                                  {row.uom || "UoM missing"}
+                                <div className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${uomBadgeClass(detailRow.uom)}`}>
+                                  {detailRow.uom || "UoM missing"}
                                 </div>
                               </div>
-                              {row.ghg_unit ? (
+                              {detailRow.ghg_unit ? (
                                 <div className="text-xs md:col-span-2 lg:col-span-4">
                                   <div className="text-muted-foreground">Unit</div>
                                   <div
-                                    className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${unitBadgeClass(row.ghg_unit, row.unit_warning)}`}
-                                    title={row.unit_warning || `Factor unit: ${row.ghg_unit}`}
+                                    className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${unitBadgeClass(detailRow.ghg_unit, detailRow.unit_warning)}`}
+                                    title={detailRow.unit_warning || `Factor unit: ${detailRow.ghg_unit}`}
                                   >
-                                    {`Unit: ${row.ghg_unit}`}
+                                    {`Unit: ${detailRow.ghg_unit}`}
                                   </div>
                                 </div>
                               ) : (
@@ -2226,27 +2253,27 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                   </div>
                                 ) : (
                                   <button className="font-mono hover:bg-muted px-2 py-1 rounded" onClick={() => startEditApply(row)}>
-                                    {row.apply_pct}%
+                                    {detailRow.apply_pct}%
                                   </button>
                                 )}
                               </div>
                               <div className="text-xs">
                                 <div className="text-muted-foreground">Factor ID</div>
-                                <div className="font-mono break-all">{row.factor_reference || row.original_id || "-"}</div>
+                                <div className="font-mono break-all">{detailRow.factor_reference || detailRow.original_id || "-"}</div>
                               </div>
                               <div className="text-xs">
                                 <div className="text-muted-foreground">Monthly</div>
-                                <div className="font-mono">{monthlyCount(row)}/12</div>
+                                <div className="font-mono">{monthlyCount(detailRow)}/12</div>
                               </div>
                               <div className="text-xs">
                                 <div className="text-muted-foreground">tCO₂e (Before)</div>
-                                <div className="font-mono">{row.tco2e_before_apply.toFixed(4)}</div>
+                                <div className="font-mono">{detailRow.tco2e_before_apply.toFixed(4)}</div>
                               </div>
                               <div className="text-xs">
                                 <div className="text-muted-foreground">Dataset</div>
-                                <div>{row.dataset_label || "-"}</div>
+                                <div>{detailRow.dataset_label || "-"}</div>
                               </div>
-                              {row.uses_monthly_factors && (
+                              {detailRow.uses_monthly_factors && (
                                 <div className="text-xs md:col-span-2 lg:col-span-4">
                                   <div className="text-muted-foreground mb-1">Monthly Dataset / Factor Audit</div>
                                   <div className="rounded border bg-background px-3 py-2">
@@ -2256,7 +2283,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                   </div>
                                 </div>
                               )}
-                              {!row.uses_monthly_factors && monthlyCount(row) > 0 && (
+                              {!detailRow.uses_monthly_factors && monthlyCount(detailRow) > 0 && (
                                 <div className="text-xs md:col-span-2 lg:col-span-4">
                                   <div className="text-muted-foreground mb-1">Monthly Input</div>
                                   <div className="rounded border bg-background px-3 py-2">
@@ -2264,18 +2291,18 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                       Monthly values captured for this row.
                                     </div>
                                     <div className="mb-2 text-[11px] font-mono break-words">
-                                      {monthlyStoredSummary(row)}
+                                      {monthlyStoredSummary(detailRow)}
                                     </div>
                                   </div>
                                 </div>
                               )}
-                              {isLegacyFallbackRow(row) && (
+                              {isLegacyFallbackRow(detailRow) && (
                                 <>
                                   <div className="text-xs">
                                     <div className="text-muted-foreground">Source Volume</div>
-                                    {hasLegacySourceVolume(row) ? (
+                                    {hasLegacySourceVolume(detailRow) ? (
                                       <div className="font-mono">
-                                        {formatMaybeNumber(row.source_qty, 2)} {row.source_uom || ""}
+                                        {formatMaybeNumber(detailRow.source_qty, 2)} {detailRow.source_uom || ""}
                                       </div>
                                     ) : (
                                       <div className="text-muted-foreground">
@@ -2286,16 +2313,16 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                   <div className="text-xs">
                                     <div className="text-muted-foreground">Stored As</div>
                                     <div className="font-mono">
-                                      {formatMaybeNumber(row.storage_qty, 4)} {row.storage_uom || ""}
+                                      {formatMaybeNumber(detailRow.storage_qty, 4)} {detailRow.storage_uom || ""}
                                     </div>
                                   </div>
                                   <div className="text-xs">
                                     <div className="text-muted-foreground">Storage Factor</div>
-                                    <div className="font-mono">{formatMaybeNumber(row.storage_factor, 5)}</div>
+                                    <div className="font-mono">{formatMaybeNumber(detailRow.storage_factor, 5)}</div>
                                   </div>
                                   <div className="text-xs">
                                     <div className="text-muted-foreground">Storage Mode</div>
-                                    <div>{storageReasonText(row.storage_reason)}</div>
+                                    <div>{storageReasonText(detailRow.storage_reason)}</div>
                                   </div>
                                 </>
                               )}
@@ -2320,7 +2347,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                   </div>
                                 ) : (
                                   <button className="w-full rounded border px-2 py-1 text-left hover:bg-muted" onClick={() => startEditSource(row)}>
-                                    {row.data_source || "Company Data"}
+                                    {detailRow.data_source || "Company Data"}
                                   </button>
                                 )}
                               </div>
@@ -2345,7 +2372,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                   </div>
                                 ) : (
                                   <button className="w-full rounded border px-2 py-1 text-left hover:bg-muted" onClick={() => startEditNotes(row)}>
-                                    {row.notes || <span className="text-muted-foreground italic">Add notes...</span>}
+                                    {detailRow.notes || <span className="text-muted-foreground italic">Add notes...</span>}
                                   </button>
                                 )}
                               </div>
@@ -2354,7 +2381,8 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                         </tr>
                       )}
                     </Fragment>
-                  ))}
+                    );
+                  })}
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 bg-muted/40 font-semibold text-sm">
@@ -3023,9 +3051,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                   <div className="rounded-md bg-destructive/10 p-2 text-sm text-destructive">
                     {monthlyDetailError}
                   </div>
-                ) : (monthlyDetailCache[monthlyEditRow.row_id]?.monthly_factor_details || []).length ? (
+                ) : (rowDetailCache[monthlyEditRow.row_id]?.monthly_factor_details || []).length ? (
                   <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                    {(monthlyDetailCache[monthlyEditRow.row_id]?.monthly_factor_details || []).map((detail) => (
+                    {(rowDetailCache[monthlyEditRow.row_id]?.monthly_factor_details || []).map((detail) => (
                       <div key={`${monthlyEditRow.row_id}-${detail.month_index}`} className="rounded border bg-background px-2 py-2 text-[11px]">
                         <div className="font-semibold">{detail.month_label || `M${detail.month_index}`}</div>
                         <div className="text-muted-foreground">Year: {detail.year ?? "-"}</div>
