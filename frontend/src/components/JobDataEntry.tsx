@@ -1562,6 +1562,33 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         </div>
       )}
 
+      {/* Template Capture Action */}
+      <Card>
+        <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <div className="font-medium">Add rows from template</div>
+            <div className="text-sm text-muted-foreground">
+              Search the factor library and add rows without scrolling to the bottom of the page.
+            </div>
+          </div>
+          <Button
+            onClick={async () => {
+              if (!showFactorBrowser) {
+                await loadTemplateFactors();
+              }
+              setShowFactorBrowser(!showFactorBrowser);
+            }}
+            size="lg"
+            className="w-full sm:w-auto"
+            disabled={factorsLoading}
+          >
+            {factorsLoading ? "Loading factors..." : showFactorBrowser ? "Hide" : "Add Data from Template"}{" "}
+            {((factorsTotal || templateFactors.length) > 0) &&
+              `(${(factorsTotal || templateFactors.length).toLocaleString()} factors available)`}
+          </Button>
+        </CardContent>
+      </Card>
+
       {/* Filters */}
       <Card>
         <CardContent className="pt-6">
@@ -2444,25 +2471,6 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Add Data Button */}
-      <div className="flex justify-center">
-        <Button 
-          onClick={async () => {
-            if (!showFactorBrowser) {
-              await loadTemplateFactors();
-            }
-            setShowFactorBrowser(!showFactorBrowser);
-          }}
-          size="lg"
-          className="w-full max-w-md"
-          disabled={factorsLoading}
-        >
-          {factorsLoading ? "Loading factors..." : showFactorBrowser ? "Hide" : "Add Data from Template"}{" "}
-          {((factorsTotal || templateFactors.length) > 0) &&
-            `(${(factorsTotal || templateFactors.length).toLocaleString()} factors available)`}
-        </Button>
-      </div>
 
       {/* Factor Browser */}
       {showFactorBrowser && (
