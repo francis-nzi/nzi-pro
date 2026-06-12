@@ -16,6 +16,7 @@ from services.pdf_generation_queue import get_pdf_queue
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
 from services.tenancy import require_org, get_current_org_context, run_with_org_context
+from api.admin_dataset_import_helpers import _ingest_csv_report_for_dataset
 from pathlib import Path
 import io
 import zipfile
