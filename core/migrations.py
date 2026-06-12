@@ -439,14 +439,14 @@ def run_migrations():
                 UPDATE job_types
                 SET job_family = CASE
                   WHEN COALESCE(NULLIF(TRIM(job_family), ''), '') <> '' THEN job_family
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%training%' THEN 'training'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%consult%' THEN 'consultancy'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%policy development%' THEN 'consultancy'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%strategy workshop%' THEN 'consultancy'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%monthly support services%' THEN 'consultancy'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%support services%' THEN 'consultancy'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%life cycle%' OR LOWER(COALESCE(name, '')) LIKE '%assessment%' THEN 'lca'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%product carbon%' OR LOWER(COALESCE(name, '')) LIKE '%pcf%' THEN 'pcf'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%training%%' THEN 'training'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%consult%%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%policy development%%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%strategy workshop%%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%monthly support services%%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%support services%%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%life cycle%%' OR LOWER(COALESCE(name, '')) LIKE '%%assessment%%' THEN 'lca'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%product carbon%%' OR LOWER(COALESCE(name, '')) LIKE '%%pcf%%' THEN 'pcf'
                   ELSE 'crp'
                 END
                 WHERE job_family IS NULL OR TRIM(job_family) = ''
@@ -456,14 +456,14 @@ def run_migrations():
                 """
                 UPDATE job_types
                 SET job_group = COALESCE(NULLIF(TRIM(job_group), ''), NULLIF(TRIM(job_family), ''), CASE
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%training%' THEN 'training'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%consult%' THEN 'consultancy'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%policy development%' THEN 'consultancy'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%strategy workshop%' THEN 'consultancy'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%monthly support services%' THEN 'consultancy'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%support services%' THEN 'consultancy'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%life cycle%' OR LOWER(COALESCE(name, '')) LIKE '%assessment%' THEN 'lca'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%product carbon%' OR LOWER(COALESCE(name, '')) LIKE '%pcf%' THEN 'pcf'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%training%%' THEN 'training'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%consult%%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%policy development%%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%strategy workshop%%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%monthly support services%%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%support services%%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%life cycle%%' OR LOWER(COALESCE(name, '')) LIKE '%%assessment%%' THEN 'lca'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%product carbon%%' OR LOWER(COALESCE(name, '')) LIKE '%%pcf%%' THEN 'pcf'
                   ELSE 'crp'
                 END)
                 WHERE job_group IS NULL OR TRIM(job_group) = ''
@@ -473,14 +473,14 @@ def run_migrations():
                 """
                 UPDATE job_types
                 SET job_family = COALESCE(NULLIF(TRIM(job_family), ''), NULLIF(TRIM(job_group), ''), CASE
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%training%' THEN 'training'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%consult%' THEN 'consultancy'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%policy development%' THEN 'consultancy'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%strategy workshop%' THEN 'consultancy'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%monthly support services%' THEN 'consultancy'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%support services%' THEN 'consultancy'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%life cycle%' OR LOWER(COALESCE(name, '')) LIKE '%assessment%' THEN 'lca'
-                  WHEN LOWER(COALESCE(name, '')) LIKE '%product carbon%' OR LOWER(COALESCE(name, '')) LIKE '%pcf%' THEN 'pcf'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%training%%' THEN 'training'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%consult%%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%policy development%%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%strategy workshop%%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%monthly support services%%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%support services%%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%life cycle%%' OR LOWER(COALESCE(name, '')) LIKE '%%assessment%%' THEN 'lca'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%%product carbon%%' OR LOWER(COALESCE(name, '')) LIKE '%%pcf%%' THEN 'pcf'
                   ELSE 'crp'
                 END)
                 WHERE job_family IS NULL OR TRIM(job_family) = ''
