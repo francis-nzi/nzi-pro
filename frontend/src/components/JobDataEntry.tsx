@@ -2151,7 +2151,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                   : undefined
                               }
                             >
-                              {isLegacyFallbackRow(row) ? "Monthly tCO₂e" : "Monthly"}
+                              {isLegacyFallbackRow(row) ? "Detail tCO₂e" : "Detail"}
                             </Button>
                             <Button
                               variant="ghost"
@@ -2869,7 +2869,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       <Dialog open={showMonthlyModal} onOpenChange={setShowMonthlyModal}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Monthly Data Entry</DialogTitle>
+            <DialogTitle>Row Detail</DialogTitle>
             {monthlyEditRow && (
               <div className="mt-2">
                 <div className="font-semibold">{rowDisplayTitle(monthlyEditRow)}</div>
@@ -2890,6 +2890,63 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                 This legacy annual row shows the original source volume in the grid, but its monthly values are stored as fallback tCO₂e for audit compatibility. Monthly values are read-only here.
               </div>
             )}
+
+            {monthlyEditRow && (
+              <div className="rounded-md border bg-muted/20 p-3">
+                <div className="mb-3 text-sm font-semibold">Key Metadata</div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="text-xs">
+                    <div className="text-muted-foreground">Scope</div>
+                    <div className="font-medium">{monthlyEditRow.scope || "-"}</div>
+                  </div>
+                  <div className="text-xs">
+                    <div className="text-muted-foreground">Site</div>
+                    <div className="font-medium">{getSiteName(monthlyEditRow.site_id) || "No site"}</div>
+                  </div>
+                  <div className="text-xs">
+                    <div className="text-muted-foreground">Category</div>
+                    <div className="font-medium">{monthlyEditRow.dataset_category || monthlyEditRow.lookup_category || monthlyEditRow.level_1 || monthlyEditRow.category || "-"}</div>
+                  </div>
+                  <div className="text-xs">
+                    <div className="text-muted-foreground">Source</div>
+                    <div className="font-medium">{monthlyEditRow.data_source || "Company Data"}</div>
+                  </div>
+                  <div className="text-xs">
+                    <div className="text-muted-foreground">UoM</div>
+                    <div className="font-mono">{monthlyEditRow.uom || "-"}</div>
+                  </div>
+                  <div className="text-xs">
+                    <div className="text-muted-foreground">Unit</div>
+                    <div className="font-mono">{monthlyEditRow.ghg_unit || "-"}</div>
+                  </div>
+                  <div className="text-xs">
+                    <div className="text-muted-foreground">Factor ID</div>
+                    <div className="font-mono break-all">{monthlyEditRow.factor_reference || monthlyEditRow.original_id || "-"}</div>
+                  </div>
+                  <div className="text-xs">
+                    <div className="text-muted-foreground">Dataset</div>
+                    <div>{monthlyEditRow.dataset_label || "-"}</div>
+                  </div>
+                  <div className="text-xs">
+                    <div className="text-muted-foreground">Apply %</div>
+                    <div className="font-mono">{monthlyEditRow.apply_pct.toFixed(2)}%</div>
+                  </div>
+                  <div className="text-xs">
+                    <div className="text-muted-foreground">Monthly</div>
+                    <div className="font-mono">{monthlyCount(monthlyEditRow)}/12</div>
+                  </div>
+                  <div className="text-xs">
+                    <div className="text-muted-foreground">Factor</div>
+                    <div className="font-mono">{factorDisplayText(monthlyEditRow)}</div>
+                  </div>
+                  <div className="text-xs">
+                    <div className="text-muted-foreground">tCO₂e</div>
+                    <div className="font-mono">{monthlyEditRow.calc_tco2e.toFixed(4)}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Copy to All Months Button */}
             <div className="flex justify-end">
               <Button
