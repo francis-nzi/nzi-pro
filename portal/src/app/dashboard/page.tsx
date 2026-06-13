@@ -29,6 +29,11 @@ const PortalInsights = dynamic(() => import("@/components/PortalInsights"), {
   loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading insights…</div>,
 });
 
+const PortalFiles = dynamic(() => import("@/components/PortalFiles"), {
+  ssr: false,
+  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading files…</div>,
+});
+
 const PortalGovernance = dynamic(() => import("@/components/PortalGovernance"), {
   ssr: false,
   loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading governance…</div>,
@@ -209,9 +214,9 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
 
 // ── Main page ────────────────────────────────────────────────────────────────
 
-type TabKey = "dashboard" | "data" | "reports" | "actions" | "insights" | "governance";
+type TabKey = "dashboard" | "data" | "reports" | "actions" | "insights" | "files" | "governance";
 
-const VALID_TABS: TabKey[] = ["dashboard", "data", "reports", "actions", "insights", "governance"];
+const VALID_TABS: TabKey[] = ["dashboard", "data", "reports", "actions", "insights", "files", "governance"];
 
 export default function DashboardPage() {
   return (
@@ -226,7 +231,9 @@ function DashboardPageInner() {
   const searchParams = useSearchParams();
 
   const tabFromUrl = searchParams.get("tab");
-  const resolvedTab = tabFromUrl === "reporting" ? "data" : (tabFromUrl as TabKey | null);
+  const resolvedTab = tabFromUrl === "reporting" ? "data"
+    : tabFromUrl === "governance" ? "files"
+    : (tabFromUrl as TabKey | null);
   const initialTab: TabKey = resolvedTab && VALID_TABS.includes(resolvedTab) ? resolvedTab : "dashboard";
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
 
@@ -340,6 +347,7 @@ function DashboardPageInner() {
     { key: "reports", label: "Reports" },
     { key: "actions", label: "Actions" },
     { key: "insights", label: "Insights" },
+    { key: "files", label: "Files" },
     { key: "governance", label: "Governance" },
   ];
 
@@ -463,6 +471,13 @@ function DashboardPageInner() {
         {activeTab === "insights" && (
           <div className="pt-2">
             <PortalInsights />
+          </div>
+        )}
+
+        {/* ── Files tab ─────────────────────────────────────────────────── */}
+        {activeTab === "files" && (
+          <div className="pt-2">
+            <PortalFiles />
           </div>
         )}
 
