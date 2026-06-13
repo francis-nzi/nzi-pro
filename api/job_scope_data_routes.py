@@ -311,7 +311,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
         attempts.append(
             (
                 """
-                SELECT db_id, factor, ghg_unit, uom
+                SELECT db_id, factor, ghg_unit, uom, report_label
                 FROM factor_lookup
                 WHERE dataset_id=%s AND scope=%s AND original_id=%s
                 ORDER BY db_id ASC
@@ -324,7 +324,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
         attempts.append(
             (
                 """
-                SELECT db_id, factor, ghg_unit, uom
+                SELECT db_id, factor, ghg_unit, uom, report_label
                 FROM factor_lookup
                 WHERE dataset_id=%s AND original_id=%s
                 ORDER BY CASE WHEN scope=%s THEN 0 ELSE 1 END, db_id ASC
@@ -337,7 +337,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
         attempts.append(
             (
                 """
-                SELECT db_id, factor, ghg_unit, uom
+                SELECT db_id, factor, ghg_unit, uom, report_label
                 FROM factor_lookup
                 WHERE scope=%s AND original_id=%s
                 ORDER BY dataset_id DESC, db_id ASC
@@ -349,7 +349,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
     attempts.append(
         (
             """
-            SELECT db_id, factor, ghg_unit, uom
+            SELECT db_id, factor, ghg_unit, uom, report_label
             FROM factor_lookup
             WHERE original_id=%s
             ORDER BY CASE WHEN scope=%s THEN 0 ELSE 1 END, dataset_id DESC, db_id ASC
@@ -367,12 +367,13 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
             row = None
         if not row:
             continue
-        db_id, factor, ghg_unit, uom = row
+        db_id, factor, ghg_unit, uom, report_label = row
         return {
             "db_id": _safe_int(db_id),
             "factor": _safe_float(factor),
             "ghg_unit": str(ghg_unit).strip() if ghg_unit is not None else None,
             "uom": str(uom).strip() if uom is not None else None,
+            "report_label": str(report_label).strip() if report_label is not None else None,
         }
     return None
 
@@ -409,6 +410,7 @@ def _resolve_repoint_factor(
     resolved_factor = _safe_float(factor)
     resolved_ghg_unit = str(ghg_unit).strip() if ghg_unit is not None else None
     resolved_uom = str(uom).strip() if uom is not None else None
+    resolved_report_label = None
 
     lookup = None
     if resolved_dataset_id is not None:
@@ -448,6 +450,8 @@ def _resolve_repoint_factor(
             resolved_ghg_unit = str(lookup.get("ghg_unit")).strip() if lookup.get("ghg_unit") is not None else None
         if resolved_uom is None:
             resolved_uom = str(lookup.get("uom")).strip() if lookup.get("uom") is not None else None
+        if lookup.get("report_label") is not None:
+            resolved_report_label = str(lookup.get("report_label")).strip() or None
     elif resolved_dataset_id is not None or resolved_factor_db_id is not None:
         raise HTTPException(
             status_code=404,
@@ -473,6 +477,7 @@ def _resolve_repoint_factor(
         "factor": resolved_factor,
         "ghg_unit": resolved_ghg_unit,
         "uom": resolved_uom,
+        "report_label": resolved_report_label,
     }
 
 
@@ -1981,7 +1986,12 @@ def repoint_scope_data_row(
                 "level_3": payload["level_3"] if "level_3" in payload else before.get("level_3"),
                 "level_4": payload["level_4"] if "level_4" in payload else before.get("level_4"),
                 "column_text": payload["column_text"] if "column_text" in payload else before.get("column_text"),
-                "report_label": payload["report_label"] if "report_label" in payload else before.get("report_label"),
+                "report_label": (
+                    payload["report_label"]
+                    if "report_label" in payload
+                    else resolved.get("report_label")
+                    or before.get("report_label")
+                ),
                 "uom": resolved.get("uom"),
                 "factor": resolved.get("factor"),
                 "ghg_unit": ghg_unit,
