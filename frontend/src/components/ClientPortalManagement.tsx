@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   CheckCircle2,
@@ -10,7 +10,6 @@ import {
   History,
   RefreshCw,
   Search,
-  Timer,
   UserPlus,
   Users,
 } from "lucide-react";
@@ -147,11 +146,17 @@ function expiryStatus(expiresAt: string | null): "forever" | "expired" | "expiri
   return "future";
 }
 
+function ExpiryBadge({ expiresAt }: { expiresAt: string | null }) {
+  const status = expiryStatus(expiresAt);
+  if (status === "forever") return <span className="text-xs text-gray-400">Forever</span>;
+  if (status === "expired") return <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-600">Expired</span>;
+  if (status === "expiring_soon") return <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">{fmtDate(expiresAt)}</span>;
+  return <span className="text-xs text-gray-500">{fmtDate(expiresAt)}</span>;
+}
+
 function ClientPortalFilesSection({ clientId, baseUrl }: { clientId: number; baseUrl: string }) {
   const [files, setFiles] = useState<ClientPortalFile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState<Record<number, boolean>>({});
-  const descTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
   // Filters
   const [search, setSearch] = useState("");
@@ -160,6 +165,13 @@ function ClientPortalFilesSection({ clientId, baseUrl }: { clientId: number; bas
   const [filterType, setFilterType] = useState("");
   const [filterVisibility, setFilterVisibility] = useState<VisibilityFilter>("all");
   const [filterExpiry, setFilterExpiry] = useState<ExpiryFilter>("all");
+
+  // Edit modal
+  const [editingFile, setEditingFile] = useState<ClientPortalFile | null>(null);
+  const [editVisible, setEditVisible] = useState(false);
+  const [editDescription, setEditDescription] = useState("");
+  const [editExpiry, setEditExpiry] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -174,17 +186,12 @@ function ClientPortalFilesSection({ clientId, baseUrl }: { clientId: number; bas
   }, [baseUrl, clientId]);
 
   async function patchPortal(jobId: number, fileId: number, patch: Record<string, unknown>) {
-    setSaving(s => ({ ...s, [fileId]: true }));
-    try {
-      await fetch(`${baseUrl}/jobs/${jobId}/files/${fileId}/portal`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      });
-    } finally {
-      setSaving(s => ({ ...s, [fileId]: false }));
-    }
+    await fetch(`${baseUrl}/jobs/${jobId}/files/${fileId}/portal`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
   }
 
   function toggleVisible(file: ClientPortalFile) {
@@ -193,21 +200,37 @@ function ClientPortalFilesSection({ clientId, baseUrl }: { clientId: number; bas
     void patchPortal(file.job_id, file.file_id, { portal_visible: next });
   }
 
-  function onDescChange(file: ClientPortalFile, value: string) {
-    setFiles(fs => fs.map(f => f.file_id === file.file_id ? { ...f, portal_description: value } : f));
-    clearTimeout(descTimers.current[file.file_id]);
-    descTimers.current[file.file_id] = setTimeout(() => {
-      void patchPortal(file.job_id, file.file_id, { portal_description: value });
-    }, 600);
+  function openEdit(file: ClientPortalFile) {
+    setEditingFile(file);
+    setEditVisible(file.portal_visible);
+    setEditDescription(file.portal_description ?? "");
+    setEditExpiry(file.portal_expires_at ? file.portal_expires_at.slice(0, 16) : "");
   }
 
-  function onExpiryChange(file: ClientPortalFile, value: string) {
-    const expires = value || null;
-    setFiles(fs => fs.map(f => f.file_id === file.file_id ? { ...f, portal_expires_at: expires } : f));
-    void patchPortal(file.job_id, file.file_id, { portal_expires_at: expires ?? "" });
+  function closeEdit() { setEditingFile(null); }
+
+  async function saveEdit() {
+    if (!editingFile) return;
+    setEditSaving(true);
+    try {
+      await patchPortal(editingFile.job_id, editingFile.file_id, {
+        portal_visible: editVisible,
+        portal_description: editDescription,
+        portal_expires_at: editExpiry || "",
+      });
+      setFiles(fs => fs.map(f => f.file_id === editingFile.file_id ? {
+        ...f,
+        portal_visible: editVisible,
+        portal_description: editDescription || null,
+        portal_expires_at: editExpiry || null,
+      } : f));
+      closeEdit();
+    } finally {
+      setEditSaving(false);
+    }
   }
 
-  // ── Derived filter options (unique values from data) ──────────────────────
+  // ── Filter options derived from data ─────────────────────────────────────
   const jobOptions = Array.from(
     new Map(files.map(f => [f.job_id, { jobId: f.job_id, label: `${f.job_number} — ${f.job_title}` }])).values()
   );
@@ -218,9 +241,8 @@ function ClientPortalFilesSection({ clientId, baseUrl }: { clientId: number; bas
   const q = search.trim().toLowerCase();
   const filteredFiles = files.filter(f => {
     if (q) {
-      const haystack = [f.file_name, f.portal_description, f.description, f.job_number, f.job_title, f.file_type]
-        .join(" ").toLowerCase();
-      if (!haystack.includes(q)) return false;
+      const hay = [f.file_name, f.portal_description, f.description, f.job_number, f.job_title, f.file_type].join(" ").toLowerCase();
+      if (!hay.includes(q)) return false;
     }
     if (filterJob && String(f.job_id) !== filterJob) return false;
     if (filterYear && String(f.reporting_year) !== filterYear) return false;
@@ -228,226 +250,248 @@ function ClientPortalFilesSection({ clientId, baseUrl }: { clientId: number; bas
     if (filterVisibility === "visible" && !f.portal_visible) return false;
     if (filterVisibility === "hidden" && f.portal_visible) return false;
     if (filterExpiry !== "all") {
-      const status = expiryStatus(f.portal_expires_at);
-      if (filterExpiry === "forever" && status !== "forever") return false;
-      if (filterExpiry === "has_expiry" && status === "forever") return false;
-      if (filterExpiry === "expired" && status !== "expired") return false;
-      if (filterExpiry === "expiring_soon" && status !== "expiring_soon") return false;
+      const s = expiryStatus(f.portal_expires_at);
+      if (filterExpiry === "forever" && s !== "forever") return false;
+      if (filterExpiry === "has_expiry" && s === "forever") return false;
+      if (filterExpiry === "expired" && s !== "expired") return false;
+      if (filterExpiry === "expiring_soon" && s !== "expiring_soon") return false;
     }
     return true;
   });
 
   const isFiltered = q || filterJob || filterYear || filterType || filterVisibility !== "all" || filterExpiry !== "all";
-
-  function clearFilters() {
-    setSearch(""); setFilterJob(""); setFilterYear(""); setFilterType("");
-    setFilterVisibility("all"); setFilterExpiry("all");
-  }
-
-  // Group filtered files by job
-  const jobGroups = filteredFiles.reduce<{ jobId: number; jobNumber: string; jobTitle: string; year: number | null; files: ClientPortalFile[] }[]>(
-    (acc, f) => {
-      const g = acc.find(x => x.jobId === f.job_id);
-      if (g) { g.files.push(f); }
-      else acc.push({ jobId: f.job_id, jobNumber: f.job_number, jobTitle: f.job_title, year: f.reporting_year, files: [f] });
-      return acc;
-    },
-    [],
-  );
-
   const visibleCount = files.filter(f => f.portal_visible).length;
   const selectCls = "rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-200";
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <FileText className="h-4 w-4" />
-          Portal Files
-          {!loading && (
-            <span className="text-xs font-normal text-muted-foreground ml-1">
-              {visibleCount} of {files.length} visible to client
-            </span>
-          )}
-        </CardTitle>
-        <CardDescription>
-          Control which files are visible on the client portal, add client-facing descriptions, and set expiry timers.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="py-6 text-sm text-center text-muted-foreground">Loading files…</div>
-        ) : files.length === 0 ? (
-          <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-            No files attached to any jobs for this client yet.
-          </div>
-        ) : (
-          <div className="space-y-4">
-
-            {/* ── Filter bar ── */}
-            <div className="rounded-lg border border-gray-200 bg-gray-50/60 p-3 space-y-2">
-              {/* Search */}
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  placeholder="Search file name, description, job…"
-                  className="w-full rounded-md border border-gray-200 bg-white pl-8 pr-3 py-1.5 text-xs text-gray-700 placeholder-gray-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-200"
-                />
-              </div>
-
-              {/* Dropdowns */}
-              <div className="flex flex-wrap gap-2 items-center">
-                <select value={filterJob} onChange={e => setFilterJob(e.target.value)} className={selectCls}>
-                  <option value="">All jobs</option>
-                  {jobOptions.map(j => (
-                    <option key={j.jobId} value={String(j.jobId)}>{j.label}</option>
-                  ))}
-                </select>
-
-                <select value={filterYear} onChange={e => setFilterYear(e.target.value)} className={selectCls}>
-                  <option value="">All years</option>
-                  {yearOptions.map(y => <option key={y} value={String(y)}>{y}</option>)}
-                </select>
-
-                <select value={filterType} onChange={e => setFilterType(e.target.value)} className={selectCls}>
-                  <option value="">All file types</option>
-                  {typeOptions.map(t => (
-                    <option key={t} value={t}>{t.replace(/_/g, " ")}</option>
-                  ))}
-                </select>
-
-                <select value={filterVisibility} onChange={e => setFilterVisibility(e.target.value as VisibilityFilter)} className={selectCls}>
-                  <option value="all">All visibility</option>
-                  <option value="visible">Visible on portal</option>
-                  <option value="hidden">Hidden from portal</option>
-                </select>
-
-                <select value={filterExpiry} onChange={e => setFilterExpiry(e.target.value as ExpiryFilter)} className={selectCls}>
-                  <option value="all">All expiry</option>
-                  <option value="forever">No expiry (forever)</option>
-                  <option value="has_expiry">Has expiry set</option>
-                  <option value="expiring_soon">Expiring within 30 days</option>
-                  <option value="expired">Already expired</option>
-                </select>
-
-                {isFiltered && (
-                  <div className="flex items-center gap-2 ml-auto">
-                    <span className="text-xs text-gray-500">{filteredFiles.length} of {files.length} files</span>
-                    <button
-                      onClick={clearFilters}
-                      className="text-xs text-blue-600 hover:text-blue-700 underline"
-                    >
-                      Clear filters
-                    </button>
-                  </div>
-                )}
-              </div>
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <FileText className="h-4 w-4" />
+            Portal Files
+            {!loading && (
+              <span className="text-xs font-normal text-muted-foreground ml-1">
+                {visibleCount} of {files.length} visible to client
+              </span>
+            )}
+          </CardTitle>
+          <CardDescription>
+            Control which files are visible on the client portal, add client-facing descriptions, and set expiry timers.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="py-6 text-sm text-center text-muted-foreground">Loading files…</div>
+          ) : files.length === 0 ? (
+            <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+              No files attached to any jobs for this client yet.
             </div>
+          ) : (
+            <div className="space-y-3">
 
-            {/* ── Results ── */}
-            {filteredFiles.length === 0 ? (
-              <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                No files match the current filters.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {jobGroups.map(group => (
-                  <div key={group.jobId} className="rounded-md border overflow-hidden">
-                    {/* Job header */}
-                    <div className="flex items-center justify-between bg-gray-50 px-4 py-2.5 border-b">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-gray-700">{group.jobNumber}</span>
-                        <span className="text-xs text-gray-500 truncate max-w-xs">{group.jobTitle}</span>
-                        {group.year && <span className="text-xs text-gray-400">{group.year}</span>}
-                        <span className="text-xs text-gray-400">· {group.files.length} file{group.files.length !== 1 ? "s" : ""}</span>
-                      </div>
-                      <Link
-                        href={`/jobs/${group.jobId}/portal-management`}
-                        className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
-                      >
-                        Manage job
-                        <ExternalLink className="h-3 w-3" />
-                      </Link>
+              {/* Filter bar */}
+              <div className="rounded-lg border border-gray-200 bg-gray-50/60 p-3 space-y-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Search file name, description, job…"
+                    className="w-full rounded-md border border-gray-200 bg-white pl-8 pr-3 py-1.5 text-xs text-gray-700 placeholder-gray-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-200"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <select value={filterJob} onChange={e => setFilterJob(e.target.value)} className={selectCls}>
+                    <option value="">All jobs</option>
+                    {jobOptions.map(j => <option key={j.jobId} value={String(j.jobId)}>{j.label}</option>)}
+                  </select>
+                  <select value={filterYear} onChange={e => setFilterYear(e.target.value)} className={selectCls}>
+                    <option value="">All years</option>
+                    {yearOptions.map(y => <option key={y} value={String(y)}>{y}</option>)}
+                  </select>
+                  <select value={filterType} onChange={e => setFilterType(e.target.value)} className={selectCls}>
+                    <option value="">All file types</option>
+                    {typeOptions.map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
+                  </select>
+                  <select value={filterVisibility} onChange={e => setFilterVisibility(e.target.value as VisibilityFilter)} className={selectCls}>
+                    <option value="all">All visibility</option>
+                    <option value="visible">Visible on portal</option>
+                    <option value="hidden">Hidden from portal</option>
+                  </select>
+                  <select value={filterExpiry} onChange={e => setFilterExpiry(e.target.value as ExpiryFilter)} className={selectCls}>
+                    <option value="all">All expiry</option>
+                    <option value="forever">No expiry</option>
+                    <option value="has_expiry">Has expiry set</option>
+                    <option value="expiring_soon">Expiring within 30 days</option>
+                    <option value="expired">Already expired</option>
+                  </select>
+                  {isFiltered && (
+                    <div className="flex items-center gap-2 ml-auto">
+                      <span className="text-xs text-gray-500">{filteredFiles.length} of {files.length} files</span>
+                      <button onClick={() => { setSearch(""); setFilterJob(""); setFilterYear(""); setFilterType(""); setFilterVisibility("all"); setFilterExpiry("all"); }} className="text-xs text-blue-600 hover:text-blue-700 underline">
+                        Clear filters
+                      </button>
                     </div>
+                  )}
+                </div>
+              </div>
 
-                    {/* Files */}
-                    <div className="divide-y divide-gray-50">
-                      {group.files.map(file => {
-                        const isSaving = saving[file.file_id] ?? false;
-                        const expiryValue = file.portal_expires_at ? file.portal_expires_at.slice(0, 16) : "";
+              {/* Table */}
+              {filteredFiles.length === 0 ? (
+                <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  No files match the current filters.
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-gray-50">
+                        <th className="w-8 px-3 py-2.5 text-center"><span className="sr-only">Visible</span></th>
+                        <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500">File</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 hidden sm:table-cell">Job</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 hidden md:table-cell">Year</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 hidden lg:table-cell">Added</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500">Expiry</th>
+                        <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {filteredFiles.map(file => {
                         const expStatus = expiryStatus(file.portal_expires_at);
-
                         return (
-                          <div key={file.file_id} className={`px-4 py-3 ${file.portal_visible ? "bg-white" : "bg-gray-50/40"}`}>
-                            <div className="flex items-start gap-3">
+                          <tr key={file.file_id} className={`hover:bg-gray-50/50 ${!file.portal_visible ? "opacity-60" : ""}`}>
+                            <td className="px-3 py-2.5 text-center">
                               <input
                                 type="checkbox"
                                 checked={file.portal_visible}
                                 onChange={() => toggleVisible(file)}
-                                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-green-600 cursor-pointer flex-shrink-0"
+                                className="h-4 w-4 rounded border-gray-300 text-green-600 cursor-pointer"
                                 title={file.portal_visible ? "Hide from portal" : "Show on portal"}
                               />
-                              <div className="flex-1 min-w-0 space-y-2">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className={`text-sm font-medium truncate max-w-sm ${file.portal_visible ? "text-gray-900" : "text-gray-400"}`}>
-                                    {file.file_name}
-                                  </span>
-                                  <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 flex-shrink-0">
-                                    {file.file_type.replace(/_/g, " ")}
-                                  </span>
-                                  {expStatus === "expired" && (
-                                    <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-600">Expired</span>
-                                  )}
-                                  {expStatus === "expiring_soon" && (
-                                    <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">Expiring soon</span>
-                                  )}
-                                  {isSaving && <span className="text-xs text-gray-400">Saving…</span>}
-                                </div>
-                                <div className="text-xs text-gray-400">
-                                  {formatFileSize(file.file_size)}
-                                  {file.uploaded_at && <> · Added {fmtDateTime(file.uploaded_at)}</>}
-                                </div>
-                                <input
-                                  type="text"
-                                  value={file.portal_description ?? ""}
-                                  onChange={e => onDescChange(file, e.target.value)}
-                                  placeholder={file.description ?? "Add a description for clients…"}
-                                  className="w-full rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-700 placeholder-gray-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-200"
-                                />
-                                <div className="flex items-center gap-2">
-                                  <Timer className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-                                  <span className="text-xs text-gray-500">Expires:</span>
-                                  <input
-                                    type="datetime-local"
-                                    value={expiryValue}
-                                    onChange={e => onExpiryChange(file, e.target.value)}
-                                    className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-700 focus:border-blue-400 focus:outline-none"
-                                  />
-                                  {expiryValue ? (
-                                    <button onClick={() => onExpiryChange(file, "")} className="text-xs text-gray-400 hover:text-gray-600 underline">
-                                      Set to forever
-                                    </button>
-                                  ) : (
-                                    <span className="text-xs text-gray-400">Forever</span>
-                                  )}
-                                </div>
+                            </td>
+                            <td className="px-3 py-2.5 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-medium text-gray-900 truncate max-w-[220px]">{file.file_name}</span>
+                                <span className="hidden sm:inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 flex-shrink-0">
+                                  {file.file_type.replace(/_/g, " ")}
+                                </span>
                               </div>
-                            </div>
-                          </div>
+                              {file.portal_description && (
+                                <p className="mt-0.5 text-xs text-gray-400 truncate max-w-[260px]">{file.portal_description}</p>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 hidden sm:table-cell">
+                              <div className="text-xs font-medium text-gray-700">{file.job_number}</div>
+                              <div className="text-xs text-gray-400 truncate max-w-[140px]">{file.job_title}</div>
+                            </td>
+                            <td className="px-3 py-2.5 hidden md:table-cell text-xs text-gray-500">{file.reporting_year ?? "—"}</td>
+                            <td className="px-3 py-2.5 hidden lg:table-cell text-xs text-gray-400">{fmtDate(file.uploaded_at)}</td>
+                            <td className="px-3 py-2.5">
+                              <ExpiryBadge expiresAt={file.portal_expires_at} />
+                              {expStatus === "expiring_soon" && (
+                                <div className="text-[10px] text-amber-600 mt-0.5">Expiring soon</div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-right">
+                              <button
+                                onClick={() => openEdit(file)}
+                                className="rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 hover:border-blue-300 hover:text-blue-600 transition-colors"
+                              >
+                                Edit
+                              </button>
+                            </td>
+                          </tr>
                         );
                       })}
-                    </div>
-                  </div>
-                ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Edit modal */}
+      {editingFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={e => { if (e.target === e.currentTarget) closeEdit(); }}>
+          <div className="w-full max-w-md rounded-xl bg-white shadow-xl">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 border-b px-5 py-4">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-900 truncate">{editingFile.file_name}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{editingFile.job_number} · {editingFile.file_type.replace(/_/g, " ")}</p>
               </div>
-            )}
+              <button onClick={closeEdit} className="text-gray-400 hover:text-gray-600 flex-shrink-0 text-lg leading-none mt-0.5">✕</button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4 space-y-4">
+              {/* Visible toggle */}
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={editVisible}
+                  onChange={e => setEditVisible(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-green-600"
+                />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Visible on client portal</p>
+                  <p className="text-xs text-gray-400">Client can see and download this file</p>
+                </div>
+              </label>
+
+              {/* Description */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-700">Client-facing description</label>
+                <textarea
+                  value={editDescription}
+                  onChange={e => setEditDescription(e.target.value)}
+                  placeholder={editingFile.description ?? "Add a description shown to the client…"}
+                  rows={3}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-200 resize-none"
+                />
+              </div>
+
+              {/* Expiry */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-700">Expiry date &amp; time</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="datetime-local"
+                    value={editExpiry}
+                    onChange={e => setEditExpiry(e.target.value)}
+                    className="flex-1 rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-200"
+                  />
+                  {editExpiry && (
+                    <button onClick={() => setEditExpiry("")} className="text-xs text-gray-400 hover:text-gray-600 underline flex-shrink-0">
+                      Forever
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-gray-400">Leave blank to never expire. File will be hidden automatically once expired.</p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t px-5 py-3 bg-gray-50 rounded-b-xl">
+              <button onClick={closeEdit} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors">
+                Cancel
+              </button>
+              <button
+                onClick={() => void saveEdit()}
+                disabled={editSaving}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60 transition-colors"
+              >
+                {editSaving ? "Saving…" : "Save changes"}
+              </button>
+            </div>
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </div>
+      )}
+    </>
   );
 }
 
