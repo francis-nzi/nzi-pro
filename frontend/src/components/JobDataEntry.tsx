@@ -288,7 +288,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   // Monthly data modal state
   const [showMonthlyModal, setShowMonthlyModal] = useState(false);
   const [monthlyEditRow, setMonthlyEditRow] = useState<ScopeDataRow | null>(null);
-  const [monthlyValues, setMonthlyValues] = useState<number[]>(Array(12).fill(0));
+  const [monthlyValues, setMonthlyValues] = useState<string[]>(Array(12).fill(""));
   const [rowDetailCache, setRowDetailCache] = useState<Record<number, ScopeDataRow>>({});
   const [monthlyDetailLoadingRowId, setMonthlyDetailLoadingRowId] = useState<number | null>(null);
   const [monthlyDetailError, setMonthlyDetailError] = useState("");
@@ -883,15 +883,15 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     setMonthlyDetailError("");
     const cachedRow = rowDetailCache[row.row_id] || row;
     setMonthlyEditRow(cachedRow);
-    setDetailTab("metadata");
+    setDetailTab("monthly");
     // Initialize monthly values from row data
     const months = [
-      cachedRow.month_1 || 0, cachedRow.month_2 || 0, cachedRow.month_3 || 0,
-      cachedRow.month_4 || 0, cachedRow.month_5 || 0, cachedRow.month_6 || 0,
-      cachedRow.month_7 || 0, cachedRow.month_8 || 0, cachedRow.month_9 || 0,
-      cachedRow.month_10 || 0, cachedRow.month_11 || 0, cachedRow.month_12 || 0,
+      cachedRow.month_1 ?? "", cachedRow.month_2 ?? "", cachedRow.month_3 ?? "",
+      cachedRow.month_4 ?? "", cachedRow.month_5 ?? "", cachedRow.month_6 ?? "",
+      cachedRow.month_7 ?? "", cachedRow.month_8 ?? "", cachedRow.month_9 ?? "",
+      cachedRow.month_10 ?? "", cachedRow.month_11 ?? "", cachedRow.month_12 ?? "",
     ];
-    setMonthlyValues(months);
+    setMonthlyValues(months.map((value) => (value === null || value === undefined ? "" : String(value))));
     setShowMonthlyModal(true);
     void loadRowDetail(row.row_id);
   }
@@ -1027,19 +1027,29 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   function closeMonthlyModal() {
     setShowMonthlyModal(false);
     setMonthlyEditRow(null);
-    setMonthlyValues(Array(12).fill(0));
+    setMonthlyValues(Array(12).fill(""));
     setMonthlyDetailError("");
-    setDetailTab("metadata");
+    setDetailTab("monthly");
   }
 
   function updateMonthlyValue(monthIndex: number, value: string) {
     const newValues = [...monthlyValues];
-    newValues[monthIndex] = value ? parseFloat(value) : 0;
+    newValues[monthIndex] = value;
     setMonthlyValues(newValues);
   }
 
   function getMonthlySum(): number {
-    return monthlyValues.reduce((sum, val) => sum + (val || 0), 0);
+    return monthlyValues.reduce((sum, val) => {
+      const parsed = val.trim() === "" ? 0 : Number(val);
+      return sum + (Number.isFinite(parsed) ? parsed : 0);
+    }, 0);
+  }
+
+  function parseMonthlyValue(value: string): number | null {
+    const trimmed = value.trim();
+    if (trimmed === "") return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   function getOrderedMonths(): string[] {
@@ -1073,7 +1083,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   }
 
   function copyFirstMonthToAll() {
-    const firstValue = monthlyValues[getMonthIndex(0)] || 0;
+    const firstValue = monthlyValues[getMonthIndex(0)] ?? "";
     const newValues = Array(12).fill(firstValue);
     setMonthlyValues(newValues);
   }
@@ -1083,18 +1093,18 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
     const monthlySum = getMonthlySum();
     const fields: Record<string, number | null> = {
-      month_1: monthlyValues[0] || null,
-      month_2: monthlyValues[1] || null,
-      month_3: monthlyValues[2] || null,
-      month_4: monthlyValues[3] || null,
-      month_5: monthlyValues[4] || null,
-      month_6: monthlyValues[5] || null,
-      month_7: monthlyValues[6] || null,
-      month_8: monthlyValues[7] || null,
-      month_9: monthlyValues[8] || null,
-      month_10: monthlyValues[9] || null,
-      month_11: monthlyValues[10] || null,
-      month_12: monthlyValues[11] || null,
+      month_1: parseMonthlyValue(monthlyValues[0]),
+      month_2: parseMonthlyValue(monthlyValues[1]),
+      month_3: parseMonthlyValue(monthlyValues[2]),
+      month_4: parseMonthlyValue(monthlyValues[3]),
+      month_5: parseMonthlyValue(monthlyValues[4]),
+      month_6: parseMonthlyValue(monthlyValues[5]),
+      month_7: parseMonthlyValue(monthlyValues[6]),
+      month_8: parseMonthlyValue(monthlyValues[7]),
+      month_9: parseMonthlyValue(monthlyValues[8]),
+      month_10: parseMonthlyValue(monthlyValues[9]),
+      month_11: parseMonthlyValue(monthlyValues[10]),
+      month_12: parseMonthlyValue(monthlyValues[11]),
     };
 
     // If annual qty is not set or monthly sum is different, update qty to match monthly sum
@@ -1134,11 +1144,11 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         if (monthlyEditRow?.row_id === rowId) {
           setMonthlyEditRow(detailRow);
           setMonthlyValues([
-            detailRow.month_1 || 0, detailRow.month_2 || 0, detailRow.month_3 || 0,
-            detailRow.month_4 || 0, detailRow.month_5 || 0, detailRow.month_6 || 0,
-            detailRow.month_7 || 0, detailRow.month_8 || 0, detailRow.month_9 || 0,
-            detailRow.month_10 || 0, detailRow.month_11 || 0, detailRow.month_12 || 0,
-          ]);
+            detailRow.month_1 ?? "", detailRow.month_2 ?? "", detailRow.month_3 ?? "",
+            detailRow.month_4 ?? "", detailRow.month_5 ?? "", detailRow.month_6 ?? "",
+            detailRow.month_7 ?? "", detailRow.month_8 ?? "", detailRow.month_9 ?? "",
+            detailRow.month_10 ?? "", detailRow.month_11 ?? "", detailRow.month_12 ?? "",
+          ].map((value) => (value === null || value === undefined ? "" : String(value))));
         }
         return detailRow;
       } else {
@@ -2175,18 +2185,6 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               variant="outline"
                               size="sm"
                               className="h-9 w-9 rounded-full p-0"
-                              onClick={() => openRowEditorModal(row)}
-                              disabled={pendingSaveRowIds.has(row.row_id) || deletingRowId === row.row_id}
-                              aria-label="Edit row"
-                              title="Edit row"
-                            >
-                              <PencilLine className="h-4 w-4" />
-                              <span className="sr-only">Edit</span>
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-9 w-9 rounded-full p-0"
                               onClick={() => openMonthlyModal(row)}
                               disabled={pendingSaveRowIds.has(row.row_id) || deletingRowId === row.row_id}
                               title={
@@ -2198,6 +2196,18 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             >
                               <FileText className="h-4 w-4" />
                               <span className="sr-only">Detail</span>
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-9 w-9 rounded-full p-0"
+                              onClick={() => openRowEditorModal(row)}
+                              disabled={pendingSaveRowIds.has(row.row_id) || deletingRowId === row.row_id}
+                              aria-label="Edit row"
+                              title="Edit row"
+                            >
+                              <PencilLine className="h-4 w-4" />
+                              <span className="sr-only">Edit</span>
                             </Button>
                             <Button
                               variant="ghost"
@@ -2947,8 +2957,8 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
             <Tabs value={detailTab} onValueChange={setDetailTab} className="space-y-4">
               <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="metadata">Metadata</TabsTrigger>
                 <TabsTrigger value="monthly">Monthly</TabsTrigger>
+                <TabsTrigger value="metadata">Metadata</TabsTrigger>
                 <TabsTrigger value="audit" disabled={!monthlyEditRow?.uses_monthly_factors}>Audit</TabsTrigger>
               </TabsList>
 
@@ -3033,9 +3043,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                         </Label>
                         <Input
                           id={`month-${displayIndex}`}
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
                           step="0.01"
-                          value={monthlyValues[actualIndex] || ""}
+                          value={monthlyValues[actualIndex] ?? ""}
                           onChange={(e) => updateMonthlyValue(actualIndex, e.target.value)}
                           className="h-8 text-sm font-mono text-right"
                           disabled={monthlyEditRow ? isLegacyFallbackRow(monthlyEditRow) : false}
