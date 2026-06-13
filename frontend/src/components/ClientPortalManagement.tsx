@@ -1,14 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   CheckCircle2,
   ChevronDown,
   ExternalLink,
+  FileText,
   History,
   RefreshCw,
   Search,
+  Timer,
   UserPlus,
   Users,
 } from "lucide-react";
@@ -35,6 +37,22 @@ type PortalUser = {
   full_name: string;
   is_active: boolean;
   last_login_at: string | null;
+};
+
+type ClientPortalFile = {
+  file_id: number;
+  job_id: number;
+  job_number: string;
+  job_title: string;
+  reporting_year: number | null;
+  file_type: string;
+  file_name: string;
+  file_size: number | null;
+  description: string | null;
+  uploaded_at: string | null;
+  portal_visible: boolean;
+  portal_description: string | null;
+  portal_expires_at: string | null;
 };
 
 type PortalHistoryItem = {
@@ -104,6 +122,196 @@ function periodLabel(item: PortalHistoryItem): string {
     return `${fmtDate(item.reporting_period_start)} – ${fmtDate(item.reporting_period_end)}`;
   }
   return "—";
+}
+
+// ── Portal Files Section ──────────────────────────────────────────────────────
+
+function formatFileSize(bytes: number | null): string {
+  if (bytes == null) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function ClientPortalFilesSection({ clientId, baseUrl }: { clientId: number; baseUrl: string }) {
+  const [files, setFiles] = useState<ClientPortalFile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<Record<number, boolean>>({});
+  const descTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(`${baseUrl}/clients/${clientId}/portal-files`, { credentials: "include" });
+        const data = await res.json() as { files: ClientPortalFile[] };
+        setFiles(data.files ?? []);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [baseUrl, clientId]);
+
+  async function patchPortal(jobId: number, fileId: number, patch: Record<string, unknown>) {
+    setSaving(s => ({ ...s, [fileId]: true }));
+    try {
+      await fetch(`${baseUrl}/jobs/${jobId}/files/${fileId}/portal`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+    } finally {
+      setSaving(s => ({ ...s, [fileId]: false }));
+    }
+  }
+
+  function toggleVisible(file: ClientPortalFile) {
+    const next = !file.portal_visible;
+    setFiles(fs => fs.map(f => f.file_id === file.file_id ? { ...f, portal_visible: next } : f));
+    void patchPortal(file.job_id, file.file_id, { portal_visible: next });
+  }
+
+  function onDescChange(file: ClientPortalFile, value: string) {
+    setFiles(fs => fs.map(f => f.file_id === file.file_id ? { ...f, portal_description: value } : f));
+    clearTimeout(descTimers.current[file.file_id]);
+    descTimers.current[file.file_id] = setTimeout(() => {
+      void patchPortal(file.job_id, file.file_id, { portal_description: value });
+    }, 600);
+  }
+
+  function onExpiryChange(file: ClientPortalFile, value: string) {
+    const expires = value || null;
+    setFiles(fs => fs.map(f => f.file_id === file.file_id ? { ...f, portal_expires_at: expires } : f));
+    void patchPortal(file.job_id, file.file_id, { portal_expires_at: expires ?? "" });
+  }
+
+  const visibleCount = files.filter(f => f.portal_visible).length;
+
+  // Group files by job
+  const jobGroups = files.reduce<{ jobId: number; jobNumber: string; jobTitle: string; year: number | null; files: ClientPortalFile[] }[]>(
+    (acc, f) => {
+      const g = acc.find(x => x.jobId === f.job_id);
+      if (g) { g.files.push(f); }
+      else acc.push({ jobId: f.job_id, jobNumber: f.job_number, jobTitle: f.job_title, year: f.reporting_year, files: [f] });
+      return acc;
+    },
+    [],
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <FileText className="h-4 w-4" />
+          Portal Files
+          {!loading && (
+            <span className="text-xs font-normal text-muted-foreground ml-1">
+              {visibleCount} of {files.length} visible to client
+            </span>
+          )}
+        </CardTitle>
+        <CardDescription>
+          Control which files are visible on the client portal, add client-facing descriptions, and set expiry timers.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="py-6 text-sm text-center text-muted-foreground">Loading files…</div>
+        ) : files.length === 0 ? (
+          <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+            No files attached to any jobs for this client yet.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {jobGroups.map(group => (
+              <div key={group.jobId} className="rounded-md border overflow-hidden">
+                {/* Job header */}
+                <div className="flex items-center justify-between bg-gray-50 px-4 py-2.5 border-b">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-gray-700">{group.jobNumber}</span>
+                    <span className="text-xs text-gray-500 truncate max-w-xs">{group.jobTitle}</span>
+                    {group.year && <span className="text-xs text-gray-400">{group.year}</span>}
+                  </div>
+                  <Link
+                    href={`/jobs/${group.jobId}/portal-management`}
+                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+                  >
+                    Manage job
+                    <ExternalLink className="h-3 w-3" />
+                  </Link>
+                </div>
+
+                {/* Files */}
+                <div className="divide-y divide-gray-50">
+                  {group.files.map(file => {
+                    const isSaving = saving[file.file_id] ?? false;
+                    const expiryValue = file.portal_expires_at ? file.portal_expires_at.slice(0, 16) : "";
+                    const isExpired = file.portal_expires_at ? new Date(file.portal_expires_at) <= new Date() : false;
+
+                    return (
+                      <div key={file.file_id} className={`px-4 py-3 ${file.portal_visible ? "bg-white" : "bg-gray-50/40"}`}>
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={file.portal_visible}
+                            onChange={() => toggleVisible(file)}
+                            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-green-600 cursor-pointer flex-shrink-0"
+                            title={file.portal_visible ? "Hide from portal" : "Show on portal"}
+                          />
+                          <div className="flex-1 min-w-0 space-y-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-sm font-medium truncate max-w-sm ${file.portal_visible ? "text-gray-900" : "text-gray-400"}`}>
+                                {file.file_name}
+                              </span>
+                              <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 flex-shrink-0">
+                                {file.file_type.replace(/_/g, " ")}
+                              </span>
+                              {isExpired && file.portal_visible && (
+                                <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-600">Expired</span>
+                              )}
+                              {isSaving && <span className="text-xs text-gray-400">Saving…</span>}
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              {formatFileSize(file.file_size)}
+                              {file.uploaded_at && <> · Added {fmtDateTime(file.uploaded_at)}</>}
+                            </div>
+                            <input
+                              type="text"
+                              value={file.portal_description ?? ""}
+                              onChange={e => onDescChange(file, e.target.value)}
+                              placeholder={file.description ?? "Add a description for clients…"}
+                              className="w-full rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-700 placeholder-gray-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-200"
+                            />
+                            <div className="flex items-center gap-2">
+                              <Timer className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                              <span className="text-xs text-gray-500">Expires:</span>
+                              <input
+                                type="datetime-local"
+                                value={expiryValue}
+                                onChange={e => onExpiryChange(file, e.target.value)}
+                                className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-700 focus:border-blue-400 focus:outline-none"
+                              />
+                              {expiryValue ? (
+                                <button onClick={() => onExpiryChange(file, "")} className="text-xs text-gray-400 hover:text-gray-600 underline">
+                                  Set to forever
+                                </button>
+                              ) : (
+                                <span className="text-xs text-gray-400">Forever</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -449,6 +657,9 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
           )}
         </CardContent>
       </Card>
+
+      {/* Portal Files */}
+      <ClientPortalFilesSection clientId={clientId} baseUrl={baseUrl} />
 
       {/* Publication History */}
       <Card>

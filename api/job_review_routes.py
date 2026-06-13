@@ -251,6 +251,67 @@ def get_client_portal_history(
     return {"ok": True, "items": items}
 
 
+@router.get("/clients/{client_db_id}/portal-files")
+def get_client_portal_files(
+    client_db_id: int,
+    _user: dict = Depends(_current_user),
+):
+    """Return all job files for this client across all jobs, with portal visibility settings."""
+    assert_client_access(_user, int(client_db_id))
+    with get_conn() as con:
+        rows = con.execute(
+            """
+            SELECT
+                jf.file_id,
+                jf.job_id,
+                j.job_number,
+                j.title           AS job_title,
+                j.reporting_year,
+                jf.file_type,
+                jf.file_name,
+                jf.file_size,
+                jf.description,
+                jf.uploaded_at,
+                jf.portal_visible,
+                jf.portal_description,
+                jf.portal_expires_at
+            FROM job_files jf
+            JOIN jobs j ON j.job_id = jf.job_id
+            WHERE j.client_db_id = %s
+            ORDER BY j.reporting_year DESC NULLS LAST, j.job_id DESC, jf.uploaded_at DESC NULLS LAST
+            """,
+            [int(client_db_id)],
+        ).fetchall()
+
+    def _dt(v):
+        try:
+            return v.isoformat() if v else None
+        except Exception:
+            return str(v) if v else None
+
+    return {
+        "ok": True,
+        "files": [
+            {
+                "file_id": int(r[0]),
+                "job_id": int(r[1]),
+                "job_number": str(r[2] or ""),
+                "job_title": str(r[3] or ""),
+                "reporting_year": int(r[4]) if r[4] is not None else None,
+                "file_type": str(r[5] or ""),
+                "file_name": str(r[6] or ""),
+                "file_size": int(r[7]) if r[7] is not None else None,
+                "description": str(r[8] or "") or None,
+                "uploaded_at": _dt(r[9]),
+                "portal_visible": bool(r[10]) if r[10] is not None else False,
+                "portal_description": str(r[11] or "") or None,
+                "portal_expires_at": _dt(r[12]),
+            }
+            for r in (rows or [])
+        ],
+    }
+
+
 def _send_welcome_email(portal_user: dict) -> None:
     from api.portal_auth_routes import _portal_base_url
     try:
