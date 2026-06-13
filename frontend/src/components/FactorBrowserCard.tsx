@@ -85,21 +85,21 @@ export default function FactorBrowserCard({
         <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 min-w-0">
-        <div className="space-y-3">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_12rem_auto]">
-            <div className="min-w-0">
-              <Label htmlFor={`${title.replace(/\s+/g, "-").toLowerCase()}-search`}>Search Factors</Label>
-              <Input
-                id={`${title.replace(/\s+/g, "-").toLowerCase()}-search`}
-                placeholder={searchPlaceholder}
-                value={factorSearchQuery}
-                className="w-full min-w-0"
-                onChange={(e) => onFactorSearchQueryChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") onSearch();
-                }}
-              />
-            </div>
+        <div className="space-y-4">
+          <div className="min-w-0">
+            <Label htmlFor={`${title.replace(/\s+/g, "-").toLowerCase()}-search`}>Search Factors</Label>
+            <Input
+              id={`${title.replace(/\s+/g, "-").toLowerCase()}-search`}
+              placeholder={searchPlaceholder}
+              value={factorSearchQuery}
+              className="w-full min-w-0"
+              onChange={(e) => onFactorSearchQueryChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onSearch();
+              }}
+            />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] xl:items-end">
             <div className="min-w-0">
               <Label htmlFor={`${title.replace(/\s+/g, "-").toLowerCase()}-scope`}>Scope</Label>
               <Select value={factorScopeFilter} onValueChange={onFactorScopeFilterChange}>
@@ -130,8 +130,8 @@ export default function FactorBrowserCard({
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-end md:justify-self-end">
-              <Button onClick={onSearch} disabled={factorsLoading} className="w-full md:w-auto">
+            <div className="flex items-end sm:col-span-2 xl:col-span-1 xl:justify-self-end">
+              <Button onClick={onSearch} disabled={factorsLoading} className="w-full xl:w-auto">
                 {factorsLoading ? "Searching..." : "Search"}
               </Button>
             </div>
