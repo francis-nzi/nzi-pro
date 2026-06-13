@@ -86,8 +86,8 @@ export default function FactorBrowserCard({
       </CardHeader>
       <CardContent className="space-y-4 min-w-0">
         <div className="space-y-3">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_12rem_auto]">
-            <div className="min-w-0">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.5fr)_minmax(12rem,1fr)_minmax(12rem,1fr)_auto] xl:items-end">
+            <div className="min-w-0 sm:col-span-2 xl:col-span-1">
               <Label htmlFor={`${title.replace(/\s+/g, "-").toLowerCase()}-search`}>Search Factors</Label>
               <Input
                 id={`${title.replace(/\s+/g, "-").toLowerCase()}-search`}
@@ -130,8 +130,8 @@ export default function FactorBrowserCard({
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-end md:justify-self-end">
-              <Button onClick={onSearch} disabled={factorsLoading} className="w-full md:w-auto">
+            <div className="flex items-end sm:col-span-2 xl:col-span-1 xl:justify-self-end">
+              <Button onClick={onSearch} disabled={factorsLoading} className="w-full xl:w-auto">
                 {factorsLoading ? "Searching..." : "Search"}
               </Button>
             </div>
