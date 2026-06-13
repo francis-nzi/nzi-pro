@@ -59,6 +59,9 @@ def _ensure_job_files_table(con) -> None:
         "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS external_web_url TEXT",
         "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS external_path TEXT",
         "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS notes TEXT",
+        "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS portal_visible BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS portal_description TEXT",
+        "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS portal_expires_at TIMESTAMP",
     ]:
         try:
             con.execute(_stmt)
@@ -360,7 +363,7 @@ def list_job_files(
                 SELECT file_id, job_id, row_id, file_type, file_name, file_path,
                        file_size, mime_type, description, uploaded_by, uploaded_at,
                        storage_provider, external_item_id, external_web_url, external_path,
-                       notes
+                       notes, portal_visible, portal_description, portal_expires_at
                 FROM job_files
                 WHERE job_id = %s
             """
@@ -395,6 +398,9 @@ def list_job_files(
                         "external_web_url": row["external_web_url"],
                         "external_path": row["external_path"],
                         "notes": row["notes"] if "notes" in row and row["notes"] is not None else None,
+                        "portal_visible": bool(row["portal_visible"]) if "portal_visible" in row and row["portal_visible"] is not None else False,
+                        "portal_description": row["portal_description"] if "portal_description" in row and row["portal_description"] is not None else None,
+                        "portal_expires_at": str(row["portal_expires_at"]) if "portal_expires_at" in row and row["portal_expires_at"] is not None else None,
                     }
                 )
 
@@ -558,6 +564,56 @@ def update_job_file(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update file: {e}")
+
+
+@router.patch("/jobs/{job_id}/files/{file_id}/portal")
+def update_job_file_portal_settings(
+    job_id: int,
+    file_id: int,
+    portal_visible: Optional[bool] = Body(None),
+    portal_description: Optional[str] = Body(None),
+    portal_expires_at: Optional[str] = Body(None),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Update portal visibility, description, and expiry for a file."""
+    try:
+        with get_conn() as con:
+            _ensure_job_files_table(con)
+            file_exists = con.execute(
+                "SELECT 1 FROM job_files WHERE file_id = %s AND job_id = %s",
+                [int(file_id), int(job_id)],
+            ).fetchone()
+            if not file_exists:
+                raise HTTPException(status_code=404, detail="File not found")
+
+            updates = []
+            params = []
+            if portal_visible is not None:
+                updates.append("portal_visible = %s")
+                params.append(bool(portal_visible))
+            if portal_description is not None:
+                updates.append("portal_description = %s")
+                params.append(portal_description or None)
+            if portal_expires_at is not None:
+                if portal_expires_at.strip() == "" or portal_expires_at.strip().lower() == "null":
+                    updates.append("portal_expires_at = NULL")
+                else:
+                    updates.append("portal_expires_at = %s")
+                    params.append(portal_expires_at)
+            if not updates:
+                return {"ok": True, "message": "No changes to update"}
+
+            params.extend([int(file_id), int(job_id)])
+            con.execute(
+                f"UPDATE job_files SET {', '.join(updates)} WHERE file_id = %s AND job_id = %s",
+                params,
+            )
+
+        return {"ok": True, "message": "Portal settings updated"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update portal settings: {e}")
 
 
 @router.delete("/jobs/{job_id}/files/{file_id}")

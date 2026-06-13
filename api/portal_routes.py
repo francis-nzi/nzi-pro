@@ -1783,7 +1783,7 @@ def portal_files(current_user: dict = Depends(portal_user_dep)):
                 j.title         AS job_title,
                 jf.file_name,
                 jf.file_type,
-                jf.description,
+                COALESCE(jf.portal_description, jf.description) AS description,
                 jf.file_size,
                 jf.external_web_url,
                 jf.storage_provider,
@@ -1791,6 +1791,8 @@ def portal_files(current_user: dict = Depends(portal_user_dep)):
             FROM job_files jf
             JOIN jobs j ON j.job_id = jf.job_id
             WHERE j.client_db_id = %s
+              AND jf.portal_visible = TRUE
+              AND (jf.portal_expires_at IS NULL OR jf.portal_expires_at > NOW())
             ORDER BY jf.uploaded_at DESC NULLS LAST
             """,
             [client_db_id],
