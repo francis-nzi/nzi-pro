@@ -164,84 +164,47 @@ export default function PortalFiles() {
     );
   }
 
+  const selectCls = "rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 focus:border-orange-400 focus:outline-none focus:ring-1 focus:ring-orange-100";
+
   return (
     <div className="space-y-4">
 
       {/* ── Filter bar ── */}
-      <div className="space-y-3">
+      <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 space-y-2">
         {/* Search */}
         <div className="relative">
-          <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+          <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search files…"
-            className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-9 pr-4 text-sm text-gray-700 placeholder-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100"
+            placeholder="Search file name or description…"
+            className="w-full rounded-lg border border-gray-200 bg-white py-1.5 pl-8 pr-3 text-xs text-gray-700 placeholder-gray-400 focus:border-orange-400 focus:outline-none focus:ring-1 focus:ring-orange-100"
           />
-          {search && (
-            <button
-              onClick={() => setSearch("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              aria-label="Clear search"
-            >
-              ✕
-            </button>
-          )}
         </div>
 
-        {/* Type pills + year dropdown in same row */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* File type pills */}
-          {fileTypes.length > 1 && (
-            <>
-              <button
-                onClick={() => setFilterType("all")}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  filterType === "all"
-                    ? "bg-orange-100 text-orange-700"
-                    : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                }`}
-              >
-                All ({files.length})
-              </button>
-              {fileTypes.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setFilterType(t)}
-                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                    filterType === t
-                      ? "bg-orange-100 text-orange-700"
-                      : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                  }`}
-                >
-                  {fileTypeLabel(t)} ({files.filter((f) => f.file_type === t).length})
-                </button>
-              ))}
-            </>
-          )}
+        {/* Dropdowns row */}
+        <div className="flex flex-wrap gap-2 items-center">
+          <select value={filterYear} onChange={(e) => setFilterYear(e.target.value)} className={selectCls}>
+            <option value="all">All years</option>
+            {years.map((y) => <option key={y} value={String(y)}>{y}</option>)}
+          </select>
 
-          {/* Year dropdown — only show if more than one year present */}
-          {years.length > 1 && (
-            <select
-              value={filterYear}
-              onChange={(e) => setFilterYear(e.target.value)}
-              className="ml-auto rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 focus:border-orange-400 focus:outline-none"
-            >
-              <option value="all">All years</option>
-              {years.map((y) => <option key={y} value={String(y)}>{y}</option>)}
-            </select>
-          )}
+          <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className={selectCls}>
+            <option value="all">All file types</option>
+            {fileTypes.map((t) => (
+              <option key={t} value={t}>{fileTypeLabel(t)}</option>
+            ))}
+          </select>
 
-          {/* Result count + clear when filtered */}
           {isFiltered && (
             <div className="flex items-center gap-2 ml-auto">
-              <span className="text-xs text-gray-400">{visible.length} of {files.length}</span>
+              <span className="text-xs text-gray-500">{visible.length} of {files.length} files</span>
               <button
                 onClick={() => { setSearch(""); setFilterType("all"); setFilterYear("all"); }}
                 className="text-xs text-orange-600 hover:text-orange-700 underline"
               >
-                Clear
+                Clear filters
               </button>
             </div>
           )}
