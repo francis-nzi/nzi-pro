@@ -86,13 +86,29 @@ function ExternalLinkIcon({ className }: { className?: string }) {
   );
 }
 
+// ── Search icon ───────────────────────────────────────────────────────────────
+
+function SearchIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
+      strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function PortalFiles() {
   const [files, setFiles] = useState<PortalFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [filterType, setFilterType] = useState<string>("all");
+
+  // Filters
+  const [search, setSearch] = useState("");
+  const [filterType, setFilterType] = useState("all");
+  const [filterYear, setFilterYear] = useState("all");
 
   useEffect(() => {
     apiFetch("/portal/files")
@@ -105,8 +121,24 @@ export default function PortalFiles() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Derived filter options
   const fileTypes = Array.from(new Set(files.map((f) => f.file_type).filter(Boolean))).sort();
-  const visible = filterType === "all" ? files : files.filter((f) => f.file_type === filterType);
+  const years = Array.from(new Set(files.map((f) => f.reporting_year).filter((y): y is number => y != null)))
+    .sort((a, b) => b - a);
+
+  // Apply filters
+  const q = search.trim().toLowerCase();
+  const visible = files.filter((f) => {
+    if (q) {
+      const hay = [f.file_name, f.description ?? "", fileTypeLabel(f.file_type)].join(" ").toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    if (filterType !== "all" && f.file_type !== filterType) return false;
+    if (filterYear !== "all" && String(f.reporting_year) !== filterYear) return false;
+    return true;
+  });
+
+  const isFiltered = q || filterType !== "all" || filterYear !== "all";
 
   if (loading) {
     return <div className="py-12 text-center text-sm text-gray-400">Loading files…</div>;
@@ -134,82 +166,147 @@ export default function PortalFiles() {
 
   return (
     <div className="space-y-4">
-      {/* Filter tabs */}
-      {fileTypes.length > 1 && (
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setFilterType("all")}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-              filterType === "all"
-                ? "bg-orange-100 text-orange-700"
-                : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-            }`}
-          >
-            All ({files.length})
-          </button>
-          {fileTypes.map((t) => (
+
+      {/* ── Filter bar ── */}
+      <div className="space-y-3">
+        {/* Search */}
+        <div className="relative">
+          <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search files…"
+            className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-9 pr-4 text-sm text-gray-700 placeholder-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100"
+          />
+          {search && (
             <button
-              key={t}
-              onClick={() => setFilterType(t)}
-              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                filterType === t
-                  ? "bg-orange-100 text-orange-700"
-                  : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-              }`}
+              onClick={() => setSearch("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              aria-label="Clear search"
             >
-              {fileTypeLabel(t)} ({files.filter((f) => f.file_type === t).length})
+              ✕
             </button>
-          ))}
+          )}
+        </div>
+
+        {/* Type pills + year dropdown in same row */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* File type pills */}
+          {fileTypes.length > 1 && (
+            <>
+              <button
+                onClick={() => setFilterType("all")}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  filterType === "all"
+                    ? "bg-orange-100 text-orange-700"
+                    : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                }`}
+              >
+                All ({files.length})
+              </button>
+              {fileTypes.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setFilterType(t)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                    filterType === t
+                      ? "bg-orange-100 text-orange-700"
+                      : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                  }`}
+                >
+                  {fileTypeLabel(t)} ({files.filter((f) => f.file_type === t).length})
+                </button>
+              ))}
+            </>
+          )}
+
+          {/* Year dropdown — only show if more than one year present */}
+          {years.length > 1 && (
+            <select
+              value={filterYear}
+              onChange={(e) => setFilterYear(e.target.value)}
+              className="ml-auto rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 focus:border-orange-400 focus:outline-none"
+            >
+              <option value="all">All years</option>
+              {years.map((y) => <option key={y} value={String(y)}>{y}</option>)}
+            </select>
+          )}
+
+          {/* Result count + clear when filtered */}
+          {isFiltered && (
+            <div className="flex items-center gap-2 ml-auto">
+              <span className="text-xs text-gray-400">{visible.length} of {files.length}</span>
+              <button
+                onClick={() => { setSearch(""); setFilterType("all"); setFilterYear("all"); }}
+                className="text-xs text-orange-600 hover:text-orange-700 underline"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── File list ── */}
+      {visible.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-gray-200 p-10 text-center">
+          <p className="text-sm text-gray-400">No files match your search.</p>
+          <button
+            onClick={() => { setSearch(""); setFilterType("all"); setFilterYear("all"); }}
+            className="mt-2 text-xs text-orange-600 hover:text-orange-700 underline"
+          >
+            Clear filters
+          </button>
+        </div>
+      ) : (
+        <div className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white">
+          {visible.map((file) => {
+            const downloadUrl = file.external_web_url ?? `/api/backend/portal/files/${file.file_id}/download`;
+            return (
+              <div key={file.file_id} className="flex items-start gap-4 px-5 py-4">
+                <FileIcon className="mt-0.5 h-5 w-5 flex-shrink-0 text-gray-400" />
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-gray-900 truncate">
+                      {file.file_name}
+                    </span>
+                    {file.file_type && (
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${fileTypeBadge(file.file_type)}`}>
+                        {fileTypeLabel(file.file_type)}
+                      </span>
+                    )}
+                  </div>
+
+                  {file.description && (
+                    <p className="mt-0.5 text-xs text-gray-500">{file.description}</p>
+                  )}
+
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-400">
+                    {file.reporting_year && <span>{file.reporting_year} report year</span>}
+                    {formatFileSize(file.file_size) && <span>{formatFileSize(file.file_size)}</span>}
+                    {file.uploaded_at && <span>Added {formatDate(file.uploaded_at)}</span>}
+                  </div>
+                </div>
+
+                <a
+                  href={downloadUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-orange-300 hover:text-orange-600"
+                >
+                  {file.external_web_url ? (
+                    <><ExternalLinkIcon className="h-3.5 w-3.5" />Open</>
+                  ) : (
+                    "Download"
+                  )}
+                </a>
+              </div>
+            );
+          })}
         </div>
       )}
-
-      {/* File list */}
-      <div className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white">
-        {visible.map((file) => {
-          const downloadUrl = file.external_web_url ?? `/api/backend/portal/files/${file.file_id}/download`;
-          return (
-            <div key={file.file_id} className="flex items-start gap-4 px-5 py-4">
-              <FileIcon className="mt-0.5 h-5 w-5 flex-shrink-0 text-gray-400" />
-
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium text-gray-900 truncate">
-                    {file.file_name}
-                  </span>
-                  {file.file_type && (
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${fileTypeBadge(file.file_type)}`}>
-                      {fileTypeLabel(file.file_type)}
-                    </span>
-                  )}
-                </div>
-
-                {file.description && (
-                  <p className="mt-0.5 text-xs text-gray-500">{file.description}</p>
-                )}
-
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-400">
-                  {file.reporting_year && <span>{file.reporting_year} report year</span>}
-                  {formatFileSize(file.file_size) && <span>{formatFileSize(file.file_size)}</span>}
-                  {file.uploaded_at && <span>Added {formatDate(file.uploaded_at)}</span>}
-                </div>
-              </div>
-
-              <a
-                href={downloadUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-orange-300 hover:text-orange-600"
-              >
-                {file.external_web_url ? (
-                  <><ExternalLinkIcon className="h-3.5 w-3.5" />Open</>
-                ) : (
-                  "Download"
-                )}
-              </a>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
