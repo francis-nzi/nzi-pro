@@ -3,6 +3,20 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/auth";
 
+async function downloadPortalFile(fileId: number, fileName: string) {
+  const res = await apiFetch(`/portal/files/${fileId}/download`);
+  if (!res.ok) throw new Error(`Download failed (${res.status})`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type PortalFile = {
@@ -104,6 +118,7 @@ export default function PortalFiles() {
   const [files, setFiles] = useState<PortalFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [downloading, setDownloading] = useState<Record<number, boolean>>({});
 
   // Filters
   const [search, setSearch] = useState("");
@@ -237,7 +252,7 @@ export default function PortalFiles() {
       ) : (
         <div className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white">
           {visible.map((file) => {
-            const downloadUrl = `/api/backend/portal/files/${file.file_id}/download`;
+            const isDownloading = downloading[file.file_id] ?? false;
             return (
               <div key={file.file_id} className="flex items-start gap-4 px-5 py-4">
                 <FileIcon className="mt-0.5 h-5 w-5 flex-shrink-0 text-gray-400" />
@@ -266,15 +281,19 @@ export default function PortalFiles() {
                   </div>
                 </div>
 
-                <a
-                  href={downloadUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-orange-300 hover:text-orange-600"
+                <button
+                  disabled={isDownloading}
+                  onClick={() => {
+                    setDownloading(d => ({ ...d, [file.file_id]: true }));
+                    downloadPortalFile(file.file_id, file.file_name)
+                      .catch(() => {})
+                      .finally(() => setDownloading(d => ({ ...d, [file.file_id]: false })));
+                  }}
+                  className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-orange-300 hover:text-orange-600 disabled:opacity-50"
                 >
                   <ExternalLinkIcon className="h-3.5 w-3.5" />
-                  Open
-                </a>
+                  {isDownloading ? "…" : "Open"}
+                </button>
               </div>
             );
           })}
