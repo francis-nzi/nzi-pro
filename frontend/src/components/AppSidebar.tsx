@@ -259,35 +259,15 @@ function BdSubNav({ accentColor, pathname }: { accentColor: string; pathname: st
   );
 }
 
-function Tooltip({ label, visible }: { label: string; visible: boolean }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-
-  if (!visible) return null;
-
-  return (
-    <>
-      <div
-        ref={ref}
-        className="absolute inset-0"
-        onMouseEnter={() => {
-          if (ref.current) {
-            const r = ref.current.getBoundingClientRect();
-            setPos({ top: r.top + r.height / 2, left: r.right + 8 });
-          }
-        }}
-        onMouseLeave={() => setPos(null)}
-      />
-      {pos !== null && createPortal(
-        <div
-          className="pointer-events-none fixed z-[9999] whitespace-nowrap rounded-md border bg-popover px-2.5 py-1.5 text-xs font-medium text-popover-foreground shadow-md"
-          style={{ top: pos.top, left: pos.left, transform: "translateY(-50%)" }}
-        >
-          {label}
-        </div>,
-        document.body
-      )}
-    </>
+function NavTooltip({ label, pos }: { label: string; pos: { top: number; left: number } }) {
+  return createPortal(
+    <div
+      className="pointer-events-none fixed z-[9999] whitespace-nowrap rounded-md border bg-popover px-2.5 py-1.5 text-xs font-medium text-popover-foreground shadow-md"
+      style={{ top: pos.top, left: pos.left, transform: "translateY(-50%)" }}
+    >
+      {label}
+    </div>,
+    document.body
   );
 }
 
@@ -300,6 +280,12 @@ function AppSidebarContent() {
   const profileMenuRef = useRef<HTMLDivElement>(null);
 
   const [expanded, setExpanded] = useState(false);
+  const [tooltip, setTooltip] = useState<{ label: string; top: number; left: number } | null>(null);
+  const showTooltip = (e: React.MouseEvent<HTMLElement>, label: string) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setTooltip({ label, top: r.top + r.height / 2, left: r.right + 8 });
+  };
+  const hideTooltip = () => setTooltip(null);
   const [adminCenterOpen, setAdminCenterOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -333,7 +319,7 @@ function AppSidebarContent() {
     setExpanded((v) => {
       const next = !v;
       try { localStorage.setItem("sidebar-expanded", String(next)); } catch { /* */ }
-      if (!next) { setAdminCenterOpen(false); setHelpOpen(false); }
+      if (!next) { setAdminCenterOpen(false); setHelpOpen(false); } else { setTooltip(null); }
       return next;
     });
   }
@@ -527,11 +513,12 @@ function AppSidebarContent() {
                   "flex h-10 w-full items-center rounded-md transition-colors text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground",
                   expanded ? "gap-3 px-3" : "justify-center"
                 )}
+                onMouseEnter={!expanded ? e => showTooltip(e, "All Jobs") : undefined}
+                onMouseLeave={!expanded ? hideTooltip : undefined}
               >
                 <ChevronLeft className="h-4 w-4 flex-shrink-0" />
                 {expanded && <span className="truncate">All Jobs</span>}
               </Link>
-              <Tooltip label="All Jobs" visible={!expanded} />
             </div>
 
             {expanded && (
@@ -556,11 +543,12 @@ function AppSidebarContent() {
                         isGroupActive ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                       )}
                       style={isGroupActive ? { backgroundColor: accentColor } : undefined}
+                      onMouseEnter={!expanded ? e => showTooltip(e, group.label) : undefined}
+                      onMouseLeave={!expanded ? hideTooltip : undefined}
                     >
                       <Icon className="h-4 w-4 flex-shrink-0" />
                       {expanded && <span className="truncate">{group.label}</span>}
                     </Link>
-                    <Tooltip label={group.label} visible={!expanded} />
                   </div>
                   {expanded && hasSubtabs && (
                     <div className="ml-3 mt-0.5 border-l border-border pl-3 py-1 space-y-0.5">
@@ -603,11 +591,12 @@ function AppSidebarContent() {
                         active ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                       )}
                       style={active ? { backgroundColor: accentColor } : undefined}
+                      onMouseEnter={!expanded ? e => showTooltip(e, label) : undefined}
+                      onMouseLeave={!expanded ? hideTooltip : undefined}
                     >
                       <Icon className="h-4 w-4 flex-shrink-0" />
                       {expanded && <span className="truncate">{label}</span>}
                     </Link>
-                    <Tooltip label={label} visible={!expanded} />
                   </div>
                   {expanded && onSalesRoute && (
                     <Suspense fallback={null}>
@@ -630,6 +619,8 @@ function AppSidebarContent() {
                       isAdminCenterRoute ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     )}
                     style={isAdminCenterRoute ? { backgroundColor: accentColor } : undefined}
+                    onMouseEnter={!expanded ? e => showTooltip(e, "Admin Center") : undefined}
+                    onMouseLeave={!expanded ? hideTooltip : undefined}
                   >
                     <Shield className="h-4 w-4 flex-shrink-0" />
                     {expanded && <span className="flex-1 truncate">Admin Center</span>}
@@ -648,7 +639,6 @@ function AppSidebarContent() {
                       {adminCenterOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                     </button>
                   )}
-                  <Tooltip label="Admin Center" visible={!expanded} />
                 </div>
 
                 {expanded && adminCenterOpen && (
@@ -697,6 +687,8 @@ function AppSidebarContent() {
                   onClick={() => {
                     if (!expanded) { router.push("/support"); } else { setHelpOpen((v) => !v); }
                   }}
+                  onMouseEnter={!expanded ? e => showTooltip(e, "Help") : undefined}
+                  onMouseLeave={!expanded ? hideTooltip : undefined}
                 >
                   <HelpCircle className="h-4 w-4 flex-shrink-0" />
                   {expanded && (
@@ -706,7 +698,6 @@ function AppSidebarContent() {
                     </>
                   )}
                 </button>
-                <Tooltip label="Help" visible={!expanded} />
               </div>
               {expanded && helpOpen && (
                 <div className="ml-3 mt-0.5 border-l border-border pl-3 py-1 space-y-0.5">
@@ -837,6 +828,8 @@ function AppSidebarContent() {
           )}
         </button>
       </div>
+
+      {tooltip && <NavTooltip label={tooltip.label} pos={tooltip} />}
     </aside>
   );
 }
