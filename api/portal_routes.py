@@ -1763,3 +1763,104 @@ def portal_insights_widget_pngs(
         "pngs": pngs,
         "captured_at": captured_at,
     }
+
+
+# ---------------------------------------------------------------------------
+# Files — read-only view of job files uploaded by NZI
+# ---------------------------------------------------------------------------
+
+@router.get("/portal/files")
+def portal_files(current_user: dict = Depends(portal_user_dep)):
+    """Return all files attached to this client's jobs (read-only, no upload)."""
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        rows = con.execute(
+            """
+            SELECT
+                jf.file_id,
+                jf.job_id,
+                j.reporting_year,
+                j.title         AS job_title,
+                jf.file_name,
+                jf.file_type,
+                jf.description,
+                jf.file_size,
+                jf.external_web_url,
+                jf.storage_provider,
+                jf.uploaded_at
+            FROM job_files jf
+            JOIN jobs j ON j.job_id = jf.job_id
+            WHERE j.client_db_id = %s
+            ORDER BY jf.uploaded_at DESC NULLS LAST
+            """,
+            [client_db_id],
+        ).fetchall()
+
+    def _dt(v):
+        try:
+            return v.isoformat() if v else None
+        except Exception:
+            return str(v) if v else None
+
+    return {
+        "ok": True,
+        "files": [
+            {
+                "file_id": int(r[0]),
+                "job_id": int(r[1]),
+                "reporting_year": int(r[2]) if r[2] is not None else None,
+                "job_title": str(r[3] or ""),
+                "file_name": str(r[4] or ""),
+                "file_type": str(r[5] or ""),
+                "description": str(r[6] or "") or None,
+                "file_size": int(r[7]) if r[7] is not None else None,
+                "external_web_url": str(r[8] or "") or None,
+                "storage_provider": str(r[9] or "local"),
+                "uploaded_at": _dt(r[10]),
+            }
+            for r in (rows or [])
+        ],
+    }
+
+
+@router.get("/portal/files/{file_id}/download")
+def portal_file_download(file_id: int, current_user: dict = Depends(portal_user_dep)):
+    """Redirect to SharePoint URL or serve locally stored file."""
+    from fastapi.responses import RedirectResponse, Response as _Response
+    import pathlib as _pathlib
+
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        row = con.execute(
+            """
+            SELECT jf.file_id, jf.file_name, jf.file_path, jf.external_web_url,
+                   jf.storage_provider, jf.mime_type
+            FROM job_files jf
+            JOIN jobs j ON j.job_id = jf.job_id
+            WHERE jf.file_id = %s AND j.client_db_id = %s
+            """,
+            [file_id, client_db_id],
+        ).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    external_url = str(row[3] or "").strip()
+    if external_url:
+        return RedirectResponse(url=external_url, status_code=302)
+
+    local_path = str(row[2] or "").strip()
+    if not local_path:
+        raise HTTPException(status_code=404, detail="File not available")
+
+    p = _pathlib.Path(local_path)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="File not found on server")
+
+    mime = str(row[5] or "application/octet-stream")
+    filename = str(row[1] or p.name)
+    return _Response(
+        content=p.read_bytes(),
+        media_type=mime,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
