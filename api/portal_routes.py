@@ -1774,6 +1774,17 @@ def portal_files(current_user: dict = Depends(portal_user_dep)):
     """Return all files attached to this client's jobs (read-only, no upload)."""
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
+        # Ensure portal visibility columns exist (may not be present on older deployments)
+        for _stmt in [
+            "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS portal_visible BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS portal_description TEXT",
+            "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS portal_expires_at TIMESTAMP",
+        ]:
+            try:
+                con.execute(_stmt)
+            except Exception:
+                pass
+
         rows = con.execute(
             """
             SELECT
