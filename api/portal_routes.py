@@ -1796,9 +1796,9 @@ def portal_files(current_user: dict = Depends(portal_user_dep)):
                 jf.file_type,
                 COALESCE(jf.portal_description, jf.description) AS description,
                 jf.file_size,
-                jf.external_web_url,
                 jf.storage_provider,
-                jf.uploaded_at
+                jf.uploaded_at,
+                j.job_number
             FROM job_files jf
             JOIN jobs j ON j.job_id = jf.job_id
             WHERE j.client_db_id = %s
@@ -1827,9 +1827,9 @@ def portal_files(current_user: dict = Depends(portal_user_dep)):
                 "file_type": str(r[5] or ""),
                 "description": str(r[6] or "") or None,
                 "file_size": int(r[7]) if r[7] is not None else None,
-                "external_web_url": str(r[8] or "") or None,
-                "storage_provider": str(r[9] or "local"),
-                "uploaded_at": _dt(r[10]),
+                "storage_provider": str(r[8] or "local"),
+                "uploaded_at": _dt(r[9]),
+                "job_number": str(r[10] or ""),
             }
             for r in (rows or [])
         ],
@@ -1838,15 +1838,18 @@ def portal_files(current_user: dict = Depends(portal_user_dep)):
 
 @router.get("/portal/files/{file_id}/download")
 def portal_file_download(file_id: int, current_user: dict = Depends(portal_user_dep)):
-    """Redirect to SharePoint URL or serve locally stored file."""
-    from fastapi.responses import RedirectResponse, Response as _Response
+    """Proxy file download through the server — never redirect to SharePoint directly."""
+    import io as _io
     import pathlib as _pathlib
+    import urllib.parse as _urlparse
+    from fastapi.responses import Response as _Response, StreamingResponse as _StreamingResponse
+    from api.onedrive_routes import _graph_token, _drive_base_path, _graph_download
 
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         row = con.execute(
             """
-            SELECT jf.file_id, jf.file_name, jf.file_path, jf.external_web_url,
+            SELECT jf.file_id, jf.file_name, jf.file_path, jf.external_item_id,
                    jf.storage_provider, jf.mime_type
             FROM job_files jf
             JOIN jobs j ON j.job_id = jf.job_id
@@ -1858,22 +1861,33 @@ def portal_file_download(file_id: int, current_user: dict = Depends(portal_user_
     if not row:
         raise HTTPException(status_code=404, detail="File not found")
 
-    external_url = str(row[3] or "").strip()
-    if external_url:
-        return RedirectResponse(url=external_url, status_code=302)
+    file_name      = str(row[1] or "download")
+    local_path     = str(row[2] or "").strip()
+    item_id        = str(row[3] or "").strip()
+    storage        = str(row[4] or "local")
+    mime           = str(row[5] or "application/octet-stream")
 
-    local_path = str(row[2] or "").strip()
-    if not local_path:
-        raise HTTPException(status_code=404, detail="File not available")
+    if storage == "onedrive":
+        if not item_id:
+            raise HTTPException(status_code=404, detail="External file ID missing")
+        token = _graph_token()
+        drive_base = _drive_base_path(token)
+        content, content_type = _graph_download(
+            f"{drive_base}/items/{_urlparse.quote(item_id)}/content",
+            token,
+        )
+        return _StreamingResponse(
+            _io.BytesIO(content),
+            media_type=content_type or mime,
+            headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+        )
 
     p = _pathlib.Path(local_path)
-    if not p.exists():
+    if not local_path or not p.exists():
         raise HTTPException(status_code=404, detail="File not found on server")
 
-    mime = str(row[5] or "application/octet-stream")
-    filename = str(row[1] or p.name)
     return _Response(
         content=p.read_bytes(),
         media_type=mime,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
     )

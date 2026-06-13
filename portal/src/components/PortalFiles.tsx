@@ -10,11 +10,11 @@ type PortalFile = {
   job_id: number;
   reporting_year: number | null;
   job_title: string;
+  job_number: string;
   file_name: string;
   file_type: string;
   description: string | null;
   file_size: number | null;
-  external_web_url: string | null;
   storage_provider: string;
   uploaded_at: string | null;
 };
@@ -107,8 +107,9 @@ export default function PortalFiles() {
 
   // Filters
   const [search, setSearch] = useState("");
-  const [filterType, setFilterType] = useState("all");
+  const [filterJob, setFilterJob] = useState("all");
   const [filterYear, setFilterYear] = useState("all");
+  const [filterType, setFilterType] = useState("all");
 
   useEffect(() => {
     apiFetch("/portal/files")
@@ -122,6 +123,9 @@ export default function PortalFiles() {
   }, []);
 
   // Derived filter options
+  const jobOptions = Array.from(
+    new Map(files.map(f => [f.job_id, { jobId: f.job_id, label: f.job_number ? `${f.job_number} — ${f.job_title}` : f.job_title }])).values()
+  );
   const fileTypes = Array.from(new Set(files.map((f) => f.file_type).filter(Boolean))).sort();
   const years = Array.from(new Set(files.map((f) => f.reporting_year).filter((y): y is number => y != null)))
     .sort((a, b) => b - a);
@@ -130,15 +134,16 @@ export default function PortalFiles() {
   const q = search.trim().toLowerCase();
   const visible = files.filter((f) => {
     if (q) {
-      const hay = [f.file_name, f.description ?? "", fileTypeLabel(f.file_type)].join(" ").toLowerCase();
+      const hay = [f.file_name, f.description ?? "", fileTypeLabel(f.file_type), f.job_number, f.job_title].join(" ").toLowerCase();
       if (!hay.includes(q)) return false;
     }
-    if (filterType !== "all" && f.file_type !== filterType) return false;
+    if (filterJob !== "all" && String(f.job_id) !== filterJob) return false;
     if (filterYear !== "all" && String(f.reporting_year) !== filterYear) return false;
+    if (filterType !== "all" && f.file_type !== filterType) return false;
     return true;
   });
 
-  const isFiltered = q || filterType !== "all" || filterYear !== "all";
+  const isFiltered = q || filterJob !== "all" || filterYear !== "all" || filterType !== "all";
 
   if (loading) {
     return <div className="py-12 text-center text-sm text-gray-400">Loading files…</div>;
@@ -185,6 +190,13 @@ export default function PortalFiles() {
 
         {/* Dropdowns row */}
         <div className="flex flex-wrap gap-2 items-center">
+          {jobOptions.length > 1 && (
+            <select value={filterJob} onChange={(e) => setFilterJob(e.target.value)} className={selectCls}>
+              <option value="all">All jobs</option>
+              {jobOptions.map(j => <option key={j.jobId} value={String(j.jobId)}>{j.label}</option>)}
+            </select>
+          )}
+
           <select value={filterYear} onChange={(e) => setFilterYear(e.target.value)} className={selectCls}>
             <option value="all">All years</option>
             {years.map((y) => <option key={y} value={String(y)}>{y}</option>)}
@@ -201,7 +213,7 @@ export default function PortalFiles() {
             <div className="flex items-center gap-2 ml-auto">
               <span className="text-xs text-gray-500">{visible.length} of {files.length} files</span>
               <button
-                onClick={() => { setSearch(""); setFilterType("all"); setFilterYear("all"); }}
+                onClick={() => { setSearch(""); setFilterJob("all"); setFilterYear("all"); setFilterType("all"); }}
                 className="text-xs text-orange-600 hover:text-orange-700 underline"
               >
                 Clear filters
@@ -225,7 +237,7 @@ export default function PortalFiles() {
       ) : (
         <div className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white">
           {visible.map((file) => {
-            const downloadUrl = file.external_web_url ?? `/api/backend/portal/files/${file.file_id}/download`;
+            const downloadUrl = `/api/backend/portal/files/${file.file_id}/download`;
             return (
               <div key={file.file_id} className="flex items-start gap-4 px-5 py-4">
                 <FileIcon className="mt-0.5 h-5 w-5 flex-shrink-0 text-gray-400" />
@@ -248,6 +260,7 @@ export default function PortalFiles() {
 
                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-400">
                     {file.reporting_year && <span>{file.reporting_year} report year</span>}
+                    {file.job_number && <span>{file.job_number}</span>}
                     {formatFileSize(file.file_size) && <span>{formatFileSize(file.file_size)}</span>}
                     {file.uploaded_at && <span>Added {formatDate(file.uploaded_at)}</span>}
                   </div>
@@ -259,11 +272,8 @@ export default function PortalFiles() {
                   rel="noopener noreferrer"
                   className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-orange-300 hover:text-orange-600"
                 >
-                  {file.external_web_url ? (
-                    <><ExternalLinkIcon className="h-3.5 w-3.5" />Open</>
-                  ) : (
-                    "Download"
-                  )}
+                  <ExternalLinkIcon className="h-3.5 w-3.5" />
+                  Open
                 </a>
               </div>
             );
