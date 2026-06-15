@@ -4,6 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import UploadProgressBar from "@/components/UploadProgressBar";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
@@ -69,6 +76,7 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
   const [editRowId, setEditRowId] = useState<number | "">("");
   const [editDescription, setEditDescription] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [downloading, setDownloading] = useState<Record<number, boolean>>({});
 
   const loadFiles = useCallback(async () => {
     setLoading(true);
@@ -232,6 +240,27 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
       await loadFiles();
     } catch (e) {
       setError((e as Error).message);
+    }
+  }
+
+  async function downloadFile(fileId: number, fileName: string) {
+    setDownloading(d => ({ ...d, [fileId]: true }));
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/files/${fileId}/download`);
+      if (!res.ok) throw new Error(`Download failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setDownloading(d => ({ ...d, [fileId]: false }));
     }
   }
 
@@ -547,9 +576,10 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => window.open(`${baseUrl}/jobs/${jobId}/files/${file.file_id}/download`, "_blank")}
+                          disabled={downloading[file.file_id]}
+                          onClick={() => void downloadFile(file.file_id, file.file_name)}
                         >
-                          Download
+                          {downloading[file.file_id] ? "Downloading…" : "Download"}
                         </Button>
                         <Button
                           variant="destructive"
@@ -666,75 +696,68 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
         })}
       </Tabs>
 
-      <Card>
-        <CardContent className="py-8">
-          <div className="text-sm text-muted-foreground">
-            File information can be updated with the Edit button on each file card.
+      <Dialog open={isEditOpen} onOpenChange={(open) => {
+        if (!open) {
+          setIsEditOpen(false);
+          setEditingFileId(null);
+          setEditRowId("");
+          setEditDescription("");
+          setEditNotes("");
+        }
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit File Information</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Description</label>
+              <input
+                type="text"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                className="w-full rounded-md border px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Link to Data Row</label>
+              <select
+                value={getEditRowValue()}
+                onChange={(e) => setEditRowId(e.target.value ? parseInt(e.target.value) : "")}
+                className="w-full rounded-md border px-3 py-2 text-sm"
+              >
+                <option value="">Not linked to specific row</option>
+                {scopeRows.map((row) => (
+                  <option key={row.row_id} value={row.row_id}>
+                    {getRowLabel(row.row_id)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Notes</label>
+              <textarea
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                className="min-h-24 w-full rounded-md border px-3 py-2 text-sm"
+                placeholder="Optional internal notes"
+              />
+            </div>
           </div>
-        </CardContent>
-      </Card>
-
-      {editingFileId !== null && (
-        <div className={isEditOpen ? "" : "hidden"}>
-          <Card>
-            <CardHeader>
-              <CardTitle>Edit File Information</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Link to Data Row</label>
-                  <select
-                    value={getEditRowValue()}
-                    onChange={(e) => setEditRowId(e.target.value ? parseInt(e.target.value) : "")}
-                    className="w-full rounded-md border px-3 py-2 text-sm"
-                  >
-                    <option value="">Not linked to specific row</option>
-                    {scopeRows.map((row) => (
-                      <option key={row.row_id} value={row.row_id}>
-                        {getRowLabel(row.row_id)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Description</label>
-                  <input
-                    type="text"
-                    value={editDescription}
-                    onChange={(e) => setEditDescription(e.target.value)}
-                    className="w-full rounded-md border px-3 py-2 text-sm"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Notes</label>
-                <textarea
-                  value={editNotes}
-                  onChange={(e) => setEditNotes(e.target.value)}
-                  className="min-h-24 w-full rounded-md border px-3 py-2 text-sm"
-                  placeholder="Optional internal notes"
-                />
-              </div>
-              <div className="flex gap-2">
-                <Button onClick={saveEditFile}>Save changes</Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setIsEditOpen(false);
-                    setEditingFileId(null);
-                    setEditRowId("");
-                    setEditDescription("");
-                    setEditNotes("");
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setIsEditOpen(false);
+              setEditingFileId(null);
+              setEditRowId("");
+              setEditDescription("");
+              setEditNotes("");
+            }}>
+              Cancel
+            </Button>
+            <Button onClick={() => void saveEditFile()}>Save changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
