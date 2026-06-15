@@ -2,6 +2,8 @@
 Admin API routes for team users, access control, and password management.
 """
 
+import secrets
+import string
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Body, Depends, HTTPException
 
