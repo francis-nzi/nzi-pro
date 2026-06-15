@@ -1059,6 +1059,10 @@ def portal_reporting_data(current_user: dict = Depends(portal_user_dep)):
             scope_df["dataset_category"] = scope_df.apply(lambda r: _portal_category_label(r), axis=1)
             scope_df["category"] = scope_df["dataset_category"]
             scope_df["site_name"] = scope_df["site_name"].apply(lambda v: _portal_clean_label(v, "Unknown"))
+            if "activity_name" in scope_df.columns:
+                scope_df["activity_name"] = scope_df["activity_name"].apply(lambda v: _portal_clean_label(v, "Unknown"))
+            else:
+                scope_df["activity_name"] = scope_df["category"]
 
             years = sorted({_portal_safe_year(y) for y in scope_df["dashboard_year"].dropna().unique() if _portal_safe_year(y)})
 
@@ -1092,6 +1096,21 @@ def portal_reporting_data(current_user: dict = Depends(portal_user_dep)):
             site_groups = scope_df.groupby(["dashboard_year", "site_name"])["emissions"].sum().reset_index()
             by_site = [_by_key(site_groups, "site_name", yr) for yr in years]
 
+            detail_groups = scope_df.groupby(
+                ["dashboard_year", "scope", "category", "activity_name"]
+            )["emissions"].sum().reset_index()
+            by_activity_detail: list[dict] = []
+            for _, dr in detail_groups.iterrows():
+                yr = _portal_safe_year(dr["dashboard_year"])
+                if yr:
+                    by_activity_detail.append({
+                        "year": yr,
+                        "scope": str(dr["scope"]),
+                        "category": str(dr["category"]),
+                        "activity": str(dr["activity_name"]),
+                        "emissions": round(float(dr["emissions"]), 2),
+                    })
+
             return {
                 "client_db_id": client_db_id,
                 "client_name": str(client_row[0] or ""),
@@ -1100,6 +1119,7 @@ def portal_reporting_data(current_user: dict = Depends(portal_user_dep)):
                 "by_scope_category": by_scope_category,
                 "by_activity": by_activity,
                 "by_site": by_site,
+                "by_activity_detail": by_activity_detail,
             }
 
 

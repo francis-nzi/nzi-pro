@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
@@ -9,12 +9,21 @@ import { apiFetch } from "@/lib/auth";
 
 type ScopeCategoryData = { [scope: string]: { [category: string]: number } };
 
+type ActivityDetail = {
+  year: number;
+  scope: string;
+  category: string;
+  activity: string;
+  emissions: number;
+};
+
 type ReportingData = {
   years: number[];
   by_scope: Array<{ year: number; [key: string]: number | string }>;
   by_scope_category: Array<{ year: number; scopes: ScopeCategoryData }>;
   by_activity: Array<{ year: number; [key: string]: number | string }>;
   by_site: Array<{ year: number; [key: string]: number | string }>;
+  by_activity_detail?: ActivityDetail[];
 };
 
 const SCOPE_COLORS = ["#15803d", "#22c55e", "#4ade80", "#86efac", "#bbf7d0"];
@@ -68,7 +77,7 @@ export default function PortalReporting() {
     );
   }
 
-  const { years, by_scope, by_scope_category, by_activity, by_site } = data;
+  const { years, by_scope, by_scope_category, by_activity, by_site, by_activity_detail } = data;
   const latestYear = years[years.length - 1];
   const benchmarkYear = years[0];
   const displayYears = Array.from(new Set([benchmarkYear, ...years.slice(-4)]));
@@ -316,6 +325,144 @@ export default function PortalReporting() {
 
         {showBenchmarkNote && <p className="px-4 pb-3 text-xs text-gray-400">★ Benchmark year</p>}
       </div>
+
+      {/* ── Year-over-Year Detailed Activity Breakdown ── */}
+      {by_activity_detail && by_activity_detail.length > 0 && (() => {
+        // Build scope → category → activities hierarchy
+        const dMap = new Map<string, number>();
+        const hierarchy = new Map<string, Map<string, Set<string>>>();
+        for (const d of by_activity_detail) {
+          const k = `${d.scope}|||${d.category}|||${d.activity}|||${d.year}`;
+          dMap.set(k, (dMap.get(k) ?? 0) + d.emissions);
+          if (!hierarchy.has(d.scope)) hierarchy.set(d.scope, new Map());
+          const cm = hierarchy.get(d.scope)!;
+          if (!cm.has(d.category)) cm.set(d.category, new Set());
+          cm.get(d.category)!.add(d.activity);
+        }
+        const dScopes = Array.from(hierarchy.keys()).sort();
+
+        function dVal(scope: string, category: string, activity: string, year: number): number {
+          return dMap.get(`${scope}|||${category}|||${activity}|||${year}`) ?? 0;
+        }
+        function catTotal(scope: string, category: string, year: number): number {
+          const acts = hierarchy.get(scope)?.get(category);
+          if (!acts) return 0;
+          return Array.from(acts).reduce((s, a) => s + dVal(scope, category, a, year), 0);
+        }
+        function scopeTotal(scope: string, year: number): number {
+          const cats = hierarchy.get(scope);
+          if (!cats) return 0;
+          return Array.from(cats.keys()).reduce((s, c) => s + catTotal(scope, c, year), 0);
+        }
+        function grandTotal(year: number): number {
+          return dScopes.reduce((s, sc) => s + scopeTotal(sc, year), 0);
+        }
+
+        return (
+          <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-700">Year-over-Year Detailed Activity Breakdown</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="text-left p-2 border text-xs font-medium text-gray-600 whitespace-nowrap">Scope</th>
+                    <th className="text-left p-2 border text-xs font-medium text-gray-600 whitespace-nowrap">Category</th>
+                    <th className="text-left p-2 border text-xs font-medium text-gray-600">Activity</th>
+                    {displayYears.map(yr => (
+                      <th key={yr} className={`text-right p-2 border text-xs font-medium whitespace-nowrap ${yr === benchmarkYear && showBenchmarkNote ? "text-gray-400" : "text-gray-600"}`}>
+                        {yr}{yr === benchmarkYear && showBenchmarkNote ? " ★" : ""}
+                      </th>
+                    ))}
+                    <th className="text-right p-2 border text-xs font-medium text-gray-600">Change</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dScopes.map(scope => {
+                    const catMap = hierarchy.get(scope)!;
+                    const cats = Array.from(catMap.keys()).sort();
+                    const rows: React.ReactNode[] = [];
+                    let scopeLabelShown = false;
+
+                    cats.forEach(cat => {
+                      const acts = Array.from(catMap.get(cat)!).sort();
+                      let catLabelShown = false;
+
+                      acts.forEach(act => {
+                        rows.push(
+                          <tr key={`${scope}|${cat}|${act}`} className="hover:bg-gray-50">
+                            <td className="p-2 border text-gray-400 text-xs align-top whitespace-nowrap">
+                              {!scopeLabelShown ? (scopeLabelShown = true, scope) : ""}
+                            </td>
+                            <td className="p-2 border text-gray-400 text-xs align-top whitespace-nowrap">
+                              {!catLabelShown ? (catLabelShown = true, cat) : ""}
+                            </td>
+                            <td className="p-2 border text-xs">{act}</td>
+                            {displayYears.map(yr => {
+                              const v = dVal(scope, cat, act, yr);
+                              return <td key={yr} className="text-right p-2 border text-xs tabular-nums">{v > 0 ? fmt(v) : "—"}</td>;
+                            })}
+                            <td className="text-right p-2 border text-xs">
+                              {prevYear ? <ChangeCell cur={dVal(scope, cat, act, latestYear)} prev={dVal(scope, cat, act, prevYear)} /> : "—"}
+                            </td>
+                          </tr>
+                        );
+                      });
+
+                      // Category subtotal (only when >1 activity)
+                      if (acts.length > 1) {
+                        rows.push(
+                          <tr key={`${scope}|${cat}|__sub`} className="bg-gray-50">
+                            <td className="p-2 border text-xs" />
+                            <td className="p-2 border text-xs font-semibold italic text-gray-500" colSpan={2}>{cat} — Subtotal</td>
+                            {displayYears.map(yr => {
+                              const v = catTotal(scope, cat, yr);
+                              return <td key={yr} className="text-right p-2 border text-xs tabular-nums font-semibold">{v > 0 ? fmt(v) : "—"}</td>;
+                            })}
+                            <td className="text-right p-2 border text-xs font-semibold">
+                              {prevYear ? <ChangeCell cur={catTotal(scope, cat, latestYear)} prev={catTotal(scope, cat, prevYear!)} /> : "—"}
+                            </td>
+                          </tr>
+                        );
+                      }
+                    });
+
+                    // Scope subtotal
+                    rows.push(
+                      <tr key={`${scope}|__scopesub`} className="bg-gray-100">
+                        <td className="p-2 border text-xs font-bold" colSpan={3}>{scope} Subtotal</td>
+                        {displayYears.map(yr => {
+                          const v = scopeTotal(scope, yr);
+                          return <td key={yr} className="text-right p-2 border text-xs tabular-nums font-bold">{v > 0 ? fmt(v) : "—"}</td>;
+                        })}
+                        <td className="text-right p-2 border text-xs font-bold">
+                          {prevYear ? <ChangeCell cur={scopeTotal(scope, latestYear)} prev={scopeTotal(scope, prevYear!)} /> : "—"}
+                        </td>
+                      </tr>
+                    );
+
+                    return rows;
+                  })}
+
+                  {/* Grand total */}
+                  <tr className="bg-gray-200">
+                    <td className="p-2 border text-xs font-bold" colSpan={3}>Total</td>
+                    {displayYears.map(yr => {
+                      const v = grandTotal(yr);
+                      return <td key={yr} className="text-right p-2 border text-xs tabular-nums font-bold">{v > 0 ? fmt(v) : "—"}</td>;
+                    })}
+                    <td className="text-right p-2 border text-xs font-bold">
+                      {prevYear ? <ChangeCell cur={grandTotal(latestYear)} prev={grandTotal(prevYear!)} /> : "—"}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            {showBenchmarkNote && <p className="px-4 pb-3 text-xs text-gray-400">★ Benchmark year</p>}
+          </div>
+        );
+      })()}
     </div>
   );
 }
