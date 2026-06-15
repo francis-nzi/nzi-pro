@@ -435,6 +435,7 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
             ).fetchone()
 
             if existing:
+                existing_org_id = str(_user.get("org_id") or "").strip() or None
                 con.execute(
                     """
                     UPDATE users
@@ -447,10 +448,11 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
                         status = %s,
                         user_type = %s,
                         access_scope = %s,
-                        user_id = %s
+                        user_id = %s,
+                        org_id = COALESCE(org_id, %s)
                     WHERE lower(email) = lower(%s)
                     """,
-                    [full_name, role, position, mobile_phone, cost_per_hour, sell_per_hour, status, user_type, access_scope, email, email],
+                    [full_name, role, position, mobile_phone, cost_per_hour, sell_per_hour, status, user_type, access_scope, email, existing_org_id, email],
                 )
             else:
                 is_new_user = True
@@ -464,10 +466,11 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
                 invited_at = datetime.now(timezone.utc) if invite_mode else None
                 invite_expires_at = _invite_expiry(7) if invite_mode else None
                 invited_by = actor if invite_mode else None
+                new_user_org_id = str(_user.get("org_id") or "").strip() or None
                 con.execute(
                     """
-                    INSERT INTO users (user_id, full_name, role, position, mobile_phone, cost_per_hour, sell_per_hour, email, status, invited_at, invited_by, invite_expires_at, user_type, access_scope)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO users (user_id, full_name, role, position, mobile_phone, cost_per_hour, sell_per_hour, email, status, invited_at, invited_by, invite_expires_at, user_type, access_scope, org_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     [
                         email,
@@ -484,6 +487,7 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
                         invite_expires_at,
                         user_type,
                         access_scope,
+                        new_user_org_id,
                     ],
                 )
 
