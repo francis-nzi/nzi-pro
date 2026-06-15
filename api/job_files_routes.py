@@ -520,9 +520,10 @@ def update_job_file(
     row_id: Optional[int] = Body(None),
     description: Optional[str] = Body(None),
     notes: Optional[str] = Body(None),
+    file_type: Optional[str] = Body(None),
     _user: dict[str, str] = Depends(_current_user),
 ):
-    """Update file metadata (link to row_id, update description)."""
+    """Update file metadata (link to row_id, update description, file type)."""
     try:
         with get_conn() as con:
             _ensure_job_files_table(con)
@@ -541,6 +542,13 @@ def update_job_file(
                 if not row_exists:
                     raise HTTPException(status_code=400, detail="row_id does not belong to this job")
 
+            if file_type is not None:
+                ft = str(file_type).strip()
+                if ft:
+                    ft_row = _resolve_job_file_type(con, ft)
+                    if not ft_row:
+                        raise HTTPException(status_code=400, detail=f"Unknown file type: {ft}")
+
             updates = []
             params = []
             if row_id is not None:
@@ -552,6 +560,9 @@ def update_job_file(
             if notes is not None:
                 updates.append("notes = %s")
                 params.append(notes or None)
+            if file_type is not None:
+                updates.append("file_type = %s")
+                params.append(str(file_type).strip())
             if not updates:
                 return {"ok": True, "message": "No changes to update"}
 

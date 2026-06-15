@@ -76,6 +76,7 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
   const [editRowId, setEditRowId] = useState<number | "">("");
   const [editDescription, setEditDescription] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [editFileType, setEditFileType] = useState("");
   const [downloading, setDownloading] = useState<Record<number, boolean>>({});
 
   const loadFiles = useCallback(async () => {
@@ -269,6 +270,7 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
     setEditRowId(file.row_id ?? "");
     setEditDescription(file.description ?? "");
     setEditNotes("");
+    setEditFileType(file.file_type ?? "");
     setIsEditOpen(true);
   }
 
@@ -279,6 +281,7 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
         row_id: editRowId === "" ? null : editRowId,
         description: editDescription.trim(),
         notes: editNotes.trim(),
+        file_type: editFileType || null,
       };
       const res = await fetch(`${baseUrl}/jobs/${jobId}/files/${editingFileId}`, {
         method: "PATCH",
@@ -294,6 +297,7 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
       setEditRowId("");
       setEditDescription("");
       setEditNotes("");
+      setEditFileType("");
       await loadFiles();
     } catch (e) {
       setError((e as Error).message);
@@ -703,6 +707,7 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
           setEditRowId("");
           setEditDescription("");
           setEditNotes("");
+          setEditFileType("");
         }
       }}>
         <DialogContent className="max-w-lg">
@@ -710,6 +715,20 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
             <DialogTitle>Edit File Information</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">File Type</label>
+              <select
+                value={editFileType}
+                onChange={(e) => setEditFileType(e.target.value)}
+                className="w-full rounded-md border px-3 py-2 text-sm"
+              >
+                {activeFileTypes.map((type) => (
+                  <option key={type.file_type_key} value={type.file_type_key}>
+                    {type.display_name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Description</label>
               <input
