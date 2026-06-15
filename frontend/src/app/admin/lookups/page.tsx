@@ -43,6 +43,7 @@ const LOOKUP_TABLES = [
   { key: "job_file_types_lookup", label: "Job File Types", idCol: "file_type_id", nameCol: "display_name" },
   { key: "uom_lookup", label: "UoM", idCol: "uom_id", nameCol: "name" },
   { key: "action_categories_lookup", label: "Action Categories", idCol: "category_id", nameCol: "name" },
+  { key: "governance_subjects_lookup", label: "Governance Subjects", idCol: "governance_subject_id", nameCol: "name" },
   { key: "bd_bin_reasons_lookup", label: "BD Bin Reasons", idCol: "bin_reason_id", nameCol: "name" },
   { key: "time_subjects", label: "Time Subjects", idCol: "subject_id", nameCol: "name" },
   { key: "portfolios_lookup", label: "Portfolios", idCol: "portfolio_id", nameCol: "name" },
