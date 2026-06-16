@@ -27,6 +27,8 @@ class CompiledPrompt(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     resolved_versions: dict[str, Any] = Field(default_factory=dict)
+    model_hint: str | None = None
+    temperature: float | None = None
 
 
 def _parse_json_text(value: Any) -> dict[str, Any]:
@@ -69,6 +71,10 @@ def _render_template(text: str, values: dict[str, Any]) -> tuple[str, list[str]]
 
     rendered = PLACEHOLDER_PATTERN.sub(replace, text or "")
     return rendered, warnings
+
+
+def _status_label(value: Any) -> str:
+    return str(value or "").strip().lower()
 
 
 def _fetch_template_row(
@@ -334,10 +340,20 @@ def compile_prompt(
             raise LookupError(
                 f"No active prompt template found for report_family_key='{report_family_key}' section_key='{section_key}'"
             )
+        if _status_label(template.get("status")) != "active":
+            warnings.append(
+                f"Using inactive template version {template.get('version')} for prompt_key '{template.get('prompt_key')}'"
+            )
 
         client_profile = None
         if client_db_id is not None:
             client_profile = _fetch_client_profile_row(con, org_id=org_id, client_db_id=int(client_db_id))
+            if client_profile is None:
+                warnings.append(f"No client prompt profile found for client_db_id={int(client_db_id)}")
+            elif _status_label(client_profile.get("status")) != "active":
+                warnings.append(
+                    f"Using inactive client profile version {client_profile.get('version')} for client_db_id={int(client_db_id)}"
+                )
 
         job_override = None
         if job_id is not None:
@@ -348,6 +364,14 @@ def compile_prompt(
                 report_family_key=report_family_key,
                 section_key=section_key,
             )
+            if job_override is None:
+                warnings.append(
+                    f"No job prompt override found for job_id={int(job_id)} report_family_key='{report_family_key}' section_key='{section_key}'"
+                )
+            elif _status_label(job_override.get("status")) != "active":
+                warnings.append(
+                    f"Using inactive job override version {job_override.get('version')} for job_id={int(job_id)}"
+                )
 
         merged_facts = _build_fact_values(
             facts=facts,
@@ -403,5 +427,7 @@ def compile_prompt(
         metadata=metadata,
         warnings=warnings,
         resolved_versions=resolved_versions,
+        model_hint=str(template.get("model_hint") or "").strip() or None,
+        temperature=template.get("temperature"),
     )
 

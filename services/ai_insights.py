@@ -681,6 +681,7 @@ def generate_client_insights(
             "warnings": [],
             "resolved_versions": {},
         }
+    prompt_warnings = list(prompt_metadata.get("warnings") or []) if isinstance(prompt_metadata, dict) else []
 
     provider_key = (provider or "anthropic").strip().lower()
     raw_text = ""
@@ -688,6 +689,12 @@ def generate_client_insights(
     output_tokens = None
     total_tokens = None
     model_name = DEFAULT_OPENAI_MODEL if provider_key == "openai" else DEFAULT_ANTHROPIC_MODEL
+    temperature_val = 0.2
+    if compiled_prompt:
+        if compiled_prompt.model_hint:
+            model_name = compiled_prompt.model_hint
+        if compiled_prompt.temperature is not None:
+            temperature_val = compiled_prompt.temperature
     if provider_key == "openai":
         try:
             client = _get_openai_client()
@@ -698,7 +705,7 @@ def generate_client_insights(
                     {"role": "user", "content": user_prompt},
                 ],
                 max_tokens=1000,
-                temperature=0.2,
+                temperature=temperature_val,
             )
             raw_text = (response.choices[0].message.content or "").strip() if response.choices else ""
             usage = getattr(response, "usage", None)
@@ -727,7 +734,12 @@ def generate_client_insights(
                 )
             except Exception:
                 pass
-            return fallback_payload
+            return {
+                **fallback_payload,
+                "prompt_warnings": prompt_warnings,
+                "prompt_metadata": prompt_metadata,
+                "resolved_versions": prompt_metadata.get("resolved_versions", {}) if isinstance(prompt_metadata, dict) else {},
+            }
     else:
         try:
             client = _get_anthropic_client()
@@ -736,7 +748,7 @@ def generate_client_insights(
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
                 max_tokens=1000,
-                temperature=0.2,
+                temperature=temperature_val,
             )
             if response.content and hasattr(response.content[0], "text"):
                 raw_text = response.content[0].text.strip()
@@ -768,7 +780,12 @@ def generate_client_insights(
                 )
             except Exception:
                 pass
-            return fallback_payload
+            return {
+                **fallback_payload,
+                "prompt_warnings": prompt_warnings,
+                "prompt_metadata": prompt_metadata,
+                "resolved_versions": prompt_metadata.get("resolved_versions", {}) if isinstance(prompt_metadata, dict) else {},
+            }
 
     parsed = _extract_json(raw_text)
     structured = _normalize_structured(parsed or {}, raw_text) if parsed else _fallback_structured(raw_text)
@@ -822,4 +839,11 @@ def generate_client_insights(
     except Exception:
         pass
 
-    return {"insights": raw_text, "structured": structured, "citations": citations}
+    return {
+        "insights": raw_text,
+        "structured": structured,
+        "citations": citations,
+        "prompt_warnings": prompt_warnings,
+        "prompt_metadata": prompt_metadata,
+        "resolved_versions": prompt_metadata.get("resolved_versions", {}) if isinstance(prompt_metadata, dict) else {},
+    }

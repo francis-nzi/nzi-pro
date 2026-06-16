@@ -972,11 +972,17 @@ def generate_report_section_draft(
             "warnings": [],
             "resolved_versions": {},
         }
+    prompt_warnings = list(prompt_metadata.get("warnings") or []) if isinstance(prompt_metadata, dict) else []
     provider_key = (provider or "anthropic").strip().lower()
     raw_text = ""
     model_name = model or (DEFAULT_OPENAI_MODEL if provider_key == "openai" else DEFAULT_ANTHROPIC_MODEL)
     temperature = 0.1 if section_key == "executive_summary" else 0.2
     max_tokens = 800 if section_key == "executive_summary" else 1200
+    if compiled_prompt:
+        if compiled_prompt.model_hint and not model:
+            model_name = compiled_prompt.model_hint
+        if compiled_prompt.temperature is not None:
+            temperature = compiled_prompt.temperature
     input_tokens = None
     output_tokens = None
     total_tokens = None
@@ -1022,7 +1028,12 @@ def generate_report_section_draft(
                 )
             except Exception:
                 pass
-            return fallback
+            return {
+                **fallback,
+                "prompt_warnings": prompt_warnings,
+                "prompt_metadata": prompt_metadata,
+                "resolved_versions": prompt_metadata.get("resolved_versions", {}) if isinstance(prompt_metadata, dict) else {},
+            }
     else:
         try:
             client = _get_anthropic_client()
@@ -1065,7 +1076,12 @@ def generate_report_section_draft(
                 )
             except Exception:
                 pass
-            return fallback
+            return {
+                **fallback,
+                "prompt_warnings": prompt_warnings,
+                "prompt_metadata": prompt_metadata,
+                "resolved_versions": prompt_metadata.get("resolved_versions", {}) if isinstance(prompt_metadata, dict) else {},
+            }
 
     parsed = _extract_json(raw_text)
     if parsed:
@@ -1112,4 +1128,9 @@ def generate_report_section_draft(
         )
     except Exception:
         pass
-    return normalized
+    return {
+        **normalized,
+        "prompt_warnings": prompt_warnings,
+        "prompt_metadata": prompt_metadata,
+        "resolved_versions": prompt_metadata.get("resolved_versions", {}) if isinstance(prompt_metadata, dict) else {},
+    }

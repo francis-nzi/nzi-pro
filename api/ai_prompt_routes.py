@@ -158,6 +158,18 @@ def _row_to_override(row) -> dict[str, Any]:
     }
 
 
+def _deactivate_sibling_versions(con, *, table_name: str, where_sql: str, params: list[Any]) -> None:
+    con.execute(
+        f"""
+        UPDATE {table_name}
+        SET status = CASE WHEN status = 'active' THEN 'draft' ELSE status END,
+            updated_at = NOW()
+        WHERE {where_sql}
+        """,
+        params,
+    )
+
+
 def _get_template_row(con, template_id: int) -> dict[str, Any] | None:
     row = con.execute(
         """
@@ -310,6 +322,13 @@ def create_ai_prompt_template(
                 _user.get("user_id") or _user.get("id") or _user.get("email") or "system",
             ],
         ).fetchone()
+        if str(payload.status or "draft").lower() == "active":
+            _deactivate_sibling_versions(
+                con,
+                table_name="ai_prompt_templates",
+                where_sql="org_id = %s AND prompt_key = %s AND template_id <> %s",
+                params=[template_org_id, prompt_key, int(row[0])],
+            )
 
     return {"template": _row_to_template(row)}
 
@@ -336,7 +355,7 @@ def activate_ai_prompt_template(template_id: int, _user: dict[str, str] = Depend
         con.execute(
             """
             UPDATE ai_prompt_templates
-            SET status = CASE WHEN template_id = %s THEN 'active' ELSE status END,
+            SET status = CASE WHEN template_id = %s THEN 'active' ELSE 'draft' END,
                 updated_at = NOW()
             WHERE org_id = %s
               AND prompt_key = %s
@@ -436,6 +455,13 @@ def create_ai_prompt_profile(
                 _user.get("user_id") or _user.get("id") or _user.get("email") or "system",
             ],
         ).fetchone()
+        if str(payload.status or "draft").lower() == "active":
+            _deactivate_sibling_versions(
+                con,
+                table_name="ai_client_prompt_profiles",
+                where_sql="org_id = %s AND client_db_id = %s AND profile_id <> %s",
+                params=[org_id, int(client_db_id), int(row[0])],
+            )
     return {"profile": _row_to_profile(row)}
 
 
@@ -525,6 +551,13 @@ def create_ai_prompt_override(
                 _user.get("user_id") or _user.get("id") or _user.get("email") or "system",
             ],
         ).fetchone()
+        if str(payload.status or "draft").lower() == "active":
+            _deactivate_sibling_versions(
+                con,
+                table_name="ai_job_prompt_overrides",
+                where_sql="org_id = %s AND job_id = %s AND report_family_key = %s AND section_key = %s AND override_id <> %s",
+                params=[org_id, int(job_id), report_family_key, section_key, int(row[0])],
+            )
     return {"override": _row_to_override(row)}
 
 
@@ -550,6 +583,79 @@ def preview_ai_prompt(
         job_id=payload.job_id,
     )
     return {"compiled_prompt": compiled.model_dump()}
+
+
+@router.post("/clients/{client_db_id}/ai-prompt-profile/{profile_id}/activate")
+def activate_ai_prompt_profile(
+    client_db_id: int,
+    profile_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    assert_permission(_user, "clients.edit")
+    assert_client_access(_user, int(client_db_id))
+    org_id = require_org(_user)
+    _ensure_schema()
+    with get_conn() as con:
+        row = con.execute(
+            "SELECT profile_id FROM ai_client_prompt_profiles WHERE profile_id = %s AND org_id = %s AND client_db_id = %s",
+            [int(profile_id), org_id, int(client_db_id)],
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="AI prompt profile not found")
+        con.execute(
+            """
+            UPDATE ai_client_prompt_profiles
+            SET status = CASE WHEN profile_id = %s THEN 'active' ELSE 'draft' END,
+                updated_at = NOW()
+            WHERE org_id = %s AND client_db_id = %s
+            """,
+            [int(profile_id), org_id, int(client_db_id)],
+        )
+    return {"ok": True, "profile_id": int(profile_id)}
+
+
+class AiPromptRunRequest(BaseModel):
+    report_family_key: str
+    section_key: str
+    client_db_id: int | None = None
+    job_id: int | None = None
+    template_id: int | None = None
+    provider: str = "anthropic"
+
+
+@router.post("/ai-prompts/run")
+def run_ai_prompt(
+    payload: AiPromptRunRequest,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    assert_permission(_user, "jobs.reporting.view")
+    org_id = require_org(_user)
+    if payload.client_db_id is not None:
+        assert_client_access(_user, int(payload.client_db_id))
+    if payload.job_id is not None:
+        assert_job_access(_user, int(payload.job_id))
+
+    report_family_key = normalize_report_family_key(payload.report_family_key)
+
+    if report_family_key == "client_insights":
+        if payload.client_db_id is None:
+            raise HTTPException(status_code=400, detail="client_db_id is required for client_insights runs")
+        from services.ai_insights import generate_client_insights
+        result = generate_client_insights(
+            client_db_id=int(payload.client_db_id),
+            provider=payload.provider or "anthropic",
+            org_id=org_id,
+            template_id=payload.template_id,
+        )
+        return {"run": result, "report_family_key": report_family_key, "section_key": payload.section_key}
+
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f"Direct runs for '{report_family_key}' are not supported from here. "
+            "Open the job's report page to generate CRP/SECR section drafts."
+        ),
+    )
 
 
 @router.get("/ai-prompts/runs")

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Bot, Loader2, RefreshCw, Save, Search, WandSparkles } from "lucide-react";
+import { ArrowLeft, Bot, Loader2, Play, RefreshCw, Save, Search, WandSparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -132,6 +132,24 @@ type PromptPreviewResult = {
   resolved_versions: Record<string, unknown>;
 };
 
+type RunOutput = {
+  run: {
+    insights?: string;
+    structured?: {
+      summary?: string;
+      confidence?: string;
+      top_drivers?: Array<Record<string, string>>;
+      risks?: Array<Record<string, string>>;
+      recommended_actions?: Array<Record<string, string>>;
+      data_gaps?: string[];
+    };
+    citations?: Array<{ label: string; value: string; source: string }>;
+    prompt_warnings?: string[];
+  };
+  report_family_key: string;
+  section_key: string;
+};
+
 const DEFAULT_TEMPLATE_FORM = {
   promptKey: "",
   reportFamilyKey: "crp" as PromptFamilyKey,
@@ -206,7 +224,12 @@ function groupLatestTemplates(rows: TemplateRow[]): TemplateRow[] {
       grouped.set(groupKey, row);
       continue;
     }
-    if (row.version > current.version || (row.version === current.version && row.template_id > current.template_id)) {
+    const rowIsActive = row.status.toLowerCase() === "active";
+    const currentIsActive = current.status.toLowerCase() === "active";
+    if (
+      (rowIsActive && !currentIsActive) ||
+      (rowIsActive === currentIsActive && (row.version > current.version || (row.version === current.version && row.template_id > current.template_id)))
+    ) {
       grouped.set(groupKey, row);
     }
   }
@@ -255,6 +278,10 @@ export default function AiPromptsAdminPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewStatus, setPreviewStatus] = useState("");
   const [previewResult, setPreviewResult] = useState<PromptPreviewResult | null>(null);
+  const [runLoading, setRunLoading] = useState(false);
+  const [runStatus, setRunStatus] = useState("");
+  const [runResult, setRunResult] = useState<RunOutput | null>(null);
+  const [runProvider, setRunProvider] = useState<string>("anthropic");
 
   const [runs, setRuns] = useState<PromptRun[]>([]);
   const [runFilters, setRunFilters] = useState({
@@ -714,6 +741,59 @@ export default function AiPromptsAdminPage() {
     await loadRuns(runFilters);
   }
 
+  async function activateProfile(profileId: number) {
+    if (!selectedClientId) return;
+    setClientStatus("");
+    try {
+      const res = await fetch(
+        apiUrl(`/clients/${selectedClientId}/ai-prompt-profile/${profileId}/activate`),
+        { method: "POST", credentials: "include" }
+      );
+      if (!res.ok) throw new Error(`Failed to activate profile (${res.status})`);
+      setClientStatus(`Activated profile ${profileId}`);
+      await loadClientProfile(selectedClientId);
+    } catch (err) {
+      setClientStatus(err instanceof Error ? err.message : "Failed to activate profile");
+    }
+  }
+
+  async function runPrompt() {
+    setRunLoading(true);
+    setRunStatus("");
+    setRunResult(null);
+    const clientDbId = previewClientId.trim() ? Number(previewClientId.trim()) : null;
+    const jobId = previewJobId.trim() ? Number(previewJobId.trim()) : null;
+    const templateId = previewTemplateId.trim() ? Number(previewTemplateId.trim()) : null;
+    try {
+      const payload = {
+        report_family_key: previewFamilyKey,
+        section_key: previewSectionKey,
+        client_db_id: clientDbId,
+        job_id: jobId,
+        template_id: templateId,
+        provider: runProvider,
+      };
+      const res = await fetch(apiUrl("/ai-prompts/run"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(detail || `Run failed (${res.status})`);
+      }
+      const json = await res.json();
+      setRunResult(json as RunOutput);
+      setRunStatus("Run completed");
+      await loadRuns(runFilters);
+    } catch (err) {
+      setRunStatus(err instanceof Error ? err.message : "Run failed");
+    } finally {
+      setRunLoading(false);
+    }
+  }
+
   const displayTemplateRows = latestTemplates;
 
   return (
@@ -853,8 +933,9 @@ export default function AiPromptsAdminPage() {
                           <div className="max-h-[240px] overflow-auto">
                             <table className="w-full border-collapse text-sm">
                               <thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-[0.15em] text-slate-500">
-                                <tr>
+                              <tr>
                                   <th className="px-4 py-3">Version</th>
+                                  <th className="px-4 py-3">Current</th>
                                   <th className="px-4 py-3">Status</th>
                                   <th className="px-4 py-3">Updated</th>
                                   <th className="px-4 py-3">Prompt Key</th>
@@ -864,6 +945,15 @@ export default function AiPromptsAdminPage() {
                                 {templateVersions.map((row) => (
                                   <tr key={row.template_id} className="border-t border-slate-200/70">
                                     <td className="px-4 py-3">v{row.version}</td>
+                                    <td className="px-4 py-3">
+                                      {row.status.toLowerCase() === "active" ? (
+                                        <Badge variant="default" className="rounded-full">
+                                          Active
+                                        </Badge>
+                                      ) : (
+                                        <span className="text-slate-400">-</span>
+                                      )}
+                                    </td>
                                     <td className="px-4 py-3">{row.status}</td>
                                     <td className="px-4 py-3 text-slate-600">{fmtDate(row.updated_at)}</td>
                                     <td className="px-4 py-3 text-xs text-slate-500">{row.prompt_key}</td>
@@ -871,7 +961,7 @@ export default function AiPromptsAdminPage() {
                                 ))}
                                 {!templateVersions.length ? (
                                   <tr>
-                                    <td className="px-4 py-6 text-center text-slate-500" colSpan={4}>
+                                    <td className="px-4 py-6 text-center text-slate-500" colSpan={5}>
                                       Load a template to see its version history.
                                     </td>
                                   </tr>
@@ -883,7 +973,6 @@ export default function AiPromptsAdminPage() {
                       </div>
                     </CardContent>
                   </Card>
-
                   <Card className="border-slate-200 shadow-sm">
                     <CardHeader>
                       <CardTitle>{selectedTemplateId ? "Edit template version" : "Create template version"}</CardTitle>
@@ -1127,9 +1216,23 @@ export default function AiPromptsAdminPage() {
                       {clientStatus ? <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{clientStatus}</div> : null}
                       {clientProfile ? (
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                          <div className="font-medium text-slate-900">{clientProfile.profile_name}</div>
-                          <div className="mt-1 text-xs text-slate-500">
-                            Version {clientProfile.version} · Updated {fmtDate(clientProfile.updated_at)}
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="font-medium text-slate-900">{clientProfile.profile_name}</div>
+                              <div className="mt-1 text-xs text-slate-500">
+                                Version {clientProfile.version} · {fmtDate(clientProfile.updated_at)}
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <Badge variant={clientProfile.status === "active" ? "default" : "outline"} className="rounded-full text-xs">
+                                {clientProfile.status}
+                              </Badge>
+                              {clientProfile.status !== "active" ? (
+                                <Button size="sm" onClick={() => activateProfile(clientProfile.profile_id)}>
+                                  Activate
+                                </Button>
+                              ) : null}
+                            </div>
                           </div>
                           <div className="mt-3 space-y-1 text-xs">
                             <div><span className="font-medium">Tone:</span> {clientProfile.tone || "Not set"}</div>
@@ -1529,7 +1632,32 @@ export default function AiPromptsAdminPage() {
                           Reset facts
                         </Button>
                       </div>
+                      <div className="border-t border-slate-200 pt-4">
+                        <div className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-500">Run prompt against live data</div>
+                        <div className="flex flex-wrap items-end gap-2">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Provider</Label>
+                            <Select value={runProvider} onValueChange={setRunProvider}>
+                              <SelectTrigger className="h-8 w-32 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="anthropic">Anthropic</SelectItem>
+                                <SelectItem value="openai">OpenAI</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <Button onClick={runPrompt} disabled={runLoading} className="bg-[#1c5026] text-white hover:bg-[#163d1e]">
+                            {runLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+                            Run now
+                          </Button>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500">
+                          Calls the LLM with live client data. Only <strong>client_insights</strong> is supported here; for CRP/SECR sections open the job&apos;s report page.
+                        </p>
+                      </div>
                       {previewStatus ? <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{previewStatus}</div> : null}
+                      {runStatus ? <div className={`rounded-xl border px-4 py-3 text-sm ${runStatus.startsWith("Run completed") ? "border-green-200 bg-green-50 text-green-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>{runStatus}</div> : null}
                     </CardContent>
                   </Card>
 
@@ -1591,6 +1719,81 @@ export default function AiPromptsAdminPage() {
                           Resolve a prompt to see the compiled output here.
                         </div>
                       )}
+
+                      {runResult ? (
+                        <div className="mt-4 space-y-4 border-t border-slate-200 pt-4">
+                          <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                            <Play className="h-4 w-4 text-[#1c5026]" />
+                            Run output
+                          </div>
+                          {runResult.run.structured?.summary ? (
+                            <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-xs font-medium uppercase tracking-wide text-green-700">Summary</div>
+                                {runResult.run.structured?.confidence ? (
+                                  <Badge variant="outline" className="rounded-full text-xs capitalize">
+                                    {runResult.run.structured.confidence} confidence
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <p className="mt-2 text-sm leading-6 text-slate-800">{runResult.run.structured.summary}</p>
+                            </div>
+                          ) : null}
+
+                          {(runResult.run.structured?.top_drivers ?? []).length > 0 ? (
+                            <div className="space-y-2">
+                              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Top drivers</div>
+                              <div className="space-y-2">
+                                {(runResult.run.structured!.top_drivers ?? []).map((d, i) => (
+                                  <div key={i} className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
+                                    <div className="font-medium text-slate-900">{d.title}</div>
+                                    <div className="mt-1 text-xs text-slate-600">{d.detail}</div>
+                                    {d.metric ? <div className="mt-1 text-xs text-slate-400">{d.metric}</div> : null}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {(runResult.run.structured?.recommended_actions ?? []).length > 0 ? (
+                            <div className="space-y-2">
+                              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Recommended actions</div>
+                              <div className="space-y-2">
+                                {(runResult.run.structured!.recommended_actions ?? []).map((a, i) => (
+                                  <div key={i} className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-medium text-slate-900">{a.title}</span>
+                                      {a.effort ? <Badge variant="outline" className="rounded-full text-xs">{a.effort}</Badge> : null}
+                                    </div>
+                                    <div className="mt-1 text-xs text-slate-500">{a.owner} · {a.timeframe}</div>
+                                    <div className="mt-1 text-xs text-slate-600">{a.rationale}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {(runResult.run.structured?.data_gaps ?? []).length > 0 ? (
+                            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                              <div className="mb-1 text-xs font-medium text-amber-700">Data gaps</div>
+                              <ul className="list-disc space-y-1 pl-4 text-xs text-amber-900">
+                                {(runResult.run.structured!.data_gaps ?? []).map((g, i) => <li key={i}>{g}</li>)}
+                              </ul>
+                            </div>
+                          ) : null}
+
+                          {(runResult.run.citations ?? []).length > 0 ? (
+                            <div className="space-y-1">
+                              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Citations</div>
+                              {(runResult.run.citations ?? []).map((c, i) => (
+                                <div key={i} className="text-xs text-slate-600">
+                                  <span className="font-medium">{c.label}:</span> {c.value} <span className="text-slate-400">({c.source})</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </CardContent>
                   </Card>
                 </div>
