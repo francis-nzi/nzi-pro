@@ -293,6 +293,22 @@ export default function AiPromptsAdminPage() {
   const [runsLoading, setRunsLoading] = useState(false);
   const [runsStatus, setRunsStatus] = useState("");
 
+  // Org defaults state
+  const [orgTone, setOrgTone] = useState("");
+  const [orgAudienceNotes, setOrgAudienceNotes] = useState("");
+  const [orgNarrativeNotes, setOrgNarrativeNotes] = useState("");
+  const [orgPreferredTerms, setOrgPreferredTerms] = useState("");
+  const [orgForbiddenTerms, setOrgForbiddenTerms] = useState("");
+  const [orgSectionNotes, setOrgSectionNotes] = useState({
+    executive_summary: "",
+    emissions_overview: "",
+    actions: "",
+    declaration: "",
+  });
+  const [orgDefaultsLoading, setOrgDefaultsLoading] = useState(false);
+  const [orgDefaultsSaving, setOrgDefaultsSaving] = useState(false);
+  const [orgDefaultsStatus, setOrgDefaultsStatus] = useState("");
+
   const activeFamilySections = useMemo(() => familySections(templateForm.reportFamilyKey), [templateForm.reportFamilyKey]);
   const activePreviewSections = useMemo(() => familySections(previewFamilyKey), [previewFamilyKey]);
 
@@ -403,6 +419,34 @@ export default function AiPromptsAdminPage() {
   }, [loadRuns]);
 
   useEffect(() => {
+    async function loadOrgDefaults() {
+      setOrgDefaultsLoading(true);
+      try {
+        const res = await fetch(apiUrl("/ai-prompts/org-profile-template"), { credentials: "include" });
+        if (!res.ok) return;
+        const data = await res.json();
+        const t = data?.template;
+        if (!t) return;
+        setOrgTone(t.tone || "");
+        setOrgAudienceNotes(t.audience_notes || "");
+        setOrgNarrativeNotes(t.narrative_notes || "");
+        setOrgPreferredTerms(Array.isArray(t.preferred_terms) ? t.preferred_terms.join(", ") : "");
+        setOrgForbiddenTerms(Array.isArray(t.forbidden_terms) ? t.forbidden_terms.join(", ") : "");
+        const sn = t.section_notes || {};
+        setOrgSectionNotes({
+          executive_summary: sn.executive_summary || "",
+          emissions_overview: sn.emissions_overview || "",
+          actions: sn.actions || "",
+          declaration: sn.declaration || "",
+        });
+      } finally {
+        setOrgDefaultsLoading(false);
+      }
+    }
+    void loadOrgDefaults();
+  }, []);
+
+  useEffect(() => {
     const clientParam = searchParams.get("client");
     const jobParam = searchParams.get("job");
 
@@ -433,6 +477,39 @@ export default function AiPromptsAdminPage() {
   }, [loadTemplateVersions, selectedTemplateId]);
 
   const latestTemplates = useMemo(() => groupLatestTemplates(templates), [templates]);
+
+  async function saveOrgDefaults() {
+    setOrgDefaultsSaving(true);
+    setOrgDefaultsStatus("");
+    try {
+      const parseList = (text: string) =>
+        text.split(",").map((s) => s.trim()).filter(Boolean);
+      const res = await fetch(apiUrl("/ai-prompts/org-profile-template"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          tone: orgTone || null,
+          audience_notes: orgAudienceNotes || null,
+          narrative_notes: orgNarrativeNotes || null,
+          preferred_terms: parseList(orgPreferredTerms).length > 0 ? parseList(orgPreferredTerms) : null,
+          forbidden_terms: parseList(orgForbiddenTerms).length > 0 ? parseList(orgForbiddenTerms) : null,
+          section_notes: {
+            executive_summary: orgSectionNotes.executive_summary || null,
+            emissions_overview: orgSectionNotes.emissions_overview || null,
+            actions: orgSectionNotes.actions || null,
+            declaration: orgSectionNotes.declaration || null,
+          },
+        }),
+      });
+      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+      setOrgDefaultsStatus("Org defaults saved. These will be used as the starting point when generating client AI profiles.");
+    } catch (e) {
+      setOrgDefaultsStatus(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setOrgDefaultsSaving(false);
+    }
+  }
 
   async function searchClients() {
     setClientStatus("");
@@ -836,6 +913,7 @@ export default function AiPromptsAdminPage() {
                 <TabsTrigger value="overrides" className="rounded-full px-4">Job Overrides</TabsTrigger>
                 <TabsTrigger value="preview" className="rounded-full px-4">Preview</TabsTrigger>
                 <TabsTrigger value="runs" className="rounded-full px-4">Run History</TabsTrigger>
+                <TabsTrigger value="org-defaults" className="rounded-full px-4">Org Defaults</TabsTrigger>
               </TabsList>
 
               <TabsContent value="templates" className="space-y-6">
@@ -1921,6 +1999,127 @@ export default function AiPromptsAdminPage() {
                     </CardContent>
                   </Card>
                 </div>
+              </TabsContent>
+
+              <TabsContent value="org-defaults" className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Org-level AI profile defaults</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="rounded-lg border bg-blue-50/50 px-4 py-3 text-sm text-blue-800">
+                      These defaults are used as the starting point whenever a consultant clicks <strong>Generate Draft</strong>
+                      on a client AI Profile. The LLM uses them as the house style and adapts them to each specific client.
+                      Leave a field blank to let the LLM decide from client data alone.
+                    </div>
+
+                    {orgDefaultsLoading ? (
+                      <div className="py-6 text-center text-sm text-muted-foreground">Loading…</div>
+                    ) : (
+                      <div className="space-y-6">
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Default report tone</label>
+                            <input
+                              className="w-full rounded-md border px-3 py-2 text-sm"
+                              placeholder="e.g. professional and board-ready, plain English"
+                              value={orgTone}
+                              onChange={(e) => setOrgTone(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Typical report audience</label>
+                            <input
+                              className="w-full rounded-md border px-3 py-2 text-sm"
+                              placeholder="e.g. Board of directors and sustainability managers"
+                              value={orgAudienceNotes}
+                              onChange={(e) => setOrgAudienceNotes(e.target.value)}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Default narrative direction</label>
+                          <textarea
+                            className="w-full rounded-md border px-3 py-2 text-sm"
+                            rows={3}
+                            placeholder="What story should NZI carbon reports typically tell? Any house themes or angles?"
+                            value={orgNarrativeNotes}
+                            onChange={(e) => setOrgNarrativeNotes(e.target.value)}
+                          />
+                        </div>
+
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">House preferred terms</label>
+                            <textarea
+                              className="w-full rounded-md border px-3 py-2 text-sm"
+                              rows={3}
+                              placeholder="Comma-separated — e.g. decarbonisation, net zero journey, carbon footprint"
+                              value={orgPreferredTerms}
+                              onChange={(e) => setOrgPreferredTerms(e.target.value)}
+                            />
+                            <p className="text-xs text-muted-foreground">Separate with commas.</p>
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">House forbidden terms</label>
+                            <textarea
+                              className="w-full rounded-md border px-3 py-2 text-sm"
+                              rows={3}
+                              placeholder="Comma-separated — e.g. carbon neutral, net-zero, zero emissions"
+                              value={orgForbiddenTerms}
+                              onChange={(e) => setOrgForbiddenTerms(e.target.value)}
+                            />
+                            <p className="text-xs text-muted-foreground">Separate with commas.</p>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="mb-3 text-sm font-medium">Default section guidance</div>
+                          <div className="grid gap-4 md:grid-cols-2">
+                            {(
+                              [
+                                ["executive_summary", "Executive summary"],
+                                ["emissions_overview", "Emissions overview"],
+                                ["actions", "Actions"],
+                                ["declaration", "Declaration"],
+                              ] as const
+                            ).map(([key, label]) => (
+                              <div key={key} className="space-y-2">
+                                <label className="text-sm text-muted-foreground">{label}</label>
+                                <textarea
+                                  className="w-full rounded-md border px-3 py-2 text-sm"
+                                  rows={3}
+                                  placeholder={`Default ${label.toLowerCase()} guidance…`}
+                                  value={orgSectionNotes[key]}
+                                  onChange={(e) =>
+                                    setOrgSectionNotes((prev) => ({ ...prev, [key]: e.target.value }))
+                                  }
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {orgDefaultsStatus ? (
+                          <div className={`rounded-lg border px-4 py-3 text-sm ${
+                            orgDefaultsStatus.startsWith("Org defaults saved")
+                              ? "border-green-200 bg-green-50 text-green-800"
+                              : "border-red-200 bg-red-50 text-red-800"
+                          }`}>
+                            {orgDefaultsStatus}
+                          </div>
+                        ) : null}
+
+                        <div className="flex justify-end">
+                          <Button disabled={orgDefaultsSaving} onClick={() => void saveOrgDefaults()}>
+                            {orgDefaultsSaving ? "Saving…" : "Save Org Defaults"}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </TabsContent>
             </Tabs>
           </div>

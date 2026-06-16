@@ -82,7 +82,8 @@ export default function ClientAiProfile({ clientId, clientName, baseUrl }: Props
   const [profile, setProfile] = useState<AiProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<"" | "saved" | "error">("");
+  const [generating, setGenerating] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"" | "saved" | "error" | "generated">("");
   const [saveMessage, setSaveMessage] = useState("");
 
   const [companyContext, setCompanyContext] = useState("");
@@ -180,6 +181,69 @@ export default function ClientAiProfile({ clientId, clientName, baseUrl }: Props
     }
   }
 
+  async function generateDraft() {
+    setGenerating(true);
+    setSaveStatus("");
+    setSaveMessage("");
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/ai-prompt-profile/generate-draft`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail || `Generation failed (${res.status})`);
+      }
+      const data = (await res.json()) as {
+        draft: {
+          company_context: string;
+          industry_context: string;
+          tone: string;
+          audience_notes: string;
+          narrative_notes: string;
+          preferred_terms: string[];
+          forbidden_terms: string[];
+          section_notes: {
+            executive_summary?: string;
+            emissions_overview?: string;
+            actions?: string;
+            declaration?: string;
+          };
+        };
+        website_scraped: boolean;
+      };
+      const d = data.draft;
+      if (d.company_context) setCompanyContext(d.company_context);
+      if (d.industry_context) setIndustryContext(d.industry_context);
+      if (d.tone) setTone(d.tone);
+      if (d.audience_notes) setAudienceNotes(d.audience_notes);
+      if (d.narrative_notes) setNarrativeNotes(d.narrative_notes);
+      if (Array.isArray(d.preferred_terms) && d.preferred_terms.length > 0)
+        setPreferredTerms(d.preferred_terms.join(", "));
+      if (Array.isArray(d.forbidden_terms) && d.forbidden_terms.length > 0)
+        setForbiddenTerms(d.forbidden_terms.join(", "));
+      if (d.section_notes) {
+        setSectionNotes({
+          executive_summary: d.section_notes.executive_summary || "",
+          emissions_overview: d.section_notes.emissions_overview || "",
+          actions: d.section_notes.actions || "",
+          declaration: d.section_notes.declaration || "",
+        });
+      }
+      setSaveStatus("generated");
+      setSaveMessage(
+        data.website_scraped
+          ? "Draft generated from client data and website review. Review each field and save when ready."
+          : "Draft generated from client data (no website available to review). Review each field and save when ready."
+      );
+    } catch (e) {
+      setSaveStatus("error");
+      setSaveMessage((e as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   if (loading) {
     return <div className="py-12 text-center text-sm text-muted-foreground">Loading AI profile...</div>;
   }
@@ -201,7 +265,7 @@ export default function ClientAiProfile({ clientId, clientName, baseUrl }: Props
               context as you can — the richer the profile, the more relevant the outputs.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {profile ? (
               <>
                 <Badge variant={isActive ? "default" : "outline"} className={isActive ? "bg-green-700 text-white" : ""}>
@@ -212,6 +276,22 @@ export default function ClientAiProfile({ clientId, clientName, baseUrl }: Props
             ) : (
               <Badge variant="outline">No profile yet</Badge>
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={generating || saving}
+              onClick={() => void generateDraft()}
+              className="gap-2"
+            >
+              {generating ? (
+                <>
+                  <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  Generating…
+                </>
+              ) : (
+                <>✦ Generate Draft</>
+              )}
+            </Button>
           </div>
         </div>
       </div>
@@ -222,6 +302,8 @@ export default function ClientAiProfile({ clientId, clientName, baseUrl }: Props
           className={`rounded-lg border px-4 py-3 text-sm ${
             saveStatus === "saved"
               ? "border-green-200 bg-green-50 text-green-800"
+              : saveStatus === "generated"
+              ? "border-blue-200 bg-blue-50 text-blue-800"
               : "border-red-200 bg-red-50 text-red-800"
           }`}
         >

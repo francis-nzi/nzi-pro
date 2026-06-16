@@ -731,3 +731,156 @@ def list_ai_prompt_runs(
             }
         )
     return {"runs": runs}
+
+
+# ---------------------------------------------------------------------------
+# Org-level profile template (house-style defaults)
+# ---------------------------------------------------------------------------
+
+class OrgProfileTemplateUpdate(BaseModel):
+    tone: str | None = None
+    audience_notes: str | None = None
+    narrative_notes: str | None = None
+    preferred_terms: list[str] | None = None
+    forbidden_terms: list[str] | None = None
+    section_notes: dict[str, str] | None = None
+
+
+def _row_to_org_template(row) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    preferred = None
+    forbidden = None
+    section_notes = None
+    try:
+        preferred = json.loads(row[4]) if row[4] else None
+    except Exception:
+        preferred = None
+    try:
+        forbidden = json.loads(row[5]) if row[5] else None
+    except Exception:
+        forbidden = None
+    try:
+        section_notes = json.loads(row[6]) if row[6] else None
+    except Exception:
+        section_notes = None
+    return {
+        "org_id": row[0],
+        "tone": row[1],
+        "audience_notes": row[2],
+        "narrative_notes": row[3],
+        "preferred_terms": preferred,
+        "forbidden_terms": forbidden,
+        "section_notes": section_notes,
+        "updated_at": str(row[7]) if row[7] else None,
+    }
+
+
+@router.get("/ai-prompts/org-profile-template")
+def get_org_profile_template(_user: dict[str, str] = Depends(_current_user)):
+    assert_permission(_user, "admin.view")
+    org_id = require_org(_user)
+    _ensure_schema()
+    with get_conn() as con:
+        row = con.execute(
+            """
+            SELECT org_id, tone, audience_notes, narrative_notes,
+                   preferred_terms_json, forbidden_terms_json, section_notes_json, updated_at
+            FROM ai_org_profile_template
+            WHERE org_id = %s
+            """,
+            [org_id],
+        ).fetchone()
+    return {"template": _row_to_org_template(row)}
+
+
+@router.post("/ai-prompts/org-profile-template")
+def save_org_profile_template(
+    payload: OrgProfileTemplateUpdate,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    assert_permission(_user, "admin.edit")
+    org_id = require_org(_user)
+    _ensure_schema()
+    preferred_json = json.dumps(payload.preferred_terms) if payload.preferred_terms is not None else None
+    forbidden_json = json.dumps(payload.forbidden_terms) if payload.forbidden_terms is not None else None
+    section_json = json.dumps(payload.section_notes) if payload.section_notes is not None else None
+    with get_conn() as con:
+        row = con.execute(
+            """
+            INSERT INTO ai_org_profile_template
+              (org_id, tone, audience_notes, narrative_notes,
+               preferred_terms_json, forbidden_terms_json, section_notes_json, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (org_id) DO UPDATE SET
+              tone = EXCLUDED.tone,
+              audience_notes = EXCLUDED.audience_notes,
+              narrative_notes = EXCLUDED.narrative_notes,
+              preferred_terms_json = EXCLUDED.preferred_terms_json,
+              forbidden_terms_json = EXCLUDED.forbidden_terms_json,
+              section_notes_json = EXCLUDED.section_notes_json,
+              updated_at = NOW()
+            RETURNING org_id, tone, audience_notes, narrative_notes,
+                      preferred_terms_json, forbidden_terms_json, section_notes_json, updated_at
+            """,
+            [org_id, payload.tone, payload.audience_notes, payload.narrative_notes,
+             preferred_json, forbidden_json, section_json],
+        ).fetchone()
+    return {"template": _row_to_org_template(row)}
+
+
+# ---------------------------------------------------------------------------
+# Generate draft profile using LLM + website scraping
+# ---------------------------------------------------------------------------
+
+@router.post("/clients/{client_db_id}/ai-prompt-profile/generate-draft")
+def generate_ai_profile_draft(
+    client_db_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    assert_permission(_user, "clients.edit")
+    assert_client_access(_user, int(client_db_id))
+    org_id = require_org(_user)
+    _ensure_schema()
+
+    with get_conn() as con:
+        client_row = con.execute(
+            """
+            SELECT client_name, industry, website, headquarters,
+                   net_zero_year, benchmark_year, status
+            FROM clients
+            WHERE db_id = %s
+            """,
+            [int(client_db_id)],
+        ).fetchone()
+        if client_row is None:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        org_row = con.execute(
+            """
+            SELECT org_id, tone, audience_notes, narrative_notes,
+                   preferred_terms_json, forbidden_terms_json, section_notes_json, updated_at
+            FROM ai_org_profile_template
+            WHERE org_id = %s
+            """,
+            [org_id],
+        ).fetchone()
+
+    client_data = {
+        "client_name": client_row[0],
+        "industry": client_row[1],
+        "website": client_row[2],
+        "headquarters": client_row[3],
+        "net_zero_year": client_row[4],
+        "benchmark_year": client_row[5],
+    }
+
+    org_defaults = _row_to_org_template(org_row) if org_row else {}
+
+    try:
+        from services.ai_profile_generator import generate_profile_draft
+        draft = generate_profile_draft(client=client_data, org_defaults=org_defaults or {})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Profile generation failed: {exc}")
+
+    return {"draft": draft, "website_scraped": bool(client_data.get("website"))}
