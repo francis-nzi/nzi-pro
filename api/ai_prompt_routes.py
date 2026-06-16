@@ -743,7 +743,7 @@ class OrgProfileTemplateUpdate(BaseModel):
     narrative_notes: str | None = None
     preferred_terms: list[str] | None = None
     forbidden_terms: list[str] | None = None
-    section_notes: dict[str, str] | None = None
+    section_notes: dict[str, str | None] | None = None
 
 
 def _row_to_org_template(row) -> dict[str, Any] | None:
@@ -804,7 +804,8 @@ def save_org_profile_template(
     _ensure_schema()
     preferred_json = json.dumps(payload.preferred_terms) if payload.preferred_terms is not None else None
     forbidden_json = json.dumps(payload.forbidden_terms) if payload.forbidden_terms is not None else None
-    section_json = json.dumps(payload.section_notes) if payload.section_notes is not None else None
+    clean_section = {k: v for k, v in (payload.section_notes or {}).items() if v is not None and str(v).strip()}
+    section_json = json.dumps(clean_section) if clean_section else None
     with get_conn() as con:
         row = con.execute(
             """
