@@ -44,6 +44,65 @@ async function fetchJsonWithTimeout(url: string, init: RequestInit, timeoutMs: n
   }
 }
 
+const GROUP_STRUCTURE_OPTIONS = [
+  "Standalone company",
+  "Subsidiary (group reporting)",
+  "Subsidiary (standalone reporting)",
+  "Group parent / holding company",
+];
+
+const REPORTING_FRAMEWORK_OPTIONS = [
+  "SECR (Streamlined Energy & Carbon Reporting)",
+  "PPN 06/21",
+  "GHG Protocol",
+  "CDP",
+  "TCFD",
+  "SBTi",
+  "ISO 14064",
+  "ESOS",
+  "CSRD",
+  "Voluntary CRP",
+];
+
+const CERTIFICATION_OPTIONS = [
+  "ISO 14001",
+  "ISO 50001",
+  "B Corp",
+  "SBTi pledge",
+  "RE100",
+  "Race to Zero",
+  "PAS 2060",
+  "Carbon Neutral certified",
+];
+
+const SCOPE3_CATEGORY_OPTIONS = [
+  "Cat 1: Purchased goods & services",
+  "Cat 2: Capital goods",
+  "Cat 3: Fuel & energy related",
+  "Cat 4: Upstream transportation & distribution",
+  "Cat 5: Waste in operations",
+  "Cat 6: Business travel",
+  "Cat 7: Employee commuting",
+  "Cat 8: Upstream leased assets",
+  "Cat 9: Downstream transportation & distribution",
+  "Cat 10: Processing of sold products",
+  "Cat 11: Use of sold products",
+  "Cat 12: End-of-life treatment",
+  "Cat 13: Downstream leased assets",
+  "Cat 14: Franchises",
+  "Cat 15: Investments",
+];
+
+function parseJsonArray(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
 const MONTHS = [
   { value: "January", label: "January" },
   { value: "February", label: "February" },
@@ -108,6 +167,11 @@ type Client = {
   benchmark_scope_2_tco2e: number | null;
   benchmark_scope_3_tco2e: number | null;
   benchmark_total_tco2e: number | null;
+  parent_company: string | null;
+  group_structure: string | null;
+  reporting_frameworks: string | null;
+  certifications: string | null;
+  primary_scope3_categories: string | null;
 };
 
 type Site = {
@@ -199,6 +263,11 @@ export default function EditClientPage() {
   const [benchmarkScope3, setBenchmarkScope3] = useState<string>("");
   const [benchmarkTotal, setBenchmarkTotal] = useState<string>("");
   const [createSiteFromAddress, setCreateSiteFromAddress] = useState<boolean>(true);
+  const [parentCompany, setParentCompany] = useState<string>("");
+  const [groupStructure, setGroupStructure] = useState<string>("");
+  const [reportingFrameworks, setReportingFrameworks] = useState<string[]>([]);
+  const [certifications, setCertifications] = useState<string[]>([]);
+  const [primaryScope3Categories, setPrimaryScope3Categories] = useState<string[]>([]);
   
   // Site management state
   const [activeSites, setActiveSites] = useState<Site[]>([]);
@@ -372,6 +441,11 @@ export default function EditClientPage() {
         setBenchmarkScope2(json.benchmark_scope_2_tco2e != null ? String(json.benchmark_scope_2_tco2e) : "");
         setBenchmarkScope3(json.benchmark_scope_3_tco2e != null ? String(json.benchmark_scope_3_tco2e) : "");
         setBenchmarkTotal(json.benchmark_total_tco2e != null ? String(json.benchmark_total_tco2e) : "");
+        setParentCompany(json.parent_company || "");
+        setGroupStructure(json.group_structure || "");
+        setReportingFrameworks(parseJsonArray(json.reporting_frameworks));
+        setCertifications(parseJsonArray(json.certifications));
+        setPrimaryScope3Categories(parseJsonArray(json.primary_scope3_categories));
       } catch (e) {
         if (cancelled) return;
         setError((e as Error).message);
@@ -550,6 +624,11 @@ export default function EditClientPage() {
           benchmark_period_start: benchmarkPeriodStart || null,
           benchmark_period_end: benchmarkPeriodEnd || null,
           create_site_from_address: createSiteFromAddress,
+          parent_company: parentCompany || null,
+          group_structure: groupStructure || null,
+          reporting_frameworks: reportingFrameworks.length > 0 ? JSON.stringify(reportingFrameworks) : null,
+          certifications: certifications.length > 0 ? JSON.stringify(certifications) : null,
+          primary_scope3_categories: primaryScope3Categories.length > 0 ? JSON.stringify(primaryScope3Categories) : null,
         }),
       });
 
@@ -1322,6 +1401,122 @@ export default function EditClientPage() {
                   ))}
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* ── Context & Compliance card ── */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <CardTitle>Context &amp; Compliance</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Used by AI insights to generate more accurate and relevant outputs.
+                  </p>
+                </div>
+                <Button size="sm" onClick={saveClient} disabled={saving || loading}>
+                  Save Section
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+
+              {/* Group structure */}
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="parentCompany">Parent company / group name</Label>
+                  <Input
+                    id="parentCompany"
+                    value={parentCompany}
+                    onChange={(e) => setParentCompany(e.target.value)}
+                    placeholder="e.g. Acme Group plc"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="groupStructure">Group structure</Label>
+                  <Select value={groupStructure} onValueChange={setGroupStructure}>
+                    <SelectTrigger id="groupStructure">
+                      <SelectValue placeholder="Select…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Not specified</SelectItem>
+                      {GROUP_STRUCTURE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Reporting frameworks */}
+              <div className="space-y-2">
+                <Label>Reporting obligations &amp; frameworks</Label>
+                <p className="text-xs text-muted-foreground">Select all that apply.</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {REPORTING_FRAMEWORK_OPTIONS.map((opt) => (
+                    <label key={opt} className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/40">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-gray-300"
+                        checked={reportingFrameworks.includes(opt)}
+                        onChange={(e) =>
+                          setReportingFrameworks((prev) =>
+                            e.target.checked ? [...prev, opt] : prev.filter((x) => x !== opt)
+                          )
+                        }
+                      />
+                      {opt}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Certifications */}
+              <div className="space-y-2">
+                <Label>Certifications &amp; commitments</Label>
+                <p className="text-xs text-muted-foreground">Select all that apply.</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {CERTIFICATION_OPTIONS.map((opt) => (
+                    <label key={opt} className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/40">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-gray-300"
+                        checked={certifications.includes(opt)}
+                        onChange={(e) =>
+                          setCertifications((prev) =>
+                            e.target.checked ? [...prev, opt] : prev.filter((x) => x !== opt)
+                          )
+                        }
+                      />
+                      {opt}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Primary Scope 3 categories */}
+              <div className="space-y-2">
+                <Label>Primary Scope 3 categories</Label>
+                <p className="text-xs text-muted-foreground">Select the categories material to this client.</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {SCOPE3_CATEGORY_OPTIONS.map((opt) => (
+                    <label key={opt} className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/40">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-gray-300"
+                        checked={primaryScope3Categories.includes(opt)}
+                        onChange={(e) =>
+                          setPrimaryScope3Categories((prev) =>
+                            e.target.checked ? [...prev, opt] : prev.filter((x) => x !== opt)
+                          )
+                        }
+                      />
+                      {opt}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
             </CardContent>
           </Card>
 

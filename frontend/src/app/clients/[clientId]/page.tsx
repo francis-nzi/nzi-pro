@@ -84,6 +84,11 @@ type Client = {
   benchmark_total_tco2e?: number | null;
   currency: string | null;
   logo_url?: string | null;
+  parent_company?: string | null;
+  group_structure?: string | null;
+  reporting_frameworks?: string | null;
+  certifications?: string | null;
+  primary_scope3_categories?: string | null;
 };
 
 type ClientJobsResponse = {
@@ -880,6 +885,21 @@ function ClientDetailPageContent() {
             </CardContent>
           </Card>
         </div>
+
+        {(client?.parent_company || client?.group_structure || client?.reporting_frameworks || client?.certifications || client?.primary_scope3_categories) ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Context &amp; Compliance</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {client.parent_company ? <div><span className="font-medium">Parent company / group:</span> <span className="text-muted-foreground">{client.parent_company}</span></div> : null}
+              {client.group_structure ? <div><span className="font-medium">Group structure:</span> <span className="text-muted-foreground">{client.group_structure}</span></div> : null}
+              {(() => { try { const f = JSON.parse(client.reporting_frameworks || "null"); return Array.isArray(f) && f.length ? <div><span className="font-medium">Reporting frameworks:</span> <span className="text-muted-foreground">{(f as string[]).join(", ")}</span></div> : null; } catch { return null; } })()}
+              {(() => { try { const c = JSON.parse(client.certifications || "null"); return Array.isArray(c) && c.length ? <div><span className="font-medium">Certifications:</span> <span className="text-muted-foreground">{(c as string[]).join(", ")}</span></div> : null; } catch { return null; } })()}
+              {(() => { try { const s = JSON.parse(client.primary_scope3_categories || "null"); return Array.isArray(s) && s.length ? <div><span className="font-medium">Primary Scope 3:</span> <span className="text-muted-foreground">{(s as string[]).join(", ")}</span></div> : null; } catch { return null; } })()}
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Card>
           <CardHeader>
@@ -2084,7 +2104,7 @@ function ClientDetailPageContent() {
     if (activeSection === "reporting") return <ClientReporting clientId={clientId} baseUrl={baseUrl} />;
     if (activeSection === "portal") return <ClientPortalManagement clientId={clientId} baseUrl={baseUrl} />;
     if (activeSection === "custom-fields") return <CustomFields entityId={clientId} entityType="client" baseUrl={baseUrl} />;
-    if (activeSection === "ai-profile") return <ClientAiProfile clientId={clientId} clientName={client?.client_name} baseUrl={baseUrl} />;
+    if (activeSection === "ai-profile") return <ClientAiProfile clientId={clientId} clientName={client?.client_name} clientWebsite={client?.website} baseUrl={baseUrl} />;
     return renderFinancialSection();
   }
 

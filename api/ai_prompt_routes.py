@@ -844,10 +844,15 @@ def generate_ai_profile_draft(
     _ensure_schema()
 
     with get_conn() as con:
+        from services.client_context_columns import ensure_client_context_columns
+        ensure_client_context_columns(con)
         client_row = con.execute(
             """
             SELECT client_name, industry, website, headquarters,
-                   net_zero_year, benchmark_year, status
+                   net_zero_year, benchmark_year, status,
+                   sic_code, description_long, parent_company,
+                   group_structure, reporting_frameworks, certifications,
+                   primary_scope3_categories, benchmark_period_end
             FROM clients
             WHERE db_id = %s
             """,
@@ -866,6 +871,16 @@ def generate_ai_profile_draft(
             [org_id],
         ).fetchone()
 
+    import datetime as _dt
+    benchmark_end = client_row[14]
+    years_reporting = None
+    if benchmark_end:
+        try:
+            end_year = int(str(benchmark_end)[:4])
+            years_reporting = _dt.date.today().year - end_year
+        except Exception:
+            pass
+
     client_data = {
         "client_name": client_row[0],
         "industry": client_row[1],
@@ -873,6 +888,14 @@ def generate_ai_profile_draft(
         "headquarters": client_row[3],
         "net_zero_year": client_row[4],
         "benchmark_year": client_row[5],
+        "sic_code": client_row[7],
+        "description_long": client_row[8],
+        "parent_company": client_row[9],
+        "group_structure": client_row[10],
+        "reporting_frameworks": client_row[11],
+        "certifications": client_row[12],
+        "primary_scope3_categories": client_row[13],
+        "years_reporting": years_reporting,
     }
 
     org_defaults = _row_to_org_template(org_row) if org_row else {}
@@ -883,4 +906,8 @@ def generate_ai_profile_draft(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Profile generation failed: {exc}")
 
-    return {"draft": draft, "website_scraped": bool(client_data.get("website"))}
+    return {
+        "draft": draft,
+        "website_scraped": bool(client_data.get("website")),
+        "website_url": client_data.get("website") or None,
+    }

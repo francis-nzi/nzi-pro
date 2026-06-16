@@ -34,6 +34,7 @@ type SectionNotes = {
 type Props = {
   clientId: number;
   clientName?: string | null;
+  clientWebsite?: string | null;
   baseUrl: string;
 };
 
@@ -78,7 +79,7 @@ function listToArray(text: string): string[] | null {
   return items.length > 0 ? items : null;
 }
 
-export default function ClientAiProfile({ clientId, clientName, baseUrl }: Props) {
+export default function ClientAiProfile({ clientId, clientName, clientWebsite, baseUrl }: Props) {
   const [profile, setProfile] = useState<AiProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -276,22 +277,35 @@ export default function ClientAiProfile({ clientId, clientName, baseUrl }: Props
             ) : (
               <Badge variant="outline">No profile yet</Badge>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={generating || saving}
-              onClick={() => void generateDraft()}
-              className="gap-2"
-            >
-              {generating ? (
-                <>
-                  <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  Generating…
-                </>
+            <div className="flex flex-col items-end gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={generating || saving}
+                onClick={() => void generateDraft()}
+                className="gap-2"
+              >
+                {generating ? (
+                  <>
+                    <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    Generating…
+                  </>
+                ) : (
+                  <>✦ Generate Draft</>
+                )}
+              </Button>
+              {clientWebsite ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                  Website available
+                </span>
               ) : (
-                <>✦ Generate Draft</>
+                <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                  <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                  No website — add in Edit Client
+                </span>
               )}
-            </Button>
+            </div>
           </div>
         </div>
       </div>

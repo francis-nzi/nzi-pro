@@ -19,6 +19,7 @@ from api.permissions import assert_client_access, assert_permission
 from core.database import get_conn
 from services.audit_log import fetch_row_dict, record_audit_event
 from services.client_benchmark import ensure_client_benchmark_columns
+from services.client_context_columns import ensure_client_context_columns
 from services.tenancy import require_org
 from api.org_admin_helpers import _require_org_capacity
 
@@ -77,6 +78,7 @@ def create_client(
             _ensure_client_billing_columns(con)
             _ensure_client_org_columns(con)
             ensure_client_benchmark_columns(con)
+            ensure_client_context_columns(con)
             _require_org_capacity(con, org_id, additional_clients=1)
             existing = con.execute(
                 """
@@ -344,6 +346,11 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
             _client_select_expr(columns, "benchmark_scope_3_tco2e", "benchmark_scope_3_tco2e"),
             _client_select_expr(columns, "benchmark_total_tco2e", "benchmark_total_tco2e"),
             _client_select_expr(columns, "billing_company", "billing_company", "c.client_name"),
+            _client_select_expr(columns, "parent_company", "parent_company"),
+            _client_select_expr(columns, "group_structure", "group_structure"),
+            _client_select_expr(columns, "reporting_frameworks", "reporting_frameworks"),
+            _client_select_expr(columns, "certifications", "certifications"),
+            _client_select_expr(columns, "primary_scope3_categories", "primary_scope3_categories"),
         ]
         row = fetch_row_dict(
             con,
@@ -404,6 +411,11 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
         "benchmark_scope_3_tco2e": float(row["benchmark_scope_3_tco2e"]) if row.get("benchmark_scope_3_tco2e") is not None else None,
         "benchmark_total_tco2e": float(row["benchmark_total_tco2e"]) if row.get("benchmark_total_tco2e") is not None else None,
         "billing_company": row.get("billing_company") or row.get("client_name"),
+        "parent_company": row.get("parent_company"),
+        "group_structure": row.get("group_structure"),
+        "reporting_frameworks": row.get("reporting_frameworks"),
+        "certifications": row.get("certifications"),
+        "primary_scope3_categories": row.get("primary_scope3_categories"),
         }
 
 
@@ -423,6 +435,7 @@ def update_client(
             _ensure_client_org_columns(con)
             _ensure_client_billing_columns(con)
             ensure_client_benchmark_columns(con)
+            ensure_client_context_columns(con)
             before = _client_audit_snapshot(con, int(client_db_id), org_id)
             existing_client = con.execute(
                 """
@@ -520,6 +533,11 @@ def update_client(
                 "billing_addr_country": "billing_addr_country",
                 "create_site_from_address": "create_site_from_address",
                 "status": "status",
+                "parent_company": "parent_company",
+                "group_structure": "group_structure",
+                "reporting_frameworks": "reporting_frameworks",
+                "certifications": "certifications",
+                "primary_scope3_categories": "primary_scope3_categories",
             }
 
             for field_name, col_name in field_mapping.items():

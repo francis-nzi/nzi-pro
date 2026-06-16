@@ -91,14 +91,52 @@ def generate_profile_draft(
         client_facts.append(f"Company name: {client['client_name']}")
     if client.get("industry"):
         client_facts.append(f"Industry: {client['industry']}")
+    if client.get("sic_code"):
+        client_facts.append(f"SIC code: {client['sic_code']}")
     if client.get("headquarters"):
         client_facts.append(f"Headquarters: {client['headquarters']}")
     if client.get("website"):
         client_facts.append(f"Website: {client['website']}")
+    if client.get("description_long"):
+        client_facts.append(f"Company description: {client['description_long']}")
+    if client.get("parent_company"):
+        client_facts.append(f"Parent company / group: {client['parent_company']}")
+    if client.get("group_structure"):
+        client_facts.append(f"Group structure: {client['group_structure']}")
     if client.get("net_zero_year"):
         client_facts.append(f"Net zero target year: {client['net_zero_year']}")
     if client.get("benchmark_year"):
         client_facts.append(f"Baseline year: {client['benchmark_year']}")
+    if client.get("years_reporting") is not None:
+        yrs = client["years_reporting"]
+        if yrs == 0:
+            client_facts.append("Carbon reporting: first report (baseline year)")
+        elif yrs > 0:
+            client_facts.append(f"Years of carbon reporting: approximately {yrs} years")
+    if client.get("reporting_frameworks"):
+        try:
+            import json as _json
+            frameworks = _json.loads(client["reporting_frameworks"])
+            if isinstance(frameworks, list) and frameworks:
+                client_facts.append(f"Reporting obligations/frameworks: {', '.join(str(f) for f in frameworks)}")
+        except Exception:
+            pass
+    if client.get("certifications"):
+        try:
+            import json as _json
+            certs = _json.loads(client["certifications"])
+            if isinstance(certs, list) and certs:
+                client_facts.append(f"Certifications & commitments: {', '.join(str(c) for c in certs)}")
+        except Exception:
+            pass
+    if client.get("primary_scope3_categories"):
+        try:
+            import json as _json
+            cats = _json.loads(client["primary_scope3_categories"])
+            if isinstance(cats, list) and cats:
+                client_facts.append(f"Primary Scope 3 categories: {', '.join(str(c) for c in cats)}")
+        except Exception:
+            pass
 
     facts_block = "\n".join(client_facts) if client_facts else "No structured data available."
 
