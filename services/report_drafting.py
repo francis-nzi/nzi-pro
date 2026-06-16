@@ -978,9 +978,11 @@ def generate_report_section_draft(
     model_name = model or (DEFAULT_OPENAI_MODEL if provider_key == "openai" else DEFAULT_ANTHROPIC_MODEL)
     temperature = 0.1 if section_key == "executive_summary" else 0.2
     max_tokens = 800 if section_key == "executive_summary" else 1200
+    _provider_names = {"anthropic", "openai", "openai-api", "anthropic-api"}
     if compiled_prompt:
-        if compiled_prompt.model_hint and not model:
-            model_name = compiled_prompt.model_hint
+        hint = (compiled_prompt.model_hint or "").strip().lower()
+        if hint and hint not in _provider_names and not model:
+            model_name = compiled_prompt.model_hint  # type: ignore[assignment]
         if compiled_prompt.temperature is not None:
             temperature = compiled_prompt.temperature
     input_tokens = None

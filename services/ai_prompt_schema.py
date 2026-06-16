@@ -394,7 +394,7 @@ def _seed_default_ai_prompt_templates(con) -> None:
                         "selected_actions": "Selected actions",
                     }
                 ),
-                "anthropic",
+                None,
                 0.2,
                 "active",
                 1,

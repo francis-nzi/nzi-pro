@@ -697,9 +697,22 @@ def run_migrations():
 
             ensure_ai_prompt_schema(con)
 
+            # Clear model_hint values that contain only a provider name rather than
+            # a real model identifier (e.g. "anthropic" was incorrectly seeded).
+            try:
+                con.execute(
+                    """
+                    UPDATE ai_prompt_templates
+                    SET model_hint = NULL, updated_at = NOW()
+                    WHERE LOWER(TRIM(model_hint)) IN ('anthropic', 'openai', 'openai-api', 'anthropic-api')
+                    """
+                )
+            except Exception as exc:
+                logger.warning("Ignoring ai_prompt_templates model_hint cleanup: %s", exc)
+
             con.execute(
                 """
-                DO $$ 
+                DO $$
                 BEGIN
                     IF NOT EXISTS (
                     SELECT 1

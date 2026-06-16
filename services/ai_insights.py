@@ -690,9 +690,11 @@ def generate_client_insights(
     total_tokens = None
     model_name = DEFAULT_OPENAI_MODEL if provider_key == "openai" else DEFAULT_ANTHROPIC_MODEL
     temperature_val = 0.2
+    _provider_names = {"anthropic", "openai", "openai-api", "anthropic-api"}
     if compiled_prompt:
-        if compiled_prompt.model_hint:
-            model_name = compiled_prompt.model_hint
+        hint = (compiled_prompt.model_hint or "").strip().lower()
+        if hint and hint not in _provider_names:
+            model_name = compiled_prompt.model_hint  # type: ignore[assignment]
         if compiled_prompt.temperature is not None:
             temperature_val = compiled_prompt.temperature
     if provider_key == "openai":
