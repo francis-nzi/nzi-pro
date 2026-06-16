@@ -2075,15 +2075,46 @@ def run_migrations():
             "SELECT org_id FROM organisations WHERE slug = 'nzi-internal' LIMIT 1"
         ).fetchone()
         default_org_id = default_org_row[0] if default_org_row else None
-        if default_org_id:
+
+        # Prefer a real org (non-placeholder) for backfill.
+        # If the admin created a proper org (e.g. "Net Zero International") after the initial
+        # seed, all data should live in that org — not the auto-seeded "NZI Internal" placeholder.
+        preferred_org_id = default_org_id
+        try:
+            real_org_row = con.execute(
+                """
+                SELECT org_id FROM organisations
+                WHERE slug != 'nzi-internal' AND plan_status = 'active'
+                ORDER BY created_at
+                LIMIT 1
+                """
+            ).fetchone()
+            if real_org_row:
+                preferred_org_id = real_org_row[0]
+        except Exception as exc:
+            logger.warning("Could not determine preferred org for backfill: %s", exc)
+
+        if preferred_org_id:
+            # Fill any rows that still have no org_id.
             for table_name in tenant_tables:
                 try:
                     con.execute(
                         f"UPDATE {table_name} SET org_id = %s WHERE org_id IS NULL",
-                        [default_org_id],
+                        [preferred_org_id],
                     )
                 except Exception as exc:
                     logger.warning("Ignoring org_id backfill for %s: %s", table_name, exc)
+
+            # Re-stamp records that were backfilled to the placeholder org onto the real org.
+            if default_org_id and preferred_org_id != default_org_id:
+                for table_name in tenant_tables:
+                    try:
+                        con.execute(
+                            f"UPDATE {table_name} SET org_id = %s WHERE org_id = %s",
+                            [preferred_org_id, default_org_id],
+                        )
+                    except Exception as exc:
+                        logger.warning("Ignoring org_id re-stamp for %s: %s", table_name, exc)
 
         try:
             # These indexes back the busiest tenant-scoped list and lookup paths.
