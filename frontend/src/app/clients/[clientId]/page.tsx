@@ -40,6 +40,10 @@ const ClientPortalManagement = dynamic(() => import("@/components/ClientPortalMa
   ssr: false,
   loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading portal data...</div>,
 });
+const ClientAiProfile = dynamic(() => import("@/components/ClientAiProfile"), {
+  ssr: false,
+  loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading AI profile...</div>,
+});
 const CompanyIdentityBlock = dynamic(
   () => import("@/components/CompanyIdentityBlock").then((mod) => mod.CompanyIdentityBlock),
   {
@@ -216,7 +220,8 @@ type ClientSection =
   | "jobs"
   | "reporting"
   | "custom-fields"
-  | "portal";
+  | "portal"
+  | "ai-profile";
 
 type ProfileSubSection = "details" | "contacts" | "sites" | "custom-fields";
 
@@ -231,6 +236,7 @@ const SECTIONS: Array<{ id: ClientSection; label: string }> = [
   { id: "timeline", label: "Communications" },
   { id: "profile", label: "Company Profile" },
   { id: "financial", label: "Financials" },
+  { id: "ai-profile", label: "AI Profile" },
 ];
 
 function ClientDetailPageContent() {
@@ -488,6 +494,8 @@ function ClientDetailPageContent() {
       targetSection = "financial";
     } else if (section === "portal") {
       targetSection = "portal";
+    } else if (section === "ai-profile") {
+      targetSection = "ai-profile";
     } else if (section === "overview") {
       targetSection = "overview";
     }
@@ -528,6 +536,8 @@ function ClientDetailPageContent() {
       targetSection = "financial";
     } else if (section === "portal") {
       targetSection = "portal";
+    } else if (section === "ai-profile") {
+      targetSection = "ai-profile";
     }
 
     setActiveSection(targetSection);
@@ -2074,6 +2084,7 @@ function ClientDetailPageContent() {
     if (activeSection === "reporting") return <ClientReporting clientId={clientId} baseUrl={baseUrl} />;
     if (activeSection === "portal") return <ClientPortalManagement clientId={clientId} baseUrl={baseUrl} />;
     if (activeSection === "custom-fields") return <CustomFields entityId={clientId} entityType="client" baseUrl={baseUrl} />;
+    if (activeSection === "ai-profile") return <ClientAiProfile clientId={clientId} clientName={client?.client_name} baseUrl={baseUrl} />;
     return renderFinancialSection();
   }
 
