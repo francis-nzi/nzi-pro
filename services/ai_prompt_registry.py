@@ -65,6 +65,15 @@ REPORT_FAMILY_REGISTRY: dict[str, ReportFamilyDefinition] = {
 }
 
 
+REPORT_FAMILY_ALIASES: dict[str, str] = {
+    "crp_standard": "crp",
+    "crp_basic": "crp",
+    "crp standard": "crp",
+    "crp basic": "crp",
+    "carbon reduction plan": "crp",
+}
+
+
 SECTION_ALIASES: dict[str, str] = {
     "executive summary": "executive_summary",
     "emissions overview": "emissions_overview",
@@ -91,7 +100,7 @@ def normalize_section_key(value: str | None) -> str:
 
 def normalize_report_family_key(value: str | None) -> str:
     normalized = str(value or "").strip().lower().replace(" ", "_")
-    return normalized
+    return REPORT_FAMILY_ALIASES.get(normalized, normalized)
 
 
 def get_section_definition(section_key: str | None) -> SectionDefinition | None:
