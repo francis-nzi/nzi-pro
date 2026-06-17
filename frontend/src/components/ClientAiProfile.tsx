@@ -16,9 +16,9 @@ type AiProfile = {
   tone: string | null;
   audience_notes: string | null;
   narrative_notes: string | null;
-  preferred_terms_json: string | null;
-  forbidden_terms_json: string | null;
-  section_notes_json: string | null;
+  preferred_terms_json: string | string[] | Record<string, unknown> | null;
+  forbidden_terms_json: string | string[] | Record<string, unknown> | null;
+  section_notes_json: string | Record<string, unknown> | null;
   status: string;
   version: number;
   updated_at: string | null;
@@ -38,19 +38,27 @@ type Props = {
   baseUrl: string;
 };
 
-function parseList(raw: string | null): string {
+// The API may return these fields as already-parsed objects (not JSON strings).
+// Handle both forms gracefully.
+
+function parseList(raw: unknown): string {
   if (!raw) return "";
+  // Already a JS array from the API response
+  if (Array.isArray(raw)) return raw.map(String).join(", ");
+  // Already a JS object
+  if (typeof raw === "object") return Object.values(raw as Record<string, unknown>).map(String).join(", ");
+  // JSON string stored in DB
   try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed.join(", ");
-    if (typeof parsed === "object" && parsed !== null) return Object.values(parsed).join(", ");
+    const parsed = JSON.parse(String(raw));
+    if (Array.isArray(parsed)) return parsed.map(String).join(", ");
+    if (typeof parsed === "object" && parsed !== null) return Object.values(parsed).map(String).join(", ");
   } catch {
-    // already plain text
+    // plain text fallback
   }
   return String(raw);
 }
 
-function parseSectionNotes(raw: string | null): SectionNotes {
+function parseSectionNotes(raw: unknown): SectionNotes {
   const empty: SectionNotes = {
     executive_summary: "",
     emissions_overview: "",
@@ -58,8 +66,19 @@ function parseSectionNotes(raw: string | null): SectionNotes {
     declaration: "",
   };
   if (!raw) return empty;
+  // Already a JS object from the API response
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    return {
+      executive_summary: String(obj.executive_summary || ""),
+      emissions_overview: String(obj.emissions_overview || ""),
+      actions: String(obj.actions || ""),
+      declaration: String(obj.declaration || ""),
+    };
+  }
+  // JSON string
   try {
-    const parsed = JSON.parse(raw) as Record<string, string>;
+    const parsed = JSON.parse(String(raw)) as Record<string, string>;
     return {
       executive_summary: parsed.executive_summary || "",
       emissions_overview: parsed.emissions_overview || "",
