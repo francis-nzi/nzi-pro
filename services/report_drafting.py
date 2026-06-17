@@ -121,6 +121,9 @@ def _build_prompt_facts(context: dict[str, Any], section_key: str) -> dict[str, 
         "context_summary": _text(context.get("context_summary") or ""),
         "top_categories": "\n".join(category_lines) if category_lines else "No category data available.",
         "selected_actions": "\n".join(action_lines) if action_lines else "No action data available.",
+        # Aliases matching the variable names declared in the seeded prompt templates
+        "reporting_period": _text(job_data.get("reporting_year") or "the reporting period"),
+        "emissions_change_summary": change_sentence,
     }
     facts["prompt_facts"] = "\n".join(
         [
