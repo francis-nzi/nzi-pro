@@ -795,10 +795,12 @@ export default function JobAdvancedReports({
     setDownloading(true);
     setDownloadError(null);
     try {
-      // Do NOT re-capture widgets here. Charts are captured from Job → Insights
-      // ("Capture Charts for PDF") and stored in job_widget_pngs as the single
-      // source of truth. Re-capturing from this page would overwrite them with
-      // a different data calculation and break consistency.
+      // Auto-capture all widget PNGs from this page before generating the PDF.
+      // Report Printing uses the same widget components and data as Insights, so
+      // this is safe and means users never need to visit Insights first.
+      const widgetIds = Object.values(REPORT_WIDGET_IDS);
+      await Promise.allSettled(widgetIds.map((id) => refreshWidgetPngForPdf(id)));
+
       const res = await authFetch(`${baseUrl}/jobs/${jobId}/report-live-pdf`);
       if (!res.ok) {
         let detail = `PDF generation failed (${res.status})`;
@@ -962,6 +964,10 @@ export default function JobAdvancedReports({
     setGenerating(true);
     setGenerateError(null);
     try {
+      // Auto-capture widget PNGs before saving so the PDF matches what's on screen.
+      const widgetIds = Object.values(REPORT_WIDGET_IDS);
+      await Promise.allSettled(widgetIds.map((id) => refreshWidgetPngForPdf(id)));
+
       const res = await authFetch(
         `${baseUrl}/jobs/${jobId}/generate-report-react?save_version=true&report_version_status=${status}`,
         { method: "POST" },
