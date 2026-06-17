@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowRight, CheckCircle2, ChevronDown, CircleX, FileText, Loader2, Search, Sparkles, Target } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { apiUrl } from "@/lib/auth-client";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
 
 type ReportTemplate = {
   template_id: number;
@@ -608,6 +609,7 @@ export default function JobReportNew({
   const [promptStackPreview, setPromptStackPreview] = useState<PromptPreviewResult | null>(null);
   const [promptStackOpen, setPromptStackOpen] = useState(false);
   const [promptStackLoading, setPromptStackLoading] = useState(false);
+  const [draftPromptWarnings, setDraftPromptWarnings] = useState<Record<string, string[]>>({});
   const [activeDraftSection, setActiveDraftSection] = useState<string>("Executive Summary");
   const [loading, setLoading] = useState(true);
   const [reportVersionsLoading, setReportVersionsLoading] = useState(true);
@@ -1231,6 +1233,7 @@ export default function JobReportNew({
     const starter = String(initialDraftNotes[section] || "").trim();
     return note.length > 0 && note !== starter;
   }).length;
+  const activeDraftWarnings = draftPromptWarnings[activeDraftSection] || [];
   const draftStarted = draftedSectionCount > 0;
   const stage4Checks = useMemo(
     () => [
@@ -1492,6 +1495,11 @@ export default function JobReportNew({
             : typeof payload?.draft?.draftText === "string"
               ? payload.draft.draftText
               : "";
+        const promptWarnings = Array.isArray(payload?.draft?.prompt_warnings)
+          ? payload.draft.prompt_warnings.map((warning: unknown) => String(warning))
+          : Array.isArray(payload?.prompt_warnings)
+            ? payload.prompt_warnings.map((warning: unknown) => String(warning))
+            : [];
         const readableDraftText = coerceReadableDraftText(draftText, draftText);
         if (!readableDraftText.trim()) {
           throw new Error("The AI draft did not return usable text.");
@@ -1499,6 +1507,7 @@ export default function JobReportNew({
 
         setDraftNotes((prev) => ({ ...prev, [section]: readableDraftText }));
         setDraftOrigins((prev) => ({ ...prev, [section]: "ai" }));
+        setDraftPromptWarnings((prev) => ({ ...prev, [section]: promptWarnings }));
         const provider = String(payload?.draft?.provider || payload?.saved_draft?.provider || "anthropic").trim().toLowerCase();
         setDraftProviders((prev) => ({
           ...prev,
@@ -1568,12 +1577,18 @@ export default function JobReportNew({
 
         const payload = await res.json();
         const draftText = typeof payload?.draft?.draft_text === "string" ? payload.draft.draft_text : "";
+        const promptWarnings = Array.isArray(payload?.draft?.prompt_warnings)
+          ? payload.draft.prompt_warnings.map((warning: unknown) => String(warning))
+          : Array.isArray(payload?.prompt_warnings)
+            ? payload.prompt_warnings.map((warning: unknown) => String(warning))
+            : [];
         const readableText = coerceReadableDraftText(draftText, draftText);
 
         if (readableText.trim()) {
           currentDrafts[section] = readableText;
           setDraftNotes((prev) => ({ ...prev, [section]: readableText }));
           setDraftOrigins((prev) => ({ ...prev, [section]: "ai" }));
+          setDraftPromptWarnings((prev) => ({ ...prev, [section]: promptWarnings }));
           const provider = String(payload?.draft?.provider || "anthropic").toLowerCase();
           setDraftProviders((prev) => ({
             ...prev,
@@ -2008,6 +2023,16 @@ export default function JobReportNew({
                     {getDraftSectionMeta(activeDraftSection).badge}
                   </Badge>
                 </div>
+                {activeDraftWarnings.length ? (
+                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <div className="font-semibold">Prompt warnings</div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                      {activeDraftWarnings.map((warning, index) => (
+                        <li key={`${warning}-${index}`}>{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
 
                 {AI_DRAFT_SECTIONS.has(activeDraftSection) ? (
                   <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
@@ -2047,11 +2072,9 @@ export default function JobReportNew({
                   </div>
                 ) : null}
 
-                <Textarea
-                  className="mt-3 min-h-[260px]"
+                <MarkdownEditor
                   value={draftNotes[activeDraftSection] || ""}
-                  onChange={(event) => updateDraftNote(activeDraftSection, event.target.value)}
-                  rows={8}
+                  onChange={(val) => updateDraftNote(activeDraftSection, val)}
                   placeholder={`Draft the ${activeDraftSection.toLowerCase()} content for this report...`}
                 />
 

@@ -40,6 +40,7 @@ import {
   type IntensityPathwayPoint,
   type IntensityPathwaySeries,
 } from "@/components/report-widgets";
+import { ReportMarkdown } from "@/components/ReportMarkdown";
 
 /** Convert a reporting period to a compact year label: "2025" or "2022-2023". */
 function toYearLabel(start: string | null | undefined, end: string | null | undefined): string {
@@ -1796,13 +1797,9 @@ export default function JobAdvancedReports({
           </CardHeader>
           <CardContent className="space-y-5">
 
-            {/* AI narrative - rendered as distinct paragraphs */}
+            {/* AI narrative */}
             {execSummaryText ? (
-              <div className="space-y-3">
-                {execSummaryText.split(/\n\n+/).map((para, i) => (
-                  <p key={i} className="text-sm text-gray-700 leading-relaxed">{para.trim()}</p>
-                ))}
-              </div>
+              <ReportMarkdown content={execSummaryText} />
             ) : (
               <p className="text-sm text-gray-400 italic">
                 Executive summary not yet drafted. Generate AI content in Reporting &gt; AI Drafts.
@@ -2098,10 +2095,8 @@ export default function JobAdvancedReports({
                   </div>
                 </div>
                 {footprintSummaryText && (
-                  <div className="mt-4 space-y-3">
-                    {footprintSummaryText.split(/\n\n+/).map((para, i) => (
-                      <p key={i} className="text-sm leading-relaxed text-gray-700">{para.trim()}</p>
-                    ))}
+                  <div className="mt-4">
+                    <ReportMarkdown content={footprintSummaryText} />
                   </div>
                 )}
               </div>
@@ -2109,11 +2104,7 @@ export default function JobAdvancedReports({
 
             {/* Footprint summary when no site breakdown is available */}
             {(site_breakdowns?.overall?.length ?? 0) === 0 && footprintSummaryText && (
-              <div className="space-y-3">
-                {footprintSummaryText.split(/\n\n+/).map((para, i) => (
-                  <p key={i} className="text-sm leading-relaxed text-gray-700">{para.trim()}</p>
-                ))}
-              </div>
+              <ReportMarkdown content={footprintSummaryText} />
             )}
 
           </CardContent>
@@ -2447,9 +2438,7 @@ export default function JobAdvancedReports({
               className="w-full"
             />
             {report_metadata?.activity_commentary && (
-              <p className="text-sm text-gray-600 leading-relaxed">
-                {report_metadata.activity_commentary}
-              </p>
+              <ReportMarkdown content={report_metadata.activity_commentary} />
             )}
 
             {/* Site Breakdown by Activity Group */}
@@ -2784,12 +2773,8 @@ export default function JobAdvancedReports({
             </div>
 
             {actionsNarrativeText && (
-              <div className="space-y-2">
-                {actionsNarrativeText.split(/\n\n+/).map((para, i) => (
-                  <p key={i} className="text-sm text-gray-700 leading-relaxed">
-                    {para.trim()}
-                  </p>
-                ))}
+              <div>
+                <ReportMarkdown content={actionsNarrativeText} />
               </div>
             )}
 

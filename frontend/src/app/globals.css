@@ -123,3 +123,17 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Markdown prose styles used in report rendering and editor preview */
+.report-markdown p { margin-bottom: 0.75rem; line-height: 1.65; }
+.report-markdown p:last-child { margin-bottom: 0; }
+.report-markdown ul { list-style-type: disc; padding-left: 1.25rem; margin-bottom: 0.75rem; }
+.report-markdown ol { list-style-type: decimal; padding-left: 1.25rem; margin-bottom: 0.75rem; }
+.report-markdown li { margin-bottom: 0.25rem; line-height: 1.6; }
+.report-markdown strong { font-weight: 600; }
+.report-markdown em { font-style: italic; }
+.report-markdown h1, .report-markdown h2, .report-markdown h3 { font-weight: 600; margin-bottom: 0.5rem; margin-top: 1rem; }
+.report-markdown h1:first-child, .report-markdown h2:first-child, .report-markdown h3:first-child { margin-top: 0; }
+.report-markdown h1 { font-size: 1.125rem; }
+.report-markdown h2 { font-size: 1rem; }
+.report-markdown h3 { font-size: 0.9375rem; }
