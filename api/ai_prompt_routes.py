@@ -572,16 +572,22 @@ def preview_ai_prompt(
         assert_client_access(_user, int(payload.client_db_id))
     if payload.job_id is not None:
         assert_job_access(_user, int(payload.job_id))
-
-    compiled = compile_prompt(
-        org_id=org_id,
-        report_family_key=payload.report_family_key,
-        section_key=payload.section_key,
-        facts=payload.facts or {},
-        template_id=payload.template_id,
-        client_db_id=payload.client_db_id,
-        job_id=payload.job_id,
-    )
+    _ensure_schema()
+    try:
+        compiled = compile_prompt(
+            org_id=org_id,
+            report_family_key=payload.report_family_key,
+            section_key=payload.section_key,
+            facts=payload.facts or {},
+            template_id=payload.template_id,
+            client_db_id=payload.client_db_id,
+            job_id=payload.job_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No prompt template found: {exc}. Set up a prompt template in Admin → AI Prompts first.",
+        )
     return {"compiled_prompt": compiled.model_dump()}
 
 

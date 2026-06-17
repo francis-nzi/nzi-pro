@@ -1097,8 +1097,15 @@ export default function JobReportNew({
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const detail = await res.text().catch(() => "");
-        throw new Error(detail || `Unable to preview prompt stack (${res.status}).`);
+        let message = `Unable to preview prompt stack (${res.status}).`;
+        try {
+          const errJson = await res.json();
+          if (errJson?.detail && typeof errJson.detail === "string") message = errJson.detail;
+        } catch {
+          const raw = await res.text().catch(() => "");
+          if (raw && !looksLikeHtmlErrorBody(raw)) message = raw;
+        }
+        throw new Error(message);
       }
       const json = (await res.json()) as { compiled_prompt?: PromptPreviewResult | null };
       setPromptStackPreview(json.compiled_prompt || null);
