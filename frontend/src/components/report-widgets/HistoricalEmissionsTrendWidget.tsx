@@ -91,7 +91,7 @@ export function HistoricalEmissionsTrendWidget({
               <CardTitle>{title}</CardTitle>
               {subtitle ? <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{subtitle}</div> : null}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 print:hidden">
               {showPng ? (
                 <Button variant="outline" size="sm" onClick={() => void downloadPng()} disabled>
                   <Download className="mr-2 h-4 w-4" />

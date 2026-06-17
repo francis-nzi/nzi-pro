@@ -31,7 +31,7 @@ export function ScopeCategoryComparisonTable({
   return (
     <div className="overflow-x-auto" data-widget-key={widgetKey}>
       {showWidgetRef ? (
-        <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-[0.28em] text-muted-foreground">
+        <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-[0.28em] text-muted-foreground print:hidden">
           <span>Widget ref</span>
           <span className="font-mono tracking-[0.18em] text-foreground">{widgetKey}</span>
         </div>
