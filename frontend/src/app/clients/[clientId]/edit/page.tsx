@@ -1434,12 +1434,15 @@ export default function EditClientPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="groupStructure">Group structure</Label>
-                  <Select value={groupStructure} onValueChange={setGroupStructure}>
+                  <Select
+                    value={groupStructure || "__none__"}
+                    onValueChange={(v) => setGroupStructure(v === "__none__" ? "" : v)}
+                  >
                     <SelectTrigger id="groupStructure">
                       <SelectValue placeholder="Select…" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Not specified</SelectItem>
+                      <SelectItem value="__none__">Not specified</SelectItem>
                       {GROUP_STRUCTURE_OPTIONS.map((opt) => (
                         <SelectItem key={opt} value={opt}>{opt}</SelectItem>
                       ))}
