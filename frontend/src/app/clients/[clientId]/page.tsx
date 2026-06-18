@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import ClientDashboard from "@/components/ClientDashboard";
@@ -712,8 +713,9 @@ function ClientDetailPageContent() {
       await reloadContacts();
       setContactForm({ full_name: "", job_title: "", email: "", phone: "", is_primary: false });
       setShowAddContact(false);
+      toast.success("Contact added");
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
   }
 
@@ -729,8 +731,9 @@ function ClientDetailPageContent() {
       await reloadContacts();
       setContactForm({ full_name: "", job_title: "", email: "", phone: "", is_primary: false });
       setEditingContact(null);
+      toast.success("Contact updated");
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
   }
 
@@ -749,8 +752,9 @@ function ClientDetailPageContent() {
       });
       if (!res.ok) throw new Error("Failed to delete contact");
       await reloadContacts();
+      toast.success("Contact deleted");
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
   }
 
@@ -766,8 +770,9 @@ function ClientDetailPageContent() {
       await reloadSites();
       setSiteForm({ site_name: "", location: "", is_registered_office: false });
       setShowAddSite(false);
+      toast.success("Site added");
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
   }
 
@@ -784,14 +789,15 @@ function ClientDetailPageContent() {
       setSiteForm({ site_name: "", location: "", is_registered_office: false });
       setEditingSite(null);
       setShowAddSite(false);
+      toast.success("Site updated");
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
   }
 
   async function handleVacateSite(siteId: number) {
     if (!vacatedDate) {
-      alert("Please select a vacated date");
+      toast.warning("Please select a vacated date");
       return;
     }
     try {
@@ -805,8 +811,9 @@ function ClientDetailPageContent() {
       await reloadSites();
       setVacatingSite(null);
       setVacatedDate("");
+      toast.success("Site marked as vacated");
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
   }
 

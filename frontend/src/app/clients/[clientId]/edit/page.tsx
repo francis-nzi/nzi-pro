@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import ClientLogoUpload from "@/components/ClientLogoUpload";
@@ -21,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -478,8 +480,9 @@ export default function EditClientPage() {
       await loadSites();
       setSiteForm({ site_name: "", location: "", is_registered_office: false });
       setShowAddSite(false);
+      toast.success("Site added");
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
   }
 
@@ -499,14 +502,15 @@ export default function EditClientPage() {
       await loadSites();
       setSiteForm({ site_name: "", location: "", is_registered_office: false });
       setEditingSite(null);
+      toast.success("Site updated");
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
   }
 
   async function handleVacateSite(siteId: number) {
     if (!vacatedDate) {
-      alert("Please select a vacated date");
+      toast.warning("Please select a vacated date");
       return;
     }
 
@@ -525,8 +529,9 @@ export default function EditClientPage() {
       await loadSites();
       setVacatingSite(null);
       setVacatedDate("");
+      toast.success("Site marked as vacated");
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
   }
 
@@ -667,7 +672,7 @@ export default function EditClientPage() {
                 <Link href={`/clients/${clientId}`}>Cancel</Link>
               </Button>
               <Button onClick={saveClient} disabled={saving || loading}>
-                Save All
+                {saving ? "Saving…" : "Save All"}
               </Button>
             </>
           }
@@ -675,148 +680,154 @@ export default function EditClientPage() {
 
         {error ? <div className="mb-4 text-sm text-destructive">{error}</div> : null}
         {status ? <div className="mb-4 text-sm text-muted-foreground">{status}</div> : null}
-        {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading...</div> : null}
+        {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading…</div> : null}
 
-        <div className="grid gap-6">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-4">
+        <Tabs defaultValue="details" className="mt-2">
+          <TabsList className="mb-6 flex-wrap h-auto gap-1">
+            <TabsTrigger value="details">Details</TabsTrigger>
+            <TabsTrigger value="targets">Targets</TabsTrigger>
+            <TabsTrigger value="address">Address</TabsTrigger>
+            <TabsTrigger value="sites">
+              Sites {activeSites.length > 0 ? `(${activeSites.length})` : ""}
+            </TabsTrigger>
+            <TabsTrigger value="compliance">Compliance</TabsTrigger>
+          </TabsList>
+
+          {/* ── Details tab ── */}
+          <TabsContent value="details">
+            <Card>
+              <CardHeader>
                 <CardTitle>Basic Information</CardTitle>
-                <Button size="sm" onClick={saveClient} disabled={saving || loading}>
-                  Save Section
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="clientName">Client Name *</Label>
-                  <Input
-                    id="clientName"
-                    value={clientName}
-                    onChange={(e) => setClientName(e.target.value)}
-                    placeholder="Company Ltd"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="portfolio">Portfolio</Label>
-                  <Select value={portfolio} onValueChange={setPortfolio}>
-                    <SelectTrigger id="portfolio">
-                      <SelectValue placeholder="Select portfolio..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {portfolios.map((p, idx) => (
-                        <SelectItem key={`portfolio-${idx}`} value={p}>{p}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="crmOwner">Client Owner</Label>
-                  <Select value={crmOwner} onValueChange={setCrmOwner}>
-                    <SelectTrigger id="crmOwner">
-                      <SelectValue placeholder="Select client owner..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {users.map((u, idx) => (
-                        <SelectItem key={u.email || `user-${idx}`} value={u.full_name || u.email}>
-                          {u.full_name || u.email}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="website">Website</Label>
-                  <Input
-                    id="website"
-                    value={website}
-                    onChange={(e) => setWebsite(e.target.value)}
-                    placeholder="https://example.com"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="industry">Industry</Label>
-                  <SearchableStringSelect
-                    id="industry"
-                    value={industry}
-                    options={industries}
-                    placeholder="Search industries..."
-                    onValueChange={setIndustry}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="companyReg">Company Registration</Label>
-                  <Input
-                    id="companyReg"
-                    value={companyReg}
-                    onChange={(e) => setCompanyReg(e.target.value)}
-                    placeholder="12345678"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sicCode">Industry Code (SIC)</Label>
-                  <Input
-                    id="sicCode"
-                    value={sicCode}
-                    onChange={(e) => setSicCode(e.target.value)}
-                    placeholder="e.g. 62012"
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="headquarters">Headquarters</Label>
-                  <Input
-                    id="headquarters"
-                    value={headquarters}
-                    onChange={(e) => setHeadquarters(e.target.value)}
-                    placeholder="London, UK"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="yearEndMonth">Financial Year End</Label>
-                  <Select value={yearEndMonth || undefined} onValueChange={setYearEndMonth}>
-                    <SelectTrigger id="yearEndMonth">
-                      <SelectValue placeholder="Select month..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {MONTHS.map((m) => (
-                        <SelectItem key={m.value} value={m.value}>
-                          {m.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="currency">Currency</Label>
-                  <Select value={currency} onValueChange={setCurrency}>
-                    <SelectTrigger id="currency">
-                      <SelectValue placeholder="Select currency..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {currencies.length > 0 ? (
-                        currencies.map((c) => (
-                          <SelectItem key={c.currency_code} value={c.currency_code}>
-                            {c.currency_code}
-                            {c.symbol ? ` (${c.symbol})` : ""}
-                            {c.currency_name ? ` - ${c.currency_name}` : ""}
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="clientName">Client Name *</Label>
+                    <Input
+                      id="clientName"
+                      value={clientName}
+                      onChange={(e) => setClientName(e.target.value)}
+                      placeholder="Company Ltd"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="portfolio">Portfolio</Label>
+                    <Select value={portfolio} onValueChange={setPortfolio}>
+                      <SelectTrigger id="portfolio">
+                        <SelectValue placeholder="Select portfolio..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {portfolios.map((p, idx) => (
+                          <SelectItem key={`portfolio-${idx}`} value={p}>{p}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="crmOwner">Client Owner</Label>
+                    <Select value={crmOwner} onValueChange={setCrmOwner}>
+                      <SelectTrigger id="crmOwner">
+                        <SelectValue placeholder="Select client owner..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {users.map((u, idx) => (
+                          <SelectItem key={u.email || `user-${idx}`} value={u.full_name || u.email}>
+                            {u.full_name || u.email}
                           </SelectItem>
-                        ))
-                      ) : (
-                        <SelectItem value="GBP">GBP</SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-              </div>
 
-              <div className="grid gap-4 md:grid-cols-1">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="website">Website</Label>
+                    <Input
+                      id="website"
+                      value={website}
+                      onChange={(e) => setWebsite(e.target.value)}
+                      placeholder="https://example.com"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="industry">Industry</Label>
+                    <SearchableStringSelect
+                      id="industry"
+                      value={industry}
+                      options={industries}
+                      placeholder="Search industries..."
+                      onValueChange={setIndustry}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="companyReg">Company Registration</Label>
+                    <Input
+                      id="companyReg"
+                      value={companyReg}
+                      onChange={(e) => setCompanyReg(e.target.value)}
+                      placeholder="12345678"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="sicCode">Industry Code (SIC)</Label>
+                    <Input
+                      id="sicCode"
+                      value={sicCode}
+                      onChange={(e) => setSicCode(e.target.value)}
+                      placeholder="e.g. 62012"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="headquarters">Headquarters</Label>
+                    <Input
+                      id="headquarters"
+                      value={headquarters}
+                      onChange={(e) => setHeadquarters(e.target.value)}
+                      placeholder="London, UK"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="yearEndMonth">Financial Year End</Label>
+                    <Select value={yearEndMonth || undefined} onValueChange={setYearEndMonth}>
+                      <SelectTrigger id="yearEndMonth">
+                        <SelectValue placeholder="Select month..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MONTHS.map((m) => (
+                          <SelectItem key={m.value} value={m.value}>
+                            {m.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="currency">Currency</Label>
+                    <Select value={currency} onValueChange={setCurrency}>
+                      <SelectTrigger id="currency">
+                        <SelectValue placeholder="Select currency..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {currencies.length > 0 ? (
+                          currencies.map((c) => (
+                            <SelectItem key={c.currency_code} value={c.currency_code}>
+                              {c.currency_code}
+                              {c.symbol ? ` (${c.symbol})` : ""}
+                              {c.currency_name ? ` - ${c.currency_name}` : ""}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <SelectItem value="GBP">GBP</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="logoUrl">Logo URL</Label>
                   <Input
@@ -826,269 +837,270 @@ export default function EditClientPage() {
                     placeholder="https://..."
                   />
                 </div>
-              </div>
 
-              <ClientLogoUpload
-                baseUrl={baseUrl}
-                logoUrl={logoUrl}
-                onLogoUrlChange={setLogoUrl}
-                clientDbId={clientId}
-              />
-
-              <div className="space-y-2">
-                <Label htmlFor="description">Company Description</Label>
-                <Textarea
-                  id="description"
-                  value={descriptionLong}
-                  onChange={(e) => setDescriptionLong(e.target.value)}
-                  placeholder="Brief description of the company..."
-                  rows={4}
+                <ClientLogoUpload
+                  baseUrl={baseUrl}
+                  logoUrl={logoUrl}
+                  onLogoUrlChange={setLogoUrl}
+                  clientDbId={clientId}
                 />
-              </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="status">Status</Label>
-                <Select value={clientStatus} onValueChange={setClientStatus}>
-                  <SelectTrigger id="status">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Active">Active</SelectItem>
-                    <SelectItem value="Inactive">Inactive</SelectItem>
-                    <SelectItem value="Prospect">Prospect</SelectItem>
-                    <SelectItem value="Archived">Archived</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </CardContent>
-          </Card>
+                <div className="space-y-2">
+                  <Label htmlFor="description">Company Description</Label>
+                  <Textarea
+                    id="description"
+                    value={descriptionLong}
+                    onChange={(e) => setDescriptionLong(e.target.value)}
+                    placeholder="Brief description of the company..."
+                    rows={4}
+                  />
+                </div>
 
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="status">Status</Label>
+                  <Select value={clientStatus} onValueChange={setClientStatus}>
+                    <SelectTrigger id="status">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Active">Active</SelectItem>
+                      <SelectItem value="Inactive">Inactive</SelectItem>
+                      <SelectItem value="Prospect">Prospect</SelectItem>
+                      <SelectItem value="Archived">Archived</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <Button onClick={saveClient} disabled={saving || loading}>
+                    {saving ? "Saving…" : "Save"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ── Targets tab ── */}
+          <TabsContent value="targets">
+            <Card>
+              <CardHeader>
                 <CardTitle>Net Zero Targets</CardTitle>
-                <Button size="sm" onClick={saveClient} disabled={saving || loading}>
-                  Save Section
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="rounded-lg border bg-background/70 p-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="netZeroYear">Net Zero Target Year</Label>
-                    <Input
-                      id="netZeroYear"
-                      type="number"
-                      value={netZeroYear}
-                      onChange={(e) => setNetZeroYear(e.target.value)}
-                      min="2025"
-                      max="2100"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="netZeroTargetReductionPct">Net Zero Target Reduction %</Label>
-                    <Input
-                      id="netZeroTargetReductionPct"
-                      type="number"
-                      value={netZeroTargetReductionPct}
-                      onChange={(e) => setNetZeroTargetReductionPct(e.target.value)}
-                      min="0"
-                      max="100"
-                      placeholder="90"
-                    />
-                    <p className="text-xs text-muted-foreground">Default 90% in line with Net Zero requirements.</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-orange-200 bg-orange-50 p-4 space-y-4">
-                <div>
-                  <h3 className="font-semibold text-sm mb-1">Benchmark Period (Financial Year)</h3>
-                  <p className="text-xs text-muted-foreground">Define the benchmark reporting period. This should align with the client&apos;s financial year. All subsequent annual jobs will automatically follow this period structure.</p>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="benchmarkPeriodStart">Benchmark Period Start</Label>
-                    <Input
-                      id="benchmarkPeriodStart"
-                      type="date"
-                      value={benchmarkPeriodStart}
-                      onChange={(e) => setBenchmarkPeriodStart(e.target.value)}
-                      placeholder="dd/mm/yyyy"
-                    />
-                    <p className="text-xs text-muted-foreground">e.g. 01/08/2022</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="benchmarkPeriodEnd">Benchmark Period End</Label>
-                    <Input
-                      id="benchmarkPeriodEnd"
-                      type="date"
-                      value={benchmarkPeriodEnd}
-                      onChange={(e) => setBenchmarkPeriodEnd(e.target.value)}
-                      placeholder="dd/mm/yyyy"
-                    />
-                    <p className="text-xs text-muted-foreground">e.g. 31/07/2023</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border bg-slate-50 p-4 space-y-4">
-                <div>
-                  <h3 className="font-semibold text-sm mb-1">Historical Benchmark Emissions</h3>
-                  <p className="text-xs text-muted-foreground">Capture third-party benchmark values for Scope 1, 2, 3 and total so reports can compare against the client&apos;s own baseline.</p>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="benchmarkScope1">Benchmark Scope 1</Label>
-                    <Input
-                      id="benchmarkScope1"
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={benchmarkScope1}
-                      onChange={(e) => setBenchmarkScope1(e.target.value)}
-                      placeholder="e.g. 123.4"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="benchmarkScope2">Benchmark Scope 2</Label>
-                    <Input
-                      id="benchmarkScope2"
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={benchmarkScope2}
-                      onChange={(e) => setBenchmarkScope2(e.target.value)}
-                      placeholder="e.g. 456.7"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="benchmarkScope3">Benchmark Scope 3</Label>
-                    <Input
-                      id="benchmarkScope3"
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={benchmarkScope3}
-                      onChange={(e) => setBenchmarkScope3(e.target.value)}
-                      placeholder="e.g. 789.0"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="benchmarkTotal">Benchmark Total</Label>
-                    <Input
-                      id="benchmarkTotal"
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={benchmarkTotal}
-                      onChange={(e) => setBenchmarkTotal(e.target.value)}
-                      placeholder="e.g. 1369.1"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border bg-background/70 p-4 space-y-4">
-                <div>
-                  <h3 className="text-sm font-semibold">Interim Targets</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Scope 1, 2 and 3 interim target years and reduction percentages.
-                  </p>
-                </div>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="targetS1Year">Scope 1 Interim Target Year</Label>
-                    <Input
-                      id="targetS1Year"
-                      type="number"
-                      value={targetS1Year}
-                      onChange={(e) => setTargetS1Year(e.target.value)}
-                      min="2025"
-                      max="2100"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="targetS1Pct">Scope 1 Interim Reduction %</Label>
-                    <Input
-                      id="targetS1Pct"
-                      type="number"
-                      value={targetS1Pct}
-                      onChange={(e) => setTargetS1Pct(e.target.value)}
-                      min="0"
-                      max="100"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="targetS2Year">Scope 2 Interim Target Year</Label>
-                    <Input
-                      id="targetS2Year"
-                      type="number"
-                      value={targetS2Year}
-                      onChange={(e) => setTargetS2Year(e.target.value)}
-                      min="2025"
-                      max="2100"
-                    />
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="rounded-lg border bg-background/70 p-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="netZeroYear">Net Zero Target Year</Label>
+                      <Input
+                        id="netZeroYear"
+                        type="number"
+                        value={netZeroYear}
+                        onChange={(e) => setNetZeroYear(e.target.value)}
+                        min="2025"
+                        max="2100"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="netZeroTargetReductionPct">Net Zero Target Reduction %</Label>
+                      <Input
+                        id="netZeroTargetReductionPct"
+                        type="number"
+                        value={netZeroTargetReductionPct}
+                        onChange={(e) => setNetZeroTargetReductionPct(e.target.value)}
+                        min="0"
+                        max="100"
+                        placeholder="90"
+                      />
+                      <p className="text-xs text-muted-foreground">Default 90% in line with Net Zero requirements.</p>
+                    </div>
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="targetS2Pct">Scope 2 Interim Reduction %</Label>
-                    <Input
-                      id="targetS2Pct"
-                      type="number"
-                      value={targetS2Pct}
-                      onChange={(e) => setTargetS2Pct(e.target.value)}
-                      min="0"
-                      max="100"
-                    />
+                <div className="rounded-lg border border-orange-200 bg-orange-50 p-4 space-y-4">
+                  <div>
+                    <h3 className="font-semibold text-sm mb-1">Benchmark Period (Financial Year)</h3>
+                    <p className="text-xs text-muted-foreground">Define the benchmark reporting period. This should align with the client&apos;s financial year. All subsequent annual jobs will automatically follow this period structure.</p>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="targetS3Year">Scope 3 Interim Target Year</Label>
-                    <Input
-                      id="targetS3Year"
-                      type="number"
-                      value={targetS3Year}
-                      onChange={(e) => setTargetS3Year(e.target.value)}
-                      min="2025"
-                      max="2100"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="targetS3Pct">Scope 3 Interim Reduction %</Label>
-                    <Input
-                      id="targetS3Pct"
-                      type="number"
-                      value={targetS3Pct}
-                      onChange={(e) => setTargetS3Pct(e.target.value)}
-                      min="0"
-                      max="100"
-                    />
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="benchmarkPeriodStart">Benchmark Period Start</Label>
+                      <Input
+                        id="benchmarkPeriodStart"
+                        type="date"
+                        value={benchmarkPeriodStart}
+                        onChange={(e) => setBenchmarkPeriodStart(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">e.g. 01/08/2022</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="benchmarkPeriodEnd">Benchmark Period End</Label>
+                      <Input
+                        id="benchmarkPeriodEnd"
+                        type="date"
+                        value={benchmarkPeriodEnd}
+                        onChange={(e) => setBenchmarkPeriodEnd(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">e.g. 31/07/2023</p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
 
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-4">
-                <CardTitle>Address</CardTitle>
-                <Button size="sm" onClick={saveClient} disabled={saving || loading}>
-                  Save Section
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="rounded-lg border bg-background/70 p-4 space-y-4">
-                <div>
-                  <h3 className="text-sm font-semibold">Registered / trading address</h3>
-                  <p className="text-xs text-muted-foreground">
-                    This is the client&apos;s primary registered or trading address, and can also be used to create a site.
-                  </p>
+                <div className="rounded-lg border bg-slate-50 p-4 space-y-4">
+                  <div>
+                    <h3 className="font-semibold text-sm mb-1">Historical Benchmark Emissions</h3>
+                    <p className="text-xs text-muted-foreground">Capture third-party benchmark values for Scope 1, 2, 3 and total so reports can compare against the client&apos;s own baseline.</p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="benchmarkScope1">Benchmark Scope 1</Label>
+                      <Input
+                        id="benchmarkScope1"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={benchmarkScope1}
+                        onChange={(e) => setBenchmarkScope1(e.target.value)}
+                        placeholder="e.g. 123.4"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="benchmarkScope2">Benchmark Scope 2</Label>
+                      <Input
+                        id="benchmarkScope2"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={benchmarkScope2}
+                        onChange={(e) => setBenchmarkScope2(e.target.value)}
+                        placeholder="e.g. 456.7"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="benchmarkScope3">Benchmark Scope 3</Label>
+                      <Input
+                        id="benchmarkScope3"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={benchmarkScope3}
+                        onChange={(e) => setBenchmarkScope3(e.target.value)}
+                        placeholder="e.g. 789.0"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="benchmarkTotal">Benchmark Total</Label>
+                      <Input
+                        id="benchmarkTotal"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={benchmarkTotal}
+                        onChange={(e) => setBenchmarkTotal(e.target.value)}
+                        placeholder="e.g. 1369.1"
+                      />
+                    </div>
+                  </div>
                 </div>
+
+                <div className="rounded-lg border bg-background/70 p-4 space-y-4">
+                  <div>
+                    <h3 className="text-sm font-semibold">Interim Targets</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Scope 1, 2 and 3 interim target years and reduction percentages.
+                    </p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="targetS1Year">Scope 1 Interim Target Year</Label>
+                      <Input
+                        id="targetS1Year"
+                        type="number"
+                        value={targetS1Year}
+                        onChange={(e) => setTargetS1Year(e.target.value)}
+                        min="2025"
+                        max="2100"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="targetS1Pct">Scope 1 Interim Reduction %</Label>
+                      <Input
+                        id="targetS1Pct"
+                        type="number"
+                        value={targetS1Pct}
+                        onChange={(e) => setTargetS1Pct(e.target.value)}
+                        min="0"
+                        max="100"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="targetS2Year">Scope 2 Interim Target Year</Label>
+                      <Input
+                        id="targetS2Year"
+                        type="number"
+                        value={targetS2Year}
+                        onChange={(e) => setTargetS2Year(e.target.value)}
+                        min="2025"
+                        max="2100"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="targetS2Pct">Scope 2 Interim Reduction %</Label>
+                      <Input
+                        id="targetS2Pct"
+                        type="number"
+                        value={targetS2Pct}
+                        onChange={(e) => setTargetS2Pct(e.target.value)}
+                        min="0"
+                        max="100"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="targetS3Year">Scope 3 Interim Target Year</Label>
+                      <Input
+                        id="targetS3Year"
+                        type="number"
+                        value={targetS3Year}
+                        onChange={(e) => setTargetS3Year(e.target.value)}
+                        min="2025"
+                        max="2100"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="targetS3Pct">Scope 3 Interim Reduction %</Label>
+                      <Input
+                        id="targetS3Pct"
+                        type="number"
+                        value={targetS3Pct}
+                        onChange={(e) => setTargetS3Pct(e.target.value)}
+                        min="0"
+                        max="100"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button onClick={saveClient} disabled={saving || loading}>
+                    {saving ? "Saving…" : "Save"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ── Address tab ── */}
+          <TabsContent value="address" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Registered / Trading Address</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  The client&apos;s primary registered or trading address. Can also be used to create a site.
+                </p>
                 <div className="space-y-2">
                   <Label htmlFor="addrLine1">Address Line 1</Label>
                   <Input
@@ -1148,393 +1160,271 @@ export default function EditClientPage() {
                     placeholder="United Kingdom"
                   />
                 </div>
-              </div>
 
-              <div className="flex items-center space-x-2 border-t pt-2">
-                <input
-                  type="checkbox"
-                  id="createSiteFromAddress"
-                  checked={createSiteFromAddress}
-                  onChange={(e) => setCreateSiteFromAddress(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300"
-                />
-                <Label htmlFor="createSiteFromAddress" className="font-normal cursor-pointer">
-                  Create site from this registered address
-                </Label>
-              </div>
-            </CardContent>
-          </Card>
+                <div className="flex items-center space-x-2 border-t pt-3">
+                  <input
+                    type="checkbox"
+                    id="createSiteFromAddress"
+                    checked={createSiteFromAddress}
+                    onChange={(e) => setCreateSiteFromAddress(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <Label htmlFor="createSiteFromAddress" className="font-normal cursor-pointer">
+                    Create site from this registered address
+                  </Label>
+                </div>
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-4">
+            <Card>
+              <CardHeader>
                 <CardTitle>Billing Address</CardTitle>
-                <Button size="sm" onClick={saveClient} disabled={saving || loading}>
-                  Save Section
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <h3 className="text-sm font-semibold">Billing details</h3>
-                <p className="text-xs text-muted-foreground">
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
                   Use this only if invoices should go to a different address.
                 </p>
-              </div>
 
-              <div className="flex items-center space-x-2 border-t pt-2">
-                <input
-                  type="checkbox"
-                  id="billingSameAsMain"
-                  checked={billingSameAsMain}
-                  onChange={(e) => setBillingSameAsMain(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300"
-                />
-                <Label htmlFor="billingSameAsMain" className="font-normal cursor-pointer">
-                  Billing address same as registered address
-                </Label>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="billingCompany">Billing Company</Label>
-                <Input
-                  id="billingCompany"
-                  value={billingCompany}
-                  onChange={(e) => setBillingCompany(e.target.value)}
-                  placeholder={clientName || "Client name"}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Defaults to the client name, but you can override it for invoicing.
-                </p>
-              </div>
-
-              {!billingSameAsMain && (
-                <div className="space-y-4 rounded-md border bg-muted/30 p-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="billingAddrLine1">Billing Address Line 1</Label>
-                    <Input
-                      id="billingAddrLine1"
-                      value={billingAddrLine1}
-                      onChange={(e) => setBillingAddrLine1(e.target.value)}
-                      placeholder="123 Finance Street"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="billingAddrLine2">Billing Address Line 2</Label>
-                    <Input
-                      id="billingAddrLine2"
-                      value={billingAddrLine2}
-                      onChange={(e) => setBillingAddrLine2(e.target.value)}
-                      placeholder="Suite 200"
-                    />
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="billingAddrCity">Billing City</Label>
-                      <Input
-                        id="billingAddrCity"
-                        value={billingAddrCity}
-                        onChange={(e) => setBillingAddrCity(e.target.value)}
-                        placeholder="London"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="billingAddrRegion">Billing Region/County</Label>
-                      <Input
-                        id="billingAddrRegion"
-                        value={billingAddrRegion}
-                        onChange={(e) => setBillingAddrRegion(e.target.value)}
-                        placeholder="Greater London"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="billingAddrPostcode">Billing Postcode</Label>
-                      <Input
-                        id="billingAddrPostcode"
-                        value={billingAddrPostcode}
-                        onChange={(e) => setBillingAddrPostcode(e.target.value)}
-                        placeholder="SW1A 1AA"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="billingAddrCountry">Billing Country</Label>
-                    <Input
-                      id="billingAddrCountry"
-                      value={billingAddrCountry}
-                      onChange={(e) => setBillingAddrCountry(e.target.value)}
-                      placeholder="United Kingdom"
-                    />
-                  </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="billingSameAsMain"
+                    checked={billingSameAsMain}
+                    onChange={(e) => setBillingSameAsMain(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <Label htmlFor="billingSameAsMain" className="font-normal cursor-pointer">
+                    Billing address same as registered address
+                  </Label>
                 </div>
-              )}
-            </CardContent>
-          </Card>
 
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-4">
-                <CardTitle>Active Sites ({activeSites.length})</CardTitle>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setShowAddSite(true);
-                    setEditingSite(null);
-                    setSiteForm({ site_name: "", location: "", is_registered_office: false });
-                  }}
-                >
-                  + Add Site
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {showAddSite || editingSite ? (
-                <div className="mb-4 space-y-3 rounded-md border p-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="siteName">Site Name</Label>
-                    <Input
-                      id="siteName"
-                      value={siteForm.site_name}
-                      onChange={(e) => setSiteForm({ ...siteForm, site_name: e.target.value })}
-                      placeholder="Main Office"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="siteLocation">Location</Label>
-                    <Input
-                      id="siteLocation"
-                      value={siteForm.location}
-                      onChange={(e) => setSiteForm({ ...siteForm, location: e.target.value })}
-                      placeholder="London, UK"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="is_registered_office"
-                      checked={siteForm.is_registered_office}
-                      onChange={(e) => setSiteForm({ ...siteForm, is_registered_office: e.target.checked })}
-                      className="h-4 w-4 rounded border-gray-300"
-                    />
-                    <Label htmlFor="is_registered_office" className="font-normal cursor-pointer">
-                      Registered Office
-                    </Label>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button 
-                      size="sm" 
-                      onClick={() => editingSite ? handleEditSite(editingSite) : handleAddSite()}
-                    >
-                      {editingSite ? "Update" : "Add"}
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={cancelSiteEdit}>
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-
-              {activeSites.length === 0 ? (
-                <div className="text-sm text-muted-foreground">No active sites.</div>
-              ) : (
                 <div className="space-y-2">
-                  {activeSites.map((site) => (
-                    <div key={site.site_id} className="rounded-md border px-3 py-2 text-sm">
-                      {vacatingSite === site.site_id ? (
-                        <div className="space-y-3">
-                          <div className="font-medium">Vacate Site: {site.site_name}</div>
-                          <div className="space-y-2">
-                            <Label htmlFor="vacatedDate">Vacated Date</Label>
-                            <Input
-                              id="vacatedDate"
-                              type="date"
-                              value={vacatedDate}
-                              onChange={(e) => setVacatedDate(e.target.value)}
-                            />
-                          </div>
-                          <div className="flex gap-2">
-                            <Button size="sm" onClick={() => handleVacateSite(site.site_id)}>
-                              Confirm Vacate
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => { setVacatingSite(null); setVacatedDate(""); }}>
-                              Cancel
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1">
-                            <div className="font-medium">
-                              {site.site_name ?? ""}
-                              {site.is_registered_office && (
-                                <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
-                                  Registered Office
-                                </span>
-                              )}
-                            </div>
-                            {site.location && (
-                              <div className="text-muted-foreground">{site.location}</div>
-                            )}
-                          </div>
-                          <div className="flex gap-1">
-                            <Button 
-                              size="sm" 
-                              variant="outline"
-                              onClick={() => startEditSite(site)}
-                            >
-                              Edit
-                            </Button>
-                            <Button 
-                              size="sm" 
-                              variant="destructive"
-                              onClick={() => { setVacatingSite(site.site_id); setVacatedDate(""); }}
-                            >
-                              Vacate
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* ── Context & Compliance card ── */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <CardTitle>Context &amp; Compliance</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Used by AI insights to generate more accurate and relevant outputs.
+                  <Label htmlFor="billingCompany">Billing Company</Label>
+                  <Input
+                    id="billingCompany"
+                    value={billingCompany}
+                    onChange={(e) => setBillingCompany(e.target.value)}
+                    placeholder={clientName || "Client name"}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Defaults to the client name, but you can override it for invoicing.
                   </p>
                 </div>
-                <Button size="sm" onClick={saveClient} disabled={saving || loading}>
-                  Save Section
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
 
-              {/* Group structure */}
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="parentCompany">Parent company / group name</Label>
-                  <Input
-                    id="parentCompany"
-                    value={parentCompany}
-                    onChange={(e) => setParentCompany(e.target.value)}
-                    placeholder="e.g. Acme Group plc"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="groupStructure">Group structure</Label>
-                  <Select
-                    value={groupStructure || "__none__"}
-                    onValueChange={(v) => setGroupStructure(v === "__none__" ? "" : v)}
+                {!billingSameAsMain && (
+                  <div className="space-y-4 rounded-md border bg-muted/30 p-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="billingAddrLine1">Billing Address Line 1</Label>
+                      <Input
+                        id="billingAddrLine1"
+                        value={billingAddrLine1}
+                        onChange={(e) => setBillingAddrLine1(e.target.value)}
+                        placeholder="123 Finance Street"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="billingAddrLine2">Billing Address Line 2</Label>
+                      <Input
+                        id="billingAddrLine2"
+                        value={billingAddrLine2}
+                        onChange={(e) => setBillingAddrLine2(e.target.value)}
+                        placeholder="Suite 200"
+                      />
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="billingAddrCity">Billing City</Label>
+                        <Input
+                          id="billingAddrCity"
+                          value={billingAddrCity}
+                          onChange={(e) => setBillingAddrCity(e.target.value)}
+                          placeholder="London"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="billingAddrRegion">Billing Region/County</Label>
+                        <Input
+                          id="billingAddrRegion"
+                          value={billingAddrRegion}
+                          onChange={(e) => setBillingAddrRegion(e.target.value)}
+                          placeholder="Greater London"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="billingAddrPostcode">Billing Postcode</Label>
+                        <Input
+                          id="billingAddrPostcode"
+                          value={billingAddrPostcode}
+                          onChange={(e) => setBillingAddrPostcode(e.target.value)}
+                          placeholder="SW1A 1AA"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="billingAddrCountry">Billing Country</Label>
+                      <Input
+                        id="billingAddrCountry"
+                        value={billingAddrCountry}
+                        onChange={(e) => setBillingAddrCountry(e.target.value)}
+                        placeholder="United Kingdom"
+                      />
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="flex justify-end">
+              <Button onClick={saveClient} disabled={saving || loading}>
+                {saving ? "Saving…" : "Save"}
+              </Button>
+            </div>
+          </TabsContent>
+
+          {/* ── Sites tab ── */}
+          <TabsContent value="sites" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-4">
+                  <CardTitle>Active Sites ({activeSites.length})</CardTitle>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setShowAddSite(true);
+                      setEditingSite(null);
+                      setSiteForm({ site_name: "", location: "", is_registered_office: false });
+                    }}
                   >
-                    <SelectTrigger id="groupStructure">
-                      <SelectValue placeholder="Select…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Not specified</SelectItem>
-                      {GROUP_STRUCTURE_OPTIONS.map((opt) => (
-                        <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    + Add Site
+                  </Button>
                 </div>
-              </div>
-
-              {/* Reporting frameworks */}
-              <div className="space-y-2">
-                <Label>Reporting obligations &amp; frameworks</Label>
-                <p className="text-xs text-muted-foreground">Select all that apply.</p>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {REPORTING_FRAMEWORK_OPTIONS.map((opt) => (
-                    <label key={opt} className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/40">
+              </CardHeader>
+              <CardContent>
+                {showAddSite || editingSite ? (
+                  <div className="mb-4 space-y-3 rounded-md border p-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="siteName">Site Name</Label>
+                      <Input
+                        id="siteName"
+                        value={siteForm.site_name}
+                        onChange={(e) => setSiteForm({ ...siteForm, site_name: e.target.value })}
+                        placeholder="Main Office"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="siteLocation">Location</Label>
+                      <Input
+                        id="siteLocation"
+                        value={siteForm.location}
+                        onChange={(e) => setSiteForm({ ...siteForm, location: e.target.value })}
+                        placeholder="London, UK"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
+                        id="is_registered_office"
+                        checked={siteForm.is_registered_office}
+                        onChange={(e) => setSiteForm({ ...siteForm, is_registered_office: e.target.checked })}
                         className="h-4 w-4 rounded border-gray-300"
-                        checked={reportingFrameworks.includes(opt)}
-                        onChange={(e) =>
-                          setReportingFrameworks((prev) =>
-                            e.target.checked ? [...prev, opt] : prev.filter((x) => x !== opt)
-                          )
-                        }
                       />
-                      {opt}
-                    </label>
-                  ))}
-                </div>
-              </div>
+                      <Label htmlFor="is_registered_office" className="font-normal cursor-pointer">
+                        Registered Office
+                      </Label>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => editingSite ? handleEditSite(editingSite) : handleAddSite()}
+                      >
+                        {editingSite ? "Update" : "Add"}
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={cancelSiteEdit}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
 
-              {/* Certifications */}
-              <div className="space-y-2">
-                <Label>Certifications &amp; commitments</Label>
-                <p className="text-xs text-muted-foreground">Select all that apply.</p>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {CERTIFICATION_OPTIONS.map((opt) => (
-                    <label key={opt} className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/40">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-gray-300"
-                        checked={certifications.includes(opt)}
-                        onChange={(e) =>
-                          setCertifications((prev) =>
-                            e.target.checked ? [...prev, opt] : prev.filter((x) => x !== opt)
-                          )
-                        }
-                      />
-                      {opt}
-                    </label>
-                  ))}
-                </div>
-              </div>
+                {activeSites.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No active sites.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {activeSites.map((site) => (
+                      <div key={site.site_id} className="rounded-md border px-3 py-2 text-sm">
+                        {vacatingSite === site.site_id ? (
+                          <div className="space-y-3">
+                            <div className="font-medium">Vacate Site: {site.site_name}</div>
+                            <div className="space-y-2">
+                              <Label htmlFor="vacatedDate">Vacated Date</Label>
+                              <Input
+                                id="vacatedDate"
+                                type="date"
+                                value={vacatedDate}
+                                onChange={(e) => setVacatedDate(e.target.value)}
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <Button size="sm" onClick={() => handleVacateSite(site.site_id)}>
+                                Confirm Vacate
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => { setVacatingSite(null); setVacatedDate(""); }}>
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1">
+                              <div className="font-medium">
+                                {site.site_name ?? ""}
+                                {site.is_registered_office && (
+                                  <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
+                                    Registered Office
+                                  </span>
+                                )}
+                              </div>
+                              {site.location && (
+                                <div className="text-muted-foreground">{site.location}</div>
+                              )}
+                            </div>
+                            <div className="flex gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => startEditSite(site)}
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => { setVacatingSite(site.site_id); setVacatedDate(""); }}
+                              >
+                                Vacate
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-              {/* Primary Scope 3 categories */}
-              <div className="space-y-2">
-                <Label>Primary Scope 3 categories</Label>
-                <p className="text-xs text-muted-foreground">Select the categories material to this client.</p>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {SCOPE3_CATEGORY_OPTIONS.map((opt) => (
-                    <label key={opt} className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/40">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-gray-300"
-                        checked={primaryScope3Categories.includes(opt)}
-                        onChange={(e) =>
-                          setPrimaryScope3Categories((prev) =>
-                            e.target.checked ? [...prev, opt] : prev.filter((x) => x !== opt)
-                          )
-                        }
-                      />
-                      {opt}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Vacated Sites ({vacatedSites.length})</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {vacatedSites.length === 0 ? (
-                <div className="text-sm text-muted-foreground">No vacated sites.</div>
-              ) : (
-                <div className="space-y-2">
-                  {vacatedSites.map((site) => (
-                    <div key={site.site_id} className="rounded-md border px-3 py-2 text-sm bg-muted/50">
-                      <div className="flex items-start justify-between gap-3">
+            {vacatedSites.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Vacated Sites ({vacatedSites.length})</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {vacatedSites.map((site) => (
+                      <div key={site.site_id} className="rounded-md border px-3 py-2 text-sm bg-muted/50">
                         <div className="flex-1">
                           <div className="font-medium">
                             {site.site_name ?? ""}
@@ -1549,18 +1439,134 @@ export default function EditClientPage() {
                           )}
                           {site.vacated_date && (
                             <div className="text-sm text-muted-foreground mt-1">
-                              Vacated: {new Date(site.vacated_date).toLocaleDateString('en-GB')}
+                              Vacated: {new Date(site.vacated_date).toLocaleDateString("en-GB")}
                             </div>
                           )}
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          {/* ── Compliance tab ── */}
+          <TabsContent value="compliance">
+            <Card>
+              <CardHeader>
+                <div>
+                  <CardTitle>Context &amp; Compliance</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Used by AI insights to generate more accurate and relevant outputs.
+                  </p>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="parentCompany">Parent company / group name</Label>
+                    <Input
+                      id="parentCompany"
+                      value={parentCompany}
+                      onChange={(e) => setParentCompany(e.target.value)}
+                      placeholder="e.g. Acme Group plc"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="groupStructure">Group structure</Label>
+                    <Select
+                      value={groupStructure || "__none__"}
+                      onValueChange={(v) => setGroupStructure(v === "__none__" ? "" : v)}
+                    >
+                      <SelectTrigger id="groupStructure">
+                        <SelectValue placeholder="Select…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Not specified</SelectItem>
+                        {GROUP_STRUCTURE_OPTIONS.map((opt) => (
+                          <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Reporting obligations &amp; frameworks</Label>
+                  <p className="text-xs text-muted-foreground">Select all that apply.</p>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {REPORTING_FRAMEWORK_OPTIONS.map((opt) => (
+                      <label key={opt} className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/40">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-gray-300"
+                          checked={reportingFrameworks.includes(opt)}
+                          onChange={(e) =>
+                            setReportingFrameworks((prev) =>
+                              e.target.checked ? [...prev, opt] : prev.filter((x) => x !== opt)
+                            )
+                          }
+                        />
+                        {opt}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Certifications &amp; commitments</Label>
+                  <p className="text-xs text-muted-foreground">Select all that apply.</p>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {CERTIFICATION_OPTIONS.map((opt) => (
+                      <label key={opt} className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/40">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-gray-300"
+                          checked={certifications.includes(opt)}
+                          onChange={(e) =>
+                            setCertifications((prev) =>
+                              e.target.checked ? [...prev, opt] : prev.filter((x) => x !== opt)
+                            )
+                          }
+                        />
+                        {opt}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Primary Scope 3 categories</Label>
+                  <p className="text-xs text-muted-foreground">Select the categories material to this client.</p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {SCOPE3_CATEGORY_OPTIONS.map((opt) => (
+                      <label key={opt} className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/40">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-gray-300"
+                          checked={primaryScope3Categories.includes(opt)}
+                          onChange={(e) =>
+                            setPrimaryScope3Categories((prev) =>
+                              e.target.checked ? [...prev, opt] : prev.filter((x) => x !== opt)
+                            )
+                          }
+                        />
+                        {opt}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button onClick={saveClient} disabled={saving || loading}>
+                    {saving ? "Saving…" : "Save"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

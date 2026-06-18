@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -609,9 +610,7 @@ export default function TeamManagementPage() {
         setStatus("Temporary password generated");
       }
 
-      window.alert(
-        `Temporary password for ${emailValue}:\n\n${tempPassword}\n\nShare securely. User will be prompted to change it after login.`
-      );
+      toast.success(`Temporary password for ${emailValue} copied to clipboard. Share securely — user must change it after login.`, { duration: 8000 });
       await loadData();
       setTimeout(() => setStatus(""), 5000);
     } catch (e) {
@@ -647,9 +646,7 @@ export default function TeamManagementPage() {
         // clipboard is best-effort only
       }
 
-      window.alert(
-        `Re-invite created for ${emailValue}.\n\nTemporary password:\n${tempPassword || "(not returned)"}\n\nExpires:\n${prettyDate(expiresAt)}`
-      );
+      toast.success(`Re-invite created for ${emailValue}. Temporary password copied to clipboard. Expires ${prettyDate(expiresAt)}.`, { duration: 8000 });
       setStatus("User re-invited");
       await loadData();
       setTimeout(() => setStatus(""), 5000);

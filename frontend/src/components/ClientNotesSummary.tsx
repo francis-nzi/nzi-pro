@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -269,7 +270,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
       }
       await loadNotes();
     } catch (err) {
-      alert(`Archive failed: ${(err as Error).message}`);
+      toast.error(`Archive failed: ${(err as Error).message}`);
     }
   }, [baseUrl, loadNotes]);
 

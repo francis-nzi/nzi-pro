@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   Bar,
   BarChart,
@@ -1031,7 +1032,7 @@ export default function JobAdvancedReports({
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert(`Download failed: ${String(e)}`);
+      toast.error(`Download failed: ${String(e)}`);
     }
   }
 
@@ -1044,8 +1045,9 @@ export default function JobAdvancedReports({
       );
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       loadVersions();
+      toast.success("Version marked as final");
     } catch (e) {
-      alert(`Failed to mark final: ${String(e)}`);
+      toast.error(`Failed to mark final: ${String(e)}`);
     } finally {
       setMarkingFinal(null);
     }

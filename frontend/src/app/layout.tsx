@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { Toaster } from "sonner";
 import { AuthProvider } from "@/components/AuthContext";
 import { AppSidebar } from "@/components/AppSidebar";
 import { AuthBootstrap } from "@/components/AuthBootstrap";
@@ -35,6 +36,7 @@ export default function RootLayout({
         <AuthProvider>
           <ThemeProvider>
             <ConfirmDialogProvider>
+              <Toaster position="top-right" richColors closeButton />
               <Suspense fallback={null}>
                 <AuthBootstrap />
               </Suspense>
