@@ -113,8 +113,12 @@ function NewJobPageContent() {
   const [jobStatus, setJobStatus] = useState("Open");
   const [crmName, setCrmName] = useState("");
   const [legacyJobNo, setLegacyJobNo] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [dueDate, setDueDate] = useState("");
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [dueDate, setDueDate] = useState(() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() + 1);
+    return d.toISOString().split("T")[0];
+  });
   const [trainingCourseName, setTrainingCourseName] = useState("");
   const [trainingDeliveryMode, setTrainingDeliveryMode] = useState("");
   const [consultancyServiceFocus, setConsultancyServiceFocus] = useState("");
