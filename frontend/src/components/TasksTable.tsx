@@ -27,6 +27,8 @@ type Task = {
   created_by: string;
   created_at: string | null;
   updated_at: string | null;
+  job_number?: string;
+  job_title?: string;
 };
 
 type Assignee = {
@@ -261,6 +263,7 @@ export default function TasksTable({ clientId, jobId, baseUrl, title, compact = 
                   <tr className="border-b bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
                     <th className="px-4 py-2 text-left font-medium">Priority</th>
                     <th className="px-4 py-2 text-left font-medium">Title</th>
+                    {!jobId && <th className="px-4 py-2 text-left font-medium">Job</th>}
                     {!compact && <th className="px-4 py-2 text-left font-medium">Assigned To</th>}
                     <th className="px-4 py-2 text-left font-medium">Due</th>
                     <th className="px-4 py-2 text-left font-medium">Status</th>
@@ -276,6 +279,20 @@ export default function TasksTable({ clientId, jobId, baseUrl, title, compact = 
                     >
                       <td className="px-4 py-3">{ragBadge(task.priority)}</td>
                       <td className="px-4 py-3 font-medium max-w-[220px] truncate">{task.title}</td>
+                      {!jobId && (
+                        <td className="px-4 py-3 text-xs" onClick={(e) => e.stopPropagation()}>
+                          {task.job_id && task.job_number ? (
+                            <a
+                              href={`/jobs/${task.job_id}/tasks`}
+                              className="text-emerald-700 hover:underline font-medium"
+                            >
+                              {task.job_number}
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      )}
                       {!compact && <td className="px-4 py-3 text-muted-foreground">{shortEmail(task.assignee_user_id)}</td>}
                       <td className="px-4 py-3 whitespace-nowrap text-xs">{formatDue(task.due_at)}</td>
                       <td className="px-4 py-3">{statusBadge(task.status)}</td>
@@ -307,7 +324,7 @@ export default function TasksTable({ clientId, jobId, baseUrl, title, compact = 
                   {doneTasks.length > 0 && (
                     <>
                       <tr>
-                        <td colSpan={compact ? 5 : 6} className="px-4 py-2 text-xs uppercase tracking-wide text-muted-foreground bg-muted/10 border-b">
+                        <td colSpan={compact ? 5 : (!jobId ? 7 : 6)} className="px-4 py-2 text-xs uppercase tracking-wide text-muted-foreground bg-muted/10 border-b">
                           Completed / Cancelled
                         </td>
                       </tr>
@@ -319,6 +336,20 @@ export default function TasksTable({ clientId, jobId, baseUrl, title, compact = 
                         >
                           <td className="px-4 py-3">{ragBadge(task.priority)}</td>
                           <td className="px-4 py-3 line-through text-muted-foreground">{task.title}</td>
+                          {!jobId && (
+                            <td className="px-4 py-3 text-xs" onClick={(e) => e.stopPropagation()}>
+                              {task.job_id && task.job_number ? (
+                                <a
+                                  href={`/jobs/${task.job_id}/tasks`}
+                                  className="text-emerald-700 hover:underline font-medium"
+                                >
+                                  {task.job_number}
+                                </a>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          )}
                           {!compact && <td className="px-4 py-3 text-muted-foreground">{shortEmail(task.assignee_user_id)}</td>}
                           <td className="px-4 py-3 whitespace-nowrap text-xs">{formatDue(task.due_at)}</td>
                           <td className="px-4 py-3">{statusBadge(task.status)}</td>
@@ -483,6 +514,11 @@ export default function TasksTable({ clientId, jobId, baseUrl, title, compact = 
                 <Badge variant="outline" className="text-xs">{detailTask.due_at ? `Due: ${new Date(detailTask.due_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : "No due date"}</Badge>
                 {detailTask.assignee_user_id && (
                   <Badge variant="outline" className="text-xs">Assigned: {shortEmail(detailTask.assignee_user_id)}</Badge>
+                )}
+                {detailTask.job_id && detailTask.job_number && (
+                  <a href={`/jobs/${detailTask.job_id}/tasks`} className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition-colors">
+                    Job {detailTask.job_number}
+                  </a>
                 )}
               </div>
               {detailTask.details && (

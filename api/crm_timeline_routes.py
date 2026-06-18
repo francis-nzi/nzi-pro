@@ -737,15 +737,16 @@ def list_client_tasks(
                 where.append("due_at <= %s")
                 params.append(str(due_before).strip())
 
-            where_sql = " AND ".join(where)
-            count_row = con.execute(f"SELECT COUNT(*) FROM crm_tasks WHERE {where_sql}", params).fetchone()
+            where_sql = " AND ".join([f"t.{w}" for w in where])
+            count_row = con.execute(f"SELECT COUNT(*) FROM crm_tasks t WHERE {where_sql}", params).fetchone()
             total_count = int(count_row[0]) if count_row and count_row[0] is not None else 0
             df = con.execute(
                 f"""
-                SELECT *
-                FROM crm_tasks
+                SELECT t.*, j.job_number, j.title AS job_title
+                FROM crm_tasks t
+                LEFT JOIN jobs j ON j.job_id = t.job_id
                 WHERE {where_sql}
-                ORDER BY {_PRIORITY_ORDER}, COALESCE(due_at, '9999-12-31'::timestamp) ASC, task_id DESC
+                ORDER BY {_PRIORITY_ORDER.replace('priority', 't.priority')}, COALESCE(t.due_at, '9999-12-31'::timestamp) ASC, t.task_id DESC
                 LIMIT %s OFFSET %s
                 """,
                 [*params, int(limit), int(offset)],
@@ -753,7 +754,10 @@ def list_client_tasks(
             items: list[dict[str, Any]] = []
             if df is not None and not df.empty:
                 for _, r in df.iterrows():
-                    items.append(_serialize_task(r.to_dict()))
+                    item = _serialize_task(r.to_dict())
+                    item["job_number"] = str(r.get("job_number") or "")
+                    item["job_title"] = str(r.get("job_title") or "")
+                    items.append(item)
             return {"items": items, "count": total_count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load tasks: {e}")
