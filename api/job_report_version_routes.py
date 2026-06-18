@@ -45,79 +45,93 @@ def list_report_versions(
     job_id: int,
     _user: dict[str, str] = Depends(_current_user),
 ):
-    # Run schema migrations on a separate connection so any DDL failure
-    # cannot corrupt the read connection's state.
+    import traceback as _tb
     try:
-        with get_conn() as ddl_con:
-            try:
-                _ensure_report_template_schema(ddl_con)
-            except Exception:
-                pass
-            try:
-                _ensure_job_files_table(ddl_con)
-            except Exception:
-                pass
-            try:
-                _ensure_report_versions_schema(ddl_con)
-            except Exception:
-                pass
-    except Exception:
-        pass
+        # Run schema migrations on a separate connection so any DDL failure
+        # cannot corrupt the read connection's state.
+        try:
+            with get_conn() as ddl_con:
+                try:
+                    _ensure_report_template_schema(ddl_con)
+                except Exception:
+                    pass
+                try:
+                    _ensure_job_files_table(ddl_con)
+                except Exception:
+                    pass
+                try:
+                    _ensure_report_versions_schema(ddl_con)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
-    try:
-        with get_conn() as con:
-            job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
-            if not job_exists:
-                raise HTTPException(status_code=404, detail="Job not found")
-            rows = con.execute(
-                """
-                SELECT
-                    jrv.report_version_id,
-                    jrv.job_id,
-                    jrv.client_db_id,
-                    jrv.version_number,
-                    jrv.version_label,
-                    jrv.status,
-                    jrv.report_format,
-                    jrv.template_id,
-                    jrv.version_id,
-                    jrv.file_id,
-                    jrv.file_name,
-                    jrv.file_path,
-                    jrv.storage_provider,
-                    jrv.external_item_id,
-                    jrv.external_web_url,
-                    jrv.external_path,
-                    jrv.data_hash,
-                    jrv.notes,
-                    jrv.generated_at,
-                    jrv.generated_by,
-                    jrv.reviewed_at,
-                    jrv.reviewed_by,
-                    jrv.finalized_at,
-                    jrv.finalized_by,
-                    jrv.superseded_at,
-                    jrv.superseded_by
-                FROM job_report_versions jrv
-                WHERE jrv.job_id = %s
-                ORDER BY jrv.version_number DESC, jrv.generated_at DESC
-                """,
-                [int(job_id)],
-            ).df()
-        versions: list[dict[str, Any]] = []
-        if rows is not None and not rows.empty:
-            for row_dict in rows.where(rows.notna(), other=None).to_dict("records"):
-                versions.append(_serialize_report_version_row(row_dict))
+        try:
+            with get_conn() as con:
+                job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
+                if not job_exists:
+                    raise HTTPException(status_code=404, detail="Job not found")
+                rows = con.execute(
+                    """
+                    SELECT
+                        jrv.report_version_id,
+                        jrv.job_id,
+                        jrv.client_db_id,
+                        jrv.version_number,
+                        jrv.version_label,
+                        jrv.status,
+                        jrv.report_format,
+                        jrv.template_id,
+                        jrv.version_id,
+                        jrv.file_id,
+                        jrv.file_name,
+                        jrv.file_path,
+                        jrv.storage_provider,
+                        jrv.external_item_id,
+                        jrv.external_web_url,
+                        jrv.external_path,
+                        jrv.data_hash,
+                        jrv.notes,
+                        jrv.generated_at,
+                        jrv.generated_by,
+                        jrv.reviewed_at,
+                        jrv.reviewed_by,
+                        jrv.finalized_at,
+                        jrv.finalized_by,
+                        jrv.superseded_at,
+                        jrv.superseded_by
+                    FROM job_report_versions jrv
+                    WHERE jrv.job_id = %s
+                    ORDER BY jrv.version_number DESC, jrv.generated_at DESC
+                    """,
+                    [int(job_id)],
+                ).df()
+            versions: list[dict[str, Any]] = []
+            if rows is not None and not rows.empty:
+                for row_dict in rows.where(rows.notna(), other=None).to_dict("records"):
+                    versions.append(_serialize_report_version_row(row_dict))
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning("Failed to list report versions for job %s: %s", job_id, e, exc_info=True)
+            return {
+                "job_id": int(job_id),
+                "versions": [],
+                "warning": "Version history is temporarily unavailable.",
+            }
+        return {"job_id": int(job_id), "versions": versions}
     except HTTPException:
         raise
     except Exception as e:
-        logger.warning("Failed to list report versions for job %s: %s", job_id, e, exc_info=True)
+        logger.error(
+            "Unhandled exception in list_report_versions for job %s: %s\n%s",
+            job_id, e, _tb.format_exc(),
+        )
         return {
             "job_id": int(job_id),
             "versions": [],
-            "warning": "Version history is temporarily unavailable.",
+            "warning": f"Version history could not be loaded: {type(e).__name__}: {e}",
         }
-    return {"job_id": int(job_id), "versions": versions}
 
 
 @router.get("/jobs/{job_id}/report-draft-context")
