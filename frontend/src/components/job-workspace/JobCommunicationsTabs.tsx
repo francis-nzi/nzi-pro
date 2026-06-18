@@ -39,10 +39,6 @@ export default function JobCommunicationsTabs({
         <JobCommunications jobId={jobId} baseUrl={baseUrl} mode="email" />
       </TabsContent>
 
-      <TabsContent value="communications-tasks" className="mt-0">
-        <JobCommunications jobId={jobId} baseUrl={baseUrl} mode="tasks" />
-      </TabsContent>
-
       <TabsContent value="communications-automation" className="mt-0">
         <JobCommunications jobId={jobId} baseUrl={baseUrl} mode="automation" />
       </TabsContent>

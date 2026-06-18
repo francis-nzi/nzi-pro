@@ -25,6 +25,10 @@ const ClientNotesSummary = dynamic(() => import("@/components/ClientNotesSummary
   ssr: false,
   loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading notes...</div>,
 });
+const TasksTable = dynamic(() => import("@/components/TasksTable"), {
+  ssr: false,
+  loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading tasks...</div>,
+});
 const ClientReporting = dynamic(() => import("@/components/ClientReporting"), {
   ssr: false,
   loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading reporting...</div>,
@@ -220,6 +224,7 @@ type ClientSection =
   | "dashboard"
   | "timeline"
   | "notes"
+  | "tasks"
   | "details"
   | "sites"
   | "contacts"
@@ -238,6 +243,7 @@ const SECTIONS: Array<{ id: ClientSection; label: string }> = [
   { id: "carbon", label: "Carbon Analytics" },
   { id: "reporting", label: "Reporting" },
   { id: "portal", label: "Portal" },
+  { id: "tasks", label: "Tasks" },
   { id: "notes", label: "Notes" },
   { id: "timeline", label: "Communications" },
   { id: "profile", label: "Company Profile" },
@@ -482,6 +488,8 @@ function ClientDetailPageContent() {
       targetSection = "timeline";
     } else if (section === "notes") {
       targetSection = "notes";
+    } else if (section === "tasks") {
+      targetSection = "tasks";
     } else if (section === "profile") {
       targetSection = "profile";
     } else if (section === "details") {
@@ -2103,6 +2111,9 @@ function ClientDetailPageContent() {
         job_title: j.title ?? null,
       }));
       return <ClientNotesSummary clientId={clientId} baseUrl={baseUrl} jobs={noteJobs} />;
+    }
+    if (activeSection === "tasks") {
+      return <TasksTable clientId={clientId} baseUrl={baseUrl} title="Client Tasks" />;
     }
     if (activeSection === "details") return renderDetailsSection();
     if (activeSection === "sites") return renderSitesSection();

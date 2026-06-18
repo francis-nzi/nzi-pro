@@ -1,13 +1,28 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Sparkles, RefreshCcw, ShieldCheck, TrendingUp, Users } from "lucide-react";
+import { AlertCircle, Sparkles, RefreshCcw, ShieldCheck, TrendingUp, Users, CheckSquare } from "lucide-react";
 import CallPrepPanel from "@/components/CallPrepPanel";
 import LogTouchpointModal from "@/components/LogTouchpointModal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatDate, formatNumber } from "@/lib/format";
+
+type MyTask = {
+  task_id: number;
+  client_db_id: number;
+  job_id: number | null;
+  title: string;
+  details: string;
+  priority: string;
+  due_at: string | null;
+  status: string;
+  client_name: string;
+  job_number: string;
+  job_title: string;
+};
 
 type IntelligenceDashboardProps = {
   baseUrl: string;
@@ -86,6 +101,9 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
   const [refreshToken, setRefreshToken] = useState(0);
   const [callPrepClient, setCallPrepClient] = useState<{ id: number; name: string } | null>(null);
   const [logClient, setLogClient] = useState<{ id: number; name: string } | null>(null);
+  const [myTasks, setMyTasks] = useState<MyTask[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
+  const [taskDetail, setTaskDetail] = useState<MyTask | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -197,6 +215,27 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
     setLogClient({ id: clientId, name: clientName });
   };
 
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    async function loadMyTasks() {
+      setTasksLoading(true);
+      try {
+        const res = await fetch(`${baseUrl}/tasks/my`, { cache: "no-store", credentials: "include" });
+        if (res.ok) {
+          const payload = (await res.json()) as { items: MyTask[] };
+          if (!cancelled) setMyTasks(payload.items || []);
+        }
+      } catch {
+        // non-fatal
+      } finally {
+        if (!cancelled) setTasksLoading(false);
+      }
+    }
+    void loadMyTasks();
+    return () => { cancelled = true; };
+  }, [baseUrl, ready, refreshToken]);
+
   const refresh = () => setRefreshToken((value) => value + 1);
 
   return (
@@ -281,6 +320,73 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
               </Card>
             ))}
           </div>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <CheckSquare className="h-4 w-4 text-muted-foreground" />
+                  <CardTitle className="text-base">My Tasks</CardTitle>
+                </div>
+                <Badge variant="secondary">{myTasks.length}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {tasksLoading ? (
+                <div className="px-6 py-4 text-sm text-muted-foreground">Loading tasks...</div>
+              ) : myTasks.length === 0 ? (
+                <div className="px-6 py-4 text-sm text-muted-foreground">No open tasks assigned to you.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
+                        <th className="px-4 py-2 text-left font-medium">Priority</th>
+                        <th className="px-4 py-2 text-left font-medium">Task</th>
+                        <th className="px-4 py-2 text-left font-medium">Client</th>
+                        <th className="px-4 py-2 text-left font-medium">Due</th>
+                        <th className="px-4 py-2 text-left font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {myTasks.map((task) => {
+                        const dueStr = task.due_at
+                          ? new Date(task.due_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+                          : "—";
+                        const isOverdue = task.due_at && new Date(task.due_at) < new Date();
+                        return (
+                          <tr
+                            key={task.task_id}
+                            className="border-b cursor-pointer hover:bg-muted/20 transition-colors"
+                            onClick={() => setTaskDetail(task)}
+                          >
+                            <td className="px-4 py-3">
+                              {task.priority === "urgent" && <Badge className="bg-rose-100 text-rose-700 border-rose-200">Urgent</Badge>}
+                              {task.priority === "high" && <Badge className="bg-amber-100 text-amber-700 border-amber-200">High</Badge>}
+                              {task.priority === "normal" && <Badge className="bg-sky-100 text-sky-700 border-sky-200">Normal</Badge>}
+                              {task.priority === "low" && <Badge className="bg-slate-100 text-slate-600 border-slate-200">Low</Badge>}
+                            </td>
+                            <td className="px-4 py-3 font-medium max-w-[200px] truncate">{task.title}</td>
+                            <td className="px-4 py-3 text-muted-foreground text-xs max-w-[140px] truncate">
+                              {task.client_name || "—"}
+                            </td>
+                            <td className={`px-4 py-3 text-xs whitespace-nowrap ${isOverdue ? "text-rose-600 font-medium" : ""}`}>
+                              {dueStr}
+                            </td>
+                            <td className="px-4 py-3">
+                              {task.status === "in_progress" && <Badge className="bg-blue-100 text-blue-700 border-blue-200">In Progress</Badge>}
+                              {task.status === "blocked" && <Badge className="bg-rose-100 text-rose-700 border-rose-200">Blocked</Badge>}
+                              {task.status === "open" && <Badge variant="outline">Open</Badge>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           <div className="grid gap-6 xl:grid-cols-2">
             <Card>
@@ -411,6 +517,39 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
           </Card>
         </>
       ) : null}
+
+      <Dialog open={!!taskDetail} onOpenChange={(open) => !open && setTaskDetail(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="truncate">{taskDetail?.title}</DialogTitle>
+          </DialogHeader>
+          {taskDetail && (
+            <div className="space-y-4 py-1">
+              <div className="flex flex-wrap gap-2 text-sm">
+                {taskDetail.priority === "urgent" && <Badge className="bg-rose-100 text-rose-700 border-rose-200">Urgent</Badge>}
+                {taskDetail.priority === "high" && <Badge className="bg-amber-100 text-amber-700 border-amber-200">High</Badge>}
+                {taskDetail.priority === "normal" && <Badge className="bg-sky-100 text-sky-700 border-sky-200">Normal</Badge>}
+                {taskDetail.priority === "low" && <Badge className="bg-slate-100 text-slate-600 border-slate-200">Low</Badge>}
+                <Badge variant="outline">{taskDetail.status.replace("_", " ")}</Badge>
+                {taskDetail.due_at && (
+                  <Badge variant="outline">Due: {new Date(taskDetail.due_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</Badge>
+                )}
+              </div>
+              {taskDetail.client_name && (
+                <div className="text-sm text-muted-foreground">
+                  Client: <a href={`/clients/${taskDetail.client_db_id}?section=tasks`} className="text-foreground underline-offset-2 hover:underline">{taskDetail.client_name}</a>
+                  {taskDetail.job_number && (
+                    <span> / Job: <a href={`/jobs/${taskDetail.job_id}?tab=job-tasks`} className="text-foreground underline-offset-2 hover:underline">{taskDetail.job_number}</a></span>
+                  )}
+                </div>
+              )}
+              {taskDetail.details && (
+                <div className="rounded-lg bg-muted/30 p-3 text-sm whitespace-pre-wrap">{taskDetail.details}</div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <CallPrepPanel
         open={Boolean(callPrepClient)}

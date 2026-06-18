@@ -10,6 +10,7 @@ export type WorkspaceGroupKey =
   | "report"
   | "analysis"
   | "insights"
+  | "job-tasks"
   | "communications"
   | "financial"
   | "job-notes"

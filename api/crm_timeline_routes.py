@@ -701,6 +701,9 @@ def get_task_history(task_id: int, _user: dict = Depends(_current_user)):
         raise HTTPException(status_code=500, detail=f"Failed to load task history: {e}")
 
 
+_PRIORITY_ORDER = "CASE lower(priority) WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 WHEN 'low' THEN 4 ELSE 5 END"
+
+
 @router.get("/clients/{client_id}/tasks")
 def list_client_tasks(
     client_id: int,
@@ -742,7 +745,7 @@ def list_client_tasks(
                 SELECT *
                 FROM crm_tasks
                 WHERE {where_sql}
-                ORDER BY COALESCE(due_at, created_at) ASC, task_id DESC
+                ORDER BY {_PRIORITY_ORDER}, COALESCE(due_at, '9999-12-31'::timestamp) ASC, task_id DESC
                 LIMIT %s OFFSET %s
                 """,
                 [*params, int(limit), int(offset)],
@@ -752,6 +755,68 @@ def list_client_tasks(
                 for _, r in df.iterrows():
                     items.append(_serialize_task(r.to_dict()))
             return {"items": items, "count": total_count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load tasks: {e}")
+
+
+@router.delete("/tasks/{task_id}")
+def delete_task(task_id: int, _user: dict = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            _ensure_tables(con)
+            exists = con.execute("SELECT task_id FROM crm_tasks WHERE task_id = %s", [int(task_id)]).fetchone()
+            if not exists:
+                raise HTTPException(status_code=404, detail="Task not found")
+            con.execute("DELETE FROM crm_tasks WHERE task_id = %s", [int(task_id)])
+            return {"ok": True, "task_id": int(task_id)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete task: {e}")
+
+
+@router.get("/tasks/my")
+def list_my_tasks(
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    _user: dict = Depends(_current_user),
+):
+    """Returns tasks assigned to the current user, ordered by RAG priority then due date."""
+    try:
+        actor = _actor(_user)
+        with get_conn() as con:
+            _ensure_tables(con)
+            where = ["lower(assignee_user_id) = lower(%s)"]
+            params: list[Any] = [actor]
+            if status:
+                where.append("lower(status) = lower(%s)")
+                params.append(str(status).strip())
+            else:
+                where.append("lower(status) NOT IN ('done', 'cancelled')")
+
+            where_sql = " AND ".join(where)
+            df = con.execute(
+                f"""
+                SELECT t.*, j.job_number, j.title AS job_title,
+                       c.client_name
+                FROM crm_tasks t
+                LEFT JOIN jobs j ON j.job_id = t.job_id
+                LEFT JOIN clients c ON c.db_id = t.client_db_id
+                WHERE {where_sql}
+                ORDER BY {_PRIORITY_ORDER}, COALESCE(t.due_at, '9999-12-31'::timestamp) ASC, t.task_id DESC
+                LIMIT %s
+                """,
+                [*params, int(limit)],
+            ).df()
+            items: list[dict[str, Any]] = []
+            if df is not None and not df.empty:
+                for _, r in df.iterrows():
+                    item = _serialize_task(r.to_dict())
+                    item["job_number"] = str(r.get("job_number") or "")
+                    item["job_title"] = str(r.get("job_title") or "")
+                    item["client_name"] = str(r.get("client_name") or "")
+                    items.append(item)
+            return {"items": items, "count": len(items)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load tasks: {e}")
 

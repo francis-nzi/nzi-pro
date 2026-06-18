@@ -102,6 +102,9 @@ const JobFiles = dynamic(() => import("@/components/JobFiles"), {
 const CustomFields = dynamic(() => import("@/components/CustomFields"), {
   loading: () => <LazyTabPanel title="Custom Fields" description="Loading custom fields..." />,
 });
+const TasksTable = dynamic(() => import("@/components/TasksTable"), {
+  loading: () => <LazyTabPanel title="Tasks" description="Loading tasks..." />,
+});
 
 type Job = {
   job_id: number;
@@ -1031,6 +1034,16 @@ export default function JobDetailPage() {
 
           <TabsContent value="notes" className="mt-0">
             <JobNotesSummary jobId={jobId} baseUrl={baseUrl} />
+          </TabsContent>
+
+          <TabsContent value="job-tasks" className="mt-0">
+            {job?.client_db_id ? (
+              <TasksTable clientId={job.client_db_id} jobId={jobId} baseUrl={baseUrl} title="Job Tasks" />
+            ) : (
+              <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+                Tasks require a client to be linked to this job.
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="data-output" className="mt-0">

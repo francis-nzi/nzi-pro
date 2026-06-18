@@ -80,6 +80,7 @@ export const workspaceSubtabs: Record<WorkspaceTabKey, WorkspaceSubtab[]> = {
     { key: "portal-overview", label: "Overview" },
     { key: "portal-assets", label: "Assets" },
   ],
+  "job-tasks": [],
   "job-notes": [],
   admin: [
     { key: "files", label: "Files" },
