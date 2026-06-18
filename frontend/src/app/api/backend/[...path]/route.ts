@@ -45,7 +45,7 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
     // so the proxy doesn't silently hang; 180 s matches the Playwright page-wait.
     // AI generation routes (Anthropic API + optional website scraping) can take 60–90 s.
     const isPdfRoute = subPath.includes("report-live-pdf") || subPath.includes("generate-report-react");
-    const isAiRoute = subPath.includes("generate-draft") || subPath.includes("ai-prompts/run") || subPath.includes("report-drafting");
+    const isAiRoute = subPath.includes("generate-draft") || subPath.includes("ai-prompts/run") || subPath.includes("report-drafting") || subPath.includes("report-drafts");
     const timeoutMs = isPdfRoute ? 180_000 : isAiRoute ? 90_000 : 30_000;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
