@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   BarChart2,
+  ClipboardList,
   CreditCard,
   Database,
   FileText,
@@ -93,6 +94,13 @@ function buildGroups(jobId: number): GroupDef[] {
       subtabs: [],
     },
     {
+      key: "job-tasks",
+      label: "Tasks",
+      icon: ClipboardList,
+      href: `/jobs/${j}/tasks`,
+      subtabs: [],
+    },
+    {
       key: "portal",
       label: "Portal",
       icon: MonitorSmartphone,
@@ -108,7 +116,6 @@ function buildGroups(jobId: number): GroupDef[] {
         { key: "communications-timeline",   label: "Timeline",     href: `/jobs/${j}/communications/timeline` },
         { key: "communications-inbox",      label: "Inbox",        href: `/jobs/${j}/communications/inbox` },
         { key: "communications-email",      label: "Email",        href: `/jobs/${j}/communications/email` },
-        { key: "communications-tasks",      label: "Tasks",        href: `/jobs/${j}/communications/tasks` },
         { key: "communications-automation", label: "Automation",   href: `/jobs/${j}/communications/automation` },
         { key: "communications-crm",        label: "CRM Timeline", href: `/jobs/${j}/communications/crm` },
       ],

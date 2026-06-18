@@ -1,6 +1,7 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 import ClientTimeline from "@/components/ClientTimeline";
 import JobCommunications from "@/components/JobCommunications";
@@ -17,7 +18,6 @@ const COMMUNICATIONS_SECTIONS = {
   inbox: { key: "communications-inbox", label: "Inbox", mode: "inbox" as const },
   notes: { key: "communications-notes", label: "Notes", mode: "notes" as const },
   email: { key: "communications-email", label: "Email", mode: "email" as const },
-  tasks: { key: "communications-tasks", label: "Tasks", mode: "tasks" as const },
   automation: { key: "communications-automation", label: "Automation", mode: "automation" as const },
   crm: { key: "communications-crm", label: "CRM Timeline", mode: "crm" as const },
 } as const;
@@ -26,10 +26,21 @@ type CommunicationsSectionKey = keyof typeof COMMUNICATIONS_SECTIONS;
 
 export default function JobCommunicationsSectionPage() {
   const params = useParams<{ jobId: string; section: string }>();
+  const router = useRouter();
   const jobId = Number(params?.jobId);
   const sectionSegment = String(params?.section || "timeline").toLowerCase();
-  const section = COMMUNICATIONS_SECTIONS[sectionSegment as CommunicationsSectionKey] ?? COMMUNICATIONS_SECTIONS.timeline;
   const baseUrl = apiBaseUrl();
+
+  // Tasks moved to top-level nav — redirect old URL
+  useEffect(() => {
+    if (sectionSegment === "tasks") {
+      router.replace(`/jobs/${jobId}/tasks`);
+    }
+  }, [sectionSegment, jobId, router]);
+
+  if (sectionSegment === "tasks") return null;
+
+  const section = COMMUNICATIONS_SECTIONS[sectionSegment as CommunicationsSectionKey] ?? COMMUNICATIONS_SECTIONS.timeline;
 
   const activeGroup: WorkspaceGroupKey = sectionSegment === "notes" ? "job-notes" : "communications";
 
