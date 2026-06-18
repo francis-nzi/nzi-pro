@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  ClipboardList,
   Clock,
   CreditCard,
   Database,
@@ -161,13 +162,13 @@ const JOB_NAV_GROUPS: JobNavGroup[] = [
     subtabs: [{ key: "lca", label: "Life Cycle Analysis", href: (j) => `/jobs/${j}/lca` }],
   },
   { key: "insights", label: "Insights", icon: Lightbulb, href: (j) => `/jobs/${j}/insights`, subtabs: [] },
+  { key: "job-tasks", label: "Tasks", icon: ClipboardList, href: (j) => `/jobs/${j}/tasks`, subtabs: [] },
   { key: "portal", label: "Portal", icon: MonitorSmartphone, href: (j) => `/jobs/${j}/portal-management`, subtabs: [] },
   { key: "communications", label: "Comms", icon: MessageCircle, href: (j) => `/jobs/${j}/communications/timeline`,
     subtabs: [
       { key: "communications-timeline",   label: "Timeline",     href: (j) => `/jobs/${j}/communications/timeline` },
       { key: "communications-inbox",      label: "Inbox",        href: (j) => `/jobs/${j}/communications/inbox` },
       { key: "communications-email",      label: "Email",        href: (j) => `/jobs/${j}/communications/email` },
-      { key: "communications-tasks",      label: "Tasks",        href: (j) => `/jobs/${j}/communications/tasks` },
       { key: "communications-automation", label: "Automation",   href: (j) => `/jobs/${j}/communications/automation` },
       { key: "communications-crm",        label: "CRM Timeline", href: (j) => `/jobs/${j}/communications/crm` },
     ],
@@ -196,6 +197,7 @@ function getJobActiveGroup(pathname: string, jobId: number): string {
   if (pathname?.startsWith(`${b}/report-new`) || pathname?.startsWith(`${b}/advanced-reports`) || pathname?.startsWith(`${b}/client-review`)) return "report";
   if (pathname?.startsWith(`${b}/lca`)) return "analysis";
   if (pathname?.startsWith(`${b}/insights`)) return "insights";
+  if (pathname?.startsWith(`${b}/tasks`)) return "job-tasks";
   if (pathname?.startsWith(`${b}/portal-management`)) return "portal";
   if (pathname?.startsWith(`${b}/communications`)) return "communications";
   if (pathname?.startsWith(`${b}/financial`)) return "financial";
@@ -218,7 +220,7 @@ function getJobActiveSubtab(pathname: string): string {
   if (pathname?.includes("/communications/timeline")) return "communications-timeline";
   if (pathname?.includes("/communications/inbox")) return "communications-inbox";
   if (pathname?.includes("/communications/email")) return "communications-email";
-  if (pathname?.includes("/communications/tasks")) return "communications-tasks";
+  if (pathname?.includes("/tasks")) return "job-tasks";
   if (pathname?.includes("/communications/automation")) return "communications-automation";
   if (pathname?.includes("/communications/crm")) return "communications-crm";
   if (pathname?.includes("/financial/quotes")) return "financial-quotes";
