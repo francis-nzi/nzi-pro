@@ -573,12 +573,30 @@ def preview_ai_prompt(
     if payload.job_id is not None:
         assert_job_access(_user, int(payload.job_id))
     _ensure_schema()
+
+    # When job_id is supplied, seed the facts with live emissions data so the preview
+    # matches what the actual generation prompt would contain.  Caller-supplied facts
+    # (e.g. context_summary, selected_actions) always override the computed values.
+    merged_facts: dict[str, Any] = {}
+    if payload.job_id is not None:
+        try:
+            from api.job_report_routes import _build_report_draft_context  # lazy to avoid circular risk
+            from services.report_drafting import _build_prompt_facts
+            section = payload.section_key or "executive_summary"
+            job_ctx = _build_report_draft_context(int(payload.job_id))
+            merged_facts = _build_prompt_facts(job_ctx, section)
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # fall back to caller-supplied facts only
+    merged_facts.update(payload.facts or {})
+
     try:
         compiled = compile_prompt(
             org_id=org_id,
             report_family_key=payload.report_family_key,
             section_key=payload.section_key,
-            facts=payload.facts or {},
+            facts=merged_facts,
             template_id=payload.template_id,
             client_db_id=payload.client_db_id,
             job_id=payload.job_id,
