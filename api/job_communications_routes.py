@@ -1196,8 +1196,10 @@ def create_job_communication_task(job_id: int, body: dict = Body(...), _user: di
     if not title:
         raise HTTPException(status_code=400, detail="title is required")
     notify = bool(body.get("notify_assignee", False))
-    # Accept assignee_user_id (new) or assigned_to (legacy label) - prefer user_id
-    assignee = str(body.get("assignee_user_id") or body.get("assigned_to") or "").strip() or None
+    # Display label (human name) stored in legacy table
+    assignee_display = str(body.get("assigned_to") or "").strip() or None
+    # Email/user_id used for /tasks/my lookup - falls back to display if not provided
+    assignee_id = str(body.get("assignee_user_id") or assignee_display or "").strip() or None
     priority = str(body.get("priority") or "normal")
     due_at = str(body.get("due_at") or body.get("due_date") or "").strip() or None
 
@@ -1225,7 +1227,7 @@ def create_job_communication_task(job_id: int, body: dict = Body(...), _user: di
                     int(body.get("communication_id")) if body.get("communication_id") is not None else None,
                     title,
                     str(body.get("details") or "").strip() or None,
-                    assignee,
+                    assignee_display,
                     priority,
                     str(body.get("status") or "open"),
                     due_at,
@@ -1234,44 +1236,44 @@ def create_job_communication_task(job_id: int, body: dict = Body(...), _user: di
             ).fetchone()
             legacy_task_id = int(legacy_row[0])
 
-            # Primary insert into crm_tasks so task appears in client Communications inbox
-            if client_db_id is not None:
-                crm_row = con.execute(
-                    """
-                    INSERT INTO crm_tasks (
-                      client_db_id, job_id, title, details, assignee_user_id,
-                      priority, due_at, status, created_by, created_at, updated_at
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                    RETURNING task_id
-                    """,
-                    [
-                        client_db_id,
-                        int(job_id),
-                        title,
-                        str(body.get("details") or "").strip() or None,
-                        assignee,
-                        priority,
-                        due_at,
-                        str(body.get("status") or "open"),
-                        actor,
-                    ],
-                ).fetchone()
-                crm_task_id = int(crm_row[0])
+            # Insert into crm_tasks so task appears in /tasks/my dashboard widget
+            # client_db_id may be NULL for jobs without a linked client
+            crm_row = con.execute(
+                """
+                INSERT INTO crm_tasks (
+                  client_db_id, job_id, title, details, assignee_user_id,
+                  priority, due_at, status, created_by, created_at, updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                RETURNING task_id
+                """,
+                [
+                    client_db_id,
+                    int(job_id),
+                    title,
+                    str(body.get("details") or "").strip() or None,
+                    assignee_id,
+                    priority,
+                    due_at,
+                    str(body.get("status") or "open"),
+                    actor,
+                ],
+            ).fetchone()
+            crm_task_id = int(crm_row[0])
 
-                if notify and assignee:
-                    _send_task_assignment_email(
-                        con,
-                        task_id=crm_task_id,
-                        title=title,
-                        details=str(body.get("details") or "").strip() or None,
-                        due_at=due_at,
-                        priority=priority,
-                        assignee=assignee,
-                        job_id=int(job_id),
-                        client_db_id=client_db_id,
-                        actor=actor,
-                    )
+            if notify and assignee_id and client_db_id is not None:
+                _send_task_assignment_email(
+                    con,
+                    task_id=crm_task_id,
+                    title=title,
+                    details=str(body.get("details") or "").strip() or None,
+                    due_at=due_at,
+                    priority=priority,
+                    assignee=assignee_id,
+                    job_id=int(job_id),
+                    client_db_id=client_db_id,
+                    actor=actor,
+                )
 
         return {"ok": True, "task_id": legacy_task_id}
     except HTTPException:

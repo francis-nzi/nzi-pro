@@ -420,6 +420,11 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
             title: taskTitle.trim(),
             details: taskDetails.trim(),
             assigned_to: taskAssigneeLabels.join(", ") || null,
+            // extract email from "team:email" values so /tasks/my can match by email
+            assignee_user_id: taskAssignees
+              .filter((v) => v.startsWith("team:"))
+              .map((v) => v.replace(/^team:/, ""))
+              .join(", ") || null,
             priority: taskPriority,
             due_date: taskDueDate || null,
             status: taskStatus,
