@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { TrainingCourseRun } from "./types";
+import type { TrainingCourseRun, TrainingLogEntry } from "./types";
 import { formatTrainingCourseRunStatus } from "@/lib/training-workflow";
 
 type AutomationPayload = {
@@ -28,24 +28,10 @@ type AutomationPayload = {
   certificate_template_key: string;
 };
 
-type LogEntry = {
-  training_automation_log_id: number;
-  automation_key: string;
-  trigger_key: string;
-  action_type: string;
-  recipient_name: string | null;
-  recipient_email: string | null;
-  subject: string | null;
-  status: string;
-  error_text: string | null;
-  created_at: string | null;
-  sent_at: string | null;
-};
-
 type Props = {
   jobId: number;
   runs: TrainingCourseRun[];
-  automationLog: LogEntry[];
+  automationLog: TrainingLogEntry[];
   baseUrl: string;
   onRefresh: () => void;
 };

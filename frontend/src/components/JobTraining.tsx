@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useState, useCallback } from "react";
 import { LayoutDashboard, BookOpen, Calendar, Users, Zap, CreditCard } from "lucide-react";
 import { formatJobFamilyLabel, getJobFamilyDescription, jobFamilyBadgeClassName } from "@/lib/job-family";
-import type { TrainingOverview } from "./training/types";
+import type { TrainingOverview, TrainingLogEntry } from "./training/types";
 
 const OverviewTab = dynamic(() => import("./training/OverviewTab"));
 const CourseTab = dynamic(() => import("./training/CourseTab"));
@@ -12,20 +12,6 @@ const ScheduleTab = dynamic(() => import("./training/ScheduleTab"));
 const AttendeesTab = dynamic(() => import("./training/AttendeesTab"));
 const AutomationTab = dynamic(() => import("./training/AutomationTab"));
 const BillingTab = dynamic(() => import("./training/BillingTab"));
-
-type LogEntry = {
-  training_automation_log_id: number;
-  automation_key: string;
-  trigger_key: string;
-  action_type: string;
-  recipient_name: string | null;
-  recipient_email: string | null;
-  subject: string | null;
-  status: string;
-  error_text: string | null;
-  created_at: string | null;
-  sent_at: string | null;
-};
 
 type JobTrainingProps = {
   jobId: number;
@@ -47,7 +33,7 @@ type TabKey = typeof TABS[number]["key"];
 export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingProps) {
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [overview, setOverview] = useState<TrainingOverview | null>(null);
-  const [automationLog, setAutomationLog] = useState<LogEntry[]>([]);
+  const [automationLog, setAutomationLog] = useState<TrainingLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshToken, setRefreshToken] = useState(0);
 

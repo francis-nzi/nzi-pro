@@ -197,6 +197,20 @@ export type TrainingOverview = {
   sessions: TrainingSession[];
 };
 
+export type TrainingLogEntry = {
+  training_automation_log_id: number;
+  automation_key: string;
+  trigger_key: string;
+  action_type: string;
+  recipient_name: string | null;
+  recipient_email: string | null;
+  subject: string | null;
+  status: string;
+  error_text: string | null;
+  created_at: string | null;
+  sent_at: string | null;
+};
+
 export const STAFF_ROLE_OPTIONS = [
   { value: "trainer", label: "Lead Trainer" },
   { value: "co_trainer", label: "Co-Trainer" },

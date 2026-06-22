@@ -1,8 +1,8 @@
 ﻿"use client";
 
 import dynamic from "next/dynamic";
-import { useParams, useSearchParams } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
@@ -284,6 +284,7 @@ export default function JobDetailPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const params = useParams<{ jobId: string }>();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const jobId = Number(params?.jobId);
 
   const [job, setJob] = useState<Job | null>(null);
@@ -353,6 +354,13 @@ export default function JobDetailPage() {
   const scopeCardRef = useRef<JobScopeCardHandle>(null);
   const [loadingScopeConfig, setLoadingScopeConfig] = useState<boolean>(false);
   const [loadingReportMetadata, setLoadingReportMetadata] = useState<boolean>(false);
+
+  // Training jobs have their own workspace — redirect immediately on load.
+  useEffect(() => {
+    if (job?.job_family === "training") {
+      router.replace(`/jobs/${jobId}/training/overview`);
+    }
+  }, [job?.job_family, jobId, router]);
 
   const familyCustomFieldNames = useMemo(() => {
     switch (String(job?.job_family || "").toLowerCase()) {
