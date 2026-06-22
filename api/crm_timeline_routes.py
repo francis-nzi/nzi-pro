@@ -788,20 +788,29 @@ def list_my_tasks(
     """Returns tasks assigned to the current user, ordered by RAG priority then due date."""
     try:
         actor = _actor(_user)
-        # username_prefix handles tasks stored as "francis" when actor is "francis@netzero.international"
+        full_name = str(_user.get("full_name") or "").strip()
+        # username_prefix: "francis" extracted from "francis@netzero.international"
         username_prefix = actor.split("@")[0] if "@" in actor else actor
         with get_conn() as con:
             _ensure_tables(con)
-            # Match exact email OR the username portion (covers legacy text-input entries)
-            where = [
-                "(lower(assignee_user_id) = lower(%s) OR lower(assignee_user_id) = lower(%s))"
+            # Match: exact email, username portion, or full display name (legacy tasks stored the name)
+            assignee_conds = [
+                "lower(t.assignee_user_id) = lower(%s)",
+                "lower(t.assignee_user_id) = lower(%s)",
             ]
-            params: list[Any] = [actor, username_prefix]
+            assignee_params: list[Any] = [actor, username_prefix]
+            if full_name:
+                assignee_conds.append("lower(t.assignee_user_id) = lower(%s)")
+                assignee_params.append(full_name)
+            assignee_clause = "(" + " OR ".join(assignee_conds) + ")"
+
+            where = [assignee_clause]
+            params: list[Any] = assignee_params[:]
             if status:
-                where.append("lower(status) = lower(%s)")
+                where.append("lower(t.status) = lower(%s)")
                 params.append(str(status).strip())
             else:
-                where.append("lower(status) NOT IN ('done', 'cancelled')")
+                where.append("lower(t.status) NOT IN ('done', 'cancelled')")
 
             where_sql = " AND ".join(where)
             df = con.execute(
@@ -812,7 +821,8 @@ def list_my_tasks(
                 LEFT JOIN jobs j ON j.job_id = t.job_id
                 LEFT JOIN clients c ON c.db_id = t.client_db_id
                 WHERE {where_sql}
-                ORDER BY {_PRIORITY_ORDER}, COALESCE(t.due_at, '9999-12-31'::timestamp) ASC, t.task_id DESC
+                ORDER BY {_PRIORITY_ORDER.replace('priority', 't.priority')},
+                         COALESCE(t.due_at, '9999-12-31'::timestamp) ASC, t.task_id DESC
                 LIMIT %s
                 """,
                 [*params, int(limit)],
@@ -825,7 +835,23 @@ def list_my_tasks(
                     item["job_title"] = str(r.get("job_title") or "")
                     item["client_name"] = str(r.get("client_name") or "")
                     items.append(item)
-            return {"items": items, "count": len(items), "_matched_as": actor}
+
+            # Debug info: show all distinct assignee_user_id values so mismatches are easy to spot
+            raw = con.execute(
+                "SELECT DISTINCT assignee_user_id FROM crm_tasks ORDER BY assignee_user_id LIMIT 50"
+            ).fetchall()
+            all_assignees = [str(r[0]) for r in raw if r[0] is not None]
+
+            return {
+                "items": items,
+                "count": len(items),
+                "_debug": {
+                    "matched_as": actor,
+                    "full_name": full_name,
+                    "username_prefix": username_prefix,
+                    "all_assignees_in_db": all_assignees,
+                },
+            }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load tasks: {e}")
 
