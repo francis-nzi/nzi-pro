@@ -788,10 +788,15 @@ def list_my_tasks(
     """Returns tasks assigned to the current user, ordered by RAG priority then due date."""
     try:
         actor = _actor(_user)
+        # username_prefix handles tasks stored as "francis" when actor is "francis@netzero.international"
+        username_prefix = actor.split("@")[0] if "@" in actor else actor
         with get_conn() as con:
             _ensure_tables(con)
-            where = ["lower(assignee_user_id) = lower(%s)"]
-            params: list[Any] = [actor]
+            # Match exact email OR the username portion (covers legacy text-input entries)
+            where = [
+                "(lower(assignee_user_id) = lower(%s) OR lower(assignee_user_id) = lower(%s))"
+            ]
+            params: list[Any] = [actor, username_prefix]
             if status:
                 where.append("lower(status) = lower(%s)")
                 params.append(str(status).strip())
