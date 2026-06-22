@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import ClientDashboard from "@/components/ClientDashboard";
+import { jobFamilyBadgeClassName } from "@/lib/job-family";
 import CallPrepPanel from "@/components/CallPrepPanel";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import PageHeader from "@/components/PageHeader";
@@ -1845,7 +1846,14 @@ function ClientDetailPageContent() {
                         className="flex items-center justify-between py-3 hover:bg-slate-50 rounded-lg px-2 transition-colors"
                       >
                         <div className="space-y-1">
-                          <div className="font-medium text-slate-900">{j.job_number ?? `Job #${j.job_id}`}</div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-slate-900">{j.job_number ?? `Job #${j.job_id}`}</span>
+                            {j.job_type && (
+                              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${jobFamilyBadgeClassName(j.job_family)}`}>
+                                {j.job_type}
+                              </span>
+                            )}
+                          </div>
                           <div className="text-xs text-muted-foreground flex items-center gap-2">
                             <span>Reporting period: {j.reporting_year || "N/A"}</span>
                             <span>•</span>
