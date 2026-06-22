@@ -1,13 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Sparkles, RefreshCcw, ShieldCheck, TrendingUp, Users, CheckSquare } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, CheckSquare, Pencil, RefreshCcw, Search, ShieldCheck, Sparkles, Trash2, TrendingUp, Users, X } from "lucide-react";
 import CallPrepPanel from "@/components/CallPrepPanel";
 import LogTouchpointModal from "@/components/LogTouchpointModal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { formatDate, formatNumber } from "@/lib/format";
 
 type MyTask = {
@@ -22,7 +26,52 @@ type MyTask = {
   client_name: string;
   job_number: string;
   job_title: string;
+  assignee_user_id: string;
+  created_by: string;
+  created_at: string | null;
 };
+
+type Assignee = {
+  name: string;
+  email: string;
+  group: string;
+};
+
+const EMPTY_EDIT_FORM = {
+  title: "",
+  details: "",
+  assignee_user_id: "",
+  assignee_label: "",
+  priority: "normal",
+  due_at: "",
+  status: "open",
+};
+
+function ragBadge(priority: string) {
+  switch (priority?.toLowerCase()) {
+    case "urgent": return <Badge className="bg-rose-100 text-rose-700 border-rose-200 font-medium">Urgent</Badge>;
+    case "high": return <Badge className="bg-amber-100 text-amber-700 border-amber-200 font-medium">High</Badge>;
+    case "normal": return <Badge className="bg-sky-100 text-sky-700 border-sky-200 font-medium">Normal</Badge>;
+    case "low": return <Badge className="bg-slate-100 text-slate-600 border-slate-200 font-medium">Low</Badge>;
+    default: return <Badge variant="outline">{priority || "Normal"}</Badge>;
+  }
+}
+
+function taskStatusBadge(status: string) {
+  switch (status?.toLowerCase()) {
+    case "done": return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">Done</Badge>;
+    case "in_progress": return <Badge className="bg-blue-100 text-blue-700 border-blue-200">In Progress</Badge>;
+    case "blocked": return <Badge className="bg-rose-100 text-rose-700 border-rose-200">Blocked</Badge>;
+    case "cancelled": return <Badge className="bg-slate-100 text-slate-500 border-slate-200">Cancelled</Badge>;
+    default: return <Badge variant="outline">Open</Badge>;
+  }
+}
+
+function shortEmail(assignee: string) {
+  if (!assignee) return null;
+  if (assignee.includes("@")) return assignee.split("@")[0];
+  return assignee;
+}
 
 type IntelligenceDashboardProps = {
   baseUrl: string;
@@ -104,6 +153,15 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
   const [myTasks, setMyTasks] = useState<MyTask[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
   const [taskDetail, setTaskDetail] = useState<MyTask | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ ...EMPTY_EDIT_FORM });
+  const [deleting, setDeleting] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [assignees, setAssignees] = useState<Assignee[]>([]);
+  const [assigneeQuery, setAssigneeQuery] = useState("");
+  const [assigneeOpen, setAssigneeOpen] = useState(false);
+  const assigneeBlurRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -237,6 +295,117 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
   }, [baseUrl, ready, refreshToken]);
 
   const refresh = () => setRefreshToken((value) => value + 1);
+
+  const filteredAssignees = assigneeQuery.trim()
+    ? assignees.filter((a) =>
+        (a.name || a.email).toLowerCase().includes(assigneeQuery.toLowerCase()) ||
+        a.email.toLowerCase().includes(assigneeQuery.toLowerCase())
+      )
+    : assignees.slice(0, 20);
+
+  function selectAssignee(a: Assignee) {
+    setEditForm((f) => ({ ...f, assignee_user_id: a.email, assignee_label: a.name || a.email }));
+    setAssigneeQuery("");
+    setAssigneeOpen(false);
+  }
+
+  function clearAssignee() {
+    setEditForm((f) => ({ ...f, assignee_user_id: "", assignee_label: "" }));
+    setAssigneeQuery("");
+  }
+
+  const loadAssignees = useCallback(async (clientId: number) => {
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/email-recipients`, { credentials: "include" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { contacts: Assignee[]; team: Assignee[] };
+      setAssignees([...(data.team || []), ...(data.contacts || [])]);
+    } catch {
+      // non-fatal
+    }
+  }, [baseUrl]);
+
+  function openEdit(task: MyTask) {
+    setEditingTaskId(task.task_id);
+    setEditForm({
+      title: task.title || "",
+      details: task.details || "",
+      assignee_user_id: task.assignee_user_id || "",
+      assignee_label: task.assignee_user_id || "",
+      priority: task.priority || "normal",
+      due_at: task.due_at ? task.due_at.slice(0, 10) : "",
+      status: task.status || "open",
+    });
+    setAssigneeQuery("");
+    setTaskDetail(null);
+    void loadAssignees(task.client_db_id);
+    setEditModalOpen(true);
+  }
+
+  async function handleDeleteTask(task: MyTask) {
+    if (!confirm("Delete this task?")) return;
+    setDeleting(task.task_id);
+    try {
+      const res = await fetch(`${baseUrl}/tasks/${task.task_id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) throw new Error("Failed to delete task");
+      setMyTasks((prev) => prev.filter((t) => t.task_id !== task.task_id));
+      setTaskDetail(null);
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setDeleting(null);
+    }
+  }
+
+  async function handleSaveTask() {
+    if (!editForm.title.trim()) { alert("Title is required"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch(`${baseUrl}/tasks/${editingTaskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          title: editForm.title.trim(),
+          details: editForm.details.trim() || null,
+          assignee_user_id: editForm.assignee_user_id || null,
+          priority: editForm.priority,
+          due_at: editForm.due_at || null,
+          status: editForm.status,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { detail?: string };
+        throw new Error(err.detail || "Failed to save task");
+      }
+      setMyTasks((prev) => prev.map((t) =>
+        t.task_id === editingTaskId
+          ? { ...t, title: editForm.title.trim(), details: editForm.details.trim(), assignee_user_id: editForm.assignee_user_id, priority: editForm.priority, due_at: editForm.due_at || null, status: editForm.status }
+          : t
+      ));
+      setEditModalOpen(false);
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function quickStatus(task: MyTask, nextStatus: string) {
+    try {
+      const res = await fetch(`${baseUrl}/tasks/${task.task_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (!res.ok) throw new Error("Failed to update status");
+      setMyTasks((prev) => prev.map((t) => t.task_id === task.task_id ? { ...t, status: nextStatus } : t));
+      setTaskDetail((d) => d ? { ...d, status: nextStatus } : d);
+    } catch {
+      // non-fatal
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -521,33 +690,198 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
       <Dialog open={!!taskDetail} onOpenChange={(open) => !open && setTaskDetail(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle className="truncate">{taskDetail?.title}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              {taskDetail && ragBadge(taskDetail.priority)}
+              <span className="truncate">{taskDetail?.title}</span>
+            </DialogTitle>
           </DialogHeader>
           {taskDetail && (
             <div className="space-y-4 py-1">
-              <div className="flex flex-wrap gap-2 text-sm">
-                {taskDetail.priority === "urgent" && <Badge className="bg-rose-100 text-rose-700 border-rose-200">Urgent</Badge>}
-                {taskDetail.priority === "high" && <Badge className="bg-amber-100 text-amber-700 border-amber-200">High</Badge>}
-                {taskDetail.priority === "normal" && <Badge className="bg-sky-100 text-sky-700 border-sky-200">Normal</Badge>}
-                {taskDetail.priority === "low" && <Badge className="bg-slate-100 text-slate-600 border-slate-200">Low</Badge>}
-                <Badge variant="outline">{taskDetail.status.replace("_", " ")}</Badge>
-                {taskDetail.due_at && (
-                  <Badge variant="outline">Due: {new Date(taskDetail.due_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</Badge>
+              <div className="flex flex-wrap gap-2">
+                {taskStatusBadge(taskDetail.status)}
+                <Badge variant="outline" className="text-xs">
+                  {taskDetail.due_at
+                    ? `Due: ${new Date(taskDetail.due_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`
+                    : "No due date"}
+                </Badge>
+                {taskDetail.assignee_user_id && (
+                  <Badge variant="outline" className="text-xs">Assigned: {shortEmail(taskDetail.assignee_user_id)}</Badge>
+                )}
+                {taskDetail.job_id && taskDetail.job_number && (
+                  <a
+                    href={`/jobs/${taskDetail.job_id}/tasks`}
+                    className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                  >
+                    Job {taskDetail.job_number}
+                  </a>
+                )}
+                {taskDetail.client_name && (
+                  <a
+                    href={`/clients/${taskDetail.client_db_id}?section=tasks`}
+                    className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold text-muted-foreground border-border bg-muted/30 hover:bg-muted/60 transition-colors"
+                  >
+                    {taskDetail.client_name}
+                  </a>
                 )}
               </div>
-              {taskDetail.client_name && (
-                <div className="text-sm text-muted-foreground">
-                  Client: <a href={`/clients/${taskDetail.client_db_id}?section=tasks`} className="text-foreground underline-offset-2 hover:underline">{taskDetail.client_name}</a>
-                  {taskDetail.job_number && (
-                    <span> / Job: <a href={`/jobs/${taskDetail.job_id}?tab=job-tasks`} className="text-foreground underline-offset-2 hover:underline">{taskDetail.job_number}</a></span>
-                  )}
-                </div>
-              )}
               {taskDetail.details && (
                 <div className="rounded-lg bg-muted/30 p-3 text-sm whitespace-pre-wrap">{taskDetail.details}</div>
               )}
+              <div>
+                <Label className="mb-2 block text-xs text-muted-foreground">Update Status</Label>
+                <div className="flex flex-wrap gap-2">
+                  {(["open", "in_progress", "blocked", "done", "cancelled"] as const).map((s) => (
+                    <Button
+                      key={s}
+                      size="sm"
+                      variant={taskDetail.status === s ? "default" : "outline"}
+                      className="text-xs capitalize"
+                      onClick={() => void quickStatus(taskDetail, s)}
+                    >
+                      {s.replace("_", " ")}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              {taskDetail.created_by && (
+                <div className="text-xs text-muted-foreground">
+                  Created by {taskDetail.created_by}
+                  {taskDetail.created_at && ` on ${new Date(taskDetail.created_at).toLocaleDateString("en-GB")}`}
+                </div>
+              )}
             </div>
           )}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => { if (taskDetail) openEdit(taskDetail); }}>
+              <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={deleting === taskDetail?.task_id}
+              onClick={() => { if (taskDetail) void handleDeleteTask(taskDetail); }}
+            >
+              <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Task</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label htmlFor="dash-task-title">Title *</Label>
+              <Input
+                id="dash-task-title"
+                value={editForm.title}
+                onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
+                placeholder="Task title"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="dash-task-details">Details</Label>
+              <Textarea
+                id="dash-task-details"
+                value={editForm.details}
+                onChange={(e) => setEditForm((f) => ({ ...f, details: e.target.value }))}
+                placeholder="Additional details..."
+                rows={3}
+                className="mt-1"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Priority</Label>
+                <Select value={editForm.priority} onValueChange={(v) => setEditForm((f) => ({ ...f, priority: v }))}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="normal">Normal</SelectItem>
+                    <SelectItem value="low">Low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Status</Label>
+                <Select value={editForm.status} onValueChange={(v) => setEditForm((f) => ({ ...f, status: v }))}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="open">Open</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="blocked">Blocked</SelectItem>
+                    <SelectItem value="done">Done</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="dash-task-due">Due Date</Label>
+                <Input
+                  id="dash-task-due"
+                  type="date"
+                  value={editForm.due_at}
+                  onChange={(e) => setEditForm((f) => ({ ...f, due_at: e.target.value }))}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label>Assign To</Label>
+                {editForm.assignee_user_id ? (
+                  <div className="mt-1 flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
+                    <span className="flex-1 font-medium text-emerald-900">{editForm.assignee_label || editForm.assignee_user_id}</span>
+                    <button type="button" onClick={clearAssignee} className="text-slate-400 hover:text-red-500">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative mt-1">
+                    <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                    <Input
+                      className="pl-8"
+                      placeholder="Search by name or email…"
+                      value={assigneeQuery}
+                      onChange={(e) => { setAssigneeQuery(e.target.value); setAssigneeOpen(true); }}
+                      onFocus={() => setAssigneeOpen(true)}
+                      onBlur={() => { assigneeBlurRef.current = setTimeout(() => setAssigneeOpen(false), 150); }}
+                    />
+                    {assigneeOpen && (
+                      <div className="absolute z-50 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
+                        {filteredAssignees.length === 0 ? (
+                          <p className="px-3 py-2 text-sm text-slate-400">No matches</p>
+                        ) : (
+                          filteredAssignees.map((a) => (
+                            <button
+                              key={a.email}
+                              type="button"
+                              onMouseDown={(e) => { e.preventDefault(); if (assigneeBlurRef.current) clearTimeout(assigneeBlurRef.current); selectAssignee(a); }}
+                              className="flex w-full flex-col px-3 py-2 text-left hover:bg-slate-50"
+                            >
+                              <span className="text-sm font-medium text-slate-800">{a.name || a.email}</span>
+                              {a.name && <span className="text-xs text-slate-400">{a.email}</span>}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditModalOpen(false)}>Cancel</Button>
+            <Button onClick={() => void handleSaveTask()} disabled={saving}>
+              {saving ? "Saving..." : "Update"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
