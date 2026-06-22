@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { Plus, Pencil, Trash2, Search, Filter, Building2, ChevronDown } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Filter, Building2, ChevronDown, ArrowLeftRight } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -79,6 +79,46 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
+
+  // Reassign state
+  const [reassignBooking, setReassignBooking] = useState<BookingWithRun | null>(null);
+  const [reassignRunId, setReassignRunId] = useState<string>("");
+  const [reassignSessionIds, setReassignSessionIds] = useState<Set<number>>(new Set());
+  const [reassigning, setReassigning] = useState(false);
+
+  function openReassign(b: BookingWithRun) {
+    setReassignBooking(b);
+    setReassignRunId("");
+    setReassignSessionIds(new Set());
+  }
+
+  const reassignTargetRun = useMemo(
+    () => runs.find((r) => String(r.training_course_run_id) === reassignRunId) ?? null,
+    [runs, reassignRunId],
+  );
+
+  async function submitReassign() {
+    if (!reassignBooking || !reassignRunId) return;
+    setReassigning(true);
+    try {
+      const res = await fetch(`${baseUrl}/training-bookings/${reassignBooking.training_booking_id}/reassign`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          new_run_id: Number(reassignRunId),
+          session_ids: [...reassignSessionIds],
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      toast.success(`${reassignBooking.person_name} moved to new run`);
+      setReassignBooking(null);
+      onRefresh();
+    } catch (e: unknown) {
+      toast.error(String(e));
+    } finally {
+      setReassigning(false);
+    }
+  }
 
   // Client search state
   const [clientQuery, setClientQuery] = useState("");
@@ -354,9 +394,14 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
-                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openEdit(b)}>
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Edit" onClick={() => openEdit(b)}>
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
+                          {runs.length > 1 && (
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-blue-500" title="Reassign to different run" onClick={() => openReassign(b)}>
+                              <ArrowLeftRight className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="ghost"
@@ -537,6 +582,89 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
           <div className="flex justify-end gap-2 border-t pt-3">
             <Button variant="outline" onClick={closeForm}>Cancel</Button>
             <Button onClick={save} disabled={saving}>{saving ? "Saving…" : editBooking ? "Save Changes" : "Add Attendee"}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reassign dialog */}
+      <Dialog open={!!reassignBooking} onOpenChange={(o) => !o && setReassignBooking(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowLeftRight className="h-4 w-4 text-blue-500" />
+              Reassign Participant
+            </DialogTitle>
+          </DialogHeader>
+          {reassignBooking && (
+            <div className="space-y-4 py-1">
+              <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                <span className="font-medium">{reassignBooking.person_name}</span>
+                <span className="ml-2 text-slate-500">currently in: {reassignBooking.run_name}</span>
+              </div>
+
+              <div>
+                <Label>Move to Run</Label>
+                <Select value={reassignRunId} onValueChange={(v) => { setReassignRunId(v); setReassignSessionIds(new Set()); }}>
+                  <SelectTrigger><SelectValue placeholder="Select a different run…" /></SelectTrigger>
+                  <SelectContent>
+                    {runs
+                      .filter((r) => r.training_course_run_id !== reassignBooking.training_course_run_id)
+                      .map((r) => (
+                        <SelectItem key={r.training_course_run_id} value={String(r.training_course_run_id)}>
+                          {r.run_name || r.product_name || `Run #${r.training_course_run_id}`}
+                          {r.start_date ? ` · ${new Date(r.start_date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : ""}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {reassignTargetRun && (() => {
+                const runSessions = sessions.filter((s) => s.training_course_run_id === reassignTargetRun.training_course_run_id);
+                return runSessions.length > 0 ? (
+                  <div>
+                    <Label className="mb-2 block">Enrol in sessions (optional)</Label>
+                    <div className="space-y-1.5 rounded-lg border border-slate-200 p-2">
+                      {runSessions.map((s) => {
+                        const checked = reassignSessionIds.has(s.training_course_session_id);
+                        return (
+                          <label key={s.training_course_session_id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50">
+                            <input
+                              type="checkbox"
+                              className="accent-emerald-600"
+                              checked={checked}
+                              onChange={(e) => {
+                                setReassignSessionIds((prev) => {
+                                  const next = new Set(prev);
+                                  e.target.checked ? next.add(s.training_course_session_id) : next.delete(s.training_course_session_id);
+                                  return next;
+                                });
+                              }}
+                            />
+                            <span className="font-medium">
+                              {s.session_date
+                                ? new Date(s.session_date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" })
+                                : "TBC"}
+                            </span>
+                            {s.session_title && <span className="text-slate-600">{s.session_title}</span>}
+                            {s.start_time && <span className="ml-auto text-xs text-slate-400">{s.start_time.slice(0, 5)}{s.end_time ? `–${s.end_time.slice(0, 5)}` : ""}</span>}
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-1.5 text-xs text-slate-400">Existing attendance records for the old run will be removed.</p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400">No sessions in this run yet.</p>
+                );
+              })()}
+            </div>
+          )}
+          <div className="flex justify-end gap-2 border-t pt-3">
+            <Button variant="outline" onClick={() => setReassignBooking(null)}>Cancel</Button>
+            <Button onClick={submitReassign} disabled={reassigning || !reassignRunId}>
+              {reassigning ? "Moving…" : "Confirm Reassignment"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

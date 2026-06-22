@@ -2404,6 +2404,84 @@ def update_training_booking(
         return _booking_payload(row)
 
 
+@router.patch("/training-bookings/{training_booking_id}/reassign")
+def reassign_training_booking(
+    training_booking_id: int,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Move a booking to a different course run, clearing old attendance records and
+    optionally enrolling the participant in sessions of the new run."""
+    assert_permission(_user, "jobs.edit")
+    org_id = require_org(_user)
+    actor = _actor(_user)
+    new_run_id = body.get("new_run_id")
+    session_ids: list[int] = [int(s) for s in (body.get("session_ids") or [])]
+    if not new_run_id:
+        raise HTTPException(status_code=400, detail="new_run_id is required")
+    with get_conn() as con:
+        _ensure_tables(con)
+        # Verify booking belongs to org
+        booking_row = con.execute(
+            """
+            SELECT b.training_booking_id, b.org_id, b.training_course_run_id, b.person_name, b.person_email
+            FROM training_bookings b
+            WHERE b.training_booking_id = ? AND b.org_id = ?::text
+            """,
+            [int(training_booking_id), org_id],
+        ).fetchone()
+        if not booking_row:
+            raise HTTPException(status_code=404, detail="Booking not found")
+        # Verify new run belongs to same org
+        run_row = con.execute(
+            "SELECT training_course_run_id FROM training_course_runs WHERE training_course_run_id = ? AND org_id = ?::text",
+            [int(new_run_id), org_id],
+        ).fetchone()
+        if not run_row:
+            raise HTTPException(status_code=404, detail="Target run not found")
+        # Move the booking
+        con.execute(
+            "UPDATE training_bookings SET training_course_run_id = ?, updated_at = NOW(), updated_by = ? WHERE training_booking_id = ? AND org_id = ?::text",
+            [int(new_run_id), actor, int(training_booking_id), org_id],
+        )
+        # Clear attendance records linked to sessions of the old run
+        con.execute(
+            """
+            DELETE FROM training_session_attendance
+            WHERE training_booking_id = ?
+              AND training_course_session_id IN (
+                SELECT training_course_session_id FROM training_course_sessions
+                WHERE training_course_run_id != ? AND org_id = ?::text
+              )
+            """,
+            [int(training_booking_id), int(new_run_id), org_id],
+        )
+        # Optionally enrol in selected sessions of the new run
+        for sid in session_ids:
+            # Check session belongs to the new run
+            sess_row = con.execute(
+                "SELECT 1 FROM training_course_sessions WHERE training_course_session_id = ? AND training_course_run_id = ? AND org_id = ?::text",
+                [int(sid), int(new_run_id), org_id],
+            ).fetchone()
+            if not sess_row:
+                continue
+            # Upsert attendance record
+            existing = con.execute(
+                "SELECT 1 FROM training_session_attendance WHERE training_booking_id = ? AND training_course_session_id = ?",
+                [int(training_booking_id), int(sid)],
+            ).fetchone()
+            if not existing:
+                con.execute(
+                    """
+                    INSERT INTO training_session_attendance
+                      (org_id, training_course_session_id, training_booking_id, attendance_status, created_at, created_by, updated_at, updated_by)
+                    VALUES (?::text, ?, ?, 'booked', NOW(), ?, NOW(), ?)
+                    """,
+                    [org_id, int(sid), int(training_booking_id), actor, actor],
+                )
+        return {"ok": True, "training_booking_id": int(training_booking_id), "new_run_id": int(new_run_id)}
+
+
 @router.get("/training-course-runs/{training_course_run_id}/sessions")
 def list_training_course_sessions(
     training_course_run_id: int,
