@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { Plus, Pencil, Trash2, Search, Filter } from "lucide-react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { Plus, Pencil, Trash2, Search, Filter, Building2, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -80,6 +80,56 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
   const [deleting, setDeleting] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
 
+  // Client search state
+  const [clientQuery, setClientQuery] = useState("");
+  const [clientResults, setClientResults] = useState<{ client_db_id: number; client_name: string }[]>([]);
+  const [clientSearchOpen, setClientSearchOpen] = useState(false);
+  const [selectedClientName, setSelectedClientName] = useState<string | null>(null);
+  const [contacts, setContacts] = useState<{ contact_id: number; full_name: string | null; email: string | null; job_title: string | null }[]>([]);
+  const clientSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const searchClients = useCallback(async (q: string) => {
+    if (!q.trim()) { setClientResults([]); return; }
+    try {
+      const res = await fetch(`${baseUrl}/clients?q=${encodeURIComponent(q)}&limit=10`);
+      if (res.ok) {
+        const data = await res.json();
+        setClientResults((data.items ?? []).map((c: { client_db_id: number; client_name: string }) => ({
+          client_db_id: c.client_db_id,
+          client_name: c.client_name,
+        })));
+      }
+    } catch { /* silent */ }
+  }, [baseUrl]);
+
+  useEffect(() => {
+    if (clientSearchRef.current) clearTimeout(clientSearchRef.current);
+    clientSearchRef.current = setTimeout(() => { void searchClients(clientQuery); }, 300);
+    return () => { if (clientSearchRef.current) clearTimeout(clientSearchRef.current); };
+  }, [clientQuery, searchClients]);
+
+  async function selectClient(client: { client_db_id: number; client_name: string }) {
+    setSelectedClientName(client.client_name);
+    setForm((f) => ({ ...f, client_db_id: client.client_db_id }));
+    setClientSearchOpen(false);
+    setClientQuery("");
+    setClientResults([]);
+    setContacts([]);
+    try {
+      const res = await fetch(`${baseUrl}/clients/${client.client_db_id}/contacts`);
+      if (res.ok) {
+        const data = await res.json();
+        setContacts(data.contacts ?? []);
+      }
+    } catch { /* silent */ }
+  }
+
+  function clearClient() {
+    setSelectedClientName(null);
+    setContacts([]);
+    setForm((f) => ({ ...f, client_db_id: null }));
+  }
+
   const allBookings = useMemo<BookingWithRun[]>(() => {
     const result: BookingWithRun[] = [];
     for (const run of runs) {
@@ -114,6 +164,9 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
     setEditBooking(null);
     setForm({ ...EMPTY_BOOKING(), training_course_run_id: runs[0]?.training_course_run_id ?? 0 });
     setSelectedRunId(runs[0]?.training_course_run_id ?? null);
+    setSelectedClientName(null);
+    setContacts([]);
+    setClientQuery("");
     setShowForm(true);
   }
 
@@ -121,12 +174,18 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
     setEditBooking(b);
     setForm({ ...b });
     setSelectedRunId(b.training_course_run_id);
+    setSelectedClientName(b.client_name ?? null);
+    setContacts([]);
+    setClientQuery("");
     setShowForm(true);
   }
 
   function closeForm() {
     setShowForm(false);
     setEditBooking(null);
+    setSelectedClientName(null);
+    setContacts([]);
+    setClientSearchOpen(false);
   }
 
   async function save() {
@@ -345,6 +404,71 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
                 </Select>
               </div>
             )}
+            {/* Client company search */}
+            <div className="col-span-2">
+              <Label className="flex items-center gap-1.5"><Building2 className="h-3.5 w-3.5 text-slate-400" /> Client Company</Label>
+              {selectedClientName ? (
+                <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+                  <span className="flex-1 text-sm font-medium text-emerald-800">{selectedClientName}</span>
+                  <button type="button" onClick={clearClient} className="text-xs text-slate-400 hover:text-red-500">Clear</button>
+                </div>
+              ) : (
+                <div className="relative">
+                  <Input
+                    placeholder="Search client companies…"
+                    value={clientQuery}
+                    onChange={(e) => { setClientQuery(e.target.value); setClientSearchOpen(true); }}
+                    onFocus={() => setClientSearchOpen(true)}
+                    onBlur={() => setTimeout(() => setClientSearchOpen(false), 200)}
+                  />
+                  {clientSearchOpen && clientResults.length > 0 && (
+                    <div className="absolute z-50 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg">
+                      {clientResults.map((c) => (
+                        <button
+                          key={c.client_db_id}
+                          type="button"
+                          onMouseDown={() => selectClient(c)}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50"
+                        >
+                          <Building2 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                          {c.client_name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Contact picker */}
+            {contacts.length > 0 && (
+              <div className="col-span-2">
+                <Label>Select Contact (optional)</Label>
+                <div className="relative">
+                  <select
+                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    defaultValue=""
+                    onChange={(e) => {
+                      const c = contacts.find((c) => String(c.contact_id) === e.target.value);
+                      if (c) setForm((f) => ({
+                        ...f,
+                        person_name: c.full_name ?? f.person_name,
+                        person_email: c.email ?? f.person_email,
+                      }));
+                    }}
+                  >
+                    <option value="">— pick a contact to auto-fill —</option>
+                    {contacts.map((c) => (
+                      <option key={c.contact_id} value={String(c.contact_id)}>
+                        {c.full_name ?? "(no name)"}{c.job_title ? ` · ${c.job_title}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-2.5 h-4 w-4 text-slate-400" />
+                </div>
+              </div>
+            )}
+
             <div className="col-span-2">
               <Label>Full Name *</Label>
               <Input value={form.person_name ?? ""} onChange={(e) => setForm((f) => ({ ...f, person_name: e.target.value }))} />
