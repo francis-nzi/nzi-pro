@@ -495,7 +495,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <CheckSquare className="h-4 w-4 text-muted-foreground" />
-                  <CardTitle className="text-base">My Tasks</CardTitle>
+                  <CardTitle className="text-base">My Open Tasks</CardTitle>
                 </div>
                 <Badge variant="secondary">{myTasks.length}</Badge>
               </div>
@@ -512,6 +512,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
                       <tr className="border-b bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
                         <th className="px-4 py-2 text-left font-medium">Priority</th>
                         <th className="px-4 py-2 text-left font-medium">Task</th>
+                        <th className="px-4 py-2 text-left font-medium">Job No.</th>
                         <th className="px-4 py-2 text-left font-medium">Client</th>
                         <th className="px-4 py-2 text-left font-medium">Due</th>
                         <th className="px-4 py-2 text-left font-medium">Status</th>
@@ -536,6 +537,13 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
                               {task.priority === "low" && <Badge className="bg-slate-100 text-slate-600 border-slate-200">Low</Badge>}
                             </td>
                             <td className="px-4 py-3 font-medium max-w-[200px] truncate">{task.title}</td>
+                            <td className="px-4 py-3 text-xs" onClick={(e) => e.stopPropagation()}>
+                              {task.job_id && task.job_number ? (
+                                <a href={`/jobs/${task.job_id}/tasks`} className="text-emerald-700 hover:underline font-medium">
+                                  {task.job_number}
+                                </a>
+                              ) : <span className="text-muted-foreground">—</span>}
+                            </td>
                             <td className="px-4 py-3 text-muted-foreground text-xs max-w-[140px] truncate">
                               {task.client_name || "—"}
                             </td>

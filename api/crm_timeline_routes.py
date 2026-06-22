@@ -763,6 +763,36 @@ def list_client_tasks(
         raise HTTPException(status_code=500, detail=f"Failed to load tasks: {e}")
 
 
+@router.get("/clients/{client_id}/tasks/open-count")
+def get_client_open_task_count(client_id: int, _user: dict = Depends(_current_user)):
+    """Count of open (non-done, non-cancelled) tasks for a client."""
+    try:
+        with get_conn() as con:
+            _ensure_tables(con)
+            row = con.execute(
+                "SELECT COUNT(*) FROM crm_tasks WHERE client_db_id = %s AND lower(status) NOT IN ('done', 'cancelled')",
+                [int(client_id)],
+            ).fetchone()
+            return {"count": int(row[0]) if row and row[0] is not None else 0}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/jobs/{job_id}/tasks/open-count")
+def get_job_open_task_count(job_id: int, _user: dict = Depends(_current_user)):
+    """Count of open (non-done, non-cancelled) tasks for a job."""
+    try:
+        with get_conn() as con:
+            _ensure_tables(con)
+            row = con.execute(
+                "SELECT COUNT(*) FROM crm_tasks WHERE job_id = %s AND lower(status) NOT IN ('done', 'cancelled')",
+                [int(job_id)],
+            ).fetchone()
+            return {"count": int(row[0]) if row and row[0] is not None else 0}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/tasks/{task_id}")
 def delete_task(task_id: int, _user: dict = Depends(_current_user)):
     try:

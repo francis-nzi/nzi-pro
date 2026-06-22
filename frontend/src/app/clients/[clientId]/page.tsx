@@ -282,6 +282,7 @@ function ClientDetailPageContent() {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [clientNotFound, setClientNotFound] = useState<boolean>(false);
+  const [openTaskCount, setOpenTaskCount] = useState<number | null>(null);
   const [activeSection, setActiveSection] = useState<ClientSection>("overview");
   const [activeProfileSubTab, setActiveProfileSubTab] = useState<ProfileSubSection>("details");
   const [financialView, setFinancialView] = useState<FinancialView>("quotes");
@@ -654,8 +655,24 @@ function ClientDetailPageContent() {
   }, [baseUrl, clientId]);
 
   useEffect(() => {
+    if (!Number.isFinite(clientId) || clientId <= 0) return;
+    let cancelled = false;
+    async function fetchCount() {
+      try {
+        const res = await fetch(`${baseUrl}/clients/${clientId}/tasks/open-count`, { credentials: "include" });
+        if (res.ok) {
+          const data = (await res.json()) as { count: number };
+          if (!cancelled) setOpenTaskCount(data.count);
+        }
+      } catch { /* non-fatal */ }
+    }
+    void fetchCount();
+    return () => { cancelled = true; };
+  }, [baseUrl, clientId]);
+
+  useEffect(() => {
     if (clientNotFound) return;
-    
+
     // Overview tab pre-loads
     if (activeSection === "overview") {
       if (!jobsLoaded && !jobsLoading) void reloadJobs();
@@ -2185,7 +2202,9 @@ function ClientDetailPageContent() {
                           : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700"
                       }`}
                     >
-                      {section.label}
+                      {section.id === "tasks" && openTaskCount !== null
+                        ? `Tasks (${openTaskCount})`
+                        : section.label}
                     </button>
                   ))}
                 </nav>

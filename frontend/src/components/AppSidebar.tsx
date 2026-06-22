@@ -283,6 +283,7 @@ function AppSidebarContent() {
 
   const [expanded, setExpanded] = useState(false);
   const [tooltip, setTooltip] = useState<{ label: string; top: number; left: number } | null>(null);
+  const [jobOpenTaskCount, setJobOpenTaskCount] = useState<number | null>(null);
   const showTooltip = (e: React.MouseEvent<HTMLElement>, label: string) => {
     const r = e.currentTarget.getBoundingClientRect();
     setTooltip({ label, top: r.top + r.height / 2, left: r.right + 8 });
@@ -454,6 +455,25 @@ function AppSidebarContent() {
         : getJobActiveSubtab(pathname)
       : "";
 
+  useEffect(() => {
+    if (!isOnJobRoute || !jobIdFromPath) { setJobOpenTaskCount(null); return; }
+    let cancelled = false;
+    async function fetchCount() {
+      try {
+        const res = await fetch(apiUrl(`/jobs/${jobIdFromPath}/tasks/open-count`), {
+          credentials: "include",
+          headers: { "X-NZI-Skip-Auth-Redirect": "1" },
+        });
+        if (res.ok) {
+          const data = (await res.json()) as { count: number };
+          if (!cancelled) setJobOpenTaskCount(data.count);
+        }
+      } catch { /* non-fatal */ }
+    }
+    void fetchCount();
+    return () => { cancelled = true; };
+  }, [jobIdFromPath, isOnJobRoute]);
+
   const logoUrl = (() => {
     const raw = String(theme?.logo_url || "").trim();
     if (!raw) return "/api/backend/system-settings/logo/file";
@@ -534,6 +554,9 @@ function AppSidebarContent() {
               const groupHref = group.href(jobIdFromPath);
               const isGroupActive = activeJobGroup === group.key;
               const hasSubtabs = isGroupActive && group.subtabs.length > 0;
+              const groupLabel = group.key === "job-tasks" && jobOpenTaskCount !== null && jobOpenTaskCount > 0
+                ? `Tasks (${jobOpenTaskCount})`
+                : group.label;
               return (
                 <div key={group.key}>
                   <div className="group relative">
@@ -545,11 +568,11 @@ function AppSidebarContent() {
                         isGroupActive ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                       )}
                       style={isGroupActive ? { backgroundColor: accentColor } : undefined}
-                      onMouseEnter={!expanded ? e => showTooltip(e, group.label) : undefined}
+                      onMouseEnter={!expanded ? e => showTooltip(e, groupLabel) : undefined}
                       onMouseLeave={!expanded ? hideTooltip : undefined}
                     >
                       <Icon className="h-4 w-4 flex-shrink-0" />
-                      {expanded && <span className="truncate">{group.label}</span>}
+                      {expanded && <span className="truncate">{groupLabel}</span>}
                     </Link>
                   </div>
                   {expanded && hasSubtabs && (
