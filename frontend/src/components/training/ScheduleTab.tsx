@@ -23,6 +23,7 @@ import {
 } from "@/lib/training-workflow";
 import type { TrainingCourseRun, TrainingProduct, TrainingSession, TrainingSessionStaff } from "./types";
 import { STAFF_ROLE_OPTIONS, formatStaffRole } from "./types";
+import DocumentsPanel from "./DocumentsPanel";
 
 type Props = {
   jobId: number;
@@ -488,6 +489,16 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                       </div>
                     );
                   })}
+                </div>
+
+                {/* Run-level documents */}
+                <div className="border-t border-slate-100 pt-4 mt-4">
+                  <DocumentsPanel
+                    targetType="run"
+                    targetId={run.training_course_run_id}
+                    baseUrl={baseUrl}
+                    title="Run Documents"
+                  />
                 </div>
               </CardContent>
             )}

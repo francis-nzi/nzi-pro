@@ -197,6 +197,39 @@ export type TrainingOverview = {
   sessions: TrainingSession[];
 };
 
+export type TrainingDocument = {
+  training_document_id: number;
+  org_id: string;
+  target_type: string;
+  target_id: number;
+  document_type: string;
+  document_name: string;
+  file_url: string | null;
+  notes: string | null;
+  attach_to_email: boolean;
+  is_visible_on_portal: boolean;
+  created_at: string | null;
+  created_by: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
+};
+
+export const DOCUMENT_TYPE_OPTIONS = [
+  { value: "course_overview",      label: "Course Overview" },
+  { value: "lesson_plan",          label: "Lesson Plan" },
+  { value: "slides",               label: "Course Slides" },
+  { value: "questionnaire",        label: "Questionnaire" },
+  { value: "feedback_form",        label: "Feedback Form" },
+  { value: "joining_instructions", label: "Joining Instructions" },
+  { value: "post_course_resources",label: "Post-Course Resources" },
+  { value: "certificate_template", label: "Certificate Template" },
+  { value: "general",              label: "General" },
+] as const;
+
+export function formatDocumentType(type: string): string {
+  return DOCUMENT_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export type TrainingLogEntry = {
   training_automation_log_id: number;
   automation_key: string;

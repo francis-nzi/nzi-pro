@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { TRAINING_DELIVERY_MODE_OPTIONS } from "@/lib/training-workflow";
 import type { TrainingProduct } from "./types";
+import DocumentsPanel from "./DocumentsPanel";
 
 type Props = {
   products: TrainingProduct[];
@@ -188,6 +189,14 @@ export default function CourseTab({ products, baseUrl, onRefresh }: Props) {
                     </span>
                   </div>
                 )}
+                <div className="border-t border-slate-100 pt-3">
+                  <DocumentsPanel
+                    targetType="product"
+                    targetId={p.training_product_id}
+                    baseUrl={baseUrl}
+                    title="Course Template Documents"
+                  />
+                </div>
               </CardContent>
             </Card>
           ))}
