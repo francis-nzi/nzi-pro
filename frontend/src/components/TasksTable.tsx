@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -101,6 +101,7 @@ const EMPTY_FORM = {
   title: "",
   details: "",
   assignee_user_id: "",
+  assignee_label: "",
   priority: "normal",
   due_at: "",
   status: "open",
@@ -118,6 +119,29 @@ export default function TasksTable({ clientId, jobId, baseUrl, title, compact = 
   const [deleting, setDeleting] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+
+  // Assignee smart search
+  const [assigneeQuery, setAssigneeQuery] = useState("");
+  const [assigneeOpen, setAssigneeOpen] = useState(false);
+  const assigneeBlurRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const filteredAssignees = assigneeQuery.trim()
+    ? assignees.filter((a) =>
+        (a.name || a.email).toLowerCase().includes(assigneeQuery.toLowerCase()) ||
+        a.email.toLowerCase().includes(assigneeQuery.toLowerCase())
+      )
+    : assignees.slice(0, 20);
+
+  function selectAssignee(a: Assignee) {
+    setForm((f) => ({ ...f, assignee_user_id: a.email, assignee_label: a.name || a.email }));
+    setAssigneeQuery("");
+    setAssigneeOpen(false);
+  }
+
+  function clearAssignee() {
+    setForm((f) => ({ ...f, assignee_user_id: "", assignee_label: "" }));
+    setAssigneeQuery("");
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -151,16 +175,20 @@ export default function TasksTable({ clientId, jobId, baseUrl, title, compact = 
   function openAdd() {
     setEditingId(null);
     setForm({ ...EMPTY_FORM });
+    setAssigneeQuery("");
+    setAssigneeOpen(false);
     setModalOpen(true);
   }
 
   function openEdit(task: Task, e: React.MouseEvent) {
     e.stopPropagation();
     setEditingId(task.task_id);
+    const existingAssignee = assignees.find((a) => a.email === task.assignee_user_id);
     setForm({
       title: task.title || "",
       details: task.details || "",
       assignee_user_id: task.assignee_user_id || "",
+      assignee_label: existingAssignee ? existingAssignee.name || existingAssignee.email : task.assignee_user_id || "",
       priority: task.priority || "normal",
       due_at: task.due_at ? task.due_at.slice(0, 10) : "",
       status: task.status || "open",
@@ -459,22 +487,45 @@ export default function TasksTable({ clientId, jobId, baseUrl, title, compact = 
               </div>
               <div>
                 <Label>Assign To</Label>
-                <Select
-                  value={form.assignee_user_id || "__none__"}
-                  onValueChange={(v) => setForm((f) => ({ ...f, assignee_user_id: v === "__none__" ? "" : v }))}
-                >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="Select person..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Unassigned</SelectItem>
-                    {assignees.map((a) => (
-                      <SelectItem key={a.email} value={a.email}>
-                        {a.name || a.email}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {form.assignee_user_id ? (
+                  <div className="mt-1 flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
+                    <span className="flex-1 font-medium text-emerald-900">{form.assignee_label || form.assignee_user_id}</span>
+                    <button type="button" onClick={clearAssignee} className="text-slate-400 hover:text-red-500">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative mt-1">
+                    <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                    <Input
+                      className="pl-8"
+                      placeholder="Search by name or email…"
+                      value={assigneeQuery}
+                      onChange={(e) => { setAssigneeQuery(e.target.value); setAssigneeOpen(true); }}
+                      onFocus={() => setAssigneeOpen(true)}
+                      onBlur={() => { assigneeBlurRef.current = setTimeout(() => setAssigneeOpen(false), 150); }}
+                    />
+                    {assigneeOpen && (
+                      <div className="absolute z-50 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
+                        {filteredAssignees.length === 0 ? (
+                          <p className="px-3 py-2 text-sm text-slate-400">No matches</p>
+                        ) : (
+                          filteredAssignees.map((a) => (
+                            <button
+                              key={a.email}
+                              type="button"
+                              onMouseDown={(e) => { e.preventDefault(); if (assigneeBlurRef.current) clearTimeout(assigneeBlurRef.current); selectAssignee(a); }}
+                              className="flex w-full flex-col px-3 py-2 text-left hover:bg-slate-50"
+                            >
+                              <span className="text-sm font-medium text-slate-800">{a.name || a.email}</span>
+                              {a.name && <span className="text-xs text-slate-400">{a.email}</span>}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             {!editingId && form.assignee_user_id && (

@@ -825,7 +825,7 @@ def list_my_tasks(
                     item["job_title"] = str(r.get("job_title") or "")
                     item["client_name"] = str(r.get("client_name") or "")
                     items.append(item)
-            return {"items": items, "count": len(items)}
+            return {"items": items, "count": len(items), "_matched_as": actor}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load tasks: {e}")
 
