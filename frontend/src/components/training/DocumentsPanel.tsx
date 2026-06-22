@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Plus, Pencil, Trash2, ExternalLink, Mail, Globe, FileText } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Plus, Pencil, Trash2, ExternalLink, Mail, Globe, FileText, Upload, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +53,9 @@ export default function DocumentsPanel({ targetType, targetId, baseUrl, title = 
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<TrainingDocument | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function load() {
     setLoading(true);
@@ -74,6 +77,7 @@ export default function DocumentsPanel({ targetType, targetId, baseUrl, title = 
   function openAdd() {
     setEditing(null);
     setForm(EMPTY_FORM);
+    setUploadedFileName(null);
     setDialogOpen(true);
   }
 
@@ -87,7 +91,36 @@ export default function DocumentsPanel({ targetType, targetId, baseUrl, title = 
       attach_to_email: doc.attach_to_email,
       is_visible_on_portal: doc.is_visible_on_portal,
     });
+    setUploadedFileName(null);
     setDialogOpen(true);
+  }
+
+  async function uploadFile(file: File) {
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`${baseUrl}/training-documents/upload`, { method: "POST", body: fd });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      const fileName = data.file_name as string;
+      setForm((f) => ({
+        ...f,
+        file_url: data.file_url,
+        document_name: f.document_name.trim() ? f.document_name : fileName.replace(/\.[^.]+$/, ""),
+      }));
+      setUploadedFileName(fileName);
+    } catch (e: unknown) {
+      toast.error(`Upload failed: ${String(e)}`);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function clearUpload() {
+    setUploadedFileName(null);
+    setForm((f) => ({ ...f, file_url: "" }));
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   async function save() {
@@ -250,12 +283,46 @@ export default function DocumentsPanel({ targetType, targetId, baseUrl, title = 
             </div>
 
             <div>
-              <Label>URL / Link</Label>
-              <Input
-                value={form.file_url}
-                onChange={(e) => setForm((f) => ({ ...f, file_url: e.target.value }))}
-                placeholder="https://… (SharePoint, Google Drive, etc.)"
-              />
+              <Label>URL / File</Label>
+              {uploadedFileName ? (
+                <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
+                  <FileText className="h-4 w-4 shrink-0 text-emerald-600" />
+                  <span className="min-w-0 flex-1 truncate text-emerald-800">{uploadedFileName}</span>
+                  <button type="button" onClick={clearUpload} className="shrink-0 text-emerald-500 hover:text-emerald-700">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Input
+                    value={form.file_url}
+                    onChange={(e) => setForm((f) => ({ ...f, file_url: e.target.value }))}
+                    placeholder="https://… (SharePoint, Google Drive, etc.)"
+                    className="flex-1"
+                  />
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(f); }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 gap-1.5"
+                    disabled={uploading}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {uploading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Upload className="h-3.5 w-3.5" />
+                    )}
+                    {uploading ? "Uploading…" : "Upload"}
+                  </Button>
+                </div>
+              )}
             </div>
 
             <div>

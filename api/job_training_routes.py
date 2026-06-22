@@ -4,10 +4,12 @@ import io
 import html
 import json
 import re
+import uuid
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -3206,6 +3208,34 @@ def delete_training_product(
 # ---------------------------------------------------------------------------
 # Training documents
 # ---------------------------------------------------------------------------
+
+_TRAINING_UPLOADS = Path(__file__).resolve().parents[1] / "frontend" / "public" / "uploads" / "training_documents"
+
+
+@router.post("/training-documents/upload")
+async def upload_training_document_file(
+    file: UploadFile = File(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Save an uploaded file and return its public URL."""
+    assert_permission(_user, "jobs.edit")
+    _TRAINING_UPLOADS.mkdir(parents=True, exist_ok=True)
+
+    # Build a safe, unique filename
+    original = file.filename or "document"
+    ext = Path(original).suffix.lower()[:10]  # guard against long extensions
+    safe_stem = re.sub(r"[^a-zA-Z0-9._-]", "_", Path(original).stem)[:80]
+    unique_name = f"{uuid.uuid4().hex[:8]}_{safe_stem}{ext}"
+
+    dest = _TRAINING_UPLOADS / unique_name
+    content = await file.read()
+    dest.write_bytes(content)
+
+    return {
+        "file_url": f"/uploads/training_documents/{unique_name}",
+        "file_name": original,
+    }
+
 
 @router.get("/training-documents")
 def list_training_documents(
