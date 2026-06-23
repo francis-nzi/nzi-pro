@@ -42,6 +42,7 @@ type ClientFacets = {
   statuses: FacetOption[];
   owners: FacetOption[];
   risks: FacetOption[];
+  portfolios: FacetOption[];
 };
 
 type SortBy = "client" | "industry" | "status" | "owner" | "risk";
@@ -60,11 +61,13 @@ export default function ClientsPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [riskFilter, setRiskFilter] = useState("");
+  const [portfolioFilter, setPortfolioFilter] = useState("");
   const [facets, setFacets] = useState<ClientFacets>({
     industries: [],
     statuses: [],
     owners: [],
     risks: [],
+    portfolios: [],
   });
   const [sortBy, setSortBy] = useState<SortBy>("client");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -81,6 +84,7 @@ export default function ClientsPage() {
         if (statusFilter.trim()) params.set("status", statusFilter.trim());
         if (ownerFilter.trim()) params.set("crm_owner", ownerFilter.trim());
         if (riskFilter.trim()) params.set("risk", riskFilter.trim());
+        if (portfolioFilter.trim()) params.set("portfolio", portfolioFilter.trim());
         params.set("limit", String(limit));
         params.set("offset", String(offset));
         params.set("sort_by", sortBy);
@@ -104,6 +108,7 @@ export default function ClientsPage() {
             statuses: [],
             owners: [],
             risks: [],
+            portfolios: [],
           }
         );
       } catch (e) {
@@ -115,6 +120,7 @@ export default function ClientsPage() {
           statuses: [],
           owners: [],
           risks: [],
+          portfolios: [],
         });
         setError((e as Error).message);
       } finally {
@@ -126,7 +132,7 @@ export default function ClientsPage() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [baseUrl, q, industryFilter, statusFilter, ownerFilter, riskFilter, limit, offset, sortBy, sortDir]);
+  }, [baseUrl, q, industryFilter, statusFilter, ownerFilter, riskFilter, portfolioFilter, limit, offset, sortBy, sortDir]);
 
   const page = Math.floor(offset / limit) + 1;
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -301,6 +307,21 @@ export default function ClientsPage() {
                     showClearButton
                     onValueChange={(value) => {
                       setRiskFilter(value);
+                      setOffset(0);
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="portfolio-filter">Portfolio</Label>
+                  <SearchableStringSelect
+                    id="portfolio-filter"
+                    value={portfolioFilter}
+                    options={facets.portfolios.map((facet) => facet.value)}
+                    optionBadges={Object.fromEntries(facets.portfolios.map((facet) => [facet.value, facet.count]))}
+                    placeholder="All portfolios"
+                    showClearButton
+                    onValueChange={(value) => {
+                      setPortfolioFilter(value);
                       setOffset(0);
                     }}
                   />

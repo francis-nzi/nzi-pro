@@ -29,6 +29,7 @@ def list_clients(
     status: str | None = None,
     crm_owner: str | None = None,
     risk: str | None = None,
+    portfolio: str | None = None,
     include_archived: bool = Query(False),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -81,6 +82,7 @@ def list_clients(
             has_industry = _col_exists(con, "clients", "industry")
             has_status = _col_exists(con, "clients", "status")
             has_crm_owner = _col_exists(con, "clients", "crm_owner")
+            has_portfolio = _col_exists(con, "clients", "portfolio")
 
             where_clauses: list[str] = []
             params: list[object] = []
@@ -134,6 +136,7 @@ def list_clients(
             industry_col = "c.industry" if has_industry else "NULL::text as industry"
             status_col = "c.status" if has_status else "NULL::text as status"
             crm_col = "c.crm_owner" if has_crm_owner else "NULL::text as crm_owner"
+            portfolio_col = "c.portfolio" if has_portfolio else "NULL::text as portfolio"
 
             rows = (
                 con.execute(
@@ -142,7 +145,8 @@ def list_clients(
                            c.client_name,
                            {industry_col},
                            {status_col},
-                           {crm_col}
+                           {crm_col},
+                           {portfolio_col}
                     FROM clients c
                     {where_sql}
                     ORDER BY LOWER(COALESCE(c.client_name, '')) ASC, c.db_id ASC
@@ -197,7 +201,8 @@ def list_clients(
                                c.client_name,
                                NULL::text as industry,
                                NULL::text as status,
-                               NULL::text as crm_owner
+                               NULL::text as crm_owner,
+                               NULL::text as portfolio
                         FROM clients c
                         {where_sql}
                         ORDER BY LOWER(COALESCE(c.client_name, '')) ASC, c.db_id ASC
@@ -273,12 +278,14 @@ def list_clients(
     facet_statuses: dict[str, int] = {}
     facet_owners: dict[str, int] = {}
     facet_risks: dict[str, int] = {}
+    facet_portfolios: dict[str, int] = {}
     if rows is not None and (not rows.empty):
         for _, r in rows.iterrows():
             client_id = int(r.get("client_db_id"))
             industry_value = _normalize_filter_value(_json_null_if_na(r.get("industry")), "Unspecified")
             status_value = _normalize_filter_value(_json_null_if_na(r.get("status")), "Unspecified")
             owner_value = _normalize_filter_value(_json_null_if_na(r.get("crm_owner")), "Unassigned")
+            portfolio_value = _normalize_filter_value(_json_null_if_na(r.get("portfolio")), "Unassigned")
             risk_value = _normalize_filter_value(client_milestone_status.get(client_id) or "green", "green")
             risk_label = "Overdue" if risk_value == "red" else "Due" if risk_value == "amber" else "Healthy"
 
@@ -286,6 +293,7 @@ def list_clients(
             facet_statuses[status_value] = facet_statuses.get(status_value, 0) + 1
             facet_owners[owner_value] = facet_owners.get(owner_value, 0) + 1
             facet_risks[risk_label] = facet_risks.get(risk_label, 0) + 1
+            facet_portfolios[portfolio_value] = facet_portfolios.get(portfolio_value, 0) + 1
 
             items.append(
                 {
@@ -294,6 +302,7 @@ def list_clients(
                     "industry": industry_value,
                     "status": status_value,
                     "crm_owner": owner_value,
+                    "portfolio": portfolio_value,
                     "milestone_status": _json_null_if_na(client_milestone_status.get(client_id)),
                 }
             )
@@ -304,6 +313,8 @@ def list_clients(
             if status and _normalize_lookup_value(item.get("status")) != _normalize_lookup_value(status):
                 return False
             if crm_owner and _normalize_lookup_value(item.get("crm_owner")) != _normalize_lookup_value(crm_owner):
+                return False
+            if portfolio and _normalize_lookup_value(item.get("portfolio")) != _normalize_lookup_value(portfolio):
                 return False
             if risk:
                 item_risk = item.get("milestone_status")
@@ -340,6 +351,7 @@ def list_clients(
         "statuses": [{"value": key, "count": count} for key, count in sorted(facet_statuses.items(), key=lambda kv: (-kv[1], kv[0].lower()))],
         "owners": [{"value": key, "count": count} for key, count in sorted(facet_owners.items(), key=lambda kv: (-kv[1], kv[0].lower()))],
         "risks": [{"value": key, "count": count} for key, count in sorted(facet_risks.items(), key=lambda kv: (-kv[1], kv[0].lower()))],
+        "portfolios": [{"value": key, "count": count} for key, count in sorted(facet_portfolios.items(), key=lambda kv: (-kv[1], kv[0].lower()))],
     }
 
     return {
