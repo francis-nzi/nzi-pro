@@ -341,7 +341,6 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
       ];
     }
     return [
-      { label: "Jobs", value: opsJobs ? opsJobs.current_jobs.length : (atRiskJobs ?? "—"), icon: <Briefcase className="h-4 w-4" />, href: "/jobs" },
       { label: "Follow-up Reminders", value: data.action_queue.length, icon: <AlertCircle className="h-4 w-4" /> },
       { label: "Renewals (90 days)", value: data.renewal_pipeline.length, icon: <TrendingUp className="h-4 w-4" /> },
     ];
@@ -552,13 +551,13 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
               </div>
               <div className="flex flex-wrap gap-2">
                 <Badge variant="outline" className="rounded-full">{scopeOwner ? scopeLabel(scopeOwner) : "All CRMs"}</Badge>
-                {opsJobs && <Badge variant="secondary" className="rounded-full">{opsJobs.current_jobs.length} active jobs</Badge>}
+                {opsJobs && <Badge variant="secondary" className="rounded-full">{opsJobs.overdue + opsJobs.due_soon} jobs at risk</Badge>}
                 <Badge variant="secondary" className="rounded-full">{data.renewal_pipeline.length} renewals</Badge>
               </div>
             </CardContent>
           </Card>
 
-          <div className={`grid gap-4 ${hasHealthData ? "md:grid-cols-2 xl:grid-cols-5" : "md:grid-cols-2 xl:grid-cols-4"}`}>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {/* Total Clients — special card with traffic-light breakdown */}
             {data && (() => {
               const ownerParam = (viewMode !== "all" && scopeOwner)
@@ -610,6 +609,48 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
                 </Link>
               );
             })()}
+
+            {/* Total Jobs — special card with traffic-light breakdown */}
+            {(() => {
+              const totalJobs = opsJobs?.current_jobs.length ?? null;
+              const jobsOverdue = opsJobs?.current_jobs.filter((j) => j.milestone_status === "red").length ?? 0;
+              const jobsDue = opsJobs?.current_jobs.filter((j) => j.milestone_status === "amber").length ?? 0;
+              const jobsHealthy = opsJobs?.current_jobs.filter((j) => j.milestone_status === "green").length ?? 0;
+              return (
+                <Link href="/jobs" className="block">
+                  <Card className="overflow-hidden border-border/70 hover:bg-muted/30 transition-colors cursor-pointer h-full">
+                    <CardContent className="p-4 flex flex-col justify-between h-full">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Total Jobs</div>
+                          <div className="mt-1 text-2xl font-semibold">{totalJobs ?? "—"}</div>
+                        </div>
+                        <div className="rounded-full border bg-background/80 p-2 text-muted-foreground shadow-sm">
+                          <Briefcase className="h-4 w-4" />
+                        </div>
+                      </div>
+                      {opsJobs && (
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          <span className="flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs text-rose-800">
+                            <span className="h-2 w-2 rounded-full bg-rose-500 shrink-0" />
+                            {jobsOverdue}
+                          </span>
+                          <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
+                            <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+                            {jobsDue}
+                          </span>
+                          <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-800">
+                            <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                            {jobsHealthy}
+                          </span>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </Link>
+              );
+            })()}
+
             {summaryCards.map((card) => {
               const inner = (
                 <Card key={card.label} className={`overflow-hidden border-border/70 h-full ${"href" in card ? "hover:bg-muted/30 transition-colors cursor-pointer" : ""}`}>
