@@ -707,7 +707,13 @@ export default function JobReportNew({
         return `${label}: ${detail}`;
       };
 
-      if (assignmentResult.status === "fulfilled") {
+      if (assignmentResult.status === "rejected") {
+        const reason = assignmentResult.reason;
+        // AbortError means the fetch was cancelled (e.g. component unmounted) — not a real failure
+        if (reason?.name !== "AbortError") {
+          warnings.push("Report profile assignment could not be loaded.");
+        }
+      } else if (assignmentResult.status === "fulfilled") {
         const assignmentRes = assignmentResult.value;
         if (!assignmentRes.ok) {
           warnings.push(await parseFailure(assignmentRes, "Report profile assignment could not be loaded"));
@@ -727,11 +733,14 @@ export default function JobReportNew({
             "crp_standard";
           setSelectedKey(preferredKey);
         }
-      } else {
-        warnings.push("Report profile assignment could not be loaded.");
       }
 
-      if (actionsResult.status === "fulfilled") {
+      if (actionsResult.status === "rejected") {
+        const reason = actionsResult.reason;
+        if (reason?.name !== "AbortError") {
+          warnings.push("Report actions could not be loaded.");
+        }
+      } else if (actionsResult.status === "fulfilled") {
         const actionsRes = actionsResult.value;
         if (!actionsRes.ok) {
           warnings.push(await parseFailure(actionsRes, "Report actions could not be loaded"));
@@ -739,8 +748,6 @@ export default function JobReportNew({
           const actionsPayload = await actionsRes.json();
           setActionsSummary(actionsPayload || null);
         }
-      } else {
-        warnings.push("Report actions could not be loaded.");
       }
 
       setWorkspaceWarnings(warnings);
@@ -1494,11 +1501,14 @@ export default function JobReportNew({
 
   async function saveDraftNow() {
     setDraftSaving(true);
+    // Safety net: always clear the saving state after 30s even if the fetch hangs
+    const safetyTimer = window.setTimeout(() => setDraftSaving(false), 30000);
     try {
       await syncReportDrafts();
     } catch (err) {
       setDraftError(formatFriendlyFetchError(err, "Unable to save draft changes right now."));
     } finally {
+      clearTimeout(safetyTimer);
       setDraftSaving(false);
     }
   }

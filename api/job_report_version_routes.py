@@ -211,8 +211,19 @@ def save_report_drafts(
                 status_code=400,
                 detail="No assigned report template/version is available for saving drafts.",
             )
+        # Run DDL migrations on a separate connection so they don't hold a
+        # table-level lock inside the write transaction below.
+        try:
+            with get_conn() as ddl_con:
+                _ensure_report_drafts_schema(ddl_con)
+        except Exception:
+            pass
+
         with get_conn(autocommit=False) as con:
-            _ensure_report_drafts_schema(con)
+            # Use a short lock timeout so a concurrent AI-generation write
+            # causes a fast failure rather than waiting the full DB timeout.
+            con.execute("SET LOCAL lock_timeout = '8s'")
+            con.execute("SET LOCAL statement_timeout = '30s'")
 
             incoming_sections = [section for section in payload.sections if isinstance(section, ReportDraftSectionPayload)]
             keep_section_keys: set[str] = set()
