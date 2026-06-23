@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, CheckSquare, Pencil, RefreshCcw, Search, ShieldCheck, Sparkles, Trash2, TrendingUp, Users, X } from "lucide-react";
+import { AlertCircle, Briefcase, CheckSquare, Pencil, RefreshCcw, Search, ShieldCheck, Sparkles, Trash2, TrendingUp, Users, X } from "lucide-react";
 import CallPrepPanel from "@/components/CallPrepPanel";
 import LogTouchpointModal from "@/components/LogTouchpointModal";
 import { Badge } from "@/components/ui/badge";
@@ -73,6 +73,19 @@ function shortEmail(assignee: string) {
   if (assignee.includes("@")) return assignee.split("@")[0];
   return assignee;
 }
+
+type JobNeedingAttention = {
+  job_id: number;
+  job_number: string;
+  title: string;
+  client_name: string;
+  crm_name: string;
+  milestone_status: string;
+  next_due_date: string | null;
+  next_due_name: string;
+  days_to_next_due: number | null;
+  reason: string;
+};
 
 type IntelligenceDashboardProps = {
   baseUrl: string;
@@ -164,6 +177,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const assigneeBlurRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [clientRisk, setClientRisk] = useState<{ overdue: number; due: number; healthy: number } | null>(null);
+  const [opsJobs, setOpsJobs] = useState<{ needing_attention: JobNeedingAttention[]; overdue: number; due_soon: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -226,6 +240,30 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
+    async function fetchOps() {
+      try {
+        const p = new URLSearchParams();
+        if (viewMode !== "all" && scopeOwner) p.set("crm_owner", scopeOwner);
+        const res = await fetch(`${baseUrl}/dashboard/operations-overview?${p}`, { credentials: "include", cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const json = (await res.json()) as {
+          metrics?: { overdue_jobs?: number; due_soon_jobs?: number };
+          jobs_needing_attention?: JobNeedingAttention[];
+        };
+        if (!cancelled) setOpsJobs({
+          needing_attention: json.jobs_needing_attention ?? [],
+          overdue: json.metrics?.overdue_jobs ?? 0,
+          due_soon: json.metrics?.due_soon_jobs ?? 0,
+        });
+      } catch { /* non-fatal */ }
+    }
+    void fetchOps();
+    return () => { cancelled = true; };
+  }, [baseUrl, ready, scopeOwner, viewMode, refreshToken]);
+
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
 
     async function load() {
       setLoading(true);
@@ -269,6 +307,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
 
   const summaryCards = useMemo(() => {
     if (!data) return [];
+    const atRiskJobs = opsJobs ? opsJobs.overdue + opsJobs.due_soon : null;
     if (hasHealthData) {
       return [
         { label: "Healthy", value: data.portfolio_summary.healthy, icon: <ShieldCheck className="h-4 w-4" /> },
@@ -278,11 +317,11 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
       ];
     }
     return [
-      { label: "Actions Required", value: data.action_queue.length, icon: <AlertCircle className="h-4 w-4" /> },
-      { label: "Touchpoints Due", value: data.upcoming_touchpoints.length, icon: <AlertCircle className="h-4 w-4" /> },
+      { label: "Jobs Needing Attention", value: atRiskJobs ?? "—", icon: <Briefcase className="h-4 w-4" /> },
+      { label: "Follow-up Reminders", value: data.action_queue.length, icon: <AlertCircle className="h-4 w-4" /> },
       { label: "Renewals (90 days)", value: data.renewal_pipeline.length, icon: <TrendingUp className="h-4 w-4" /> },
     ];
-  }, [data, hasHealthData]);
+  }, [data, hasHealthData, opsJobs]);
 
   const openCallPrep = (clientId: number, clientName: string) => {
     setCallPrepClient({ id: clientId, name: clientName });
@@ -484,13 +523,13 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
                   <span>Personal insights feed</span>
                 </div>
                 <div className="mt-2 text-sm text-muted-foreground">
-                  Prioritised actions, touchpoints, and renewals for the current CRM scope. Use the cards below to jump straight into call prep or logging contact.
+                  Your portfolio at a glance — open tasks, jobs needing attention, follow-up reminders, and upcoming renewals.
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Badge variant="outline" className="rounded-full">{scopeOwner ? scopeLabel(scopeOwner) : "All CRMs"}</Badge>
-                <Badge variant="secondary" className="rounded-full">{data.action_queue.length} actions</Badge>
-                <Badge variant="secondary" className="rounded-full">{data.upcoming_touchpoints.length} touchpoints</Badge>
+                {opsJobs && <Badge variant="secondary" className="rounded-full">{opsJobs.overdue + opsJobs.due_soon} jobs at risk</Badge>}
+                <Badge variant="secondary" className="rounded-full">{data.renewal_pipeline.length} renewals</Badge>
               </div>
             </CardContent>
           </Card>
@@ -635,43 +674,108 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
             </CardContent>
           </Card>
 
+          {/* Jobs Needing Attention */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Briefcase className="h-4 w-4 text-muted-foreground" />
+                  <CardTitle className="text-base">Jobs Needing Attention</CardTitle>
+                </div>
+                <Badge variant="secondary">{opsJobs?.needing_attention.length ?? "—"}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {!opsJobs ? (
+                <div className="px-6 py-4 text-sm text-muted-foreground">Loading jobs...</div>
+              ) : opsJobs.needing_attention.length === 0 ? (
+                <div className="px-6 py-4 text-sm text-muted-foreground">All jobs are on track.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
+                        <th className="px-4 py-2 text-left font-medium">Job</th>
+                        <th className="px-4 py-2 text-left font-medium">Client</th>
+                        <th className="px-4 py-2 text-left font-medium">Next Milestone</th>
+                        <th className="px-4 py-2 text-left font-medium">Due</th>
+                        <th className="px-4 py-2 text-left font-medium">Urgency</th>
+                        <th className="px-4 py-2 text-left font-medium">Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {opsJobs.needing_attention.slice(0, 12).map((job) => {
+                        const isOverdue = job.milestone_status === "red";
+                        const daysVal = job.days_to_next_due;
+                        return (
+                          <tr key={job.job_id} className="border-b hover:bg-muted/20 transition-colors">
+                            <td className="px-4 py-3 text-xs font-medium">
+                              <Link href={`/jobs/${job.job_id}`} className="text-emerald-700 hover:underline">
+                                {job.job_number}
+                              </Link>
+                            </td>
+                            <td className="px-4 py-3 max-w-[160px] truncate font-medium">{job.client_name}</td>
+                            <td className="px-4 py-3 text-xs text-muted-foreground">{job.next_due_name || "—"}</td>
+                            <td className="px-4 py-3 text-xs whitespace-nowrap">
+                              {job.next_due_date
+                                ? new Date(job.next_due_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })
+                                : "—"}
+                            </td>
+                            <td className="px-4 py-3">
+                              {isOverdue ? (
+                                <Badge className="bg-rose-100 text-rose-700 border-rose-200 whitespace-nowrap">
+                                  {daysVal != null && daysVal < 0 ? `${Math.abs(daysVal)}d overdue` : "Overdue"}
+                                </Badge>
+                              ) : (
+                                <Badge className="bg-amber-100 text-amber-700 border-amber-200 whitespace-nowrap">
+                                  {daysVal != null ? `${daysVal}d left` : "Due soon"}
+                                </Badge>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-xs text-muted-foreground capitalize">
+                              {job.reason?.replace(/_/g, " ") || "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Follow-up Reminders + Renewals side by side */}
           <div className="grid gap-6 xl:grid-cols-2">
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-3">
-                  <CardTitle className="text-base">Action Queue</CardTitle>
+                  <CardTitle className="text-base">Follow-up Reminders</CardTitle>
                   <Badge variant="secondary">{data.action_queue.length}</Badge>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-2">
                 {data.action_queue.length === 0 ? (
-                  <EmptyState title="No urgent actions" description="This CRM looks healthy right now." />
+                  <EmptyState title="No follow-ups needed" description="All clients are up to date." />
                 ) : (
                   data.action_queue.slice(0, 8).map((item) => (
-                    <div key={`${item.client_db_id}-${item.action_type}-${item.priority}`} className={`rounded-xl border px-4 py-3 ${queueTone(item.priority)}`}>
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <div className="font-medium">{item.client_name}</div>
-                            <Badge variant="outline" className="text-[10px] uppercase tracking-[0.18em]">{item.action_type.replace(/_/g, " ")}</Badge>
-                          </div>
-                          <div className="mt-1 text-sm text-muted-foreground">{item.headline}</div>
-                          {item.detail && <div className="mt-1 text-xs text-muted-foreground">{item.detail}</div>}
-                          {item.due_date && (
-                            <div className="mt-2 text-xs text-muted-foreground">
-                              Due: {formatDate(item.due_date, { day: "numeric", month: "short" })}
-                            </div>
-                          )}
+                    <div key={`${item.client_db_id}-${item.action_type}-${item.priority}`} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Link href={`/clients/${item.client_db_id}`} className="font-medium hover:underline text-sm truncate">
+                            {item.client_name}
+                          </Link>
+                          <Badge variant="outline" className="text-[10px] shrink-0">
+                            {item.action_type === "overdue_call" ? "Call overdue" :
+                             item.action_type === "no_recent_contact" ? "No recent contact" :
+                             item.action_type.replace(/_/g, " ")}
+                          </Badge>
                         </div>
-                        <div className="flex shrink-0 gap-2">
-                          <Button size="sm" variant="outline" onClick={() => openCallPrep(item.client_db_id, item.client_name)}>
-                            Call Prep
-                          </Button>
-                          <Button size="sm" onClick={() => openLogContact(item.client_db_id, item.client_name)}>
-                            Log Contact
-                          </Button>
-                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5 truncate">{item.detail}</div>
                       </div>
+                      <Button size="sm" variant="outline" className="shrink-0" onClick={() => openLogContact(item.client_db_id, item.client_name)}>
+                        Log Contact
+                      </Button>
                     </div>
                   ))
                 )}
@@ -681,87 +785,35 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-3">
-                  <CardTitle className="text-base">Upcoming Touchpoints</CardTitle>
-                  <Badge variant="secondary">{data.upcoming_touchpoints.length}</Badge>
+                  <CardTitle className="text-base">Renewals (90 days)</CardTitle>
+                  <Badge variant="secondary">{data.renewal_pipeline.length}</Badge>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {data.upcoming_touchpoints.length === 0 ? (
-                  <EmptyState title="No touchpoints due soon" description="Touchpoint cadence is under control for now." />
+              <CardContent className="space-y-2">
+                {data.renewal_pipeline.length === 0 ? (
+                  <EmptyState title="No renewals due soon" description="No active engagements ending in the next 90 days." />
                 ) : (
-                  data.upcoming_touchpoints.slice(0, 8).map((item) => (
-                    <div key={`${item.client_db_id}-${item.next_touchpoint_due ?? item.last_touchpoint_date ?? "touch"}`} className="rounded-xl border bg-card p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="font-medium">{item.client_name}</div>
-                          <div className="text-xs text-muted-foreground">CRM: {item.crm_owner}</div>
+                  data.renewal_pipeline.slice(0, 8).map((item) => (
+                    <div key={`${item.client_db_id}-${item.engagement_end_date ?? "renewal"}`} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5">
+                      <div className="min-w-0">
+                        <Link href={`/clients/${item.client_db_id}`} className="font-medium hover:underline text-sm truncate block">
+                          {item.client_name}
+                        </Link>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {item.engagement_end_date
+                            ? `Ends ${new Date(item.engagement_end_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`
+                            : "End date not set"}
                         </div>
-                        <Badge variant={item.days_remaining <= 0 ? "destructive" : item.days_remaining <= 7 ? "secondary" : "outline"}>
-                          {item.days_remaining <= 0 ? `${Math.abs(item.days_remaining)}d overdue` : `${item.days_remaining}d left`}
-                        </Badge>
                       </div>
-                      <div className="mt-2 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
-                        <div>Last contact: {item.last_touchpoint_date ? formatDate(item.last_touchpoint_date, { day: "numeric", month: "short" }) : "No contact yet"}</div>
-                        <div>Due: {item.next_touchpoint_due ? formatDate(item.next_touchpoint_due, { day: "numeric", month: "short" }) : "Unscheduled"}</div>
-                      </div>
-                      <div className="mt-3 flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => openCallPrep(item.client_db_id, item.client_name)}>
-                          Call Prep
-                        </Button>
-                        <Button size="sm" onClick={() => openLogContact(item.client_db_id, item.client_name)}>
-                          Log Contact
-                        </Button>
-                      </div>
+                      <Badge className={`shrink-0 ${item.days_remaining <= 14 ? "bg-rose-100 text-rose-700 border-rose-200" : item.days_remaining <= 30 ? "bg-amber-100 text-amber-700 border-amber-200" : "bg-muted text-muted-foreground"}`}>
+                        {item.days_remaining <= 0 ? "Expired" : `${item.days_remaining}d`}
+                      </Badge>
                     </div>
                   ))
                 )}
               </CardContent>
             </Card>
           </div>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle className="text-base">Renewal Pipeline</CardTitle>
-                <Badge variant="secondary">{data.renewal_pipeline.length}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {data.renewal_pipeline.length === 0 ? (
-                <div className="col-span-full">
-                  <EmptyState title="No renewals due soon" description="There are no active renewals inside the next 90 days." />
-                </div>
-              ) : (
-                data.renewal_pipeline.slice(0, 9).map((item) => (
-                  <div key={`${item.client_db_id}-${item.engagement_end_date ?? "renewal"}`} className="rounded-xl border bg-card p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-medium">{item.client_name}</div>
-                        <div className="text-xs text-muted-foreground">CRM: {item.crm_owner}</div>
-                      </div>
-                      {item.health_score > 0 && (
-                        <Badge className={scoreTone(item.health_score)}>{item.health_score}/100</Badge>
-                      )}
-                    </div>
-                    <div className="mt-3 text-sm text-muted-foreground">
-                      Renewal due: {item.engagement_end_date ? formatDate(item.engagement_end_date, { day: "numeric", month: "short", year: "numeric" }) : "Not set"}
-                    </div>
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      {item.days_remaining <= 0 ? "Expired or due now" : `${item.days_remaining} days remaining`}
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => openCallPrep(item.client_db_id, item.client_name)}>
-                        Call Prep
-                      </Button>
-                      <Button size="sm" onClick={() => openLogContact(item.client_db_id, item.client_name)}>
-                        Log Contact
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
         </>
       ) : null}
 
