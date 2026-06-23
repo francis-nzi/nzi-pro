@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
@@ -49,6 +50,7 @@ type SortBy = "client" | "industry" | "status" | "owner" | "risk";
 
 export default function ClientsPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
+  const searchParams = useSearchParams();
 
   const [q, setQ] = useState("");
   const [items, setItems] = useState<ClientListItem[]>([]);
@@ -57,11 +59,11 @@ export default function ClientsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [industryFilter, setIndustryFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [ownerFilter, setOwnerFilter] = useState("");
-  const [riskFilter, setRiskFilter] = useState("");
-  const [portfolioFilter, setPortfolioFilter] = useState("");
+  const [industryFilter, setIndustryFilter] = useState(() => searchParams.get("industry") ?? "");
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "");
+  const [ownerFilter, setOwnerFilter] = useState(() => searchParams.get("crm_owner") ?? "");
+  const [riskFilter, setRiskFilter] = useState(() => searchParams.get("risk") ?? "");
+  const [portfolioFilter, setPortfolioFilter] = useState(() => searchParams.get("portfolio") ?? "");
   const [facets, setFacets] = useState<ClientFacets>({
     industries: [],
     statuses: [],

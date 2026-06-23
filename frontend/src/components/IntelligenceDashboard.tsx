@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckSquare, Pencil, RefreshCcw, Search, ShieldCheck, Sparkles, Trash2, TrendingUp, Users, X } from "lucide-react";
 import CallPrepPanel from "@/components/CallPrepPanel";
@@ -162,6 +163,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
   const [assigneeQuery, setAssigneeQuery] = useState("");
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const assigneeBlurRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [clientRisk, setClientRisk] = useState<{ overdue: number; due: number; healthy: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -201,6 +203,25 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
       cancelled = true;
     };
   }, [baseUrl, crmOwner]);
+
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    async function fetchRisk() {
+      try {
+        const p = new URLSearchParams({ limit: "1" });
+        if (viewMode !== "all" && scopeOwner) p.set("crm_owner", scopeOwner);
+        const res = await fetch(`${baseUrl}/clients?${p}`, { credentials: "include" });
+        if (!res.ok || cancelled) return;
+        const json = (await res.json()) as { facets?: { risks?: Array<{ value: string; count: number }> } };
+        const risks = json.facets?.risks ?? [];
+        const find = (label: string) => risks.find((r) => r.value.toLowerCase() === label.toLowerCase())?.count ?? 0;
+        if (!cancelled) setClientRisk({ overdue: find("Overdue"), due: find("Due"), healthy: find("Healthy") });
+      } catch { /* non-fatal */ }
+    }
+    void fetchRisk();
+    return () => { cancelled = true; };
+  }, [baseUrl, ready, scopeOwner, viewMode, refreshToken]);
 
   useEffect(() => {
     if (!ready) return;
@@ -250,7 +271,6 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
     if (!data) return [];
     if (hasHealthData) {
       return [
-        { label: "Total Clients", value: data.portfolio_summary.total_clients, icon: <Users className="h-4 w-4" /> },
         { label: "Healthy", value: data.portfolio_summary.healthy, icon: <ShieldCheck className="h-4 w-4" /> },
         { label: "Needs Attention", value: data.portfolio_summary.needs_attention, icon: <AlertCircle className="h-4 w-4" /> },
         { label: "At Risk", value: data.portfolio_summary.at_risk, icon: <AlertCircle className="h-4 w-4" /> },
@@ -258,7 +278,6 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
       ];
     }
     return [
-      { label: "Total Clients", value: data.portfolio_summary.total_clients, icon: <Users className="h-4 w-4" /> },
       { label: "Actions Required", value: data.action_queue.length, icon: <AlertCircle className="h-4 w-4" /> },
       { label: "Touchpoints Due", value: data.upcoming_touchpoints.length, icon: <AlertCircle className="h-4 w-4" /> },
       { label: "Renewals (90 days)", value: data.renewal_pipeline.length, icon: <TrendingUp className="h-4 w-4" /> },
@@ -477,6 +496,57 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
           </Card>
 
           <div className={`grid gap-4 ${hasHealthData ? "md:grid-cols-2 xl:grid-cols-5" : "md:grid-cols-2 xl:grid-cols-4"}`}>
+            {/* Total Clients — special card with traffic-light breakdown */}
+            {data && (() => {
+              const ownerParam = (viewMode !== "all" && scopeOwner)
+                ? `&crm_owner=${encodeURIComponent(scopeOwner)}`
+                : "";
+              return (
+                <Link href={`/clients?${ownerParam ? ownerParam.slice(1) : ""}`} className="block">
+                  <Card className="overflow-hidden border-border/70 hover:bg-muted/30 transition-colors cursor-pointer h-full">
+                    <CardContent className="p-4 flex flex-col justify-between h-full">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Total Clients</div>
+                          <div className="mt-1 text-2xl font-semibold">{data.portfolio_summary.total_clients}</div>
+                        </div>
+                        <div className="rounded-full border bg-background/80 p-2 text-muted-foreground shadow-sm">
+                          <Users className="h-4 w-4" />
+                        </div>
+                      </div>
+                      {clientRisk && (
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          <Link
+                            href={`/clients?risk=Overdue${ownerParam}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs text-rose-800 hover:bg-rose-200 transition-colors"
+                          >
+                            <span className="h-2 w-2 rounded-full bg-rose-500 shrink-0" />
+                            {clientRisk.overdue}
+                          </Link>
+                          <Link
+                            href={`/clients?risk=Due${ownerParam}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 hover:bg-amber-200 transition-colors"
+                          >
+                            <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+                            {clientRisk.due}
+                          </Link>
+                          <Link
+                            href={`/clients?risk=Healthy${ownerParam}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-800 hover:bg-emerald-200 transition-colors"
+                          >
+                            <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                            {clientRisk.healthy}
+                          </Link>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </Link>
+              );
+            })()}
             {summaryCards.map((card) => (
               <Card key={card.label} className="overflow-hidden border-border/70">
                 <CardContent className="flex items-center justify-between gap-3 p-4">
