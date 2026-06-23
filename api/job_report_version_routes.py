@@ -4,9 +4,12 @@ from typing import Any
 import logging
 import hashlib
 import json
+import threading
+import time as _time
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from api.auth import _current_user
 from api.job_report_routes import (
@@ -289,83 +292,155 @@ def save_report_drafts(
         raise HTTPException(status_code=500, detail=f"Failed to save report drafts: {exc}")
 
 
+# ---------------------------------------------------------------------------
+# In-memory async task store for AI draft generation
+# (avoids 30-second Render proxy timeout on long-running AI calls)
+# ---------------------------------------------------------------------------
+_generation_tasks: dict[str, dict[str, Any]] = {}
+_generation_tasks_lock = threading.Lock()
+
+
+def _cleanup_generation_tasks() -> None:
+    cutoff = _time.time() - 600  # drop tasks older than 10 minutes
+    with _generation_tasks_lock:
+        stale = [k for k, v in _generation_tasks.items() if v.get("created_at", 0) < cutoff]
+        for k in stale:
+            del _generation_tasks[k]
+
+
+def _run_generation(job_id: int, payload: GenerateReportDraftPayload, actor: str) -> dict[str, Any]:
+    """Core draft-generation logic used by both the sync and async endpoints."""
+    section_key = _normalize_report_draft_section_key(payload.section_key)
+    context = _build_report_draft_context(int(job_id), payload.template_key)
+    if payload.sibling_drafts:
+        context["sibling_drafts"] = {k: str(v) for k, v in payload.sibling_drafts.items() if v}
+    selected_template = context.get("selected_template") or {}
+    template_id = selected_template.get("template_id")
+    version_id = selected_template.get("version_id")
+    if template_id is None or version_id is None:
+        raise ValueError("No assigned report template/version is available for draft generation.")
+
+    draft = generate_report_section_draft(
+        context,
+        section_key,
+        provider=payload.provider or "anthropic",
+        model=payload.model,
+        template_id=payload.prompt_template_id,
+    )
+    draft_json = dict(draft)
+    draft_json.setdefault("origin", "ai")
+    evidence_hash = hashlib.sha256(
+        json.dumps(
+            {
+                "job_id": int(job_id),
+                "template_id": int(template_id),
+                "version_id": int(version_id),
+                "section_key": section_key,
+                "draft_json": draft_json,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+    with get_conn(autocommit=False) as con:
+        _ensure_report_template_schema(con)
+        _ensure_report_drafts_schema(con)
+        saved_row = _upsert_report_draft(
+            con=con,
+            job_id=int(job_id),
+            template_id=int(template_id),
+            version_id=int(version_id),
+            section_key=section_key,
+            section_title=draft.get("section_title") or _get_section_config(section_key).get("title"),
+            draft_text=str(draft.get("draft_text") or "").strip(),
+            draft_json=draft_json,
+            evidence_hash=evidence_hash,
+            provider=str(draft.get("provider") or payload.provider or "anthropic"),
+            model=str(draft.get("model") or payload.model or ""),
+            confidence=str(draft.get("confidence") or ""),
+            status="draft",
+            actor=actor,
+        )
+        loaded_items = _load_report_drafts(con, int(job_id), int(template_id), int(version_id))
+    return {
+        "job_id": int(job_id),
+        "section_key": section_key,
+        "template_key": context.get("template_key"),
+        "draft": draft,
+        "saved_draft": saved_row,
+        "items": loaded_items,
+        "context_summary": context.get("context_summary"),
+    }
+
+
 @router.post("/jobs/{job_id}/report-drafts/generate")
 def generate_report_draft(
     job_id: int,
     payload: GenerateReportDraftPayload,
     _user: dict[str, str] = Depends(_current_user),
 ):
-    section_key = _normalize_report_draft_section_key(payload.section_key)
     try:
         actor = _user.get("email", "unknown")
-        context = _build_report_draft_context(int(job_id), payload.template_key)
-        if payload.sibling_drafts:
-            context["sibling_drafts"] = {k: str(v) for k, v in payload.sibling_drafts.items() if v}
-        selected_template = context.get("selected_template") or {}
-        template_id = selected_template.get("template_id")
-        version_id = selected_template.get("version_id")
-        if template_id is None or version_id is None:
-            raise HTTPException(
-                status_code=400,
-                detail="No assigned report template/version is available for draft generation.",
-            )
-
-        draft = generate_report_section_draft(
-            context,
-            section_key,
-            provider=payload.provider or "anthropic",
-            model=payload.model,
-            template_id=payload.prompt_template_id,
-        )
-        draft_json = dict(draft)
-        draft_json.setdefault("origin", "ai")
-        evidence_hash = hashlib.sha256(
-            json.dumps(
-                {
-                    "job_id": int(job_id),
-                    "template_id": int(template_id),
-                    "version_id": int(version_id),
-                    "section_key": section_key,
-                    "draft_json": draft_json,
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-                default=str,
-            ).encode("utf-8")
-        ).hexdigest()
-        with get_conn(autocommit=False) as con:
-            _ensure_report_template_schema(con)
-            _ensure_report_drafts_schema(con)
-            saved_row = _upsert_report_draft(
-                con=con,
-                job_id=int(job_id),
-                template_id=int(template_id),
-                version_id=int(version_id),
-                section_key=section_key,
-                section_title=draft.get("section_title") or _get_section_config(section_key).get("title"),
-                draft_text=str(draft.get("draft_text") or "").strip(),
-                draft_json=draft_json,
-                evidence_hash=evidence_hash,
-                provider=str(draft.get("provider") or payload.provider or "anthropic"),
-                model=str(draft.get("model") or payload.model or ""),
-                confidence=str(draft.get("confidence") or ""),
-                status="draft",
-                actor=actor,
-            )
-            loaded_items = _load_report_drafts(con, int(job_id), int(template_id), int(version_id))
-        return {
-            "job_id": int(job_id),
-            "section_key": section_key,
-            "template_key": context.get("template_key"),
-            "draft": draft,
-            "saved_draft": saved_row,
-            "items": loaded_items,
-            "context_summary": context.get("context_summary"),
-        }
+        return _run_generation(int(job_id), payload, actor)
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to generate report draft: {exc}")
+
+
+@router.post("/jobs/{job_id}/report-drafts/generate-async")
+def generate_report_draft_async(
+    job_id: int,
+    payload: GenerateReportDraftPayload,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Start AI draft generation in a background thread.
+    Returns 202 immediately with a task_id. Poll
+    GET .../report-drafts/generate-task/{task_id} for completion."""
+    task_id = str(uuid.uuid4())
+    actor = _user.get("email", "unknown")
+    with _generation_tasks_lock:
+        _generation_tasks[task_id] = {
+            "status": "pending",
+            "result": None,
+            "error": None,
+            "created_at": _time.time(),
+        }
+    _cleanup_generation_tasks()
+
+    def _worker() -> None:
+        try:
+            result = _run_generation(int(job_id), payload, actor)
+            with _generation_tasks_lock:
+                _generation_tasks[task_id]["status"] = "done"
+                _generation_tasks[task_id]["result"] = result
+        except Exception as exc:
+            with _generation_tasks_lock:
+                _generation_tasks[task_id]["status"] = "error"
+                _generation_tasks[task_id]["error"] = str(exc)
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return JSONResponse(status_code=202, content={"task_id": task_id, "status": "pending"})
+
+
+@router.get("/jobs/{job_id}/report-drafts/generate-task/{task_id}")
+def get_generation_task(
+    job_id: int,
+    task_id: str,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Poll for async draft generation status."""
+    with _generation_tasks_lock:
+        task = _generation_tasks.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found or expired (>10 min)")
+    return {
+        "task_id": task_id,
+        "status": task["status"],       # pending | done | error
+        "result": task.get("result"),   # full generate response when done
+        "error": task.get("error"),     # error message when error
+    }
 
 
 @router.patch("/jobs/{job_id}/report-versions/{report_version_id}")

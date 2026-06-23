@@ -282,6 +282,40 @@ async function formatSaveFailureMessage(res: Response, fallback: string, oversiz
   }
 }
 
+async function generateWithBackgroundTask(
+  baseUrl: string,
+  jobId: number,
+  body: Record<string, unknown>
+): Promise<unknown> {
+  // POST to async endpoint — returns 202 immediately with a task_id
+  const startRes = await fetch(`${baseUrl}/jobs/${jobId}/report-drafts/generate-async`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!startRes.ok) {
+    const errText = await startRes.text().catch(() => "");
+    throw new Error(`Failed to start generation (${startRes.status})${errText ? `: ${errText}` : ""}`);
+  }
+  const { task_id } = (await startRes.json()) as { task_id: string };
+
+  // Poll every 3 seconds until done or error (max 5 minutes)
+  const deadline = Date.now() + 5 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await sleep(3000);
+    const pollRes = await fetch(
+      `${baseUrl}/jobs/${jobId}/report-drafts/generate-task/${task_id}`,
+      { credentials: "include" }
+    );
+    if (!pollRes.ok) continue;
+    const task = (await pollRes.json()) as { status: string; result?: unknown; error?: string };
+    if (task.status === "done") return task.result;
+    if (task.status === "error") throw new Error(task.error || "AI generation failed");
+  }
+  throw new Error("AI generation timed out after 5 minutes.");
+}
+
 async function fetchWithRetry(input: RequestInfo | URL, init?: RequestInit, retries = 1): Promise<Response> {
   let lastError: unknown = null;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -1473,39 +1507,18 @@ export default function JobReportNew({
         if (siblingDrafts && Object.keys(siblingDrafts).length > 0) {
           body.sibling_drafts = siblingDrafts;
         }
-        const res = await fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-drafts/generate`, {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-        }, 1);
-
-        if (!res.ok) {
-          let message = `Failed to generate draft for ${section} (${res.status})`;
-          try {
-            const payload = await res.json();
-            if (payload?.detail) {
-              message = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail);
-            }
-          } catch {
-            // Keep fallback message.
-          }
-          throw new Error(message);
-        }
-
-        const payload = await res.json();
+        const payload = await generateWithBackgroundTask(baseUrl, jobId, body) as Record<string, unknown>;
+        const draft = payload?.draft as Record<string, unknown> | undefined;
         const draftText =
-          typeof payload?.draft?.draft_text === "string"
-            ? payload.draft.draft_text
-            : typeof payload?.draft?.draftText === "string"
-              ? payload.draft.draftText
+          typeof draft?.draft_text === "string"
+            ? (draft.draft_text as string)
+            : typeof draft?.draftText === "string"
+              ? (draft.draftText as string)
               : "";
-        const promptWarnings = Array.isArray(payload?.draft?.prompt_warnings)
-          ? payload.draft.prompt_warnings.map((warning: unknown) => String(warning))
+        const promptWarnings = Array.isArray(draft?.prompt_warnings)
+          ? (draft.prompt_warnings as unknown[]).map((w) => String(w))
           : Array.isArray(payload?.prompt_warnings)
-            ? payload.prompt_warnings.map((warning: unknown) => String(warning))
+            ? (payload.prompt_warnings as unknown[]).map((w) => String(w))
             : [];
         const readableDraftText = coerceReadableDraftText(draftText, draftText);
         if (!readableDraftText.trim()) {
@@ -1515,7 +1528,8 @@ export default function JobReportNew({
         setDraftNotes((prev) => ({ ...prev, [section]: readableDraftText }));
         setDraftOrigins((prev) => ({ ...prev, [section]: "ai" }));
         setDraftPromptWarnings((prev) => ({ ...prev, [section]: promptWarnings }));
-        const provider = String(payload?.draft?.provider || payload?.saved_draft?.provider || "anthropic").trim().toLowerCase();
+        const savedDraft = payload?.saved_draft as Record<string, unknown> | undefined;
+        const provider = String(draft?.provider || savedDraft?.provider || "anthropic").trim().toLowerCase();
         setDraftProviders((prev) => ({
           ...prev,
           [section]:
@@ -1566,28 +1580,13 @@ export default function JobReportNew({
       if (Object.keys(siblingDrafts).length > 0) body.sibling_drafts = siblingDrafts;
 
       try {
-        const res = await fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-drafts/generate`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }, 1);
-
-        if (!res.ok) {
-          let message = `Failed to generate ${section} (${res.status})`;
-          try {
-            const errPayload = await res.json();
-            if (errPayload?.detail) message = typeof errPayload.detail === "string" ? errPayload.detail : JSON.stringify(errPayload.detail);
-          } catch { /* keep fallback */ }
-          throw new Error(message);
-        }
-
-        const payload = await res.json();
-        const draftText = typeof payload?.draft?.draft_text === "string" ? payload.draft.draft_text : "";
-        const promptWarnings = Array.isArray(payload?.draft?.prompt_warnings)
-          ? payload.draft.prompt_warnings.map((warning: unknown) => String(warning))
+        const payload = await generateWithBackgroundTask(baseUrl, jobId, body) as Record<string, unknown>;
+        const draft = payload?.draft as Record<string, unknown> | undefined;
+        const draftText = typeof draft?.draft_text === "string" ? (draft.draft_text as string) : "";
+        const promptWarnings = Array.isArray(draft?.prompt_warnings)
+          ? (draft.prompt_warnings as unknown[]).map((w) => String(w))
           : Array.isArray(payload?.prompt_warnings)
-            ? payload.prompt_warnings.map((warning: unknown) => String(warning))
+            ? (payload.prompt_warnings as unknown[]).map((w) => String(w))
             : [];
         const readableText = coerceReadableDraftText(draftText, draftText);
 
@@ -1596,7 +1595,7 @@ export default function JobReportNew({
           setDraftNotes((prev) => ({ ...prev, [section]: readableText }));
           setDraftOrigins((prev) => ({ ...prev, [section]: "ai" }));
           setDraftPromptWarnings((prev) => ({ ...prev, [section]: promptWarnings }));
-          const provider = String(payload?.draft?.provider || "anthropic").toLowerCase();
+          const provider = String(draft?.provider || "anthropic").toLowerCase();
           setDraftProviders((prev) => ({
             ...prev,
             [section]: provider === "anthropic" || provider === "openai" || provider === "rule-based" ? (provider as DraftProviders[string]) : "anthropic",
