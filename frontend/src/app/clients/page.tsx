@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import PageHeader from "@/components/PageHeader";
@@ -48,7 +48,7 @@ type ClientFacets = {
 
 type SortBy = "client" | "industry" | "status" | "owner" | "risk";
 
-export default function ClientsPage() {
+function ClientsContent() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const searchParams = useSearchParams();
 
@@ -401,5 +401,13 @@ export default function ClientsPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function ClientsPage() {
+  return (
+    <Suspense>
+      <ClientsContent />
+    </Suspense>
   );
 }
