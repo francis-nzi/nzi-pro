@@ -2040,7 +2040,7 @@ def get_dashboard_operations_overview(
                         days_to_final_report = (final_report_due - date.today()).days if final_report_due and final_report_completed is None else None
                         current_jobs.append({
                             "job_id": job_id,
-                            "client_db_id": int(row.get("client_db_id")) if row.get("client_db_id") is not None else None,
+                            "client_db_id": (lambda v: None if v is None or v != v else int(v))(row.get("client_db_id")),
                             "job_number": _normalize_text_value(row.get("job_number"), ""),
                             "title": _normalize_text_value(row.get("title"), ""),
                             "client_name": _normalize_text_value(row.get("client_name"), ""),

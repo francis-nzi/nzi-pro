@@ -341,7 +341,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
       ];
     }
     return [
-      { label: "Jobs", value: opsJobs ? opsJobs.current_jobs.length : (atRiskJobs ?? "—"), icon: <Briefcase className="h-4 w-4" /> },
+      { label: "Jobs", value: opsJobs ? opsJobs.current_jobs.length : (atRiskJobs ?? "—"), icon: <Briefcase className="h-4 w-4" />, href: "/jobs" },
       { label: "Follow-up Reminders", value: data.action_queue.length, icon: <AlertCircle className="h-4 w-4" /> },
       { label: "Renewals (90 days)", value: data.renewal_pipeline.length, icon: <TrendingUp className="h-4 w-4" /> },
     ];
@@ -610,17 +610,22 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
                 </Link>
               );
             })()}
-            {summaryCards.map((card) => (
-              <Card key={card.label} className="overflow-hidden border-border/70">
-                <CardContent className="flex items-center justify-between gap-3 p-4">
-                  <div>
-                    <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{card.label}</div>
-                    <div className="mt-1 text-2xl font-semibold">{card.value}</div>
-                  </div>
-                  <div className="rounded-full border bg-background/80 p-2 text-muted-foreground shadow-sm">{card.icon}</div>
-                </CardContent>
-              </Card>
-            ))}
+            {summaryCards.map((card) => {
+              const inner = (
+                <Card key={card.label} className={`overflow-hidden border-border/70 h-full ${"href" in card ? "hover:bg-muted/30 transition-colors cursor-pointer" : ""}`}>
+                  <CardContent className="flex items-center justify-between gap-3 p-4">
+                    <div>
+                      <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{card.label}</div>
+                      <div className="mt-1 text-2xl font-semibold">{card.value}</div>
+                    </div>
+                    <div className="rounded-full border bg-background/80 p-2 text-muted-foreground shadow-sm">{card.icon}</div>
+                  </CardContent>
+                </Card>
+              );
+              return "href" in card && card.href
+                ? <Link key={card.label} href={card.href} className="block">{inner}</Link>
+                : inner;
+            })}
           </div>
 
           <Card>
