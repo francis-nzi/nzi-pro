@@ -222,7 +222,7 @@ def save_report_drafts(
         with get_conn(autocommit=False) as con:
             # Use a short lock timeout so a concurrent AI-generation write
             # causes a fast failure rather than waiting the full DB timeout.
-            con.execute("SET LOCAL lock_timeout = '8s'")
+            con.execute("SET LOCAL lock_timeout = '15s'")
             con.execute("SET LOCAL statement_timeout = '30s'")
 
             incoming_sections = [section for section in payload.sections if isinstance(section, ReportDraftSectionPayload)]
@@ -386,9 +386,17 @@ def _run_generation(job_id: int, payload: GenerateReportDraftPayload, actor: str
             default=str,
         ).encode("utf-8")
     ).hexdigest()
+    # Run DDL outside the write transaction to avoid holding AccessExclusiveLock
+    # during concurrent user saves.
+    try:
+        with get_conn() as ddl_con:
+            _ensure_report_template_schema(ddl_con)
+            _ensure_report_drafts_schema(ddl_con)
+    except Exception:
+        pass
+
     with get_conn(autocommit=False) as con:
-        _ensure_report_template_schema(con)
-        _ensure_report_drafts_schema(con)
+        con.execute("SET LOCAL lock_timeout = '15s'")
         saved_row = _upsert_report_draft(
             con=con,
             job_id=int(job_id),
