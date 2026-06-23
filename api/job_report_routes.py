@@ -1816,6 +1816,30 @@ def _coerce_float(value: Any) -> float:
         return 0.0
 
 
+def _aggregate_categories(categories: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group individual emission rows by category name, summing emissions.
+    Individual rows within a category (e.g. separate vehicle types) are merged
+    so that _top_category reflects the true category total, not a single row.
+    """
+    totals: dict[str, dict[str, Any]] = {}
+    for item in categories:
+        cat = _dataset_category_label(item) or "Uncategorised"
+        if cat not in totals:
+            totals[cat] = {
+                "category": cat,
+                "dataset_category": cat,
+                "emissions": 0.0,
+                "scope": str(item.get("scope") or ""),
+                "report_label": str(item.get("report_label") or ""),
+                "data_source": str(item.get("data_source") or ""),
+            }
+        totals[cat]["emissions"] += _coerce_float(item.get("emissions"))
+    total_all = sum(v["emissions"] for v in totals.values())
+    for v in totals.values():
+        v["percentage"] = (v["emissions"] / total_all * 100.0) if total_all > 0 else 0.0
+    return list(totals.values())
+
+
 def _top_category(categories: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not categories:
         return None
@@ -1832,6 +1856,7 @@ def _summarize_categories(categories: list[dict[str, Any]], limit: int = 5) -> l
                 "category": category,
                 "dataset_category": category,
                 "emissions": _coerce_float(item.get("emissions")),
+                "percentage": _coerce_float(item.get("percentage")),
                 "scope": str(item.get("scope") or ""),
                 "report_label": str(item.get("report_label") or ""),
                 "data_source": str(item.get("data_source") or ""),
@@ -1855,7 +1880,7 @@ def _build_report_draft_context(job_id: int, template_key: str | None = None) ->
         scope_totals = _safe_totals()
 
     try:
-        categories = get_emissions_by_category(job_id)
+        categories = _aggregate_categories(get_emissions_by_category(job_id))
     except Exception:
         logger.warning("Failed to load emissions by category for job %s; using empty list", job_id, exc_info=True)
         categories = []
@@ -1879,7 +1904,7 @@ def _build_report_draft_context(job_id: int, template_key: str | None = None) ->
         previous_job_data = None
 
     try:
-        previous_categories = get_emissions_by_category(benchmark_job_id) if benchmark_job_id else []
+        previous_categories = _aggregate_categories(get_emissions_by_category(benchmark_job_id)) if benchmark_job_id else []
     except Exception:
         logger.debug("Failed to load previous-year emissions categories for job %s; continuing without comparison data", job_id, exc_info=True)
         previous_categories = []

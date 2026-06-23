@@ -636,6 +636,8 @@ export default function JobReportNew({
   const [serverDraftCount, setServerDraftCount] = useState(0);
   const [draftSyncReady, setDraftSyncReady] = useState(false);
   const [draftDirty, setDraftDirty] = useState(false);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [draftLastSaved, setDraftLastSaved] = useState<Date | null>(null);
   const [draftGeneratingSection, setDraftGeneratingSection] = useState<string | null>(null);
   const [draftError, setDraftError] = useState("");
   const [promptProfile, setPromptProfile] = useState<AiPromptProfile | null>(null);
@@ -893,7 +895,8 @@ export default function JobReportNew({
         const starterText = String(initialDraftNotes[section] || "").trim();
         const origin = draftOrigins[section] || "starter";
         const provider = draftProviders[section] || (origin === "ai" ? "anthropic" : origin === "local" ? "manual" : "starter");
-        if (!draftText) {
+        // Skip unmodified starter prompts — nothing to save
+        if (!draftText && origin === "starter") {
           return null;
         }
         if (draftText === starterText && origin === "starter") {
@@ -946,6 +949,7 @@ export default function JobReportNew({
       setServerDraftCount(payload.items.length);
     }
     setDraftDirty(false);
+    setDraftLastSaved(new Date());
   }, [baseUrl, draftDirty, draftNotes, draftOrigins, draftProviders, draftSyncReady, initialDraftNotes, jobId, selectedProfile.sections, selectedProfile.templateKey, serverDraftCount]);
 
   useEffect(() => {
@@ -1479,12 +1483,24 @@ export default function JobReportNew({
   }
 
   function clearDraftNotes() {
-    setDraftNotes(initialDraftNotes);
-    setDraftOrigins(buildInitialDraftOrigins(selectedProfile));
-    setDraftProviders(buildInitialDraftProviders(selectedProfile));
+    const section = activeDraftSection;
+    setDraftNotes((prev) => ({ ...prev, [section]: initialDraftNotes[section] ?? "" }));
+    setDraftOrigins((prev) => ({ ...prev, [section]: "starter" }));
+    setDraftProviders((prev) => ({ ...prev, [section]: "starter" }));
     setDraftDirty(true);
-    setStatus("Draft canvas reset to the starter prompts.");
+    setStatus(`Reset draft for ${section}.`);
     setDraftError("");
+  }
+
+  async function saveDraftNow() {
+    setDraftSaving(true);
+    try {
+      await syncReportDrafts();
+    } catch (err) {
+      setDraftError(formatFriendlyFetchError(err, "Unable to save draft changes right now."));
+    } finally {
+      setDraftSaving(false);
+    }
   }
 
   const generateSectionDraft = useCallback(
@@ -2088,9 +2104,22 @@ export default function JobReportNew({
                   placeholder={`Draft the ${activeDraftSection.toLowerCase()} content for this report...`}
                 />
 
-                <div className="mt-2.5 flex flex-wrap gap-2">
+                <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => void saveDraftNow()}
+                    disabled={draftSaving || !draftDirty}
+                  >
+                    {draftSaving ? "Saving…" : draftDirty ? "Save draft" : "Saved"}
+                  </Button>
+                  {draftLastSaved && !draftDirty && (
+                    <span className="text-xs text-muted-foreground">
+                      Saved {draftLastSaved.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  )}
                   <Button variant="outline" size="sm" onClick={clearDraftNotes}>
-                    Reset draft canvas
+                    Reset {activeDraftSection}
                   </Button>
                 </div>
               </div>
