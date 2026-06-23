@@ -293,15 +293,47 @@ def save_report_drafts(
 
 
 # ---------------------------------------------------------------------------
-# In-memory async task store for AI draft generation
-# (avoids 30-second Render proxy timeout on long-running AI calls)
+# DB-backed async task store for AI draft generation
+# (avoids 30-second Render proxy timeout; survives server restarts)
 # ---------------------------------------------------------------------------
-_generation_tasks: dict[str, dict[str, Any]] = {}
+_generation_tasks: dict[str, dict[str, Any]] = {}  # in-memory fast-path cache
 _generation_tasks_lock = threading.Lock()
 
 
+def _ensure_draft_tasks_schema(con) -> None:
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS report_draft_tasks (
+            task_id TEXT PRIMARY KEY,
+            job_id INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            result_json TEXT,
+            error TEXT,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+
+
+def _db_write_task(task_id: str, job_id: int, status: str, result: Any = None, error: str | None = None) -> None:
+    try:
+        result_json = json.dumps(result, default=str) if result is not None else None
+        with get_conn(autocommit=False) as con:
+            _ensure_draft_tasks_schema(con)
+            con.execute("""
+                INSERT INTO report_draft_tasks (task_id, job_id, status, result_json, error, updated_at)
+                VALUES (%s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (task_id) DO UPDATE
+                SET status = EXCLUDED.status,
+                    result_json = EXCLUDED.result_json,
+                    error = EXCLUDED.error,
+                    updated_at = NOW()
+            """, [task_id, job_id, status, result_json, error])
+    except Exception as exc:
+        logger.warning("Failed to write draft task %s to DB: %s", task_id, exc)
+
+
 def _cleanup_generation_tasks() -> None:
-    cutoff = _time.time() - 600  # drop tasks older than 10 minutes
+    cutoff = _time.time() - 600  # drop memory cache older than 10 minutes
     with _generation_tasks_lock:
         stale = [k for k, v in _generation_tasks.items() if v.get("created_at", 0) < cutoff]
         for k in stale:
@@ -408,17 +440,23 @@ def generate_report_draft_async(
             "created_at": _time.time(),
         }
     _cleanup_generation_tasks()
+    _db_write_task(task_id, int(job_id), "pending")
 
     def _worker() -> None:
         try:
             result = _run_generation(int(job_id), payload, actor)
+            _db_write_task(task_id, int(job_id), "done", result=result)
             with _generation_tasks_lock:
-                _generation_tasks[task_id]["status"] = "done"
-                _generation_tasks[task_id]["result"] = result
+                if task_id in _generation_tasks:
+                    _generation_tasks[task_id]["status"] = "done"
+                    _generation_tasks[task_id]["result"] = result
         except Exception as exc:
+            err_msg = str(exc)
+            _db_write_task(task_id, int(job_id), "error", error=err_msg)
             with _generation_tasks_lock:
-                _generation_tasks[task_id]["status"] = "error"
-                _generation_tasks[task_id]["error"] = str(exc)
+                if task_id in _generation_tasks:
+                    _generation_tasks[task_id]["status"] = "error"
+                    _generation_tasks[task_id]["error"] = err_msg
 
     threading.Thread(target=_worker, daemon=True).start()
     return JSONResponse(status_code=202, content={"task_id": task_id, "status": "pending"})
@@ -430,16 +468,40 @@ def get_generation_task(
     task_id: str,
     _user: dict[str, str] = Depends(_current_user),
 ):
-    """Poll for async draft generation status."""
+    """Poll for async draft generation status. Falls back to DB if memory cache was lost."""
+    # Fast path: in-memory cache
     with _generation_tasks_lock:
         task = _generation_tasks.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found or expired (>10 min)")
+    if task:
+        return {
+            "task_id": task_id,
+            "status": task["status"],
+            "result": task.get("result"),
+            "error": task.get("error"),
+        }
+
+    # Slow path: look up in DB (survives server restarts)
+    try:
+        with get_conn() as con:
+            _ensure_draft_tasks_schema(con)
+            row = con.execute(
+                "SELECT status, result_json, error FROM report_draft_tasks WHERE task_id = %s AND job_id = %s",
+                [task_id, int(job_id)],
+            ).fetchone()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to check task status: {exc}")
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Task not found or expired")
+
+    db_status = str(row[0] or "pending")
+    db_result = json.loads(row[1]) if row[1] else None
+    db_error = str(row[2]) if row[2] else None
     return {
         "task_id": task_id,
-        "status": task["status"],       # pending | done | error
-        "result": task.get("result"),   # full generate response when done
-        "error": task.get("error"),     # error message when error
+        "status": db_status,
+        "result": db_result,
+        "error": db_error,
     }
 
 

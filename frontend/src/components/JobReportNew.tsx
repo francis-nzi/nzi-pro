@@ -300,20 +300,24 @@ async function generateWithBackgroundTask(
   }
   const { task_id } = (await startRes.json()) as { task_id: string };
 
-  // Poll every 3 seconds until done or error (max 5 minutes)
-  const deadline = Date.now() + 5 * 60 * 1000;
+  // Poll every 3 seconds until done or error (max 3 minutes)
+  const deadline = Date.now() + 3 * 60 * 1000;
   while (Date.now() < deadline) {
     await sleep(3000);
     const pollRes = await fetch(
       `${baseUrl}/jobs/${jobId}/report-drafts/generate-task/${task_id}`,
       { credentials: "include" }
     );
-    if (!pollRes.ok) continue;
+    // 404 means the server restarted and lost the in-memory task — fail immediately
+    if (pollRes.status === 404) {
+      throw new Error("Generation task was lost (server restart). Please try again.");
+    }
+    if (!pollRes.ok) continue; // transient 5xx — keep polling
     const task = (await pollRes.json()) as { status: string; result?: unknown; error?: string };
     if (task.status === "done") return task.result;
     if (task.status === "error") throw new Error(task.error || "AI generation failed");
   }
-  throw new Error("AI generation timed out after 5 minutes.");
+  throw new Error("AI generation timed out after 3 minutes. Please try again.");
 }
 
 async function fetchWithRetry(input: RequestInfo | URL, init?: RequestInit, retries = 1): Promise<Response> {
