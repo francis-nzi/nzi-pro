@@ -1840,6 +1840,7 @@ def get_dashboard_operations_overview(
                 f"""
                 SELECT
                     j.job_id,
+                    j.client_db_id,
                     j.job_number,
                     j.title,
                     COALESCE(NULLIF(TRIM(j.status), ''), 'Unknown') AS status,
@@ -2039,6 +2040,7 @@ def get_dashboard_operations_overview(
                         days_to_final_report = (final_report_due - date.today()).days if final_report_due and final_report_completed is None else None
                         current_jobs.append({
                             "job_id": job_id,
+                            "client_db_id": int(row.get("client_db_id")) if row.get("client_db_id") is not None else None,
                             "job_number": _normalize_text_value(row.get("job_number"), ""),
                             "title": _normalize_text_value(row.get("title"), ""),
                             "client_name": _normalize_text_value(row.get("client_name"), ""),
@@ -2049,6 +2051,9 @@ def get_dashboard_operations_overview(
                             "final_report_due": final_report_due.isoformat() if final_report_due else None,
                             "final_report_completed_at": final_report_completed.isoformat() if final_report_completed else None,
                             "days_to_final_report_due": days_to_final_report,
+                            "next_due_date": next_due_date.isoformat() if next_due_date else None,
+                            "next_due_name": next_due_name,
+                            "days_to_next_due": next_due_days,
                         })
 
                     utilisation_pct = (logged_hours / estimated_hours * 100.0) if estimated_hours > 0 else None
@@ -2195,7 +2200,7 @@ def get_dashboard_operations_overview(
                 "time_by_subject": time_by_subject,
                 "crm_workload": crm_workload[:8],
                 "jobs_needing_attention": attention_rows[:50],
-                "current_jobs": current_jobs[:8],
+                "current_jobs": current_jobs[:200],
             }
     except Exception:
         logger.exception("Failed to fetch dashboard operations overview; returning empty fallback")

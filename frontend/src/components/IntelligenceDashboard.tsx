@@ -87,6 +87,24 @@ type JobNeedingAttention = {
   reason: string;
 };
 
+type CurrentJob = {
+  job_id: number;
+  client_db_id: number | null;
+  job_number: string;
+  title: string;
+  client_name: string;
+  crm_name: string;
+  status: string;
+  milestone_status: string | null;
+  due_date: string | null;
+  final_report_due: string | null;
+  final_report_completed_at: string | null;
+  days_to_final_report_due: number | null;
+  next_due_date: string | null;
+  next_due_name: string | null;
+  days_to_next_due: number | null;
+};
+
 type IntelligenceDashboardProps = {
   baseUrl: string;
   crmOwner: string | null;
@@ -176,10 +194,10 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
   const [assigneeQuery, setAssigneeQuery] = useState("");
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const assigneeBlurRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [clientRisk, setClientRisk] = useState<{ overdue: number; due: number; healthy: number } | null>(null);
-  const [opsJobs, setOpsJobs] = useState<{ needing_attention: JobNeedingAttention[]; overdue: number; due_soon: number } | null>(null);
+  const [opsJobs, setOpsJobs] = useState<{ needing_attention: JobNeedingAttention[]; current_jobs: CurrentJob[]; overdue: number; due_soon: number } | null>(null);
   const [followUpSearch, setFollowUpSearch] = useState("");
   const [followUpPage, setFollowUpPage] = useState(0);
+  const [jobRagFilter, setJobRagFilter] = useState<"all" | "red" | "amber" | "green" | "none">("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -223,25 +241,6 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
-    async function fetchRisk() {
-      try {
-        const p = new URLSearchParams({ limit: "1" });
-        if (viewMode !== "all" && scopeOwner) p.set("crm_owner", scopeOwner);
-        const res = await fetch(`${baseUrl}/clients?${p}`, { credentials: "include" });
-        if (!res.ok || cancelled) return;
-        const json = (await res.json()) as { facets?: { risks?: Array<{ value: string; count: number }> } };
-        const risks = json.facets?.risks ?? [];
-        const find = (label: string) => risks.find((r) => r.value.toLowerCase() === label.toLowerCase())?.count ?? 0;
-        if (!cancelled) setClientRisk({ overdue: find("Overdue"), due: find("Due"), healthy: find("Healthy") });
-      } catch { /* non-fatal */ }
-    }
-    void fetchRisk();
-    return () => { cancelled = true; };
-  }, [baseUrl, ready, scopeOwner, viewMode, refreshToken]);
-
-  useEffect(() => {
-    if (!ready) return;
-    let cancelled = false;
     async function fetchOps() {
       try {
         const p = new URLSearchParams();
@@ -251,9 +250,11 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
         const json = (await res.json()) as {
           metrics?: { overdue_jobs?: number; due_soon_jobs?: number };
           jobs_needing_attention?: JobNeedingAttention[];
+          current_jobs?: CurrentJob[];
         };
         if (!cancelled) setOpsJobs({
           needing_attention: json.jobs_needing_attention ?? [],
+          current_jobs: json.current_jobs ?? [],
           overdue: json.metrics?.overdue_jobs ?? 0,
           due_soon: json.metrics?.due_soon_jobs ?? 0,
         });
@@ -307,6 +308,27 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
 
   const hasHealthData = (data?.portfolio_summary.avg_health_score ?? 0) > 0;
 
+  // Derive client-level milestone risk from current_jobs (worst status per client)
+  const clientRisk = useMemo(() => {
+    if (!opsJobs || !data) return null;
+    const rank: Record<string, number> = { red: 3, amber: 2, green: 1, none: 0 };
+    const clientWorst = new Map<number, string>();
+    for (const job of opsJobs.current_jobs) {
+      const cid = job.client_db_id;
+      if (cid == null) continue;
+      const ms = job.milestone_status ?? "none";
+      const cur = clientWorst.get(cid) ?? "none";
+      if ((rank[ms] ?? 0) > (rank[cur] ?? 0)) clientWorst.set(cid, ms);
+    }
+    let overdue = 0, due = 0;
+    for (const s of clientWorst.values()) {
+      if (s === "red") overdue++;
+      else if (s === "amber") due++;
+    }
+    const healthy = Math.max(0, data.portfolio_summary.total_clients - overdue - due);
+    return { overdue, due, healthy };
+  }, [opsJobs, data]);
+
   const summaryCards = useMemo(() => {
     if (!data) return [];
     const atRiskJobs = opsJobs ? opsJobs.overdue + opsJobs.due_soon : null;
@@ -319,7 +341,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
       ];
     }
     return [
-      { label: "Jobs Needing Attention", value: atRiskJobs ?? "—", icon: <Briefcase className="h-4 w-4" /> },
+      { label: "Jobs", value: opsJobs ? opsJobs.current_jobs.length : (atRiskJobs ?? "—"), icon: <Briefcase className="h-4 w-4" /> },
       { label: "Follow-up Reminders", value: data.action_queue.length, icon: <AlertCircle className="h-4 w-4" /> },
       { label: "Renewals (90 days)", value: data.renewal_pipeline.length, icon: <TrendingUp className="h-4 w-4" /> },
     ];
@@ -530,7 +552,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
               </div>
               <div className="flex flex-wrap gap-2">
                 <Badge variant="outline" className="rounded-full">{scopeOwner ? scopeLabel(scopeOwner) : "All CRMs"}</Badge>
-                {opsJobs && <Badge variant="secondary" className="rounded-full">{opsJobs.overdue + opsJobs.due_soon} jobs at risk</Badge>}
+                {opsJobs && <Badge variant="secondary" className="rounded-full">{opsJobs.current_jobs.length} active jobs</Badge>}
                 <Badge variant="secondary" className="rounded-full">{data.renewal_pipeline.length} renewals</Badge>
               </div>
             </CardContent>
@@ -676,76 +698,107 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
             </CardContent>
           </Card>
 
-          {/* Jobs Needing Attention */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Briefcase className="h-4 w-4 text-muted-foreground" />
-                  <CardTitle className="text-base">Jobs Needing Attention</CardTitle>
-                </div>
-                <Badge variant="secondary">{opsJobs?.needing_attention.length ?? "—"}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              {!opsJobs ? (
-                <div className="px-6 py-4 text-sm text-muted-foreground">Loading jobs...</div>
-              ) : opsJobs.needing_attention.length === 0 ? (
-                <div className="px-6 py-4 text-sm text-muted-foreground">All jobs are on track.</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
-                        <th className="px-4 py-2 text-left font-medium">Job</th>
-                        <th className="px-4 py-2 text-left font-medium">Client</th>
-                        <th className="px-4 py-2 text-left font-medium">Next Milestone</th>
-                        <th className="px-4 py-2 text-left font-medium">Due</th>
-                        <th className="px-4 py-2 text-left font-medium">Urgency</th>
-                        <th className="px-4 py-2 text-left font-medium">Reason</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {opsJobs.needing_attention.slice(0, 12).map((job) => {
-                        const isOverdue = job.milestone_status === "red";
-                        const daysVal = job.days_to_next_due;
-                        return (
-                          <tr key={job.job_id} className="border-b hover:bg-muted/20 transition-colors">
-                            <td className="px-4 py-3 text-xs font-medium">
-                              <Link href={`/jobs/${job.job_id}`} className="text-emerald-700 hover:underline">
-                                {job.job_number}
-                              </Link>
-                            </td>
-                            <td className="px-4 py-3 max-w-[160px] truncate font-medium">{job.client_name}</td>
-                            <td className="px-4 py-3 text-xs text-muted-foreground">{job.next_due_name || "—"}</td>
-                            <td className="px-4 py-3 text-xs whitespace-nowrap">
-                              {job.next_due_date
-                                ? new Date(job.next_due_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })
-                                : "—"}
-                            </td>
-                            <td className="px-4 py-3">
-                              {isOverdue ? (
-                                <Badge className="bg-rose-100 text-rose-700 border-rose-200 whitespace-nowrap">
-                                  {daysVal != null && daysVal < 0 ? `${Math.abs(daysVal)}d overdue` : "Overdue"}
-                                </Badge>
-                              ) : (
-                                <Badge className="bg-amber-100 text-amber-700 border-amber-200 whitespace-nowrap">
-                                  {daysVal != null ? `${daysVal}d left` : "Due soon"}
-                                </Badge>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-xs text-muted-foreground capitalize">
-                              {job.reason?.replace(/_/g, " ") || "—"}
-                            </td>
+          {/* Jobs */}
+          {(() => {
+            const allJobs = opsJobs?.current_jobs ?? [];
+            const filtered = jobRagFilter === "all"
+              ? allJobs
+              : allJobs.filter((j) => (j.milestone_status ?? "none") === jobRagFilter);
+            const redCount = allJobs.filter((j) => j.milestone_status === "red").length;
+            const amberCount = allJobs.filter((j) => j.milestone_status === "amber").length;
+            const greenCount = allJobs.filter((j) => j.milestone_status === "green").length;
+            const noneCount = allJobs.filter((j) => !j.milestone_status).length;
+            const ragFilters: Array<{ key: typeof jobRagFilter; label: string; count: number; cls: string; activeCls: string }> = [
+              { key: "all", label: "All", count: allJobs.length, cls: "border-border text-muted-foreground hover:bg-muted/50", activeCls: "bg-muted text-foreground border-border" },
+              { key: "red", label: "Overdue", count: redCount, cls: "border-rose-200 text-rose-700 hover:bg-rose-50", activeCls: "bg-rose-100 text-rose-800 border-rose-300" },
+              { key: "amber", label: "Due Soon", count: amberCount, cls: "border-amber-200 text-amber-700 hover:bg-amber-50", activeCls: "bg-amber-100 text-amber-800 border-amber-300" },
+              { key: "green", label: "On Track", count: greenCount, cls: "border-emerald-200 text-emerald-700 hover:bg-emerald-50", activeCls: "bg-emerald-100 text-emerald-800 border-emerald-300" },
+              { key: "none", label: "No Milestones", count: noneCount, cls: "border-slate-200 text-slate-500 hover:bg-slate-50", activeCls: "bg-slate-100 text-slate-700 border-slate-300" },
+            ];
+            return (
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <Briefcase className="h-4 w-4 text-muted-foreground" />
+                      <CardTitle className="text-base">Jobs</CardTitle>
+                    </div>
+                    <Badge variant="secondary">{filtered.length}{jobRagFilter !== "all" ? ` of ${allJobs.length}` : ""}</Badge>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {ragFilters.map((f) => (
+                      <button
+                        key={f.key}
+                        type="button"
+                        onClick={() => setJobRagFilter(f.key)}
+                        className={`rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${jobRagFilter === f.key ? f.activeCls : f.cls}`}
+                      >
+                        {f.label} {f.count > 0 && <span className="ml-0.5 opacity-70">({f.count})</span>}
+                      </button>
+                    ))}
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {!opsJobs ? (
+                    <div className="px-6 py-4 text-sm text-muted-foreground">Loading jobs...</div>
+                  ) : filtered.length === 0 ? (
+                    <div className="px-6 py-4 text-sm text-muted-foreground">
+                      {allJobs.length === 0 ? "No active jobs found." : "No jobs match this filter."}
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
+                            <th className="px-4 py-2 text-left font-medium w-6"></th>
+                            <th className="px-4 py-2 text-left font-medium">Job</th>
+                            <th className="px-4 py-2 text-left font-medium">Client</th>
+                            <th className="px-4 py-2 text-left font-medium">Next Milestone</th>
+                            <th className="px-4 py-2 text-left font-medium">Due</th>
+                            <th className="px-4 py-2 text-left font-medium">Days</th>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                        </thead>
+                        <tbody>
+                          {filtered.map((job) => {
+                            const ms = job.milestone_status;
+                            const dotCls = ms === "red" ? "bg-rose-500" : ms === "amber" ? "bg-amber-400" : ms === "green" ? "bg-emerald-500" : "bg-slate-300";
+                            const dueDate = job.next_due_date ?? job.final_report_due;
+                            const daysLeft = job.days_to_next_due ?? job.days_to_final_report_due;
+                            return (
+                              <tr key={job.job_id} className="border-b hover:bg-muted/20 transition-colors">
+                                <td className="px-4 py-3">
+                                  <span className={`inline-block h-2.5 w-2.5 rounded-full ${dotCls}`} title={ms ?? "No milestones"} />
+                                </td>
+                                <td className="px-4 py-3 text-xs font-medium">
+                                  <Link href={`/jobs/${job.job_id}`} className="text-emerald-700 hover:underline">
+                                    {job.job_number}
+                                  </Link>
+                                </td>
+                                <td className="px-4 py-3 max-w-[160px] truncate font-medium">{job.client_name}</td>
+                                <td className="px-4 py-3 text-xs text-muted-foreground">{job.next_due_name || "—"}</td>
+                                <td className="px-4 py-3 text-xs whitespace-nowrap">
+                                  {dueDate
+                                    ? new Date(dueDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })
+                                    : "—"}
+                                </td>
+                                <td className="px-4 py-3 text-xs whitespace-nowrap">
+                                  {daysLeft != null ? (
+                                    <span className={daysLeft < 0 ? "text-rose-600 font-medium" : daysLeft <= 14 ? "text-amber-600" : "text-muted-foreground"}>
+                                      {daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d`}
+                                    </span>
+                                  ) : "—"}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           {/* Follow-up Reminders + Renewals side by side */}
           <div className="grid gap-6 xl:grid-cols-2">
