@@ -140,14 +140,16 @@ def get_client_reporting(
     """
     try:
         with get_conn() as con:
-            # Verify client exists
+            # Verify client exists and get benchmark_year
             client_check = con.execute(
-                "SELECT client_name FROM clients WHERE db_id = %s",
+                "SELECT client_name, benchmark_year FROM clients WHERE db_id = %s",
                 [int(client_db_id)]
             ).fetchone()
-            
+
             if not client_check:
                 raise HTTPException(status_code=404, detail="Client not found")
+
+            client_benchmark_year = int(client_check[1]) if client_check[1] is not None else None
             
             # Use all client jobs so the comparison table reflects every reporting
             # year that exists for the client, including non-CRP historical jobs.
@@ -157,35 +159,38 @@ def get_client_reporting(
                 return {
                     "client_db_id": int(client_db_id),
                     "client_name": client_check[0],
+                    "benchmark_year": client_benchmark_year,
                     "years": [],
                     "year_jobs": [],
                     "by_scope": [],
                     "by_activity": [],
                     "by_site": []
                 }
-            
+
             # Get all scope data for these jobs
             job_ids = [int(j) for j in jobs_df['job_id'].tolist()]
-            
+
             if not job_ids:
                 return {
                     "client_db_id": int(client_db_id),
                     "client_name": client_check[0],
+                    "benchmark_year": client_benchmark_year,
                     "years": [],
                     "year_jobs": [],
                     "by_scope": [],
                     "by_activity": [],
                     "by_site": []
                 }
-            
+
             # Get combined scope rows from both the legacy data-entry table and the source register.
             # This keeps year-over-year client reporting aligned with the job report and Data Output views.
             scope_df = load_combined_reporting_rows(con, job_ids)
-            
+
             if scope_df is None or scope_df.empty:
                 return {
                     "client_db_id": int(client_db_id),
                     "client_name": client_check[0],
+                    "benchmark_year": client_benchmark_year,
                     "years": sorted([int(y) for y in jobs_df['dashboard_year'].dropna().unique().tolist()]),
                     "year_jobs": _build_year_jobs(jobs_df),
                     "by_scope": [],
@@ -348,6 +353,7 @@ def get_client_reporting(
             return {
                 "client_db_id": int(client_db_id),
                 "client_name": client_check[0],
+                "benchmark_year": client_benchmark_year,
                 "years": [int(y) for y in years],
                 "year_jobs": _build_year_jobs(jobs_df),
                 "by_scope": by_scope,

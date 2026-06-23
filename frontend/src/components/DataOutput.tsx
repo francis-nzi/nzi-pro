@@ -98,6 +98,7 @@ type ActivityDetailRow = {
 
 type ClientReportingComparisonData = {
   years: number[];
+  benchmark_year?: number | null;
   year_jobs?: Array<{
     year: number;
     job_id: number;
@@ -575,7 +576,8 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
     return [...comparisonData.years].sort((a, b) => a - b);
   }, [comparisonData]);
 
-  const benchmarkYear = comparisonYears[0] ?? null;
+  // Prefer the client's explicit benchmark_year; fall back to the oldest year in the comparison set
+  const benchmarkYear = comparisonData?.benchmark_year ?? comparisonYears[0] ?? null;
   const yearJobsByYear = useMemo(
     () =>
       new Map(
