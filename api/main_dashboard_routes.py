@@ -1782,23 +1782,24 @@ def get_dashboard_operations_overview(
 
             job_where_parts: list[str] = []
             job_params: list[object] = []
+            # Industry filter only — crm filter applied below using effective CRM expression
             _apply_client_filters(
                 job_where_parts,
                 job_params,
                 client_alias="c",
                 industry=industry,
-                crm_owner=crm_owner,
+                crm_owner=None,
             )
             _apply_job_family_filter(job_where_parts, job_params, job_alias="j", job_family=family)
             if year is not None:
                 job_where_parts.append("j.reporting_year = ?")
                 job_params.append(int(year))
 
-            job_where = f"WHERE {' AND '.join(job_where_parts)}" if job_where_parts else ""
             job_plan_join = "LEFT JOIN job_plan jp ON jp.job_id = j.job_id" if has_job_plan else ""
             job_type_join = "LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id" if has_job_type_id else "LEFT JOIN job_types jt ON 1=0"
             estimated_hours_expr = "COALESCE(jt.estimated_hours, 0)" if has_job_type_estimated else "0"
             due_date_expr = "j.due_date" if has_job_due_date else "NULL"
+            # Effective CRM: job's own crm_name takes priority over client's crm_owner
             if has_job_crm_name and has_client_crm_owner:
                 crm_expr = "COALESCE(NULLIF(j.crm_name, ''), NULLIF(c.crm_owner, ''), 'Unassigned')"
             elif has_job_crm_name:
@@ -1807,6 +1808,17 @@ def get_dashboard_operations_overview(
                 crm_expr = "COALESCE(NULLIF(c.crm_owner, ''), 'Unassigned')"
             else:
                 crm_expr = "'Unassigned'"
+
+            # Filter by effective CRM so jobs assigned directly via crm_name are included
+            if crm_owner:
+                crm_value = str(crm_owner).strip()
+                if crm_value.lower() == "unassigned":
+                    job_where_parts.append(f"({crm_expr} IS NULL OR TRIM({crm_expr}) = '')")
+                else:
+                    job_where_parts.append(f"{crm_expr} = ?")
+                    job_params.append(crm_value)
+
+            job_where = f"WHERE {' AND '.join(job_where_parts)}" if job_where_parts else ""
 
             milestone_select = """
                 jp.data_collection_due,
@@ -2182,7 +2194,7 @@ def get_dashboard_operations_overview(
                 "milestone_breakdown": milestone_breakdown,
                 "time_by_subject": time_by_subject,
                 "crm_workload": crm_workload[:8],
-                "jobs_needing_attention": attention_rows[:8],
+                "jobs_needing_attention": attention_rows[:50],
                 "current_jobs": current_jobs[:8],
             }
     except Exception:

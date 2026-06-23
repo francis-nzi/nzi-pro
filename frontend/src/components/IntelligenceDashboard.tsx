@@ -178,6 +178,8 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
   const assigneeBlurRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [clientRisk, setClientRisk] = useState<{ overdue: number; due: number; healthy: number } | null>(null);
   const [opsJobs, setOpsJobs] = useState<{ needing_attention: JobNeedingAttention[]; overdue: number; due_soon: number } | null>(null);
+  const [followUpSearch, setFollowUpSearch] = useState("");
+  const [followUpPage, setFollowUpPage] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -747,40 +749,84 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
 
           {/* Follow-up Reminders + Renewals side by side */}
           <div className="grid gap-6 xl:grid-cols-2">
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between gap-3">
-                  <CardTitle className="text-base">Follow-up Reminders</CardTitle>
-                  <Badge variant="secondary">{data.action_queue.length}</Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {data.action_queue.length === 0 ? (
-                  <EmptyState title="No follow-ups needed" description="All clients are up to date." />
-                ) : (
-                  data.action_queue.slice(0, 8).map((item) => (
-                    <div key={`${item.client_db_id}-${item.action_type}-${item.priority}`} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Link href={`/clients/${item.client_db_id}`} className="font-medium hover:underline text-sm truncate">
-                            {item.client_name}
-                          </Link>
-                          <Badge variant="outline" className="text-[10px] shrink-0">
-                            {item.action_type === "overdue_call" ? "Call overdue" :
-                             item.action_type === "no_recent_contact" ? "No recent contact" :
-                             item.action_type.replace(/_/g, " ")}
-                          </Badge>
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-0.5 truncate">{item.detail}</div>
-                      </div>
-                      <Button size="sm" variant="outline" className="shrink-0" onClick={() => openLogContact(item.client_db_id, item.client_name)}>
-                        Log Contact
-                      </Button>
+            {(() => {
+              const FOLLOW_UP_PAGE_SIZE = 10;
+              const searchLower = followUpSearch.trim().toLowerCase();
+              // Sort: priority ascending (1 = most urgent), then by due_date ascending (oldest first)
+              const sorted = [...data.action_queue].sort((a, b) => {
+                if (a.priority !== b.priority) return a.priority - b.priority;
+                const aDate = a.due_date ?? "9999";
+                const bDate = b.due_date ?? "9999";
+                return aDate < bDate ? -1 : aDate > bDate ? 1 : 0;
+              });
+              const filtered = searchLower
+                ? sorted.filter((item) => item.client_name.toLowerCase().includes(searchLower))
+                : sorted;
+              const totalPages = Math.max(1, Math.ceil(filtered.length / FOLLOW_UP_PAGE_SIZE));
+              const safePage = Math.min(followUpPage, totalPages - 1);
+              const pageItems = filtered.slice(safePage * FOLLOW_UP_PAGE_SIZE, (safePage + 1) * FOLLOW_UP_PAGE_SIZE);
+              return (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <CardTitle className="text-base">Follow-up Reminders</CardTitle>
+                      <Badge variant="secondary">{filtered.length}{searchLower ? ` of ${data.action_queue.length}` : ""}</Badge>
                     </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
+                    <div className="relative mt-2">
+                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        placeholder="Filter by client name..."
+                        value={followUpSearch}
+                        onChange={(e) => { setFollowUpSearch(e.target.value); setFollowUpPage(0); }}
+                        className="pl-8 h-8 text-sm"
+                      />
+                      {followUpSearch && (
+                        <button onClick={() => { setFollowUpSearch(""); setFollowUpPage(0); }} className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-2 pt-0">
+                    {filtered.length === 0 ? (
+                      <EmptyState title="No matches" description={searchLower ? "Try a different client name." : "All clients are up to date."} />
+                    ) : (
+                      <>
+                        {pageItems.map((item) => (
+                          <div key={`${item.client_db_id}-${item.action_type}-${item.priority}`} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Link href={`/clients/${item.client_db_id}`} className="font-medium hover:underline text-sm truncate">
+                                  {item.client_name}
+                                </Link>
+                                <Badge variant="outline" className="text-[10px] shrink-0">
+                                  {item.action_type === "overdue_call" ? "Call overdue" :
+                                   item.action_type === "no_recent_contact" ? "No recent contact" :
+                                   item.action_type.replace(/_/g, " ")}
+                                </Badge>
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-0.5 truncate">{item.detail}</div>
+                            </div>
+                            <Button size="sm" variant="outline" className="shrink-0" onClick={() => openLogContact(item.client_db_id, item.client_name)}>
+                              Log Contact
+                            </Button>
+                          </div>
+                        ))}
+                        {totalPages > 1 && (
+                          <div className="flex items-center justify-between pt-1 text-xs text-muted-foreground">
+                            <span>Page {safePage + 1} of {totalPages}</span>
+                            <div className="flex gap-1">
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={safePage === 0} onClick={() => setFollowUpPage((p) => Math.max(0, p - 1))}>Prev</Button>
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={safePage >= totalPages - 1} onClick={() => setFollowUpPage((p) => p + 1)}>Next</Button>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })()}
 
             <Card>
               <CardHeader className="pb-3">
