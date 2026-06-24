@@ -2455,59 +2455,6 @@ export default function JobAdvancedReports({
               <ReportMarkdown content={report_metadata.activity_commentary} />
             )}
 
-            {/* Site Breakdown by Activity Group */}
-            {(site_breakdowns?.activity?.length ?? 0) > 0 && (() => {
-                const rows = site_breakdowns!.activity!;
-                const totals = {
-                  energy: rows.reduce((s, r) => s + toNum(r.energy), 0),
-                  business_travel: rows.reduce((s, r) => s + toNum(r.business_travel), 0),
-                  employee_commuting: rows.reduce((s, r) => s + toNum(r.employee_commuting), 0),
-                  pgs: rows.reduce((s, r) => s + toNum(r.pgs), 0),
-                  other: rows.reduce((s, r) => s + toNum(r.other), 0),
-                  total: rows.reduce((s, r) => s + toNum(r.total), 0),
-                };
-                return (
-                  <div className="mt-6">
-                    <p className="text-sm font-semibold text-gray-700 mb-2">Site Breakdown by Activity Group</p>
-                    <div className="overflow-x-auto">
-                      <div className="overflow-hidden rounded-lg border border-gray-200 min-w-[640px]">
-                        <div className="grid grid-cols-[1fr_80px_110px_140px_60px_60px_80px] px-3 py-2" style={{ backgroundColor: BRAND }}>
-                          <span className="text-xs font-semibold uppercase tracking-wide text-white">Site</span>
-                          <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Energy</span>
-                          <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Business Travel</span>
-                          <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Employee Commuting</span>
-                          <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">PG&amp;S</span>
-                          <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Other</span>
-                          <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Total</span>
-                        </div>
-                        {rows.map((row, i) => (
-                          <div
-                            key={i}
-                            className={`grid grid-cols-[1fr_80px_110px_140px_60px_60px_80px] border-b border-gray-100 last:border-0 px-3 py-2 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}
-                          >
-                            <span className="text-xs text-gray-700">{row.site_name ?? "Unassigned"}</span>
-                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.energy))}</span>
-                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.business_travel))}</span>
-                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.employee_commuting))}</span>
-                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.pgs))}</span>
-                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.other))}</span>
-                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.total))}</span>
-                          </div>
-                        ))}
-                        <div className="grid grid-cols-[1fr_80px_110px_140px_60px_60px_80px] border-t border-gray-200 px-3 py-2 bg-gray-50">
-                          <span className="text-xs font-semibold text-gray-700">Total</span>
-                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.energy)}</span>
-                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.business_travel)}</span>
-                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.employee_commuting)}</span>
-                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.pgs)}</span>
-                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.other)}</span>
-                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.total)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
 
             {/* Rounding note */}
             <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3">
@@ -2987,6 +2934,82 @@ export default function JobAdvancedReports({
             </CardContent>
           </Card>
         )}
+
+        {/* Appendix 2 - Emissions by Site, Scope and Category */}
+        {hasAppendix && (() => {
+          const SCOPE_ORDER = ["Scope 1", "Scope 2", "Scope 3"];
+          // Build: site → scope → category → total emissions
+          type SiteScopeCat = Map<string, Map<string, Map<string, number>>>;
+          const tree: SiteScopeCat = new Map();
+          const siteTotals = new Map<string, number>();
+          for (const row of appendixRows) {
+            const site = row.site_name ?? "Unassigned";
+            const scope = row.scope ?? "Other";
+            const cat = row.category ?? "Uncategorized";
+            const em = toNum(row.emissions);
+            if (!tree.has(site)) tree.set(site, new Map());
+            const siteMap = tree.get(site)!;
+            if (!siteMap.has(scope)) siteMap.set(scope, new Map());
+            const scopeMap = siteMap.get(scope)!;
+            scopeMap.set(cat, (scopeMap.get(cat) ?? 0) + em);
+            siteTotals.set(site, (siteTotals.get(site) ?? 0) + em);
+          }
+          // Sort sites by descending total
+          const sites = Array.from(tree.keys()).sort(
+            (a, b) => (siteTotals.get(b) ?? 0) - (siteTotals.get(a) ?? 0)
+          );
+          return (
+            <Card className="live-report-section" data-section="Appendix 2 - Emissions by Site, Scope and Category">
+              <CardHeader className="pb-3">
+                <SectionHeader title="Appendix 2 - Emissions by Site, Scope and Category" />
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-6">
+                  {sites.map((site) => {
+                    const scopeMap = tree.get(site)!;
+                    const siteTotal = siteTotals.get(site) ?? 0;
+                    const orderedScopes = SCOPE_ORDER.filter((s) => scopeMap.has(s)).concat(
+                      Array.from(scopeMap.keys()).filter((s) => !SCOPE_ORDER.includes(s))
+                    );
+                    return (
+                      <div key={site} className="rounded-lg border border-gray-200 overflow-hidden">
+                        {/* Site header */}
+                        <div className="flex items-center justify-between px-4 py-2.5" style={{ backgroundColor: BRAND }}>
+                          <span className="text-sm font-semibold text-white">{site}</span>
+                          <span className="text-sm font-semibold text-white">{fmt(siteTotal)} tCO2e</span>
+                        </div>
+                        {orderedScopes.map((scope, si) => {
+                          const catMap = scopeMap.get(scope)!;
+                          const scopeTotal = Array.from(catMap.values()).reduce((s, v) => s + v, 0);
+                          const cats = Array.from(catMap.entries()).sort((a, b) => b[1] - a[1]);
+                          return (
+                            <div key={scope} className={si > 0 ? "border-t border-gray-200" : ""}>
+                              {/* Scope sub-header */}
+                              <div className="flex items-center justify-between bg-gray-100 px-4 py-2">
+                                <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">{scope}</span>
+                                <span className="text-xs font-semibold text-gray-700">{fmt(scopeTotal)} tCO2e</span>
+                              </div>
+                              {/* Category rows */}
+                              {cats.map(([cat, em], ci) => (
+                                <div
+                                  key={cat}
+                                  className={`flex items-center justify-between px-4 py-2 border-b border-gray-50 last:border-0 ${ci % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}
+                                >
+                                  <span className="text-xs text-gray-700 pl-4">{cat}</span>
+                                  <span className="text-xs text-gray-800 font-medium">{fmt(em)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         </>}
 
