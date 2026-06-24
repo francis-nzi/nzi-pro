@@ -87,6 +87,7 @@ type YearlyEmission = {
   scope2: number;
   scope3: number;
   total: number;
+  intensity_by_metric?: Record<string, number>;
 };
 
 type IntensityMetric = {
@@ -437,9 +438,16 @@ export default function JobInsights({
         const metric = intensityMetrics[entry.key];
         const value = Number(metric?.value ?? 0) || 1;
         const divider = Number(metric?.divider ?? 1) || 1;
-        row[`${entry.label}_actual`] = actual
-          ? Number(((actual.total * divider) / value).toFixed(3))
-          : null;
+        if (actual) {
+          // Use the pre-computed per-year intensity (correct historical basis) when
+          // available; fall back to current-job basis for years that lack it.
+          const perYear = actual.intensity_by_metric?.[entry.key];
+          row[`${entry.label}_actual`] = perYear != null
+            ? perYear
+            : Number(((actual.total * divider) / value).toFixed(3));
+        } else {
+          row[`${entry.label}_actual`] = null;
+        }
         row[`${entry.label}_target`] = Number(((forecast * divider) / value).toFixed(3));
       });
       return row;

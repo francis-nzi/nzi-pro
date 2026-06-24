@@ -132,7 +132,12 @@ def _coerce_int(value: Any) -> int | None:
 def _build_yearly_emissions(con, client_db_id: int) -> list[dict[str, Any]]:
     jobs_df = con.execute(
         """
-        SELECT job_id
+        SELECT job_id,
+               COALESCE(
+                   EXTRACT(YEAR FROM reporting_period_end),
+                   reporting_year
+               ) AS dashboard_year,
+               intensity_metrics
         FROM jobs
         WHERE client_db_id = %s
           AND (reporting_year IS NOT NULL OR reporting_period_end IS NOT NULL)
@@ -146,6 +151,24 @@ def _build_yearly_emissions(con, client_db_id: int) -> list[dict[str, Any]]:
     job_ids = [int(job_id) for job_id in jobs_df["job_id"].tolist() if _coerce_int(job_id) is not None]
     if not job_ids:
         return []
+
+    # Build year → intensity_metrics from the LAST job for each year (same logic as dashboard).
+    # This gives us the correct per-year basis for computing historical intensities.
+    year_metrics_map: dict[int, dict[str, Any]] = {}
+    for _, row in jobs_df.iterrows():
+        yr = _coerce_int(row.get("dashboard_year"))
+        if yr is None:
+            continue
+        raw = row.get("intensity_metrics")
+        if raw is None:
+            continue
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except Exception:
+                continue
+        if isinstance(raw, dict) and raw:
+            year_metrics_map[yr] = raw  # last (most recent) job per year wins
 
     emissions_df = load_combined_emissions_summary_rows(con, job_ids)
     if emissions_df is None or getattr(emissions_df, "empty", True):
@@ -165,15 +188,27 @@ def _build_yearly_emissions(con, client_db_id: int) -> list[dict[str, Any]]:
     yearly_emissions: list[dict[str, Any]] = []
     for year in years:
         year_rows = grouped[grouped["dashboard_year_norm"] == year]
-        yearly_emissions.append(
-            {
-                "year": int(year),
-                "scope1": float(year_rows[year_rows["scope"] == "Scope 1"]["emissions"].sum()),
-                "scope2": float(year_rows[year_rows["scope"] == "Scope 2"]["emissions"].sum()),
-                "scope3": float(year_rows[year_rows["scope"] == "Scope 3"]["emissions"].sum()),
-                "total": float(year_rows["emissions"].sum()),
-            }
-        )
+        total = float(year_rows["emissions"].sum())
+        entry: dict[str, Any] = {
+            "year": int(year),
+            "scope1": float(year_rows[year_rows["scope"] == "Scope 1"]["emissions"].sum()),
+            "scope2": float(year_rows[year_rows["scope"] == "Scope 2"]["emissions"].sum()),
+            "scope3": float(year_rows[year_rows["scope"] == "Scope 3"]["emissions"].sum()),
+            "total": total,
+        }
+        # Attach per-metric intensities using each year's own job basis.
+        job_metrics = year_metrics_map.get(year, {})
+        intensity_by_metric: dict[str, float] = {}
+        for key, metric in job_metrics.items():
+            if not isinstance(metric, dict):
+                continue
+            basis = float(metric.get("value") or 0)
+            divider = float(metric.get("divider") or 1)
+            if basis > 0:
+                intensity_by_metric[key] = round((total * divider) / basis, 3)
+        if intensity_by_metric:
+            entry["intensity_by_metric"] = intensity_by_metric
+        yearly_emissions.append(entry)
     return yearly_emissions
 
 
