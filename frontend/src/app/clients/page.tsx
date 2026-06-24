@@ -44,6 +44,7 @@ type ClientFacets = {
   owners: FacetOption[];
   risks: FacetOption[];
   portfolios: FacetOption[];
+  client_managers: FacetOption[];
 };
 
 type SortBy = "client" | "industry" | "status" | "owner" | "risk";
@@ -64,13 +65,14 @@ function ClientsContent() {
   const [ownerFilter, setOwnerFilter] = useState(() => searchParams.get("crm_owner") ?? "");
   const [riskFilter, setRiskFilter] = useState(() => searchParams.get("risk") ?? "");
   const [portfolioFilter, setPortfolioFilter] = useState(() => searchParams.get("portfolio") ?? "");
-  const [crmFilter, setCrmFilter] = useState(() => searchParams.get("crm") ?? "");
+  const [clientManagerFilter, setClientManagerFilter] = useState(() => searchParams.get("client_manager") ?? "");
   const [facets, setFacets] = useState<ClientFacets>({
     industries: [],
     statuses: [],
     owners: [],
     risks: [],
     portfolios: [],
+    client_managers: [],
   });
   const [sortBy, setSortBy] = useState<SortBy>("client");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -88,7 +90,7 @@ function ClientsContent() {
         if (ownerFilter.trim()) params.set("crm_owner", ownerFilter.trim());
         if (riskFilter.trim()) params.set("risk", riskFilter.trim());
         if (portfolioFilter.trim()) params.set("portfolio", portfolioFilter.trim());
-        if (crmFilter.trim()) params.set("crm", crmFilter.trim());
+        if (clientManagerFilter.trim()) params.set("client_manager", clientManagerFilter.trim());
         params.set("limit", String(limit));
         params.set("offset", String(offset));
         params.set("sort_by", sortBy);
@@ -113,6 +115,7 @@ function ClientsContent() {
             owners: [],
             risks: [],
             portfolios: [],
+            client_managers: [],
           }
         );
       } catch (e) {
@@ -125,6 +128,7 @@ function ClientsContent() {
           owners: [],
           risks: [],
           portfolios: [],
+          client_managers: [],
         });
         setError((e as Error).message);
       } finally {
@@ -136,7 +140,7 @@ function ClientsContent() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [baseUrl, q, industryFilter, statusFilter, ownerFilter, riskFilter, portfolioFilter, crmFilter, limit, offset, sortBy, sortDir]);
+  }, [baseUrl, q, industryFilter, statusFilter, ownerFilter, riskFilter, portfolioFilter, clientManagerFilter, limit, offset, sortBy, sortDir]);
 
   const page = Math.floor(offset / limit) + 1;
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -331,23 +335,19 @@ function ClientsContent() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="crm-filter">CRM</Label>
-                  <Select
-                    value={crmFilter || "__all__"}
-                    onValueChange={(v) => {
-                      setCrmFilter(v === "__all__" ? "" : v);
+                  <Label htmlFor="client-manager-filter">Client Manager</Label>
+                  <SearchableStringSelect
+                    id="client-manager-filter"
+                    value={clientManagerFilter}
+                    options={facets.client_managers.map((facet) => facet.value)}
+                    optionBadges={Object.fromEntries(facets.client_managers.map((facet) => [facet.value, facet.count]))}
+                    placeholder="All managers"
+                    showClearButton
+                    onValueChange={(value) => {
+                      setClientManagerFilter(value);
                       setOffset(0);
                     }}
-                  >
-                    <SelectTrigger id="crm-filter" className="w-full">
-                      <SelectValue placeholder="All clients" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">All clients</SelectItem>
-                      <SelectItem value="has_owner">Has CRM owner</SelectItem>
-                      <SelectItem value="no_owner">No CRM owner</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  />
                 </div>
               </div>
             </div>

@@ -147,6 +147,7 @@ type Client = {
   create_site_from_address?: boolean | null;
   logo_url: string | null;
   crm_owner: string | null;
+  client_manager: string | null;
   status: string | null;
   net_zero_year: number | null;
   interim_year: number | null;
@@ -246,6 +247,7 @@ export default function EditClientPage() {
   const [billingAddrCountry, setBillingAddrCountry] = useState<string>("");
   const [logoUrl, setLogoUrl] = useState<string>("");
   const [crmOwner, setCrmOwner] = useState<string>("");
+  const [clientManager, setClientManager] = useState<string>("");
   const [portfolio, setPortfolio] = useState<string>("NZI");
   const [clientStatus, setClientStatus] = useState<string>("Active");
   const [netZeroYear, setNetZeroYear] = useState<string>("2050");
@@ -424,6 +426,7 @@ export default function EditClientPage() {
         setLogoUrl(json.logo_url || "");
         setPortfolio(json.portfolio || "NZI");
         setCrmOwner(json.crm_owner || "");
+        setClientManager(json.client_manager || "");
         setClientStatus(json.status || "Active");
         setNetZeroYear(json.net_zero_year ? String(json.net_zero_year) : "2050");
         setInterimYear(json.interim_year ? String(json.interim_year) : "2035");
@@ -611,6 +614,7 @@ export default function EditClientPage() {
           logo_url: logoUrl || null,
           portfolio: portfolio || null,
           crm_owner: crmOwner || null,
+          client_manager: clientManager || null,
           status: clientStatus || null,
           net_zero_year: netZeroYear ? Number(netZeroYear) : null,
           interim_year: interimYear ? Number(interimYear) : null,
@@ -730,6 +734,22 @@ export default function EditClientPage() {
                         <SelectValue placeholder="Select client owner..." />
                       </SelectTrigger>
                       <SelectContent>
+                        {users.map((u, idx) => (
+                          <SelectItem key={u.email || `user-${idx}`} value={u.full_name || u.email}>
+                            {u.full_name || u.email}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="clientManager">Client Manager</Label>
+                    <Select value={clientManager || "__none__"} onValueChange={(v) => setClientManager(v === "__none__" ? "" : v)}>
+                      <SelectTrigger id="clientManager">
+                        <SelectValue placeholder="Select client manager..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">— None —</SelectItem>
                         {users.map((u, idx) => (
                           <SelectItem key={u.email || `user-${idx}`} value={u.full_name || u.email}>
                             {u.full_name || u.email}

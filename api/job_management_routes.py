@@ -216,30 +216,34 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
             
             # Get client's benchmark period and financial year info
             benchmark_start = benchmark_end = fy_month = fy_day = benchmark_year = year_end_month = None
+            client_manager_default: str | None = None
             if client_db_id is not None:
                 fy_month_expr = "financial_year_end_month" if _col_exists(con, "clients", "financial_year_end_month") else "NULL"
                 fy_day_expr = "financial_year_end_day" if _col_exists(con, "clients", "financial_year_end_day") else "NULL"
                 year_end_expr = "year_end_month" if _col_exists(con, "clients", "year_end_month") else "NULL"
+                client_manager_expr = "client_manager" if _col_exists(con, "clients", "client_manager") else "NULL"
                 client_row = con.execute(
                     """
                     SELECT benchmark_period_start, benchmark_period_end,
                            {fy_month_expr}, {fy_day_expr},
                            benchmark_year,
-                           {year_end_expr}
+                           {year_end_expr},
+                           {client_manager_expr}
                     FROM clients
                     WHERE db_id = ?
                     """.format(
                         fy_month_expr=fy_month_expr,
                         fy_day_expr=fy_day_expr,
                         year_end_expr=year_end_expr,
+                        client_manager_expr=client_manager_expr,
                     ),
                     [int(client_db_id)]
                 ).fetchone()
-                
+
                 if not client_row:
                     raise HTTPException(status_code=404, detail="Client not found")
-                
-                benchmark_start, benchmark_end, fy_month, fy_day, benchmark_year, year_end_month = client_row
+
+                benchmark_start, benchmark_end, fy_month, fy_day, benchmark_year, year_end_month, client_manager_default = client_row
                 fy_month = fy_month or _month_value(year_end_month)
             
             # Calculate reporting period
@@ -336,6 +340,11 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
             if _col_exists(con, "jobs", "job_family"):
                 insert_columns.insert(4, "job_family")
                 insert_values.insert(4, job_family)
+            if _col_exists(con, "jobs", "crm_name"):
+                crm_name_value = body.get("crm_name") or client_manager_default or None
+                if crm_name_value:
+                    insert_columns.append("crm_name")
+                    insert_values.append(str(crm_name_value))
             row = con.execute(
                 f"""
                 INSERT INTO jobs ({', '.join(insert_columns)})

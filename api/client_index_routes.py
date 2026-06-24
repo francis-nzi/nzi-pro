@@ -28,7 +28,7 @@ def list_clients(
     industry: str | None = None,
     status: str | None = None,
     crm_owner: str | None = None,
-    crm: str | None = None,
+    client_manager: str | None = None,
     risk: str | None = None,
     portfolio: str | None = None,
     include_archived: bool = Query(False),
@@ -84,6 +84,7 @@ def list_clients(
             has_status = _col_exists(con, "clients", "status")
             has_crm_owner = _col_exists(con, "clients", "crm_owner")
             has_portfolio = _col_exists(con, "clients", "portfolio")
+            has_client_manager = _col_exists(con, "clients", "client_manager")
 
             where_clauses: list[str] = []
             params: list[object] = []
@@ -123,11 +124,13 @@ def list_clients(
                     else:
                         where_clauses.append("lower(coalesce(c.client_name,'')) LIKE %s")
                         params.append(f"%{query.lower()}%")
-            if crm and has_crm_owner:
-                if crm == "has_owner":
-                    where_clauses.append("(c.crm_owner IS NOT NULL AND c.crm_owner <> '')")
-                elif crm == "no_owner":
-                    where_clauses.append("(c.crm_owner IS NULL OR c.crm_owner = '')")
+            if client_manager and has_client_manager:
+                if db_backend() == "postgres":
+                    where_clauses.append("c.client_manager ILIKE %s")
+                    params.append(f"%{client_manager}%")
+                else:
+                    where_clauses.append("lower(coalesce(c.client_manager,'')) LIKE %s")
+                    params.append(f"%{client_manager.lower()}%")
 
             where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
@@ -144,6 +147,7 @@ def list_clients(
             status_col = "c.status" if has_status else "NULL::text as status"
             crm_col = "c.crm_owner" if has_crm_owner else "NULL::text as crm_owner"
             portfolio_col = "c.portfolio" if has_portfolio else "NULL::text as portfolio"
+            client_manager_col = "c.client_manager" if has_client_manager else "NULL::text as client_manager"
 
             rows = (
                 con.execute(
@@ -153,7 +157,8 @@ def list_clients(
                            {industry_col},
                            {status_col},
                            {crm_col},
-                           {portfolio_col}
+                           {portfolio_col},
+                           {client_manager_col}
                     FROM clients c
                     {where_sql}
                     ORDER BY LOWER(COALESCE(c.client_name, '')) ASC, c.db_id ASC
@@ -286,6 +291,7 @@ def list_clients(
     facet_owners: dict[str, int] = {}
     facet_risks: dict[str, int] = {}
     facet_portfolios: dict[str, int] = {}
+    facet_client_managers: dict[str, int] = {}
     if rows is not None and (not rows.empty):
         for _, r in rows.iterrows():
             client_id = int(r.get("client_db_id"))
@@ -293,6 +299,7 @@ def list_clients(
             status_value = _normalize_filter_value(_json_null_if_na(r.get("status")), "Unspecified")
             owner_value = _normalize_filter_value(_json_null_if_na(r.get("crm_owner")), "Unassigned")
             portfolio_value = _normalize_filter_value(_json_null_if_na(r.get("portfolio")), "Unassigned")
+            client_manager_value = _json_null_if_na(r.get("client_manager")) or ""
             risk_value = _normalize_filter_value(client_milestone_status.get(client_id) or "green", "green")
             risk_label = "Overdue" if risk_value == "red" else "Due" if risk_value == "amber" else "Healthy"
 
@@ -301,6 +308,8 @@ def list_clients(
             facet_owners[owner_value] = facet_owners.get(owner_value, 0) + 1
             facet_risks[risk_label] = facet_risks.get(risk_label, 0) + 1
             facet_portfolios[portfolio_value] = facet_portfolios.get(portfolio_value, 0) + 1
+            if client_manager_value:
+                facet_client_managers[client_manager_value] = facet_client_managers.get(client_manager_value, 0) + 1
 
             items.append(
                 {
@@ -310,6 +319,7 @@ def list_clients(
                     "status": status_value,
                     "crm_owner": owner_value,
                     "portfolio": portfolio_value,
+                    "client_manager": client_manager_value,
                     "milestone_status": _json_null_if_na(client_milestone_status.get(client_id)),
                 }
             )
@@ -322,6 +332,8 @@ def list_clients(
             if crm_owner and _normalize_lookup_value(item.get("crm_owner")) != _normalize_lookup_value(crm_owner):
                 return False
             if portfolio and _normalize_lookup_value(item.get("portfolio")) != _normalize_lookup_value(portfolio):
+                return False
+            if client_manager and _normalize_lookup_value(client_manager) not in _normalize_lookup_value(item.get("client_manager") or ""):
                 return False
             if risk:
                 item_risk = item.get("milestone_status")
@@ -359,6 +371,7 @@ def list_clients(
         "owners": [{"value": key, "count": count} for key, count in sorted(facet_owners.items(), key=lambda kv: (-kv[1], kv[0].lower()))],
         "risks": [{"value": key, "count": count} for key, count in sorted(facet_risks.items(), key=lambda kv: (-kv[1], kv[0].lower()))],
         "portfolios": [{"value": key, "count": count} for key, count in sorted(facet_portfolios.items(), key=lambda kv: (-kv[1], kv[0].lower()))],
+        "client_managers": [{"value": key, "count": count} for key, count in sorted(facet_client_managers.items(), key=lambda kv: kv[0].lower())],
     }
 
     return {

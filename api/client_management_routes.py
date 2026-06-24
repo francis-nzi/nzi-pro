@@ -102,7 +102,7 @@ def create_client(
                     org_id, client_name, billing_company, industry, description_long, website, year_end_month,
                     company_reg, sic_code, headquarters, addr_line1, addr_line2, addr_city,
                     addr_region, addr_postcode, addr_country, logo_url, portfolio,
-                    crm_owner, currency, status, net_zero_year, net_zero_target_reduction_pct, benchmark_year,
+                    crm_owner, client_manager, currency, status, net_zero_year, net_zero_target_reduction_pct, benchmark_year,
                     benchmark_period_start, benchmark_period_end,
                     benchmark_scope_1_tco2e, benchmark_scope_2_tco2e,
                     benchmark_scope_3_tco2e, benchmark_total_tco2e,
@@ -112,7 +112,7 @@ def create_client(
                     billing_addr_region, billing_addr_postcode, billing_addr_country,
                     create_site_from_address
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING db_id
                 """,
                 [
@@ -135,6 +135,7 @@ def create_client(
                     body.get("logo_url"),
                     body.get("portfolio"),
                     body.get("crm_owner"),
+                    body.get("client_manager"),
                     str(body.get("currency") or "GBP").upper(),
                     body.get("status", "Active"),
                     body.get("net_zero_year"),
@@ -322,6 +323,7 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
             _client_select_expr(columns, "addr_country", "addr_country"),
             _client_select_expr(columns, "logo_url", "logo_url"),
             _client_select_expr(columns, "crm_owner", "crm_owner"),
+            _client_select_expr(columns, "client_manager", "client_manager"),
             _client_select_expr(columns, "net_zero_year", "net_zero_year"),
             _client_select_expr(columns, "interim_year", "interim_year"),
             _client_select_expr(columns, "interim_s1_pct", "interim_s1_pct"),
@@ -385,6 +387,7 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
         "addr_country": row.get("addr_country"),
         "logo_url": row.get("logo_url"),
         "crm_owner": row.get("crm_owner"),
+        "client_manager": row.get("client_manager"),
         "net_zero_year": (int(row["net_zero_year"]) if row.get("net_zero_year") is not None else None),
         "interim_year": (int(row["interim_year"]) if row.get("interim_year") is not None else None),
         "interim_s1_pct": (int(row["interim_s1_pct"]) if row.get("interim_s1_pct") is not None else None),
@@ -508,6 +511,7 @@ def update_client(
                 "addr_country": "addr_country",
                 "logo_url": "logo_url",
                 "crm_owner": "crm_owner",
+                "client_manager": "client_manager",
                 "net_zero_year": "net_zero_year",
                 "interim_year": "interim_year",
                 "interim_s1_pct": "interim_s1_pct",
