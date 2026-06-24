@@ -729,34 +729,24 @@ export default function EditClientPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="crmOwner">Client Owner</Label>
-                    <Select value={crmOwner} onValueChange={setCrmOwner}>
-                      <SelectTrigger id="crmOwner">
-                        <SelectValue placeholder="Select client owner..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {users.map((u, idx) => (
-                          <SelectItem key={u.email || `user-${idx}`} value={u.full_name || u.email}>
-                            {u.full_name || u.email}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <SearchableStringSelect
+                      id="crmOwner"
+                      value={crmOwner}
+                      options={users.map((u) => u.full_name || u.email)}
+                      placeholder="Search owners..."
+                      onValueChange={setCrmOwner}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="clientManager">Client Manager</Label>
-                    <Select value={clientManager || "__none__"} onValueChange={(v) => setClientManager(v === "__none__" ? "" : v)}>
-                      <SelectTrigger id="clientManager">
-                        <SelectValue placeholder="Select client manager..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">— None —</SelectItem>
-                        {users.map((u, idx) => (
-                          <SelectItem key={u.email || `user-${idx}`} value={u.full_name || u.email}>
-                            {u.full_name || u.email}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <SearchableStringSelect
+                      id="clientManager"
+                      value={clientManager}
+                      options={users.map((u) => u.full_name || u.email)}
+                      placeholder="Search managers..."
+                      showClearButton
+                      onValueChange={setClientManager}
+                    />
                   </div>
                 </div>
 
