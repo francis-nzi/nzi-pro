@@ -182,6 +182,7 @@ type YearlyEmission = {
   scope2: number;
   scope3: number;
   total: number;
+  intensity_by_metric?: Record<string, number>;
 };
 
 type ReactReportVersion = {
@@ -1176,18 +1177,29 @@ export default function JobAdvancedReports({
     });
     const years = Array.from(yearSet).sort((a, b) => a - b);
 
+    const benchTotal = benchS1 + benchS2 + benchS3 || 1;
+
     return years.map((year) => {
       const actual = yearly.find((row) => row.year === year);
       const forecast = forecastTotal(year);
+      const forecastFraction = forecast / benchTotal;
       const row: IntensityPathwayPoint = { year };
       intensityPathwaySeries.forEach((entry) => {
         const metric = metrics?.[entry.key];
         const value = Number(metric?.value ?? 0) || 1;
         const divider = Number(metric?.divider ?? 1) || 1;
-        row[`${entry.label}_actual`] = actual
-          ? Number(((actual.total * divider) / value).toFixed(3))
-          : null;
-        row[`${entry.label}_target`] = Number(((forecast * divider) / value).toFixed(3));
+        if (actual) {
+          const perYear = actual.intensity_by_metric?.[entry.key];
+          row[`${entry.label}_actual`] = perYear != null
+            ? perYear
+            : Number(((actual.total * divider) / value).toFixed(3));
+        } else {
+          row[`${entry.label}_actual`] = null;
+        }
+        const benchIntensity =
+          benchmarkRow?.intensity_by_metric?.[entry.key] ??
+          Number(((benchTotal * divider) / value).toFixed(3));
+        row[`${entry.label}_target`] = Number((benchIntensity * forecastFraction).toFixed(3));
       });
       return row;
     });

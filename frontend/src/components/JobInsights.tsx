@@ -430,17 +430,21 @@ export default function JobInsights({
     yearlyEmissions.forEach((r) => { if (r.year <= endYear) yearSet.add(r.year); });
     const years = Array.from(yearSet).sort((a, b) => a - b);
 
+    // Benchmark absolute total for proportional scaling of target line.
+    const benchTotal = benchS1 + benchS2 + benchS3 || 1;
+
     return years.map((year) => {
       const actual = yearlyEmissions.find((r) => r.year === year);
       const forecast = forecastTotal(year);
+      // Proportional reduction from benchmark (1.0 at benchmark year → finalFactor at end year).
+      const forecastFraction = forecast / benchTotal;
       const row: IntensityPathwayPoint = { year };
       intensityPathwaySeries.forEach((entry) => {
         const metric = intensityMetrics[entry.key];
         const value = Number(metric?.value ?? 0) || 1;
         const divider = Number(metric?.divider ?? 1) || 1;
         if (actual) {
-          // Use the pre-computed per-year intensity (correct historical basis) when
-          // available; fall back to current-job basis for years that lack it.
+          // Use pre-computed per-year intensity (correct historical basis).
           const perYear = actual.intensity_by_metric?.[entry.key];
           row[`${entry.label}_actual`] = perYear != null
             ? perYear
@@ -448,7 +452,12 @@ export default function JobInsights({
         } else {
           row[`${entry.label}_actual`] = null;
         }
-        row[`${entry.label}_target`] = Number(((forecast * divider) / value).toFixed(3));
+        // Target line: scale the benchmark intensity by the same proportional reduction
+        // as absolute emissions, so the line always starts at the correct benchmark point.
+        const benchIntensity =
+          benchmarkRow?.intensity_by_metric?.[entry.key] ??
+          Number(((benchTotal * divider) / value).toFixed(3));
+        row[`${entry.label}_target`] = Number((benchIntensity * forecastFraction).toFixed(3));
       });
       return row;
     });
