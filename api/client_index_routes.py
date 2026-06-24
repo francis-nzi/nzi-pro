@@ -28,6 +28,7 @@ def list_clients(
     industry: str | None = None,
     status: str | None = None,
     crm_owner: str | None = None,
+    crm: str | None = None,
     risk: str | None = None,
     portfolio: str | None = None,
     include_archived: bool = Query(False),
@@ -122,6 +123,12 @@ def list_clients(
                     else:
                         where_clauses.append("lower(coalesce(c.client_name,'')) LIKE %s")
                         params.append(f"%{query.lower()}%")
+            if crm and has_crm_owner:
+                if crm == "has_owner":
+                    where_clauses.append("(c.crm_owner IS NOT NULL AND c.crm_owner <> '')")
+                elif crm == "no_owner":
+                    where_clauses.append("(c.crm_owner IS NULL OR c.crm_owner = '')")
+
             where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
             total_row = con.execute(

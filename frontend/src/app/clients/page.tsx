@@ -64,6 +64,7 @@ function ClientsContent() {
   const [ownerFilter, setOwnerFilter] = useState(() => searchParams.get("crm_owner") ?? "");
   const [riskFilter, setRiskFilter] = useState(() => searchParams.get("risk") ?? "");
   const [portfolioFilter, setPortfolioFilter] = useState(() => searchParams.get("portfolio") ?? "");
+  const [crmFilter, setCrmFilter] = useState(() => searchParams.get("crm") ?? "");
   const [facets, setFacets] = useState<ClientFacets>({
     industries: [],
     statuses: [],
@@ -87,6 +88,7 @@ function ClientsContent() {
         if (ownerFilter.trim()) params.set("crm_owner", ownerFilter.trim());
         if (riskFilter.trim()) params.set("risk", riskFilter.trim());
         if (portfolioFilter.trim()) params.set("portfolio", portfolioFilter.trim());
+        if (crmFilter.trim()) params.set("crm", crmFilter.trim());
         params.set("limit", String(limit));
         params.set("offset", String(offset));
         params.set("sort_by", sortBy);
@@ -134,7 +136,7 @@ function ClientsContent() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [baseUrl, q, industryFilter, statusFilter, ownerFilter, riskFilter, portfolioFilter, limit, offset, sortBy, sortDir]);
+  }, [baseUrl, q, industryFilter, statusFilter, ownerFilter, riskFilter, portfolioFilter, crmFilter, limit, offset, sortBy, sortDir]);
 
   const page = Math.floor(offset / limit) + 1;
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -327,6 +329,25 @@ function ClientsContent() {
                       setOffset(0);
                     }}
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="crm-filter">CRM</Label>
+                  <Select
+                    value={crmFilter || "__all__"}
+                    onValueChange={(v) => {
+                      setCrmFilter(v === "__all__" ? "" : v);
+                      setOffset(0);
+                    }}
+                  >
+                    <SelectTrigger id="crm-filter" className="w-full">
+                      <SelectValue placeholder="All clients" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">All clients</SelectItem>
+                      <SelectItem value="has_owner">Has CRM owner</SelectItem>
+                      <SelectItem value="no_owner">No CRM owner</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </div>

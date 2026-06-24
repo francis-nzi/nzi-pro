@@ -211,17 +211,9 @@ def save_report_drafts(
                 status_code=400,
                 detail="No assigned report template/version is available for saving drafts.",
             )
-        # Run DDL migrations on a separate connection so they don't hold a
-        # table-level lock inside the write transaction below.
-        try:
-            with get_conn() as ddl_con:
-                _ensure_report_drafts_schema(ddl_con)
-        except Exception:
-            pass
+        _ensure_draft_schemas_once()
 
         with get_conn(autocommit=False) as con:
-            # Use a short lock timeout so a concurrent AI-generation write
-            # causes a fast failure rather than waiting the full DB timeout.
             con.execute("SET LOCAL lock_timeout = '15s'")
             con.execute("SET LOCAL statement_timeout = '30s'")
 
@@ -287,20 +279,46 @@ def save_report_drafts(
                 keep_section_keys=keep_section_keys,
             )
 
-            loaded_items = _load_report_drafts(con, int(job_id), int(template_id), int(version_id))
-            return {
-                "ok": True,
-                "job_id": int(job_id),
-                "template_key": template_key,
-                "template_id": int(template_id),
-                "version_id": int(version_id),
-                "items": loaded_items,
-                "saved_count": len(saved_items),
-            }
+        # Read outside the write transaction so the row lock is released before the SELECT.
+        with get_conn() as read_con:
+            loaded_items = _load_report_drafts(read_con, int(job_id), int(template_id), int(version_id))
+        return {
+            "ok": True,
+            "job_id": int(job_id),
+            "template_key": template_key,
+            "template_id": int(template_id),
+            "version_id": int(version_id),
+            "items": loaded_items,
+            "saved_count": len(saved_items),
+        }
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to save report drafts: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# One-time schema initialisation — avoids opening an extra DB connection on
+# every save/generate call (critical with Supabase pool_size=15 limit).
+# ---------------------------------------------------------------------------
+_draft_schema_initialized = False
+_draft_schema_lock = threading.Lock()
+
+
+def _ensure_draft_schemas_once() -> None:
+    global _draft_schema_initialized
+    if _draft_schema_initialized:
+        return
+    with _draft_schema_lock:
+        if _draft_schema_initialized:
+            return
+        try:
+            with get_conn() as con:
+                _ensure_report_template_schema(con)
+                _ensure_report_drafts_schema(con)
+            _draft_schema_initialized = True
+        except Exception as exc:
+            logger.warning("Draft schema init failed (will retry next call): %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -386,14 +404,7 @@ def _run_generation(job_id: int, payload: GenerateReportDraftPayload, actor: str
             default=str,
         ).encode("utf-8")
     ).hexdigest()
-    # Run DDL outside the write transaction to avoid holding AccessExclusiveLock
-    # during concurrent user saves.
-    try:
-        with get_conn() as ddl_con:
-            _ensure_report_template_schema(ddl_con)
-            _ensure_report_drafts_schema(ddl_con)
-    except Exception:
-        pass
+    _ensure_draft_schemas_once()
 
     with get_conn(autocommit=False) as con:
         con.execute("SET LOCAL lock_timeout = '15s'")
@@ -413,7 +424,9 @@ def _run_generation(job_id: int, payload: GenerateReportDraftPayload, actor: str
             status="draft",
             actor=actor,
         )
-        loaded_items = _load_report_drafts(con, int(job_id), int(template_id), int(version_id))
+    # Read outside the write transaction so the row lock is released before the SELECT.
+    with get_conn() as read_con:
+        loaded_items = _load_report_drafts(read_con, int(job_id), int(template_id), int(version_id))
     return {
         "job_id": int(job_id),
         "section_key": section_key,
