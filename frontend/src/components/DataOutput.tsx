@@ -96,6 +96,8 @@ type ActivityDetailRow = {
   quantity?: number;
 };
 
+type SiteActivityDetailRow = ActivityDetailRow & { site_name: string };
+
 type ClientReportingComparisonData = {
   years: number[];
   benchmark_year?: number | null;
@@ -128,6 +130,8 @@ type ClientReportingComparisonData = {
   }>;
   by_activity_detail?: ActivityDetailRow[];
   by_activity_detail_volume?: ActivityDetailRow[];
+  by_site_activity_detail?: SiteActivityDetailRow[];
+  by_site_activity_detail_volume?: SiteActivityDetailRow[];
 };
 
 type AuditRow = {
@@ -186,6 +190,9 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
   // Expansion state for sites view
   const [expandedSiteNames, setExpandedSiteNames] = useState<Set<string>>(new Set());
   const [expandedSiteScopes, setExpandedSiteScopes] = useState<Set<string>>(new Set());
+
+  // Selected site for the YoY detail breakdown in the By Site tab
+  const [selectedSiteDetail, setSelectedSiteDetail] = useState<string | null>(null);
 
   // Compute "by site" view from summary data - must be before useEffect
   const sitesView = useMemo(() => {
@@ -824,6 +831,34 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
     [buildDetailTableRows, comparisonData]
   );
 
+  const siteDetailNames = useMemo(() => {
+    const names = Array.from(
+      new Set((comparisonData?.by_site_activity_detail || []).map((r) => r.site_name))
+    ).sort();
+    return names;
+  }, [comparisonData]);
+
+  const activeSiteDetail = useMemo(
+    () => selectedSiteDetail ?? siteDetailNames[0] ?? null,
+    [selectedSiteDetail, siteDetailNames]
+  );
+
+  const siteDetailEmissionsRows = useMemo(() => {
+    if (!activeSiteDetail) return [];
+    return buildDetailTableRows(
+      (comparisonData?.by_site_activity_detail || []).filter((r) => r.site_name === activeSiteDetail),
+      "emissions"
+    );
+  }, [buildDetailTableRows, comparisonData, activeSiteDetail]);
+
+  const siteDetailVolumeRows = useMemo(() => {
+    if (!activeSiteDetail) return [];
+    return buildDetailTableRows(
+      (comparisonData?.by_site_activity_detail_volume || []).filter((r) => r.site_name === activeSiteDetail),
+      "quantity"
+    );
+  }, [buildDetailTableRows, comparisonData, activeSiteDetail]);
+
   function exportActivityDetailCsv(tab: "emissions" | "volume") {
     const rows = tab === "emissions" ? detailEmissionsRows : detailVolumeRows;
     if (!rows.length) return;
@@ -1411,6 +1446,130 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                     </tbody>
                   </table>
                 </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Year-over-Year Detailed Activity Breakdown — per site */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <CardTitle>Year-over-Year Detailed Activity Breakdown by Site</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {comparisonLoading ? (
+                <div className="text-sm text-muted-foreground">Loading...</div>
+              ) : siteDetailNames.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No data available.</div>
+              ) : (
+                <>
+                  {/* Site selector */}
+                  {siteDetailNames.length > 1 && (
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {siteDetailNames.map((name) => (
+                        <button
+                          key={name}
+                          onClick={() => setSelectedSiteDetail(name)}
+                          className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
+                            activeSiteDetail === name
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "bg-background border-border hover:bg-muted"
+                          }`}
+                        >
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <Tabs defaultValue="emissions" className="w-full">
+                    <TabsList>
+                      <TabsTrigger value="emissions">Emissions (tCO₂e)</TabsTrigger>
+                      <TabsTrigger value="volume">Volume</TabsTrigger>
+                    </TabsList>
+                    {(["emissions", "volume"] as const).map((tab) => {
+                      const rows = tab === "emissions" ? siteDetailEmissionsRows : siteDetailVolumeRows;
+                      return (
+                        <TabsContent key={tab} value={tab} className="pt-2">
+                          {rows.length === 0 ? (
+                            <div className="text-sm text-muted-foreground">No data available.</div>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-sm border-collapse">
+                                <thead>
+                                  <tr className="bg-muted">
+                                    <th className="text-left p-2 border">Scope</th>
+                                    <th className="text-left p-2 border">Category</th>
+                                    <th className="text-left p-2 border">Activity</th>
+                                    {comparisonYears.map((year) => renderComparisonYearHeader(year))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {rows.map((row, idx) => {
+                                    if (row.type === "activity") {
+                                      return (
+                                        <tr key={idx} className="hover:bg-muted/30">
+                                          <td className="p-2 border text-muted-foreground">{row.scope}</td>
+                                          <td className="p-2 border text-muted-foreground">{row.category}</td>
+                                          <td className="p-2 border">{row.activity}</td>
+                                          {row.values.map((v, ci) => (
+                                            <td key={ci} className="text-right p-2 border">
+                                              {v > 0 ? formatNumber(v, 2) : "-"}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                      );
+                                    }
+                                    if (row.type === "cat-subtotal") {
+                                      return (
+                                        <tr key={idx} className="bg-muted/40 font-semibold text-xs">
+                                          <td className="p-2 border">{row.scope}</td>
+                                          <td className="p-2 border">{row.category} – Subtotal</td>
+                                          <td className="p-2 border"></td>
+                                          {row.values.map((v, ci) => (
+                                            <td key={ci} className="text-right p-2 border">
+                                              {v > 0 ? formatNumber(v, 2) : "-"}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                      );
+                                    }
+                                    if (row.type === "scope-subtotal") {
+                                      return (
+                                        <tr key={idx} className="bg-muted/60 font-semibold">
+                                          <td className="p-2 border">{row.scope}</td>
+                                          <td className="p-2 border">Subtotal</td>
+                                          <td className="p-2 border"></td>
+                                          {row.values.map((v, ci) => (
+                                            <td key={ci} className="text-right p-2 border">
+                                              {v > 0 ? formatNumber(v, 2) : "-"}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                      );
+                                    }
+                                    return (
+                                      <tr key={idx} className="bg-muted font-bold">
+                                        <td className="p-2 border">All Scopes</td>
+                                        <td className="p-2 border">Total</td>
+                                        <td className="p-2 border"></td>
+                                        {row.values.map((v, ci) => (
+                                          <td key={ci} className="text-right p-2 border">
+                                            {v > 0 ? formatNumber(v, 2) : "-"}
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </TabsContent>
+                      );
+                    })}
+                  </Tabs>
+                </>
               )}
             </CardContent>
           </Card>

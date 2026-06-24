@@ -350,6 +350,38 @@ def get_client_reporting(
                     "quantity": round(float(row['quantity']), 2),
                 })
 
+            # === BY SITE ACTIVITY DETAIL ===
+            # Same as by_activity_detail but broken down per site
+            site_detail_groups = scope_df.groupby(
+                ['site_name', 'dashboard_year', 'scope', 'level1_cat', 'activity_name']
+            )['emissions'].sum().reset_index()
+
+            by_site_activity_detail = []
+            for _, row in site_detail_groups.iterrows():
+                by_site_activity_detail.append({
+                    "site_name": _clean_label(row['site_name'], 'Unknown'),
+                    "year": int(row['dashboard_year']),
+                    "scope": _clean_label(row['scope'], 'Unknown'),
+                    "category": _clean_label(row['level1_cat'], 'Uncategorized'),
+                    "activity": _clean_label(row['activity_name'], 'Unknown'),
+                    "emissions": round(float(row['emissions']), 2),
+                })
+
+            site_detail_vol_groups = scope_df.groupby(
+                ['site_name', 'dashboard_year', 'scope', 'level1_cat', 'activity_name']
+            )['quantity'].sum().reset_index()
+
+            by_site_activity_detail_volume = []
+            for _, row in site_detail_vol_groups.iterrows():
+                by_site_activity_detail_volume.append({
+                    "site_name": _clean_label(row['site_name'], 'Unknown'),
+                    "year": int(row['dashboard_year']),
+                    "scope": _clean_label(row['scope'], 'Unknown'),
+                    "category": _clean_label(row['level1_cat'], 'Uncategorized'),
+                    "activity": _clean_label(row['activity_name'], 'Unknown'),
+                    "quantity": round(float(row['quantity']), 2),
+                })
+
             return {
                 "client_db_id": int(client_db_id),
                 "client_name": client_check[0],
@@ -364,6 +396,8 @@ def get_client_reporting(
                 "by_site": by_site,
                 "by_activity_detail": by_activity_detail,
                 "by_activity_detail_volume": by_activity_detail_volume,
+                "by_site_activity_detail": by_site_activity_detail,
+                "by_site_activity_detail_volume": by_site_activity_detail_volume,
             }
             
     except HTTPException:
