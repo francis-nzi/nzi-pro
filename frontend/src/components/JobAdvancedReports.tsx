@@ -2750,10 +2750,16 @@ export default function JobAdvancedReports({
               <div className="space-y-5">
                 <div>
                   <p className="text-sm text-gray-500 mb-1">Name:</p>
+                  {report_metadata?.client_signee_name ? (
+                    <p className="text-sm text-gray-800">{report_metadata.client_signee_name}</p>
+                  ) : null}
                   <div className="border-b border-gray-400 w-56" />
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 mb-1">Position:</p>
+                  {report_metadata?.client_signee_position ? (
+                    <p className="text-sm text-gray-800">{report_metadata.client_signee_position}</p>
+                  ) : null}
                   <div className="border-b border-gray-400 w-56" />
                 </div>
                 <div>

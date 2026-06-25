@@ -497,7 +497,6 @@ export function buildMetadataFieldValues(
   const values: Record<string, string> = {
     operational_control: "true",
     consultant_signature_date: todayIso,
-    consultant_name: "David Hawes",
   };
 
   fields.forEach((field) => {
