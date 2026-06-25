@@ -1545,7 +1545,7 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
             if data_df is None or data_df.empty:
                 period_row = con.execute(
                     """SELECT j.reporting_year, j.reporting_period_start, j.reporting_period_end,
-                              j.baseline_year, c.benchmark_year, c.benchmark_period_end
+                              j.baseline_year, c.benchmark_year
                        FROM jobs j
                        LEFT JOIN clients c ON c.db_id = j.client_db_id
                        WHERE j.job_id = %s""",
@@ -1557,11 +1557,6 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
                         eby = int(period_row[3])
                     elif period_row[4] is not None:
                         eby = int(period_row[4])
-                    elif period_row[5] is not None:
-                        try:
-                            eby = int(str(period_row[5])[:4])
-                        except (ValueError, TypeError):
-                            pass
                 return {
                     "job_id": int(job_id),
                     "scope_1": 0.0,
@@ -1581,7 +1576,7 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
 
             period_row = con.execute(
                 """SELECT j.reporting_year, j.reporting_period_start, j.reporting_period_end,
-                          j.baseline_year, c.benchmark_year, c.benchmark_period_end
+                          j.baseline_year, c.benchmark_year
                    FROM jobs j
                    LEFT JOIN clients c ON c.db_id = j.client_db_id
                    WHERE j.job_id = %s""",
@@ -1590,22 +1585,16 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
             reporting_year = int(period_row[0]) if period_row and period_row[0] is not None else None
             reporting_period_start = str(period_row[1]) if period_row and period_row[1] is not None else None
             reporting_period_end = str(period_row[2]) if period_row and period_row[2] is not None else None
-            # Resolve effective baseline year: job-level baseline_year takes precedence
-            # over client benchmark_year, then fall back to benchmark_period_end year.
+            # Resolve effective baseline year: job-level baseline_year first, then client benchmark_year.
+            # Frontend applies firstHistoricalYear as the final fallback (matching Report Printing logic).
             effective_baseline_year = None
             if period_row:
                 job_baseline = period_row[3]
                 client_benchmark = period_row[4]
-                bm_period_end = period_row[5]
                 if job_baseline is not None:
                     effective_baseline_year = int(job_baseline)
                 elif client_benchmark is not None:
                     effective_baseline_year = int(client_benchmark)
-                elif bm_period_end is not None:
-                    try:
-                        effective_baseline_year = int(str(bm_period_end)[:4])
-                    except (ValueError, TypeError):
-                        pass
 
             return {
                 "job_id": int(job_id),
