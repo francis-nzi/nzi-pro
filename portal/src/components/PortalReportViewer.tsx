@@ -239,16 +239,17 @@ function NetZeroTrendChart({
 
     return years.map(year => {
       const actual = yearlyEmissions.find(r => r.year === year);
+      const showTarget = year >= bYear;
       return {
         year,
         actual_total: actual ? actual.total : null,
         actual_s1: actual ? actual.scope1 : null,
         actual_s2: actual ? actual.scope2 : null,
         actual_s3: actual ? actual.scope3 : null,
-        target_total: forecastScope(benchS1, year) + forecastScope(benchS2, year) + forecastScope(benchS3, year),
-        target_s1: forecastScope(benchS1, year),
-        target_s2: benchS2 > 0 ? forecastScope(benchS2, year) : undefined,
-        target_s3: forecastScope(benchS3, year),
+        target_total: showTarget ? forecastScope(benchS1, year) + forecastScope(benchS2, year) + forecastScope(benchS3, year) : null,
+        target_s1: showTarget ? forecastScope(benchS1, year) : null,
+        target_s2: showTarget && benchS2 > 0 ? forecastScope(benchS2, year) : undefined,
+        target_s3: showTarget ? forecastScope(benchS3, year) : null,
       };
     });
   }, [yearlyEmissions, baselineYear, endYear, interimYear, interimPct, targetPct,
@@ -385,9 +386,13 @@ function IntensityPathwayChart({
         } else {
           row[`${entry.label}_actual`] = null;
         }
-        const benchIntensity = benchmarkRow?.intensity_by_metric?.[entry.key]
-          ?? parseFloat(((benchTotal * entry.divider) / entry.value).toFixed(3));
-        row[`${entry.label}_target`] = parseFloat((benchIntensity * forecastFraction).toFixed(3));
+        if (year >= bYear) {
+          const benchIntensity = benchmarkRow?.intensity_by_metric?.[entry.key]
+            ?? parseFloat(((benchTotal * entry.divider) / entry.value).toFixed(3));
+          row[`${entry.label}_target`] = parseFloat((benchIntensity * forecastFraction).toFixed(3));
+        } else {
+          row[`${entry.label}_target`] = null;
+        }
       });
       return row;
     });

@@ -1196,10 +1196,14 @@ export default function JobAdvancedReports({
         } else {
           row[`${entry.label}_actual`] = null;
         }
-        const benchIntensity =
-          benchmarkRow?.intensity_by_metric?.[entry.key] ??
-          Number(((benchTotal * divider) / value).toFixed(3));
-        row[`${entry.label}_target`] = Number((benchIntensity * forecastFraction).toFixed(3));
+        if (year >= baseline) {
+          const benchIntensity =
+            benchmarkRow?.intensity_by_metric?.[entry.key] ??
+            Number(((benchTotal * divider) / value).toFixed(3));
+          row[`${entry.label}_target`] = Number((benchIntensity * forecastFraction).toFixed(3));
+        } else {
+          row[`${entry.label}_target`] = null;
+        }
       });
       return row;
     });

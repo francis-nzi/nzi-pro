@@ -88,19 +88,21 @@ export function buildEmissionsReductionPathwayData({
 
   return years.map((year) => {
     const actual = yearlyEmissions.find((row) => row.year === year) ?? null;
+    const showTarget = year >= baselineYear;
     return {
       year,
       actual_total: actual ? actual.total : null,
       actual_s1: actual ? actual.scope1 : null,
       actual_s2: actual ? actual.scope2 : null,
       actual_s3: actual ? actual.scope3 : null,
-      target_total:
-        forecastScope(benchS1, interimS1Pct, year) +
-        forecastScope(benchS2, interimS2Pct, year) +
-        forecastScope(benchS3, interimS3Pct, year),
-      target_s1: forecastScope(benchS1, interimS1Pct, year),
-      target_s2: benchS2 > 0 ? forecastScope(benchS2, interimS2Pct, year) : undefined,
-      target_s3: forecastScope(benchS3, interimS3Pct, year),
+      target_total: showTarget
+        ? forecastScope(benchS1, interimS1Pct, year) +
+          forecastScope(benchS2, interimS2Pct, year) +
+          forecastScope(benchS3, interimS3Pct, year)
+        : null,
+      target_s1: showTarget ? forecastScope(benchS1, interimS1Pct, year) : null,
+      target_s2: showTarget && benchS2 > 0 ? forecastScope(benchS2, interimS2Pct, year) : undefined,
+      target_s3: showTarget ? forecastScope(benchS3, interimS3Pct, year) : null,
     };
   });
 }

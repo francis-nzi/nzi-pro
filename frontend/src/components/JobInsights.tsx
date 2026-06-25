@@ -456,12 +456,15 @@ export default function JobInsights({
         } else {
           row[`${entry.label}_actual`] = null;
         }
-        // Target line: scale the benchmark intensity by the same proportional reduction
-        // as absolute emissions, so the line always starts at the correct benchmark point.
-        const benchIntensity =
-          benchmarkRow?.intensity_by_metric?.[entry.key] ??
-          Number(((benchTotal * divider) / value).toFixed(3));
-        row[`${entry.label}_target`] = Number((benchIntensity * forecastFraction).toFixed(3));
+        // Target line only from benchmark year onward; null for pre-benchmark years.
+        if (year >= baselineYear) {
+          const benchIntensity =
+            benchmarkRow?.intensity_by_metric?.[entry.key] ??
+            Number(((benchTotal * divider) / value).toFixed(3));
+          row[`${entry.label}_target`] = Number((benchIntensity * forecastFraction).toFixed(3));
+        } else {
+          row[`${entry.label}_target`] = null;
+        }
       });
       return row;
     });
