@@ -717,6 +717,18 @@ export default function JobAdvancedReports({
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [markingFinal, setMarkingFinal] = useState<number | null>(null);
   const [activeTemplate, setActiveTemplate] = useState<"crp" | "secr">("crp");
+  type IntegrityCheckResult = {
+    status: "pass" | "fail" | "no_data";
+    canonical_total: number;
+    report_total: number;
+    issue_count: number;
+    scope_issues: number;
+    category_issues: number;
+    row_issues: number;
+    issues: { level: string; label: string; canonical: number; report: number; diff: number }[];
+  };
+  const [integrityCheck, setIntegrityCheck] = useState<IntegrityCheckResult | null>(null);
+  const [integrityLoading, setIntegrityLoading] = useState(false);
   const [sendingToPortal, setSendingToPortal] = useState(false);
   const [sendToPortalResult, setSendToPortalResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [manifestValidationLoading, setManifestValidationLoading] = useState(false);
@@ -776,6 +788,13 @@ export default function JobAdvancedReports({
       .then(([d, st]) => {
         setData(d);
         if (st && typeof st === "object") setLiveScopeTotals(st as { scope_1: number; scope_2: number; scope_3: number; total: number });
+        // Kick off integrity check after main data loads (non-blocking)
+        setIntegrityLoading(true);
+        authFetch(`${baseUrl}/jobs/${jobId}/report-data-check`)
+          .then(r => r.ok ? r.json() : null)
+          .then(result => { if (result) setIntegrityCheck(result as IntegrityCheckResult); })
+          .catch(() => null)
+          .finally(() => setIntegrityLoading(false));
       })
       .catch(e => setFetchError(String(e)))
       .finally(() => setLoading(false));
@@ -1364,48 +1383,7 @@ export default function JobAdvancedReports({
   const printHeaderLine2 = printClientName;
   const printJobNumber = String(data.job_data?.job_number ?? "").replace(/['"\\]/g, "");
 
-  // ── Data integrity check ─────────────────────────────────────────────────
-  // Compares every emissions figure shown in Report Printing against the
-  // canonical /scope-totals source (same as Outputs / Insights) so that
-  // consultants see a clear warning before anything reaches a client.
-  interface IntegrityIssue { label: string; expected: number; actual: number; }
-  const integrityReady = liveScopeTotals != null && (categories?.length ?? 0) > 0;
-  const integrityIssues = useMemo<IntegrityIssue[]>(() => {
-    if (!liveScopeTotals || !categories) return [];
-    const issues: IntegrityIssue[] = [];
-    const TOLERANCE = 0.05;
-    const r1 = (v: number) => Math.round(v * 10) / 10;
-
-    // Check 1-3: scope subtotals in category table vs /scope-totals
-    const scopeMap: [string, number][] = [
-      ["Scope 1", liveScopeTotals.scope_1],
-      ["Scope 2", liveScopeTotals.scope_2],
-      ["Scope 3", liveScopeTotals.scope_3],
-    ];
-    for (const [scopeKey, canonical] of scopeMap) {
-      const catSum = r1(categories.filter(c => c.scope === scopeKey).reduce((s, c) => s + toNum(c.emissions), 0));
-      if (Math.abs(catSum - r1(canonical)) > TOLERANCE) {
-        issues.push({ label: `${scopeKey} — Category table vs Outputs`, expected: canonical, actual: catSum });
-      }
-    }
-
-    // Check 4: grand total in category table vs /scope-totals
-    const catGrandTotal = r1(categories.reduce((s, c) => s + toNum(c.emissions), 0));
-    if (Math.abs(catGrandTotal - r1(totalEmissions)) > TOLERANCE) {
-      issues.push({ label: "Total — Category table vs Outputs", expected: totalEmissions, actual: catGrandTotal });
-    }
-
-    // Check 5: appendix row sum vs grand total
-    if (appendixRows.length > 0) {
-      const appendixSum = r1(appendixRows.reduce((s, r) => s + toNum(r.emissions), 0));
-      if (Math.abs(appendixSum - r1(totalEmissions)) > TOLERANCE) {
-        issues.push({ label: "Total — Appendix 1 sum vs Outputs", expected: totalEmissions, actual: appendixSum });
-      }
-    }
-
-    return issues;
-  }, [liveScopeTotals, categories, appendixRows, totalEmissions]);
-  // ─────────────────────────────────────────────────────────────────────────
+  // (integrity check result is in integrityCheck state, populated by /report-data-check endpoint)
 
   return (
     <div
@@ -1861,33 +1839,74 @@ export default function JobAdvancedReports({
       <div className="advanced-report-preview space-y-6">
 
         {/* ── Data integrity banner (never printed / included in PDF) ── */}
-        {integrityReady && (
-          <div className="print:hidden">
-            {integrityIssues.length === 0 ? (
-              <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5">
-                <span className="text-green-600 text-sm font-semibold">✓ Data check passed</span>
-                <span className="text-green-600 text-xs">All figures in this report match Outputs</span>
+        <div className="print:hidden">
+          {integrityLoading && (
+            <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5">
+              <span className="text-gray-500 text-xs">Running data integrity check…</span>
+            </div>
+          )}
+          {!integrityLoading && integrityCheck && integrityCheck.status === "pass" && (
+            <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5">
+              <span className="text-green-600 text-sm font-semibold">✓ Data integrity check passed</span>
+              <span className="text-green-600 text-xs">All totals, categories and rows match Outputs (canonical total {fmt(integrityCheck.canonical_total)} tCO₂e)</span>
+            </div>
+          )}
+          {!integrityLoading && integrityCheck && integrityCheck.status === "fail" && (() => {
+            const scopeIssues = integrityCheck.issues.filter(i => i.level === "scope");
+            const catIssues = integrityCheck.issues.filter(i => i.level === "category");
+            const rowIssues = integrityCheck.issues.filter(i => i.level === "row");
+            return (
+              <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-red-700">
+                    ⚠ Data discrepancy detected — do not send to client until resolved
+                  </p>
+                  <span className="text-xs text-red-500">
+                    {integrityCheck.issue_count} issue{integrityCheck.issue_count !== 1 ? "s" : ""} —{" "}
+                    {integrityCheck.scope_issues} scope, {integrityCheck.category_issues} category, {integrityCheck.row_issues} row
+                  </span>
+                </div>
+                {scopeIssues.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-red-700 mb-1">Scope totals</p>
+                    <ul className="space-y-0.5">
+                      {scopeIssues.map((issue, i) => (
+                        <li key={i} className="text-xs text-red-600">
+                          {issue.label}: Outputs <strong>{fmt(issue.canonical)}</strong> vs Report <strong>{fmt(issue.report)}</strong> (diff {fmt(issue.diff)})
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {catIssues.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-red-700 mb-1">Category totals</p>
+                    <ul className="space-y-0.5">
+                      {catIssues.map((issue, i) => (
+                        <li key={i} className="text-xs text-red-600">
+                          {issue.label}: Outputs <strong>{fmt(issue.canonical)}</strong> vs Report <strong>{fmt(issue.report)}</strong> (diff {fmt(issue.diff)})
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {rowIssues.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-red-700 mb-1">Individual rows</p>
+                    <ul className="space-y-0.5">
+                      {rowIssues.map((issue, i) => (
+                        <li key={i} className="text-xs text-red-600">
+                          {issue.label}: Outputs <strong>{fmt(issue.canonical)}</strong> vs Report <strong>{fmt(issue.report)}</strong> (diff {fmt(issue.diff)})
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <p className="text-xs text-red-500">Go to the Outputs tab to see the authoritative figures, then refresh this page after resolving.</p>
               </div>
-            ) : (
-              <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 space-y-2">
-                <p className="text-sm font-semibold text-red-700">
-                  ⚠ Data discrepancy detected — do not send to client until resolved
-                </p>
-                <ul className="space-y-1">
-                  {integrityIssues.map((issue, i) => (
-                    <li key={i} className="text-xs text-red-600">
-                      <span className="font-medium">{issue.label}:</span>{" "}
-                      Outputs = <span className="font-semibold">{fmt(issue.expected)}</span>,{" "}
-                      Report = <span className="font-semibold">{fmt(issue.actual)}</span>{" "}
-                      (diff {fmt(Math.abs(issue.expected - issue.actual))})
-                    </li>
-                  ))}
-                </ul>
-                <p className="text-xs text-red-500">Check the Outputs tab for the authoritative figures, then refresh this page.</p>
-              </div>
-            )}
-          </div>
-        )}
+            );
+          })()}
+        </div>
         {/* ─────────────────────────────────────────────────────────── */}
 
         {activeTemplate === "crp" && <>
