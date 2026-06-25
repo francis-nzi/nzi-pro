@@ -1545,33 +1545,18 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
             if data_df is None or data_df.empty:
                 period_row = con.execute(
                     """SELECT j.reporting_year, j.reporting_period_start, j.reporting_period_end,
-                              j.baseline_year, c.benchmark_year, j.client_db_id
+                              c.benchmark_period_end
                        FROM jobs j
                        LEFT JOIN clients c ON c.db_id = j.client_db_id
                        WHERE j.job_id = %s""",
                     [int(job_id)],
                 ).fetchone()
                 eby = None
-                if period_row:
-                    raw_bm = int(period_row[3]) if period_row[3] is not None else (
-                        int(period_row[4]) if period_row[4] is not None else None
-                    )
-                    cid = period_row[5]
-                    if raw_bm is not None and cid is not None:
-                        bm_r = con.execute(
-                            """SELECT COALESCE(EXTRACT(YEAR FROM reporting_period_end)::int, reporting_year)
-                               FROM jobs
-                               WHERE client_db_id = %s
-                                 AND COALESCE(
-                                         EXTRACT(YEAR FROM reporting_period_end)::int,
-                                         reporting_year
-                                     ) = %s
-                                 AND job_id <> %s
-                               ORDER BY COALESCE(is_benchmark, FALSE) DESC, job_id DESC
-                               LIMIT 1""",
-                            [int(cid), raw_bm, int(job_id)],
-                        ).fetchone()
-                        eby = int(bm_r[0]) if bm_r and bm_r[0] is not None else raw_bm
+                if period_row and period_row[3] is not None:
+                    try:
+                        eby = int(str(period_row[3])[:4])
+                    except (ValueError, TypeError):
+                        pass
                 return {
                     "job_id": int(job_id),
                     "scope_1": 0.0,
@@ -1591,7 +1576,7 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
 
             period_row = con.execute(
                 """SELECT j.reporting_year, j.reporting_period_start, j.reporting_period_end,
-                          j.baseline_year, c.benchmark_year, j.client_db_id
+                          c.benchmark_period_end
                    FROM jobs j
                    LEFT JOIN clients c ON c.db_id = j.client_db_id
                    WHERE j.job_id = %s""",
@@ -1600,43 +1585,15 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
             reporting_year = int(period_row[0]) if period_row and period_row[0] is not None else None
             reporting_period_start = str(period_row[1]) if period_row and period_row[1] is not None else None
             reporting_period_end = str(period_row[2]) if period_row and period_row[2] is not None else None
-            # Resolve effective baseline year.
-            # c.benchmark_year stores reporting_year (start-year convention), but
-            # _build_yearly_emissions keys each year by EXTRACT(YEAR FROM reporting_period_end)
-            # (end-year convention). Resolve by looking up the actual benchmark job and
-            # returning its dashboard_year so the frontend chart lookup succeeds.
+            # Baseline year = EXTRACT(YEAR FROM clients.benchmark_period_end).
+            # This is the end-year of the benchmark period, which matches the
+            # dashboard_year used by _build_yearly_emissions (also end-year from period_end).
             effective_baseline_year = None
-            if period_row:
-                job_baseline = period_row[3]
-                client_benchmark = period_row[4]
-                client_db_id_val = period_row[5]
-                raw_benchmark = int(job_baseline) if job_baseline is not None else (
-                    int(client_benchmark) if client_benchmark is not None else None
-                )
-                if raw_benchmark is not None and client_db_id_val is not None:
-                    # Match by dashboard_year (= COALESCE(period_end year, reporting_year)) so
-                    # the returned year aligns with the x-axis position in the chart.
-                    bm_row = con.execute(
-                        """SELECT COALESCE(
-                                EXTRACT(YEAR FROM reporting_period_end)::int,
-                                reporting_year
-                           )
-                           FROM jobs
-                           WHERE client_db_id = %s
-                             AND COALESCE(
-                                     EXTRACT(YEAR FROM reporting_period_end)::int,
-                                     reporting_year
-                                 ) = %s
-                             AND job_id <> %s
-                           ORDER BY COALESCE(is_benchmark, FALSE) DESC,
-                                    job_id DESC
-                           LIMIT 1""",
-                        [int(client_db_id_val), raw_benchmark, int(job_id)],
-                    ).fetchone()
-                    if bm_row and bm_row[0] is not None:
-                        effective_baseline_year = int(bm_row[0])
-                    else:
-                        effective_baseline_year = raw_benchmark
+            if period_row and period_row[3] is not None:
+                try:
+                    effective_baseline_year = int(str(period_row[3])[:4])
+                except (ValueError, TypeError):
+                    pass
 
             return {
                 "job_id": int(job_id),

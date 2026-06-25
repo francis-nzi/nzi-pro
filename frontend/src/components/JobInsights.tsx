@@ -200,16 +200,14 @@ export default function JobInsights({
           scope_2: Number.isFinite(Number(clientJson?.interim_s2_pct)) ? Number(clientJson?.interim_s2_pct) : null,
           scope_3: Number.isFinite(Number(clientJson?.interim_s3_pct)) ? Number(clientJson?.interim_s3_pct) : null,
         });
-        // Resolve benchmark year matching Report Printing priority:
-        // j.baseline_year > c.benchmark_year > first historical year in yearly_emissions
+        // Benchmark year = EXTRACT(YEAR FROM clients.benchmark_period_end), returned
+        // from scope-totals as baseline_year. Falls back to first historical year.
         const scopeBaseline = Number(totalsJson?.baseline_year);
-        const clientBy = Number(clientJson?.benchmark_year);
         const firstHistYear = Array.isArray(yearlyEmissionsJson) && yearlyEmissionsJson.length > 0
           ? Number((yearlyEmissionsJson as YearlyEmission[])[0].year)
           : NaN;
         const effectiveBy =
           (Number.isFinite(scopeBaseline) && scopeBaseline > 1900) ? scopeBaseline :
-          (Number.isFinite(clientBy) && clientBy > 1900) ? clientBy :
           (Number.isFinite(firstHistYear) && firstHistYear > 1900) ? firstHistYear :
           null;
         setBenchmarkYear(effectiveBy);
