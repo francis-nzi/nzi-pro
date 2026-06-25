@@ -2412,10 +2412,14 @@ def _coerce_report_meta_value(key: str, value: Any) -> Any:
         txt = str(value).strip()
         if txt == "":
             return None
+        # Accept dd/mm/yyyy (UK locale date input format) in addition to ISO
+        m = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', txt)
+        if m:
+            txt = f"{m.group(3)}-{m.group(2).zfill(2)}-{m.group(1).zfill(2)}"
         try:
             return datetime.fromisoformat(txt).date()
         except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"Invalid date value for '{key}' (expected YYYY-MM-DD)") from exc
+            raise HTTPException(status_code=400, detail=f"Invalid date value for '{key}' (expected YYYY-MM-DD or DD/MM/YYYY)") from exc
 
     txt = str(value).strip()
     return txt if txt != "" else None

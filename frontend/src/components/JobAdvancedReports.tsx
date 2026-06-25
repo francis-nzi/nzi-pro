@@ -2771,6 +2771,9 @@ export default function JobAdvancedReports({
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 mb-1">Date:</p>
+                  {report_metadata?.consultant_signature_date && (
+                    <p className="text-sm text-gray-800">{fmtSignatureDate(report_metadata.consultant_signature_date)}</p>
+                  )}
                   <div className="border-b border-gray-400 w-56" />
                 </div>
               </div>
