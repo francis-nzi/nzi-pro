@@ -44,7 +44,9 @@ from api.report_template_routes import (
     _get_job_report_metadata,
     _build_report_render_values,
 )
+from api.job_data_output_routes import _load_data_output_rows, _build_scope_summary
 from services.emissions_reporting import load_combined_emissions_summary_rows
+from services.monthly_emissions import JobMonthlyEmissionsResolver
 from services.playwright_browser import ensure_playwright_browser
 from services.report_actions import get_job_report_actions_payload
 
@@ -181,34 +183,32 @@ def _build_yearly_emissions(con, client_db_id: int) -> list[dict[str, Any]]:
         if isinstance(raw, dict) and raw:
             year_metrics_map[yr] = raw
 
-    emissions_df = load_combined_emissions_summary_rows(con, job_ids)
-    if emissions_df is None or getattr(emissions_df, "empty", True):
-        return []
-
-    if "dashboard_year" not in emissions_df.columns:
-        return []
-
-    emissions_df = emissions_df.copy()
-    emissions_df["dashboard_year_norm"] = emissions_df["dashboard_year"].apply(_coerce_int)
-    emissions_df = emissions_df[emissions_df["dashboard_year_norm"].notna()]
-    if emissions_df.empty:
-        return []
-
-    grouped = emissions_df.groupby(["dashboard_year_norm", "scope"])["emissions"].sum().reset_index()
-    years = sorted({int(year) for year in emissions_df["dashboard_year_norm"].tolist() if _coerce_int(year) is not None})
+    # Build per-year scope totals using the same path as the /scope-totals endpoint
+    # (_load_data_output_rows + _build_scope_summary with combined_row_metrics) so all
+    # charts show figures consistent with the Outputs / Data Entry view.
     yearly_emissions: list[dict[str, Any]] = []
-    for year in years:
-        year_rows = grouped[grouped["dashboard_year_norm"] == year]
-        total = float(year_rows["emissions"].sum())
+    for yr, job_id in sorted(year_to_job_id.items()):
+        try:
+            resolver = JobMonthlyEmissionsResolver(con, int(job_id))
+            data_df = _load_data_output_rows(con, int(job_id))
+            if data_df is None or getattr(data_df, "empty", True):
+                continue
+            _, totals = _build_scope_summary(data_df, resolver)
+        except Exception:
+            continue
+        s1 = round(float(totals.get("Scope 1") or 0.0), 2)
+        s2 = round(float(totals.get("Scope 2") or 0.0), 2)
+        s3 = round(float(totals.get("Scope 3") or 0.0), 2)
+        total = s1 + s2 + s3
         entry: dict[str, Any] = {
-            "year": int(year),
-            "scope1": float(year_rows[year_rows["scope"] == "Scope 1"]["emissions"].sum()),
-            "scope2": float(year_rows[year_rows["scope"] == "Scope 2"]["emissions"].sum()),
-            "scope3": float(year_rows[year_rows["scope"] == "Scope 3"]["emissions"].sum()),
+            "year": int(yr),
+            "scope1": s1,
+            "scope2": s2,
+            "scope3": s3,
             "total": total,
         }
         # Attach per-metric intensities using each year's own job basis.
-        job_metrics = year_metrics_map.get(year, {})
+        job_metrics = year_metrics_map.get(yr, {})
         intensity_by_metric: dict[str, float] = {}
         for key, metric in job_metrics.items():
             if not isinstance(metric, dict):
