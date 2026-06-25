@@ -308,20 +308,23 @@ def _build_section_fallback_draft(context: dict[str, Any], section_key: str) -> 
         return f"{paragraph_1} {paragraph_2}{extra_sentence}".strip()
 
     if section_key == "emissions_overview":
+        s1 = _as_float(scope_totals.get('Scope 1'))
+        s2 = _as_float(scope_totals.get('Scope 2'))
+        s3 = _as_float(scope_totals.get('Scope 3'))
+        # Use sum of displayed scope values so the headline total is consistent with the breakdown.
+        displayed_total = round(s1 + s2 + s3, 1)
         paragraph_1 = (
-            f"Total emissions are {current_total:.1f} tCO₂e across Scope 1 {_as_float(scope_totals.get('Scope 1')):.1f}, "
-            f"Scope 2 {_as_float(scope_totals.get('Scope 2')):.1f}, and Scope 3 {_as_float(scope_totals.get('Scope 3')):.1f} tCO₂e. "
+            f"Total emissions are {displayed_total:.1f} tCO₂e across Scope 1 {s1:.1f}, "
+            f"Scope 2 {s2:.1f}, and Scope 3 {s3:.1f} tCO₂e. "
             f"{change_sentence}"
         ).strip()
         paragraph_2_bits = []
         if top_list:
-            paragraph_2_bits.append(f"the main categories are {top_list}")
+            paragraph_2_bits.append(f"The main categories are {top_list}.")
         if prev_top_list:
-            paragraph_2_bits.append(f"the comparison period concentrated on {prev_top_list}")
+            paragraph_2_bits.append(f"The comparison period concentrated on {prev_top_list}.")
         if paragraph_2_bits:
             paragraph_2 = " ".join(paragraph_2_bits).strip()
-            if not paragraph_2.endswith("."):
-                paragraph_2 += "."
         else:
             paragraph_2 = "The footprint should be read alongside the category split to identify the biggest hotspots and any change in trend."
         return f"{paragraph_1} {paragraph_2}"
