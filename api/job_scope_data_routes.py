@@ -1562,13 +1562,14 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
                             """SELECT COALESCE(EXTRACT(YEAR FROM reporting_period_end)::int, reporting_year)
                                FROM jobs
                                WHERE client_db_id = %s
-                                 AND (reporting_year = %s OR
-                                      EXTRACT(YEAR FROM reporting_period_end)::int = %s)
+                                 AND COALESCE(
+                                         EXTRACT(YEAR FROM reporting_period_end)::int,
+                                         reporting_year
+                                     ) = %s
                                  AND job_id <> %s
-                               ORDER BY COALESCE(is_benchmark, FALSE) DESC,
-                                        reporting_period_end DESC NULLS LAST, job_id DESC
+                               ORDER BY COALESCE(is_benchmark, FALSE) DESC, job_id DESC
                                LIMIT 1""",
-                            [int(cid), raw_bm, raw_bm, int(job_id)],
+                            [int(cid), raw_bm, int(job_id)],
                         ).fetchone()
                         eby = int(bm_r[0]) if bm_r and bm_r[0] is not None else raw_bm
                 return {
@@ -1613,6 +1614,8 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
                     int(client_benchmark) if client_benchmark is not None else None
                 )
                 if raw_benchmark is not None and client_db_id_val is not None:
+                    # Match by dashboard_year (= COALESCE(period_end year, reporting_year)) so
+                    # the returned year aligns with the x-axis position in the chart.
                     bm_row = con.execute(
                         """SELECT COALESCE(
                                 EXTRACT(YEAR FROM reporting_period_end)::int,
@@ -1620,14 +1623,15 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
                            )
                            FROM jobs
                            WHERE client_db_id = %s
-                             AND (reporting_year = %s OR
-                                  EXTRACT(YEAR FROM reporting_period_end)::int = %s)
+                             AND COALESCE(
+                                     EXTRACT(YEAR FROM reporting_period_end)::int,
+                                     reporting_year
+                                 ) = %s
                              AND job_id <> %s
                            ORDER BY COALESCE(is_benchmark, FALSE) DESC,
-                                    reporting_period_end DESC NULLS LAST,
                                     job_id DESC
                            LIMIT 1""",
-                        [int(client_db_id_val), raw_benchmark, raw_benchmark, int(job_id)],
+                        [int(client_db_id_val), raw_benchmark, int(job_id)],
                     ).fetchone()
                     if bm_row and bm_row[0] is not None:
                         effective_baseline_year = int(bm_row[0])
