@@ -3097,7 +3097,7 @@ export default function JobAdvancedReports({
                       { label: "Renewable Energy (kWh)", value: fmt(toNum(report_metadata?.renewable_energy_kwh)), unit: "kWh" },
                       { label: "Energy Emissions - Location-based (tCO2e)", value: fmt(toNum(report_metadata?.energy_emissions_tco2e)), unit: "tCO2e" },
                       { label: "Energy Emissions - Market-based (tCO2e)", value: fmt(toNum(report_metadata?.energy_emissions_market_tco2e)), unit: "tCO2e" },
-                      { label: "Total Scope 1 & 2 Emissions (tCO2e)", value: fmt(toNum(scope_totals?.["Scope 1"]) + toNum(scope_totals?.["Scope 2"])), unit: "tCO2e" },
+                      { label: "Total Scope 1 & 2 Emissions (tCO2e)", value: fmt(scope1 + scope2), unit: "tCO2e" },
                       { label: "Total Greenhouse Gas Emissions (tCO2e)", value: fmt(totalEmissions), unit: "tCO2e" },
                     ].map((row, i) => (
                       <tr key={i} className="border-b border-gray-50 last:border-0">

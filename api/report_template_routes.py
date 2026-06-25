@@ -1661,6 +1661,82 @@ def _derive_energy_kwh_from_scope_rows(con, job_id: int) -> dict[str, float]:
         ):
             renewable_kwh += effective_qty
 
+    # Also scan job_emission_sources (Asset Register) for electricity rows so
+    # energy kWh figures match the Outputs / scope-totals path.
+    try:
+        src_rows = con.execute(
+            """
+            SELECT
+                js.scope,
+                COALESCE(g.uom, js.uom) AS uom,
+                COALESCE(
+                    NULLIF(TRIM(CAST(fl.category AS VARCHAR)), ''),
+                    NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''),
+                    ''
+                ) AS level_1,
+                COALESCE(js.source_name, g.group_name, js.category) AS column_text,
+                js.qty,
+                js.apply_pct,
+                d.country AS dataset_country
+            FROM job_emission_sources js
+            LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
+            LEFT JOIN datasets d ON d.dataset_id = COALESCE(g.dataset_id, js.dataset_id)
+            LEFT JOIN factor_lookup fl ON fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
+            WHERE js.job_id = %s
+              AND COALESCE(js.enabled, TRUE) = TRUE
+            """,
+            [int(job_id)],
+        ).df()
+    except Exception:
+        src_rows = None
+
+    if src_rows is not None and not src_rows.empty:
+        src_rows = src_rows.where(src_rows.notna(), None)
+        for _, source_row in src_rows.iterrows():
+            row = source_row.to_dict()
+            scope = _normalize_energy_factor_text(row.get("scope"))
+            uom = _normalize_energy_factor_text(row.get("uom"))
+            level_1 = _normalize_energy_factor_text(row.get("level_1"))
+            column_text = _normalize_energy_factor_text(row.get("column_text"))
+
+            if not _is_scope_2_electricity_input_row(
+                scope=scope,
+                uom=uom,
+                level_1=level_1,
+                level_2="",
+                level_3="",
+                level_4="",
+                column_text=column_text,
+                report_label=column_text,
+            ):
+                continue
+
+            qty = _safe_float(row.get("qty"))
+            if qty is None or qty <= 0:
+                continue
+            apply_pct = max(0.0, _safe_float(row.get("apply_pct")) or 100.0)
+            effective_qty = qty * (apply_pct / 100.0)
+            if effective_qty <= 0:
+                continue
+
+            dataset_country = _normalize_country_token(row.get("dataset_country") or default_scope_2_country)
+            if dataset_country and not _is_uk_country(dataset_country) and not _is_global_country(dataset_country):
+                non_uk_kwh += effective_qty
+            else:
+                uk_kwh += effective_qty
+
+            if _is_renewable_electricity_input_row(
+                scope=scope,
+                uom=uom,
+                level_1=level_1,
+                level_2="",
+                level_3="",
+                level_4="",
+                column_text=column_text,
+                report_label=column_text,
+            ):
+                renewable_kwh += effective_qty
+
     total_kwh = uk_kwh + non_uk_kwh
     renewable_kwh = min(renewable_kwh, total_kwh)
 
