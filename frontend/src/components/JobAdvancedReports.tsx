@@ -259,7 +259,11 @@ function toNum(v: unknown): number {
 }
 
 function fmt(v: number, dp = 1): string {
-  return v.toLocaleString(undefined, {
+  // Pre-round to dp+1 places so floating-point representations like
+  // 0.5499999... (the IEEE-754 value of "0.55") always round up correctly.
+  const factor = Math.pow(10, dp + 1);
+  const preRounded = Math.round(v * factor) / factor;
+  return preRounded.toLocaleString(undefined, {
     minimumFractionDigits: dp,
     maximumFractionDigits: dp,
   });

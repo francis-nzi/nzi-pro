@@ -2255,7 +2255,7 @@ def get_emissions_by_category(job_id: int):
             try:
                 metrics = combined_row_metrics(row, resolver)
                 qty_val = float(metrics.get("display_qty") or 0.0)
-                emissions = float(metrics.get("calc_tco2e") or 0.0)
+                emissions = round(float(metrics.get("calc_tco2e") or 0.0), 2)
             except Exception:
                 logger.debug("Skipping malformed emissions row for job %s", job_id, exc_info=True)
                 continue
@@ -2687,7 +2687,7 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
             metrics = combined_row_metrics(row, resolver)
             qty_val = float(metrics.get("display_qty") or 0.0)
             uom = str(metrics.get("display_uom") or "")
-            emissions = float(metrics.get("calc_tco2e") or 0.0)
+            emissions = round(float(metrics.get("calc_tco2e") or 0.0), 2)
 
             if site_name not in site_scope_totals:
                 site_scope_totals[site_name] = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}

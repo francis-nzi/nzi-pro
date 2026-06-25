@@ -104,7 +104,8 @@ type IntensityMetricsResponse = {
 const SCOPE_COLORS = ["#0f766e", "#0891b2", "#38bdf8"];
 
 function formatTco2e(value: number): string {
-  return value.toLocaleString("en-GB", { maximumFractionDigits: 1 });
+  const preRounded = Math.round(value * 100) / 100;
+  return preRounded.toLocaleString("en-GB", { maximumFractionDigits: 1 });
 }
 
 function bucketKey(value?: string | null): string {
