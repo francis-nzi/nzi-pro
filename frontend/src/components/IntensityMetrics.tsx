@@ -44,6 +44,17 @@ const DIVIDER_OPTIONS = [
 const REQUIRED_METRIC_KEY = "employees";
 const REQUIRED_METRIC_LABEL = "Employee";
 
+// Canonical presets — these use stable keys so YoY matching is consistent.
+// Employees is always added by default; Turnover and Office Space can be added once.
+const CANONICAL_PRESETS = [
+  { key: "employees", label: "Employee", defaultDivider: 1 },
+  { key: "turnover", label: "Turnover (GBP)", defaultDivider: 1000000 },
+  { key: "office_space", label: "Office Space (m²)", defaultDivider: 1 },
+] as const;
+type CanonicalKey = (typeof CANONICAL_PRESETS)[number]["key"];
+// Also treat legacy key variants as canonical so they show the "Standard" badge
+const PRESET_KEYS = new Set<string>([...CANONICAL_PRESETS.map((p) => p.key), "office_space_m2"]);
+
 function ensureRequiredEmployeeMetric(source: IntensityMetrics, fallbackValue = 0): IntensityMetrics {
   const employeeMetric = source[REQUIRED_METRIC_KEY];
   const employeeValue = Number(employeeMetric?.value ?? fallbackValue) || 0;
@@ -77,6 +88,8 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAddMetric, setShowAddMetric] = useState(false);
+  // "preset:<key>" | "custom" | ""
+  const [addMetricType, setAddMetricType] = useState<string>("");
   const [newMetricKey, setNewMetricKey] = useState("");
   const [newMetricLabel, setNewMetricLabel] = useState("");
   const [newMetricValue, setNewMetricValue] = useState("");
@@ -165,38 +178,43 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
     setMetrics(ensureRequiredEmployeeMetric(defaultMetrics));
   }, [defaultMetrics]);
 
-  const addMetric = useCallback(() => {
-    if (!newMetricKey || !newMetricLabel) {
-      setError("Please provide both a key and label for the metric");
-      return;
-    }
-
-    if (newMetricKey === REQUIRED_METRIC_KEY) {
-      setError("Employee is required and already built into the intensity metrics.");
-      return;
-    }
-
-    if (metrics[newMetricKey]) {
-      setError("A metric with this key already exists");
-      return;
-    }
-
-    setError(null);
-    setMetrics(prev => ({
-      ...prev,
-      [newMetricKey]: {
-        label: newMetricLabel,
-        value: Number(newMetricValue) || 0,
-        divider: newMetricDivider,
-      },
-    }));
-
+  const resetAddForm = useCallback(() => {
+    setAddMetricType("");
     setNewMetricKey("");
     setNewMetricLabel("");
     setNewMetricValue("");
     setNewMetricDivider(1);
     setShowAddMetric(false);
-  }, [newMetricKey, newMetricLabel, newMetricValue, newMetricDivider, metrics]);
+  }, []);
+
+  const addMetric = useCallback(() => {
+    const isPreset = addMetricType.startsWith("preset:");
+    const resolvedKey = isPreset ? addMetricType.slice(7) : newMetricKey.trim();
+    const resolvedLabel = newMetricLabel.trim() || (isPreset ? (CANONICAL_PRESETS.find(p => p.key === resolvedKey)?.label ?? resolvedKey) : resolvedKey);
+
+    if (!resolvedKey) {
+      setError("Please select a metric type");
+      return;
+    }
+    if (!isPreset && resolvedKey === REQUIRED_METRIC_KEY) {
+      setError("Employee is already built into the intensity metrics.");
+      return;
+    }
+    if (metrics[resolvedKey]) {
+      setError("A metric with this key already exists");
+      return;
+    }
+    setError(null);
+    setMetrics(prev => ({
+      ...prev,
+      [resolvedKey]: {
+        label: resolvedLabel,
+        value: Number(newMetricValue) || 0,
+        divider: newMetricDivider,
+      },
+    }));
+    resetAddForm();
+  }, [addMetricType, newMetricKey, newMetricLabel, newMetricValue, newMetricDivider, metrics, resetAddForm]);
 
   const removeMetric = useCallback(async (key: string) => {
     if (key === REQUIRED_METRIC_KEY) {
@@ -256,7 +274,7 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
                 Use Global Defaults
               </Button>
             ) : null}
-            <Button size="sm" variant="outline" onClick={() => setShowAddMetric(!showAddMetric)}>
+            <Button size="sm" variant="outline" onClick={() => { if (showAddMetric) { resetAddForm(); } else { setShowAddMetric(true); } }}>
               + Add Metric
             </Button>
             <Button size="sm" onClick={() => saveMetrics()} disabled={saving}>
@@ -285,79 +303,136 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
               Global defaults are available for this job. Use them as a starting point, then edit the wording, values, or dividers before saving.
             </div>
           ) : null}
-          {showAddMetric && (
-            <div className="rounded-md border p-4 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
+          {showAddMetric && (() => {
+            const isPreset = addMetricType.startsWith("preset:");
+            const selectedPreset = isPreset ? CANONICAL_PRESETS.find(p => p.key === addMetricType.slice(7)) : null;
+            const isCustom = addMetricType === "custom";
+            const availablePresets = CANONICAL_PRESETS.filter(p => p.key !== REQUIRED_METRIC_KEY && !metrics[p.key]);
+            return (
+              <div className="rounded-md border p-4 space-y-3">
+                {/* Row 1: Type selector */}
                 <div className="space-y-2">
-                  <Label htmlFor="metricKey">Metric Key</Label>
-                  <Input
-                    id="metricKey"
-                    value={newMetricKey}
-                    onChange={(e) => setNewMetricKey(e.target.value.toLowerCase().replace(/\s+/g, '_'))}
-                    placeholder="e.g., turnover"
-                    autoFocus
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="metricLabel">Display Label</Label>
-                  <Input
-                    id="metricLabel"
-                    value={newMetricLabel}
-                    onChange={(e) => setNewMetricLabel(e.target.value)}
-                    placeholder="e.g., Turnover"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label htmlFor="metricValue">Value</Label>
-                  <Input
-                    id="metricValue"
-                    type="number"
-                    value={newMetricValue}
-                    onChange={(e) => setNewMetricValue(e.target.value)}
-                    placeholder="0"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="metricDivider">Divider</Label>
-                  <Select value={String(newMetricDivider)} onValueChange={(v) => setNewMetricDivider(Number(v))}>
-                    <SelectTrigger id="metricDivider">
-                      <SelectValue />
+                  <Label htmlFor="metricType">Metric type</Label>
+                  <Select
+                    value={addMetricType}
+                    onValueChange={(v) => {
+                      setAddMetricType(v);
+                      if (v.startsWith("preset:")) {
+                        const preset = CANONICAL_PRESETS.find(p => p.key === v.slice(7));
+                        if (preset) {
+                          setNewMetricLabel(preset.label);
+                          setNewMetricDivider(preset.defaultDivider);
+                        }
+                      } else {
+                        setNewMetricLabel("");
+                        setNewMetricDivider(1);
+                      }
+                    }}
+                  >
+                    <SelectTrigger id="metricType" autoFocus>
+                      <SelectValue placeholder="Select a metric type…" />
                     </SelectTrigger>
                     <SelectContent>
-                      {DIVIDER_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={String(opt.value)}>
-                          {opt.label}
-                        </SelectItem>
+                      {availablePresets.map((p) => (
+                        <SelectItem key={p.key} value={`preset:${p.key}`}>{p.label}</SelectItem>
                       ))}
+                      {availablePresets.length > 0 && <div className="my-1 border-t" />}
+                      <SelectItem value="custom">Custom…</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+
+                {/* Row 2: Label (preset = editable but pre-filled; custom = free text) */}
+                {(isPreset || isCustom) && (
+                  <div className={`grid gap-3 ${isCustom ? "grid-cols-2" : "grid-cols-1"}`}>
+                    {isCustom && (
+                      <div className="space-y-2">
+                        <Label htmlFor="metricKey">Metric key <span className="text-muted-foreground text-xs">(unique identifier)</span></Label>
+                        <Input
+                          id="metricKey"
+                          value={newMetricKey}
+                          onChange={(e) => setNewMetricKey(e.target.value.toLowerCase().replace(/\s+/g, "_"))}
+                          placeholder="e.g., fleet_size"
+                        />
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <Label htmlFor="metricLabel">Display label</Label>
+                      <Input
+                        id="metricLabel"
+                        value={newMetricLabel}
+                        onChange={(e) => setNewMetricLabel(e.target.value)}
+                        placeholder={selectedPreset?.label ?? "e.g., Fleet Size"}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Row 3: Value + Divider */}
+                {(isPreset || isCustom) && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="metricValue">Value</Label>
+                      <Input
+                        id="metricValue"
+                        type="number"
+                        value={newMetricValue}
+                        onChange={(e) => setNewMetricValue(e.target.value)}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="metricDivider">Divider</Label>
+                      <Select value={String(newMetricDivider)} onValueChange={(v) => setNewMetricDivider(Number(v))}>
+                        <SelectTrigger id="metricDivider">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DIVIDER_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={String(opt.value)}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={addMetric} disabled={!addMetricType}>Add</Button>
+                  <Button size="sm" variant="outline" onClick={resetAddForm}>Cancel</Button>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={addMetric}>Add</Button>
-                <Button size="sm" variant="outline" onClick={() => setShowAddMetric(false)}>Cancel</Button>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           <div className="space-y-3">
             {Object.entries(metrics).map(([key, metric]) => {
               const intensity = calculateIntensity(metric.value, metric.divider);
-              const dividerLabel = DIVIDER_OPTIONS.find(d => d.value === metric.divider)?.label || `Per ${metric.divider}`;
-              const displayLabel = key === REQUIRED_METRIC_KEY ? REQUIRED_METRIC_LABEL : metric.label;
-              
+              const dividerLabel = DIVIDER_OPTIONS.find(d => d.value === metric.divider)?.label || `Per ${metric.divider.toLocaleString()}`;
+              const isCanonical = PRESET_KEYS.has(key as CanonicalKey);
+              const isLocked = key === REQUIRED_METRIC_KEY;
+              const displayLabel = isLocked ? REQUIRED_METRIC_LABEL : metric.label;
+              const intensityUnitSuffix = key === "turnover" ? getCurrencySymbol(currency) : displayLabel;
+
               return (
                 <div key={key} className="rounded-md border p-4">
                   <div className="grid grid-cols-12 gap-3 items-end">
                     <div className="col-span-3 space-y-2">
-                      <Label htmlFor={`label-${key}`} className="text-xs text-muted-foreground">Metric wording</Label>
+                      <div className="flex items-center gap-1.5">
+                        <Label htmlFor={`label-${key}`} className="text-xs text-muted-foreground">Metric wording</Label>
+                        {isCanonical && (
+                          <span className="text-[10px] font-medium uppercase tracking-wide text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
+                            Standard
+                          </span>
+                        )}
+                      </div>
                       <Input
                         id={`label-${key}`}
                         value={metric.label}
-                        onChange={(e) => updateMetric(key, "label", key === REQUIRED_METRIC_KEY ? REQUIRED_METRIC_LABEL : e.target.value)}
-                        disabled={key === REQUIRED_METRIC_KEY}
+                        onChange={(e) => updateMetric(key, "label", isLocked ? REQUIRED_METRIC_LABEL : e.target.value)}
+                        disabled={isLocked}
                         className="h-9"
                         placeholder="Metric wording"
                       />
@@ -392,8 +467,8 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
                       <div className="font-bold text-lg">
                         {formatIntensity(intensity)} <span className="text-sm font-normal text-muted-foreground">tCO₂e</span>
                       </div>
-                        <div className="text-xs text-muted-foreground">
-                        {dividerLabel} {key === "turnover" ? getCurrencySymbol(currency) : displayLabel}
+                      <div className="text-xs text-muted-foreground">
+                        {dividerLabel} {intensityUnitSuffix}
                       </div>
                     </div>
                     <div className="col-span-1 flex justify-end">
@@ -401,8 +476,8 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
                         size="sm"
                         variant="destructive"
                         onClick={() => removeMetric(key)}
-                        disabled={key === REQUIRED_METRIC_KEY}
-                        title={`Delete ${metric.label}`}
+                        disabled={isLocked}
+                        title={isLocked ? "Employee metric is required" : `Delete ${metric.label}`}
                         aria-label={`Delete ${metric.label}`}
                       >
                         Delete
