@@ -700,6 +700,7 @@ export default function JobAdvancedReports({
   pdfToken?: string;
 }) {
   const [data, setData] = useState<LiveData | null>(null);
+  const [liveScopeTotals, setLiveScopeTotals] = useState<{ scope_1: number; scope_2: number; scope_3: number; total: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -754,8 +755,8 @@ export default function JobAdvancedReports({
   useEffect(() => {
     setLoading(true);
     setFetchError(null);
-    authFetch(`${baseUrl}/jobs/${jobId}/live-report-data`)
-      .then(async r => {
+    Promise.all([
+      authFetch(`${baseUrl}/jobs/${jobId}/live-report-data`).then(async r => {
         if (!r.ok) {
           let detail = `${r.status} ${r.statusText}`;
           try {
@@ -765,8 +766,13 @@ export default function JobAdvancedReports({
           throw new Error(detail);
         }
         return r.json() as Promise<LiveData>;
+      }),
+      authFetch(`${baseUrl}/jobs/${jobId}/scope-totals`).then(r => r.ok ? r.json() : null).catch(() => null),
+    ])
+      .then(([d, st]) => {
+        setData(d);
+        if (st && typeof st === "object") setLiveScopeTotals(st as { scope_1: number; scope_2: number; scope_3: number; total: number });
       })
-      .then(d => setData(d))
       .catch(e => setFetchError(String(e)))
       .finally(() => setLoading(false));
   }, [jobId, baseUrl]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1251,10 +1257,11 @@ export default function JobAdvancedReports({
   const footprintSummaryText = String(template_variables?.footprint_summary ?? "").trim();
   const actionsNarrativeText = String(template_variables?.reduction_projects ?? "").trim();
 
-  const totalEmissions = toNum(summary?.current_total ?? scope_totals?.Total);
-  const scope1 = toNum(scope_totals?.["Scope 1"]);
-  const scope2 = toNum(scope_totals?.["Scope 2"]);
-  const scope3 = toNum(scope_totals?.["Scope 3"]);
+  // Use /scope-totals data (same source as Insights) so both views show identical numbers.
+  const scope1 = liveScopeTotals != null ? liveScopeTotals.scope_1 : toNum(scope_totals?.["Scope 1"]);
+  const scope2 = liveScopeTotals != null ? liveScopeTotals.scope_2 : toNum(scope_totals?.["Scope 2"]);
+  const scope3 = liveScopeTotals != null ? liveScopeTotals.scope_3 : toNum(scope_totals?.["Scope 3"]);
+  const totalEmissions = liveScopeTotals != null ? liveScopeTotals.total : toNum(summary?.current_total ?? scope_totals?.Total);
   const currentReportYear =
     toYearNumber(data.job_data.reporting_period_start, data.job_data.reporting_period_end) ??
     toNum(data.job_data.reporting_year) ??
