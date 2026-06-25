@@ -1545,7 +1545,7 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
             if data_df is None or data_df.empty:
                 period_row = con.execute(
                     """SELECT j.reporting_year, j.reporting_period_start, j.reporting_period_end,
-                              j.baseline_year, c.benchmark_year, j.benchmark_period_end
+                              j.baseline_year, c.benchmark_year, c.benchmark_period_end
                        FROM jobs j
                        LEFT JOIN clients c ON c.db_id = j.client_db_id
                        WHERE j.job_id = %s""",
@@ -1581,7 +1581,7 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
 
             period_row = con.execute(
                 """SELECT j.reporting_year, j.reporting_period_start, j.reporting_period_end,
-                          j.baseline_year, c.benchmark_year, j.benchmark_period_end
+                          j.baseline_year, c.benchmark_year, c.benchmark_period_end
                    FROM jobs j
                    LEFT JOIN clients c ON c.db_id = j.client_db_id
                    WHERE j.job_id = %s""",
