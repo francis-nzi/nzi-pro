@@ -898,7 +898,7 @@ def _format_period_label(start_value: Any, end_value: Any) -> str | None:
 
 
 def _build_registered_address(parts: list[Any]) -> str | None:
-    cleaned = [str(p).strip() for p in parts if p is not None and str(p).strip()]
+    cleaned = [str(p).strip().rstrip(",").strip() for p in parts if p is not None and str(p).strip()]
     return ", ".join(cleaned) if cleaned else None
 
 

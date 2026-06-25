@@ -1956,7 +1956,7 @@ export default function JobAdvancedReports({
                 <MetaRow label="Industry" value={data.job_data.industry} />
                 <MetaRow label="Location" value={[data.job_data.city, data.job_data.country].filter(Boolean).join(", ")} />
                 <MetaRow label="Company Number" value={report_metadata?.company_number} />
-                <MetaRow label="Registered Address" value={report_metadata?.registered_address} />
+                <MetaRow label="Registered Address" value={report_metadata?.registered_address?.replace(/,\s*,+/g, ",").replace(/,\s*$/g, "").trim()} />
               </div>
             </div>
 
