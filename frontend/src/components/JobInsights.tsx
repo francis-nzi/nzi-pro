@@ -41,6 +41,7 @@ type ScopeTotals = {
   scope_2: number;
   scope_3: number;
   total: number;
+  baseline_year?: number | null;
 };
 
 type JobScopeRow = {
@@ -199,8 +200,11 @@ export default function JobInsights({
           scope_2: Number.isFinite(Number(clientJson?.interim_s2_pct)) ? Number(clientJson?.interim_s2_pct) : null,
           scope_3: Number.isFinite(Number(clientJson?.interim_s3_pct)) ? Number(clientJson?.interim_s3_pct) : null,
         });
-        const by = Number(clientJson?.benchmark_year);
-        setBenchmarkYear(Number.isFinite(by) && by > 1900 ? by : null);
+        // Job-level baseline_year overrides client benchmark_year (e.g. when benchmark is restated)
+        const scopeBaseline = Number(totalsJson?.baseline_year);
+        const clientBy = Number(clientJson?.benchmark_year);
+        const effectiveBy = (Number.isFinite(scopeBaseline) && scopeBaseline > 1900) ? scopeBaseline : clientBy;
+        setBenchmarkYear(Number.isFinite(effectiveBy) && effectiveBy > 1900 ? effectiveBy : null);
         const trp = Number(clientJson?.net_zero_target_reduction_pct);
         setTargetReductionPct(Number.isFinite(trp) && trp > 0 ? trp : 90);
         setYearlyEmissions(Array.isArray(yearlyEmissionsJson) ? yearlyEmissionsJson : []);
