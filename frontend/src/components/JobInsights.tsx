@@ -335,6 +335,7 @@ export default function JobInsights({
         .filter((row) => row.year < currentRow.year)
         .sort((a, b) => b.year - a.year)[0] ?? null;
 
+    const isPreviousBenchmark = previousRow?.year === benchmarkBarYear;
     const changePct = (cur: number, bm: number) => (bm > 0 ? Math.round(((cur - bm) / bm) * 1000) / 10 : null);
 
       return {
@@ -342,7 +343,7 @@ export default function JobInsights({
         previousLabel: previousRow ? `Previous Year ${previousRow.year}` : "Previous Year",
         currentLabel: `Current Year ${currentRow.year}`,
         showBenchmarkBar: !isBenchmarkReportYear,
-        showPreviousBar: !isBenchmarkReportYear,
+        showPreviousBar: !isBenchmarkReportYear && !isPreviousBenchmark,
         showComparisonPct: !isBenchmarkReportYear,
         data: [
           { scope: "Scope 1", benchmark: benchmarkRow.scope1, previous: previousRow?.scope1 ?? null, current: currentRow.scope1, pct: changePct(currentRow.scope1, benchmarkRow.scope1) },
