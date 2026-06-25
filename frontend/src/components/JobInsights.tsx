@@ -751,7 +751,7 @@ export default function JobInsights({
         <HistoricalEmissionsTrendWidget
           title={`${clientName ?? "Client"} Historical Emissions Trend`}
           clientName={clientName}
-          data={yearlyEmissions}
+          data={benchmarkYear != null ? yearlyEmissions.filter((r) => r.year >= benchmarkYear) : yearlyEmissions}
           showWidgetRef={true}
           className="w-full"
         />

@@ -2654,7 +2654,7 @@ export default function JobAdvancedReports({
           <HistoricalEmissionsTrendWidget
             title={`${data.job_data?.client_name ?? "Client"} Historical Emissions Trend`}
             clientName={data.job_data?.client_name}
-            data={effectiveYearlyEmissions}
+            data={effectiveYearlyEmissions.filter((r) => r.year >= baselineYear)}
             showWidgetRef={true}
             storedPngUrl={widgetPngs.historicalEmissionsTrend}
             presentation={widgetPresentation}

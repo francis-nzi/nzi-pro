@@ -1484,7 +1484,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
           <CardContent>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={effectiveYearlyEmissions} margin={{ top: 8, right: 24, left: 8, bottom: 8 }} barCategoryGap="35%">
+                <BarChart data={effectiveYearlyEmissions.filter((r) => r.year >= baselineYear)} margin={{ top: 8, right: 24, left: 8, bottom: 8 }} barCategoryGap="35%">
                   <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" vertical={false} />
                   <XAxis dataKey="year" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} padding={{ left: 60, right: 60 }} />
                   <YAxis tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={52} />
