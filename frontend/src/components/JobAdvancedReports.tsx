@@ -1364,6 +1364,49 @@ export default function JobAdvancedReports({
   const printHeaderLine2 = printClientName;
   const printJobNumber = String(data.job_data?.job_number ?? "").replace(/['"\\]/g, "");
 
+  // ── Data integrity check ─────────────────────────────────────────────────
+  // Compares every emissions figure shown in Report Printing against the
+  // canonical /scope-totals source (same as Outputs / Insights) so that
+  // consultants see a clear warning before anything reaches a client.
+  interface IntegrityIssue { label: string; expected: number; actual: number; }
+  const integrityReady = liveScopeTotals != null && (categories?.length ?? 0) > 0;
+  const integrityIssues = useMemo<IntegrityIssue[]>(() => {
+    if (!liveScopeTotals || !categories) return [];
+    const issues: IntegrityIssue[] = [];
+    const TOLERANCE = 0.05;
+    const r1 = (v: number) => Math.round(v * 10) / 10;
+
+    // Check 1-3: scope subtotals in category table vs /scope-totals
+    const scopeMap: [string, number][] = [
+      ["Scope 1", liveScopeTotals.scope_1],
+      ["Scope 2", liveScopeTotals.scope_2],
+      ["Scope 3", liveScopeTotals.scope_3],
+    ];
+    for (const [scopeKey, canonical] of scopeMap) {
+      const catSum = r1(categories.filter(c => c.scope === scopeKey).reduce((s, c) => s + toNum(c.emissions), 0));
+      if (Math.abs(catSum - r1(canonical)) > TOLERANCE) {
+        issues.push({ label: `${scopeKey} — Category table vs Outputs`, expected: canonical, actual: catSum });
+      }
+    }
+
+    // Check 4: grand total in category table vs /scope-totals
+    const catGrandTotal = r1(categories.reduce((s, c) => s + toNum(c.emissions), 0));
+    if (Math.abs(catGrandTotal - r1(totalEmissions)) > TOLERANCE) {
+      issues.push({ label: "Total — Category table vs Outputs", expected: totalEmissions, actual: catGrandTotal });
+    }
+
+    // Check 5: appendix row sum vs grand total
+    if (appendixRows.length > 0) {
+      const appendixSum = r1(appendixRows.reduce((s, r) => s + toNum(r.emissions), 0));
+      if (Math.abs(appendixSum - r1(totalEmissions)) > TOLERANCE) {
+        issues.push({ label: "Total — Appendix 1 sum vs Outputs", expected: totalEmissions, actual: appendixSum });
+      }
+    }
+
+    return issues;
+  }, [liveScopeTotals, categories, appendixRows, totalEmissions]);
+  // ─────────────────────────────────────────────────────────────────────────
+
   return (
     <div
       data-report-ready="1"
@@ -1816,6 +1859,36 @@ export default function JobAdvancedReports({
 
       {/* Report preview */}
       <div className="advanced-report-preview space-y-6">
+
+        {/* ── Data integrity banner (never printed / included in PDF) ── */}
+        {integrityReady && (
+          <div className="print:hidden">
+            {integrityIssues.length === 0 ? (
+              <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5">
+                <span className="text-green-600 text-sm font-semibold">✓ Data check passed</span>
+                <span className="text-green-600 text-xs">All figures in this report match Outputs</span>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 space-y-2">
+                <p className="text-sm font-semibold text-red-700">
+                  ⚠ Data discrepancy detected — do not send to client until resolved
+                </p>
+                <ul className="space-y-1">
+                  {integrityIssues.map((issue, i) => (
+                    <li key={i} className="text-xs text-red-600">
+                      <span className="font-medium">{issue.label}:</span>{" "}
+                      Outputs = <span className="font-semibold">{fmt(issue.expected)}</span>,{" "}
+                      Report = <span className="font-semibold">{fmt(issue.actual)}</span>{" "}
+                      (diff {fmt(Math.abs(issue.expected - issue.actual))})
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-red-500">Check the Outputs tab for the authoritative figures, then refresh this page.</p>
+              </div>
+            )}
+          </div>
+        )}
+        {/* ─────────────────────────────────────────────────────────── */}
 
         {activeTemplate === "crp" && <>
         {/* 1. Cover page */}
