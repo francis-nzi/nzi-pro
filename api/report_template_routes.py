@@ -2022,14 +2022,14 @@ def _sync_consultant_metadata_with_team_role(
     meta: dict[str, Any],
     *,
     actor_email: str | None = None,
+    skip_keys: set[str] | None = None,
 ) -> bool:
-    changed = False
-    raw_name = meta.get("consultant_name")
-    # If the name was explicitly set to blank ("") the user is clearing it — don't auto-fill.
-    # Only auto-fill when the field is genuinely absent (None/missing).
-    if isinstance(raw_name, str) and raw_name.strip() == "":
+    # If the caller explicitly submitted consultant_name (even as blank/None),
+    # respect that value and do not auto-fill from the team member lookup.
+    if skip_keys and "consultant_name" in skip_keys:
         return False
-    consultant_name = str(raw_name or "").strip() or None
+    changed = False
+    consultant_name = str(meta.get("consultant_name") or "").strip() or None
     resolved_name, resolved_position = _lookup_team_member(
         con,
         consultant_name=consultant_name,
@@ -2417,6 +2417,7 @@ def save_job_report_metadata(
             con,
             merged,
             actor_email=actor_identifier,
+            skip_keys=set(resolved_updates.keys()),
         )
         _sync_energy_inputs_from_scope_rows(con, int(job_id), merged)
         _sync_renewables_pct_from_kwh(merged)
