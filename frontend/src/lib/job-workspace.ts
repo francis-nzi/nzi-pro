@@ -500,10 +500,11 @@ export function buildMetadataFieldValues(
   };
 
   fields.forEach((field) => {
-    const normalizedValue = normalizeMetadataFormValue(field.field_type, metadata[field.key]);
-    if (normalizedValue !== "") {
-      values[field.key] = normalizedValue;
-    }
+    const raw = metadata[field.key];
+    // Always write the field if it exists in the metadata (even as ""), so clearing a field
+    // is reflected in state. Skip only when the key is genuinely absent (undefined/null).
+    if (raw === undefined || raw === null) return;
+    values[field.key] = normalizeMetadataFormValue(field.field_type, raw);
   });
 
   return values;

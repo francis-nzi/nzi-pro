@@ -2024,7 +2024,12 @@ def _sync_consultant_metadata_with_team_role(
     actor_email: str | None = None,
 ) -> bool:
     changed = False
-    consultant_name = str(meta.get("consultant_name") or "").strip() or None
+    raw_name = meta.get("consultant_name")
+    # If the name was explicitly set to blank ("") the user is clearing it — don't auto-fill.
+    # Only auto-fill when the field is genuinely absent (None/missing).
+    if isinstance(raw_name, str) and raw_name.strip() == "":
+        return False
+    consultant_name = str(raw_name or "").strip() or None
     resolved_name, resolved_position = _lookup_team_member(
         con,
         consultant_name=consultant_name,
