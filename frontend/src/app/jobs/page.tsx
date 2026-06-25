@@ -397,6 +397,28 @@ export default function JobsPage() {
                 </div>
               )}
             </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm text-muted-foreground">
+                Page {page} of {totalPages}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  disabled={loading || offset <= 0}
+                  onClick={() => setOffset((v) => Math.max(0, v - limit))}
+                >
+                  Prev
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={loading || offset + limit >= total}
+                  onClick={() => setOffset((v) => v + limit)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
