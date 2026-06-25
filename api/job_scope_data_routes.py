@@ -1544,19 +1544,9 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
             data_df = _load_data_output_rows(con, int(job_id))
             if data_df is None or data_df.empty:
                 period_row = con.execute(
-                    """SELECT j.reporting_year, j.reporting_period_start, j.reporting_period_end,
-                              c.benchmark_period_end
-                       FROM jobs j
-                       LEFT JOIN clients c ON c.db_id = j.client_db_id
-                       WHERE j.job_id = %s""",
+                    "SELECT reporting_year, reporting_period_start, reporting_period_end FROM jobs WHERE job_id = %s",
                     [int(job_id)],
                 ).fetchone()
-                eby = None
-                if period_row and period_row[3] is not None:
-                    try:
-                        eby = int(str(period_row[3])[:4])
-                    except (ValueError, TypeError):
-                        pass
                 return {
                     "job_id": int(job_id),
                     "scope_1": 0.0,
@@ -1566,7 +1556,6 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
                     "reporting_year": int(period_row[0]) if period_row and period_row[0] is not None else None,
                     "reporting_period_start": str(period_row[1]) if period_row and period_row[1] is not None else None,
                     "reporting_period_end": str(period_row[2]) if period_row and period_row[2] is not None else None,
-                    "baseline_year": eby,
                 }
 
             _, totals = _build_scope_summary(data_df, resolver)
@@ -1575,25 +1564,12 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
             scope_3_rounded = round(float(totals.get("Scope 3") or 0.0), 2)
 
             period_row = con.execute(
-                """SELECT j.reporting_year, j.reporting_period_start, j.reporting_period_end,
-                          c.benchmark_period_end
-                   FROM jobs j
-                   LEFT JOIN clients c ON c.db_id = j.client_db_id
-                   WHERE j.job_id = %s""",
+                "SELECT reporting_year, reporting_period_start, reporting_period_end FROM jobs WHERE job_id = %s",
                 [int(job_id)],
             ).fetchone()
             reporting_year = int(period_row[0]) if period_row and period_row[0] is not None else None
             reporting_period_start = str(period_row[1]) if period_row and period_row[1] is not None else None
             reporting_period_end = str(period_row[2]) if period_row and period_row[2] is not None else None
-            # Baseline year = EXTRACT(YEAR FROM clients.benchmark_period_end).
-            # This is the end-year of the benchmark period, which matches the
-            # dashboard_year used by _build_yearly_emissions (also end-year from period_end).
-            effective_baseline_year = None
-            if period_row and period_row[3] is not None:
-                try:
-                    effective_baseline_year = int(str(period_row[3])[:4])
-                except (ValueError, TypeError):
-                    pass
 
             return {
                 "job_id": int(job_id),
@@ -1604,7 +1580,6 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
                 "reporting_year": reporting_year,
                 "reporting_period_start": reporting_period_start,
                 "reporting_period_end": reporting_period_end,
-                "baseline_year": effective_baseline_year,
             }
             
     except HTTPException:
