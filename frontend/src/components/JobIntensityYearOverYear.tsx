@@ -189,7 +189,14 @@ export default function JobIntensityYearOverYear({ clientId, baseUrl, yearJobs =
                           <span className="text-sm font-normal">{year}</span>
                         </Link>
                       ) : (
-                        <>{year}</>
+                        <span className="inline-flex flex-col items-end leading-tight">
+                          {year === benchmarkYear ? (
+                            <Badge className="h-4 rounded-full border-amber-400 bg-amber-400 px-1.5 py-0 text-[9px] font-bold leading-none text-white">
+                              BM
+                            </Badge>
+                          ) : null}
+                          <span className="text-sm font-normal">{year}</span>
+                        </span>
                       )}
                     </th>
                   );
