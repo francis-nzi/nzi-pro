@@ -355,7 +355,7 @@ function NetZeroTrendChart({
 
     const yearSet = new Set<number>();
     for (let y = bYear; y <= endYear; y++) yearSet.add(y);
-    yearlyEmissions.forEach(r => { if (r.year <= endYear) yearSet.add(r.year); });
+    yearlyEmissions.forEach(r => { if (r.year >= bYear && r.year <= endYear) yearSet.add(r.year); });
     const years = Array.from(yearSet).sort((a, b) => a - b);
 
     return years.map(year => {
@@ -520,7 +520,7 @@ function IntensityPathwayChart({
 
     const yearSet = new Set<number>();
     for (let y = bYear; y <= endYear; y++) yearSet.add(y);
-    yearlyEmissions.forEach((r) => { if (r.year <= endYear) yearSet.add(r.year); });
+    yearlyEmissions.forEach((r) => { if (r.year >= bYear && r.year <= endYear) yearSet.add(r.year); });
     const years = Array.from(yearSet).sort((a, b) => a - b);
 
     return years.map((year) => {
@@ -1173,7 +1173,7 @@ export default function JobAdvancedReports({
     const yearSet = new Set<number>();
     for (let y = baseline; y <= endYear; y++) yearSet.add(y);
     yearly.forEach((row) => {
-      if (row.year <= endYear) yearSet.add(row.year);
+      if (row.year >= baseline && row.year <= endYear) yearSet.add(row.year);
     });
     const years = Array.from(yearSet).sort((a, b) => a - b);
 

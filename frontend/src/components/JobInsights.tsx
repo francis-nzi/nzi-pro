@@ -437,7 +437,7 @@ export default function JobInsights({
 
     const yearSet = new Set<number>();
     for (let y = baselineYear; y <= endYear; y++) yearSet.add(y);
-    yearlyEmissions.forEach((r) => { if (r.year <= endYear) yearSet.add(r.year); });
+    yearlyEmissions.forEach((r) => { if (r.year >= baselineYear && r.year <= endYear) yearSet.add(r.year); });
     const years = Array.from(yearSet).sort((a, b) => a - b);
 
     // Benchmark absolute total for proportional scaling of target line.

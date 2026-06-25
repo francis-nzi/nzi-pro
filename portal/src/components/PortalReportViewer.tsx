@@ -234,7 +234,7 @@ function NetZeroTrendChart({
 
     const yearSet = new Set<number>();
     for (let y = bYear; y <= endYear; y++) yearSet.add(y);
-    yearlyEmissions.forEach(r => { if (r.year <= endYear) yearSet.add(r.year); });
+    yearlyEmissions.forEach(r => { if (r.year >= bYear && r.year <= endYear) yearSet.add(r.year); });
     const years = Array.from(yearSet).sort((a, b) => a - b);
 
     return years.map(year => {
@@ -367,7 +367,7 @@ function IntensityPathwayChart({
 
     const yearSet = new Set<number>();
     for (let y = bYear; y <= endYear; y++) yearSet.add(y);
-    yearlyEmissions.forEach(r => { if (r.year <= endYear) yearSet.add(r.year); });
+    yearlyEmissions.forEach(r => { if (r.year >= bYear && r.year <= endYear) yearSet.add(r.year); });
     const years = Array.from(yearSet).sort((a, b) => a - b);
 
     const benchTotal = bS1 + bS2 + bS3 || 1;

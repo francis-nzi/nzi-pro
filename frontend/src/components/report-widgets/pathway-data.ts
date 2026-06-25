@@ -82,7 +82,7 @@ export function buildEmissionsReductionPathwayData({
   const yearSet = new Set<number>();
   for (let y = baselineYear; y <= endYear; y += 1) yearSet.add(y);
   yearlyEmissions.forEach((row) => {
-    if (row.year <= endYear) yearSet.add(row.year);
+    if (row.year >= baselineYear && row.year <= endYear) yearSet.add(row.year);
   });
   const years = Array.from(yearSet).sort((a, b) => a - b);
 
