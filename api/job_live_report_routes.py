@@ -148,18 +148,29 @@ def _build_yearly_emissions(con, client_db_id: int) -> list[dict[str, Any]]:
     if jobs_df is None or getattr(jobs_df, "empty", True):
         return []
 
-    job_ids = [int(job_id) for job_id in jobs_df["job_id"].tolist() if _coerce_int(job_id) is not None]
-    if not job_ids:
-        return []
-
-    # Build year → intensity_metrics from the LAST job for each year (same logic as dashboard).
-    # This gives us the correct per-year basis for computing historical intensities.
-    year_metrics_map: dict[int, dict[str, Any]] = {}
+    # Deduplicate to one job per year (most recent by job_id) so multiple
+    # jobs for the same dashboard_year don't double-count emissions.
+    year_to_job_id: dict[int, int] = {}
+    year_to_metrics: dict[int, Any] = {}
     for _, row in jobs_df.iterrows():
         yr = _coerce_int(row.get("dashboard_year"))
         if yr is None:
             continue
-        raw = row.get("intensity_metrics")
+        jid = _coerce_int(row.get("job_id"))
+        if jid is None:
+            continue
+        if yr not in year_to_job_id or jid > year_to_job_id[yr]:
+            year_to_job_id[yr] = jid
+            raw = row.get("intensity_metrics")
+            year_to_metrics[yr] = raw
+
+    job_ids = list(year_to_job_id.values())
+    if not job_ids:
+        return []
+
+    # Build year → intensity_metrics from the already-deduplicated year_to_metrics map.
+    year_metrics_map: dict[int, dict[str, Any]] = {}
+    for yr, raw in year_to_metrics.items():
         if raw is None:
             continue
         if isinstance(raw, str):
@@ -168,7 +179,7 @@ def _build_yearly_emissions(con, client_db_id: int) -> list[dict[str, Any]]:
             except Exception:
                 continue
         if isinstance(raw, dict) and raw:
-            year_metrics_map[yr] = raw  # last (most recent) job per year wins
+            year_metrics_map[yr] = raw
 
     emissions_df = load_combined_emissions_summary_rows(con, job_ids)
     if emissions_df is None or getattr(emissions_df, "empty", True):

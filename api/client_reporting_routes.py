@@ -167,8 +167,10 @@ def get_client_reporting(
                     "by_site": []
                 }
 
-            # Get all scope data for these jobs
-            job_ids = [int(j) for j in jobs_df['job_id'].tolist()]
+            # Deduplicate to one job per year (most recent by job_id) so multiple
+            # jobs for the same dashboard_year don't get double-counted.
+            year_jobs = _build_year_jobs(jobs_df)
+            job_ids = [yj["job_id"] for yj in year_jobs]
 
             if not job_ids:
                 return {
@@ -183,7 +185,6 @@ def get_client_reporting(
                 }
 
             # Get combined scope rows from both the legacy data-entry table and the source register.
-            # This keeps year-over-year client reporting aligned with the job report and Data Output views.
             scope_df = load_combined_reporting_rows(con, job_ids)
 
             if scope_df is None or scope_df.empty:
