@@ -197,7 +197,8 @@ def _load_data_output_rows(con, job_id: int):
                         THEN COALESCE(NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''), NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized')
                         ELSE TRIM(CAST({factor_category_expr} AS VARCHAR))
                     END
-                ) AS report_label
+                ) AS report_label,
+                NULL::numeric AS calc_tco2e
             FROM job_scope_rows jsr
             LEFT JOIN client_sites s ON jsr.site_id = s.site_id
             LEFT JOIN datasets d ON d.dataset_id = jsr.dataset_id
@@ -266,7 +267,8 @@ def _load_data_output_rows(con, job_id: int):
                         THEN COALESCE(NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''), 'Uncategorized')
                         ELSE TRIM(CAST({factor_category_expr} AS VARCHAR))
                     END
-                ) AS report_label
+                ) AS report_label,
+                js.calc_tco2e
             FROM job_emission_sources js
             LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
             LEFT JOIN client_sites cs ON cs.site_id = js.site_id
