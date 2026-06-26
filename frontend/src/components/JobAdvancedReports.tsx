@@ -3062,7 +3062,7 @@ export default function JobAdvancedReports({
           // Build: site → scope → category → total emissions
           type SiteScopeCat = Map<string, Map<string, Map<string, number>>>;
           const tree: SiteScopeCat = new Map();
-          const siteTotals = new Map<string, number>();
+          const siteTotalsFromRows = new Map<string, number>();
           for (const row of appendixRows) {
             const site = row.site_name ?? "Unassigned";
             const scope = row.scope ?? "Other";
@@ -3073,8 +3073,19 @@ export default function JobAdvancedReports({
             if (!siteMap.has(scope)) siteMap.set(scope, new Map());
             const scopeMap = siteMap.get(scope)!;
             scopeMap.set(cat, (scopeMap.get(cat) ?? 0) + em);
-            siteTotals.set(site, (siteTotals.get(site) ?? 0) + em);
+            siteTotalsFromRows.set(site, (siteTotalsFromRows.get(site) ?? 0) + em);
           }
+          // Use scope-row totals (raw-based, already corrected) for site headers to
+          // avoid the per-row 2dp rounding artefact that makes the sum 0.1 too high.
+          const scopeRowTotals = new Map<string, number>(
+            (site_breakdowns?.scope ?? []).map((r) => [r.site_name ?? "Unassigned", toNum(r.total)])
+          );
+          const siteTotals = new Map<string, number>(
+            Array.from(siteTotalsFromRows.keys()).map((site) => [
+              site,
+              scopeRowTotals.has(site) ? (scopeRowTotals.get(site) ?? 0) : (siteTotalsFromRows.get(site) ?? 0),
+            ])
+          );
           // Sort sites by descending total
           const sites = Array.from(tree.keys()).sort(
             (a, b) => (siteTotals.get(b) ?? 0) - (siteTotals.get(a) ?? 0)
