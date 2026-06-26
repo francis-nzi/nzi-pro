@@ -2568,13 +2568,6 @@ export default function JobAdvancedReports({
             )}
 
 
-            {/* Rounding note */}
-            <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3">
-              <p className="text-xs text-gray-700">
-                <span className="font-semibold">Note:</span> Emissions figures are rounded to the nearest 1 decimal place. As a consequence, small differences in totals may occur due to rounding.
-              </p>
-            </div>
-
           </div>
         )}
         {/* 7. Emissions by Scope and Category */}
@@ -2696,11 +2689,6 @@ export default function JobAdvancedReports({
                   </div>
                 </div>
                 <p className="text-xs text-gray-600">A detailed breakdown of emissions is set out in Appendix 1.</p>
-                <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3">
-                  <p className="text-xs text-gray-700">
-                    <span className="font-semibold">Note:</span> Emissions figures are rounded to the nearest 1 decimal place. As a consequence, small differences in totals may occur due to rounding.
-                  </p>
-                </div>
               </CardContent>
             </Card>
           );
@@ -2915,6 +2903,9 @@ export default function JobAdvancedReports({
                 </tr>
               </tbody>
             </table>
+            <p className="mt-4 text-xs text-gray-500">
+              <span className="font-semibold">Note:</span> Emissions figures are rounded to the nearest 1 decimal place. As a consequence, small differences in totals may occur due to rounding.
+            </p>
           </CardContent>
         </Card>
         {/* 13. Declaration / Sign-off */}
