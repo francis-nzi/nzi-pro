@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import LoadingOrbit from "@/components/LoadingOrbit";
 import { formatDate } from "@/lib/format";
+import { ScopeTotalsSchema, ReportDataCheckSchema, LiveReportDataSchema, safeParse } from "@/lib/api-schemas";
 import {
   EmissionsByActivityWidget,
   EmissionsReductionPathwayWidget,
@@ -781,18 +782,21 @@ export default function JobAdvancedReports({
           } catch { /* ignore */ }
           throw new Error(detail);
         }
-        return r.json() as Promise<LiveData>;
+        return r.json().then(raw => safeParse(LiveReportDataSchema, raw, "live-report-data")) as Promise<LiveData>;
       }),
       authFetch(`${baseUrl}/jobs/${jobId}/scope-totals`).then(r => r.ok ? r.json() : null).catch(() => null),
     ])
       .then(([d, st]) => {
         setData(d);
-        if (st && typeof st === "object") setLiveScopeTotals(st as { scope_1: number; scope_2: number; scope_3: number; total: number });
+        if (st && typeof st === "object") {
+          const parsed = safeParse(ScopeTotalsSchema, st, "scope-totals");
+          setLiveScopeTotals(parsed);
+        }
         // Kick off integrity check after main data loads (non-blocking)
         setIntegrityLoading(true);
         authFetch(`${baseUrl}/jobs/${jobId}/report-data-check`)
           .then(r => r.ok ? r.json() : null)
-          .then(result => { if (result) setIntegrityCheck(result as IntegrityCheckResult); })
+          .then(result => { if (result) setIntegrityCheck(safeParse(ReportDataCheckSchema, result, "report-data-check")); })
           .catch(() => null)
           .finally(() => setIntegrityLoading(false));
       })

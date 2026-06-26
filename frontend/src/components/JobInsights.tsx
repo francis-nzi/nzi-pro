@@ -119,7 +119,11 @@ function formatTooltipValue(value: unknown): [string, string] {
 }
 
 function pct(value: number, total: number): string {
-  return total > 0 ? `${((value / total) * 100).toFixed(1)}%` : "0.0%";
+  return total > 0 ? `${fmtPct((value / total) * 100)}%` : "0.0%";
+}
+
+function fmtPct(value: number, dp = 1): string {
+  return value.toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp });
 }
 
 export default function JobInsights({
@@ -460,7 +464,7 @@ export default function JobInsights({
           const perYear = actual.intensity_by_metric?.[entry.key];
           row[`${entry.label}_actual`] = perYear != null
             ? perYear
-            : Number(((actual.total * divider) / value).toFixed(3));
+            : Math.round(((actual.total * divider) / value) * 1000) / 1000;
         } else {
           row[`${entry.label}_actual`] = null;
         }
@@ -468,8 +472,8 @@ export default function JobInsights({
         if (year >= baselineYear) {
           const benchIntensity =
             benchmarkRow?.intensity_by_metric?.[entry.key] ??
-            Number(((benchTotal * divider) / value).toFixed(3));
-          row[`${entry.label}_target`] = Number((benchIntensity * forecastFraction).toFixed(3));
+            Math.round(((benchTotal * divider) / value) * 1000) / 1000;
+          row[`${entry.label}_target`] = Math.round(benchIntensity * forecastFraction * 1000) / 1000;
         } else {
           row[`${entry.label}_target`] = null;
         }
@@ -506,7 +510,7 @@ export default function JobInsights({
       dominantScope ? `${dominantScope.name} is the dominant scope at ${formatTco2e(dominantScope.value)} tCO₂e (${pct(dominantScope.value, scopeTotals.total)} of total).` : null,
       topDatasetCategory ? `${topDatasetCategory.name} is the largest dataset category driver at ${formatTco2e(topDatasetCategory.value)} tCO₂e (${pct(topDatasetCategory.value, scopeTotals.total)} of total).` : null,
       topSite ? `${topSite.name} is the largest site contributor at ${formatTco2e(topSite.value)} tCO₂e (${pct(topSite.value, scopeTotals.total)} of total).` : null,
-      topDriverShare > 0 ? `Your largest dataset category is responsible for ${topDriverShare.toFixed(1)}% of total emissions, so that is the most direct reduction lever.` : null,
+      topDriverShare > 0 ? `Your largest dataset category is responsible for ${fmtPct(topDriverShare)}% of total emissions, so that is the most direct reduction lever.` : null,
       interimYear ? `Interim targets are plotted at ${interimYear} to show the job's midpoint pathway.` : null,
       targetYear ? `The target line extends to ${targetYear} with a piecewise path that honours any interim reduction target.` : null,
     ]
@@ -667,7 +671,7 @@ export default function JobInsights({
               const share = scopeTotals && scopeTotals.total > 0 ? (scope.value / scopeTotals.total) * 100 : 0;
               return (
                 <Badge key={scope.name} variant="secondary">
-                  {scope.name}: {formatTco2e(scope.value)} tCO₂e ({share.toFixed(1)}%)
+                  {scope.name}: {formatTco2e(scope.value)} tCO₂e ({fmtPct(share)}%)
                 </Badge>
               );
             })}
@@ -790,7 +794,7 @@ export default function JobInsights({
           <div className="grid gap-4 md:grid-cols-3">
             <MetricCard label="Scenario total" value={formatTco2e(whatIf.total)} />
             <MetricCard label="Reduction" value={formatTco2e(whatIf.reduction)} suffix="tCO₂e" />
-            <MetricCard label="Reduction %" value={whatIf.reductionPct.toFixed(1)} suffix="%" />
+            <MetricCard label="Reduction %" value={fmtPct(whatIf.reductionPct)} suffix="%" />
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => { setWhatIfScope1("10"); setWhatIfScope2("10"); setWhatIfScope3("10"); }}>

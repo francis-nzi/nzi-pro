@@ -1036,6 +1036,81 @@ def list_react_report_versions(
         return {"versions": [], "total": 0, "warning": "Version history is temporarily unavailable."}
 
 
+def compare_canonical_vs_report(
+    canonical_rows: dict[str, dict[str, Any]],
+    canonical_cats: dict[str, float],
+    canonical_scopes: dict[str, float],
+    report_rows: dict[str, dict[str, Any]],
+    report_cats: dict[str, float],
+    tolerance: float = 0.05,
+) -> dict[str, Any]:
+    """
+    Pure comparison function: given pre-built canonical and report dicts,
+    returns a structured diff result.
+
+    Extracted from the route so it can be unit-tested without a real DB connection.
+    Both input dicts are built by the route (and by tests using stub data).
+    """
+    issues: list[dict[str, Any]] = []
+
+    report_scopes: dict[str, float] = {}
+    for k, v in report_cats.items():
+        s = k.split("||")[0]
+        report_scopes[s] = round(report_scopes.get(s, 0.0) + v, 4)
+
+    for scope_key in ["Scope 1", "Scope 2", "Scope 3"]:
+        c = round(canonical_scopes.get(scope_key, 0.0), 2)
+        r = round(report_scopes.get(scope_key, 0.0), 2)
+        if abs(c - r) > tolerance:
+            issues.append({"level": "scope", "label": scope_key, "canonical": c, "report": r, "diff": round(abs(c - r), 2)})
+
+    for cat_key in sorted(set(canonical_cats) | set(report_cats)):
+        c = round(canonical_cats.get(cat_key, 0.0), 2)
+        r = round(report_cats.get(cat_key, 0.0), 2)
+        if abs(c - r) > tolerance:
+            scope_label, category = cat_key.split("||", 1)
+            issues.append({"level": "category", "label": f"{scope_label} — {category}", "canonical": c, "report": r, "diff": round(abs(c - r), 2)})
+
+    for row_id in sorted(set(canonical_rows) | set(report_rows)):
+        canon = canonical_rows.get(row_id)
+        report = report_rows.get(row_id)
+        if canon and report:
+            if abs(canon["emission"] - report["emission"]) > tolerance:
+                issues.append({
+                    "level": "row",
+                    "label": f"{canon['scope']} — {canon['category']} — {canon['label']}",
+                    "canonical": canon["emission"],
+                    "report": report["emission"],
+                    "diff": round(abs(canon["emission"] - report["emission"]), 2),
+                })
+        elif canon and canon["emission"] > tolerance:
+            issues.append({
+                "level": "row",
+                "label": f"MISSING from Report — {canon['scope']} — {canon['label']}",
+                "canonical": canon["emission"], "report": 0.0, "diff": canon["emission"],
+            })
+        elif report and report["emission"] > tolerance:
+            issues.append({
+                "level": "row",
+                "label": f"EXTRA in Report — {report['scope']} — {report['label']}",
+                "canonical": 0.0, "report": report["emission"], "diff": report["emission"],
+            })
+
+    canonical_total = round(sum(canonical_scopes.values()), 2)
+    report_total = round(sum(report_cats.values()), 2)
+
+    return {
+        "status": "pass" if not issues else "fail",
+        "canonical_total": canonical_total,
+        "report_total": report_total,
+        "issue_count": len(issues),
+        "scope_issues": sum(1 for i in issues if i["level"] == "scope"),
+        "category_issues": sum(1 for i in issues if i["level"] == "category"),
+        "row_issues": sum(1 for i in issues if i["level"] == "row"),
+        "issues": issues,
+    }
+
+
 @router.get("/jobs/{job_id}/report-data-check")
 def check_report_data_integrity(
     job_id: int,
@@ -1049,8 +1124,6 @@ def check_report_data_integrity(
     Returns status "pass" when all figures agree within 0.05 tCO2e, or
     "fail" with a structured list of discrepancies.
     """
-    TOLERANCE = 0.05
-
     # ── Canonical: Outputs path ──────────────────────────────────────────────
     with get_conn() as con:
         resolver = JobMonthlyEmissionsResolver(con, int(job_id))
@@ -1098,62 +1171,7 @@ def check_report_data_integrity(
         cat_key = f"{scope}||{category}"
         report_cats[cat_key] = round(report_cats.get(cat_key, 0.0) + emission, 4)
 
-    # ── Compare ──────────────────────────────────────────────────────────────
-    issues: list[dict[str, Any]] = []
-
-    report_scopes: dict[str, float] = {}
-    for k, v in report_cats.items():
-        s = k.split("||")[0]
-        report_scopes[s] = round(report_scopes.get(s, 0.0) + v, 4)
-
-    for scope_key in ["Scope 1", "Scope 2", "Scope 3"]:
-        c = round(canonical_scopes.get(scope_key, 0.0), 2)
-        r = round(report_scopes.get(scope_key, 0.0), 2)
-        if abs(c - r) > TOLERANCE:
-            issues.append({"level": "scope", "label": scope_key, "canonical": c, "report": r, "diff": round(abs(c - r), 2)})
-
-    for cat_key in sorted(set(canonical_cats) | set(report_cats)):
-        c = round(canonical_cats.get(cat_key, 0.0), 2)
-        r = round(report_cats.get(cat_key, 0.0), 2)
-        if abs(c - r) > TOLERANCE:
-            scope, category = cat_key.split("||", 1)
-            issues.append({"level": "category", "label": f"{scope} — {category}", "canonical": c, "report": r, "diff": round(abs(c - r), 2)})
-
-    for row_id in sorted(set(canonical_rows) | set(report_rows)):
-        canon = canonical_rows.get(row_id)
-        report = report_rows.get(row_id)
-        if canon and report:
-            if abs(canon["emission"] - report["emission"]) > TOLERANCE:
-                issues.append({
-                    "level": "row",
-                    "label": f"{canon['scope']} — {canon['category']} — {canon['label']}",
-                    "canonical": canon["emission"],
-                    "report": report["emission"],
-                    "diff": round(abs(canon["emission"] - report["emission"]), 2),
-                })
-        elif canon and canon["emission"] > TOLERANCE:
-            issues.append({
-                "level": "row",
-                "label": f"MISSING from Report — {canon['scope']} — {canon['label']}",
-                "canonical": canon["emission"], "report": 0.0, "diff": canon["emission"],
-            })
-        elif report and report["emission"] > TOLERANCE:
-            issues.append({
-                "level": "row",
-                "label": f"EXTRA in Report — {report['scope']} — {report['label']}",
-                "canonical": 0.0, "report": report["emission"], "diff": report["emission"],
-            })
-
-    canonical_total = round(sum(canonical_scopes.values()), 2)
-    report_total = round(sum(report_cats.values()), 2)
-
-    return {
-        "status": "pass" if not issues else "fail",
-        "canonical_total": canonical_total,
-        "report_total": report_total,
-        "issue_count": len(issues),
-        "scope_issues": sum(1 for i in issues if i["level"] == "scope"),
-        "category_issues": sum(1 for i in issues if i["level"] == "category"),
-        "row_issues": sum(1 for i in issues if i["level"] == "row"),
-        "issues": issues,
-    }
+    return compare_canonical_vs_report(
+        canonical_rows, canonical_cats, canonical_scopes,
+        report_rows, report_cats,
+    )
