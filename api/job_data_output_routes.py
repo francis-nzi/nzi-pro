@@ -301,6 +301,7 @@ def _load_data_output_rows(con, job_id: int):
 # Shared by Data Output and report generation so both views use the same rounding rules.
 def _build_scope_summary(data_df, resolver, site_lookup: dict[int, str] | None = None) -> tuple[list[dict[str, Any]], dict[str, float]]:
     scopes: dict[str, dict[str, Any]] = {}
+    raw_grand_total = 0.0
     for _, row in data_df.iterrows():
         scope_name = _clean_label(row.get('scope'), 'Unknown')
         category = _dataset_category_label(row)
@@ -309,7 +310,9 @@ def _build_scope_summary(data_df, resolver, site_lookup: dict[int, str] | None =
             metrics = combined_row_metrics(row, resolver)
         except Exception:
             metrics = _fallback_audit_metrics(row)
-        emission = round(float(metrics.get("calc_tco2e") or 0.0), 2)
+        raw_tco2e = float(metrics.get("calc_tco2e") or 0.0)
+        raw_grand_total += raw_tco2e
+        emission = round(raw_tco2e, 2)
 
         if scope_name not in scopes:
             scopes[scope_name] = {
@@ -372,7 +375,10 @@ def _build_scope_summary(data_df, resolver, site_lookup: dict[int, str] | None =
         if scope_name in totals:
             totals[scope_name] = scope_total
 
-    totals["Total"] = round(sum(totals.values()), 2)
+    # Use the raw (un-scope-rounded) accumulation so the grand total reflects the
+    # true sum of all rows rather than the sum of independently-rounded scope values,
+    # which can differ by up to 0.05 tCO2e and cause display inconsistencies.
+    totals["Total"] = round(raw_grand_total, 2)
     return scope_list, totals
 
 

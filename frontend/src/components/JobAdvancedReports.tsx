@@ -534,9 +534,9 @@ function IntensityPathwayChart({
       const row: Record<string, number | string | null> = { year };
       metricEntries.forEach((entry) => {
         row[`${entry.label}_actual`] = actual
-          ? parseFloat(((actual.total * entry.divider) / entry.value).toFixed(3))
+          ? Math.round((actual.total * entry.divider) / entry.value * 1000) / 1000
           : null;
-        row[`${entry.label}_target`] = parseFloat(((forecast * entry.divider) / entry.value).toFixed(3));
+        row[`${entry.label}_target`] = Math.round((forecast * entry.divider) / entry.value * 1000) / 1000;
       });
       return row;
     });
@@ -565,11 +565,11 @@ function IntensityPathwayChart({
             tick={{ fontSize: 10 }}
           />
           <YAxis
-            tickFormatter={(v: number) => v.toFixed(1)}
+            tickFormatter={(v: number) => fmt(v, 1)}
             tick={{ fontSize: 10 }}
           />
           <Tooltip
-            formatter={(value: unknown) => [value != null ? `${Number(value).toFixed(3)} tCO2e` : "-", ""]}
+            formatter={(value: unknown) => [value != null ? `${fmt(Number(value), 3)} tCO2e` : "-", ""]}
             labelFormatter={(label: unknown) => `Year: ${label}`}
           />
           <Legend content={(p) => <WrapLegend payload={(p.payload as LegendEntry[] | undefined)} />} />
@@ -1226,15 +1226,15 @@ export default function JobAdvancedReports({
           const perYear = actual.intensity_by_metric?.[entry.key];
           row[`${entry.label}_actual`] = perYear != null
             ? perYear
-            : Number(((actual.total * divider) / value).toFixed(3));
+            : Math.round((actual.total * divider) / value * 1000) / 1000;
         } else {
           row[`${entry.label}_actual`] = null;
         }
         if (year >= baseline) {
           const benchIntensity =
             benchmarkRow?.intensity_by_metric?.[entry.key] ??
-            Number(((benchTotal * divider) / value).toFixed(3));
-          row[`${entry.label}_target`] = Number((benchIntensity * forecastFraction).toFixed(3));
+            Math.round((benchTotal * divider) / value * 1000) / 1000;
+          row[`${entry.label}_target`] = Math.round(benchIntensity * forecastFraction * 1000) / 1000;
         } else {
           row[`${entry.label}_target`] = null;
         }
@@ -2211,7 +2211,7 @@ export default function JobAdvancedReports({
                     >
                       <span className="text-xs text-gray-700">{row.site_name ?? "Unassigned"}</span>
                       <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.total))}</span>
-                      <span className="text-xs text-gray-700 text-right">{toNum(row.pct_total).toFixed(1)}%</span>
+                      <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.pct_total), 1)}%</span>
                     </div>
                   ))}
                   <div className="grid grid-cols-[1fr_120px_120px] border-t border-gray-200 px-3 py-2 bg-gray-50">
@@ -2275,7 +2275,7 @@ export default function JobAdvancedReports({
           const fmtPct = (p: number | null) => {
             if (p == null) return "-";
             const sign = p > 0 ? "+" : "";
-            return `${sign}${p.toFixed(1)}%`;
+            return `${sign}${fmt(p, 1)}%`;
           };
 
           const pctColor = (p: number | null) =>
@@ -2479,7 +2479,7 @@ export default function JobAdvancedReports({
                       <span className="text-xs font-medium text-gray-700">{row.scope}</span>
                       <span className="text-xs text-gray-700 pr-4">{row.desc}</span>
                       <span className="text-xs text-gray-700 text-right">{fmt(row.value)}</span>
-                      <span className="text-xs text-gray-700 text-right">{pct.toFixed(1)}%</span>
+                      <span className="text-xs text-gray-700 text-right">{fmt(pct, 1)}%</span>
                     </div>
                   );
                 })}
@@ -2647,7 +2647,7 @@ export default function JobAdvancedReports({
                   {hasBenchmark ? <span className="text-xs text-gray-600 text-right">{fmt(r.benchmark)}</span> : <span className="text-xs text-gray-400 text-right">-</span>}
                   {hasPrevYear && <span className="text-xs text-gray-600 text-right">{r.prevYear > 0 ? fmt(r.prevYear) : "-"}</span>}
                   <span className="text-xs text-gray-700 text-right">{fmt(r.current)}</span>
-                  <span className="text-xs text-right" style={{ color: pct < 0 ? "#16a34a" : pct > 0 ? "#dc2626" : "#6b7280" }}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span>
+                  <span className="text-xs text-right" style={{ color: pct < 0 ? "#16a34a" : pct > 0 ? "#dc2626" : "#6b7280" }}>{pct >= 0 ? "+" : ""}{fmt(pct, 1)}%</span>
                 </div>
               );
               rowIdx++;
@@ -2660,7 +2660,7 @@ export default function JobAdvancedReports({
                 {hasBenchmark ? <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeBenchmark)}</span> : <span className="text-xs text-gray-400 text-right">-</span>}
                 {hasPrevYear && <span className="text-xs font-semibold text-gray-700 text-right">{scopePrevYear > 0 ? fmt(scopePrevYear) : "-"}</span>}
                 <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeCurrent)}</span>
-                <span className="text-xs font-semibold text-right" style={{ color: subPct < 0 ? "#16a34a" : subPct > 0 ? "#dc2626" : "#6b7280" }}>{subPct >= 0 ? "+" : ""}{subPct.toFixed(1)}%</span>
+                <span className="text-xs font-semibold text-right" style={{ color: subPct < 0 ? "#16a34a" : subPct > 0 ? "#dc2626" : "#6b7280" }}>{subPct >= 0 ? "+" : ""}{fmt(subPct, 1)}%</span>
               </div>
             );
           }
@@ -2692,7 +2692,7 @@ export default function JobAdvancedReports({
                     {hasBenchmark ? <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandBenchmarkTotal)}</span> : <span className="text-xs text-gray-400 text-right">-</span>}
                     {hasPrevYear && <span className="text-xs font-bold text-gray-700 text-right">{grandPrevYearTotal > 0 ? fmt(grandPrevYearTotal) : "-"}</span>}
                     <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandCurrentTotal)}</span>
-                    <span className="text-xs font-bold text-right" style={{ color: grandPct < 0 ? "#16a34a" : grandPct > 0 ? "#dc2626" : "#6b7280" }}>{grandPct >= 0 ? "+" : ""}{grandPct.toFixed(1)}%</span>
+                    <span className="text-xs font-bold text-right" style={{ color: grandPct < 0 ? "#16a34a" : grandPct > 0 ? "#dc2626" : "#6b7280" }}>{grandPct >= 0 ? "+" : ""}{fmt(grandPct, 1)}%</span>
                   </div>
                 </div>
                 <p className="text-xs text-gray-600">A detailed breakdown of emissions is set out in Appendix 1.</p>

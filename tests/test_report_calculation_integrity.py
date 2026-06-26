@@ -241,3 +241,62 @@ def test_category_label_returns_fallback_when_all_empty():
     row = {"dataset_category": None, "lookup_category": None, "category": None,
            "lookup_level_1": None, "lookup_level_2": None, "level_1": None, "level_2": None}
     assert _dataset_category_label(row) == "Uncategorized"
+
+
+# ---------------------------------------------------------------------------
+# 6. Grand total uses raw accumulation, not sum of scope-rounded totals
+# ---------------------------------------------------------------------------
+
+def test_grand_total_equals_raw_sum_not_scope_rounded_sum():
+    """
+    _build_scope_summary must compute totals["Total"] as round(sum_of_raw_rows, 2),
+    not as the sum of independently-rounded scope values.
+
+    When rounding at the scope level is applied first and then the scope totals
+    are summed, the result can differ by up to 0.05 tCO2e from the true raw sum.
+    This is the root cause of the 130.0 vs 130.1 display inconsistency.
+
+    Example: raw rows sum to 130.0424 → totals["Total"] should be 130.04, not 130.09.
+    """
+    # Craft rows so that sum-of-2dp-rounded-scopes != round(raw_sum, 2).
+    # Scope 1: 103.1011 → rounds to 103.10 per row (one row)
+    # Scope 2: 0.6004  → rounds to 0.60 per row (one row)
+    # Scope 3: 26.3914 → rounds to 26.39 per row (one row)
+    # Raw sum = 130.0929; round(raw_sum, 2) = 130.09
+    # Scope rounded sum = 103.10 + 0.60 + 26.39 = 130.09 — same here
+    #
+    # Use a case where scope-level rounding creates a gap:
+    # Scope 3 has TWO rows: 13.1955 + 13.1959 = 26.3914 raw
+    # Each rounded to 2dp: 13.20 + 13.20 = 26.40 (scope total before scope-level round)
+    # scope_3_rounded = round(26.40, 2) = 26.40
+    # Scope rounded sum = 103.10 + 0.60 + 26.40 = 130.10
+    # Raw sum = 103.1011 + 0.6004 + 13.1955 + 13.1959 = 130.0929 → round = 130.09
+    rows = [
+        _sr_row("Scope 1", "Fuel",         calc_tco2e=103.1011, original_id="r1"),
+        _sr_row("Scope 2", "Electricity",  calc_tco2e=0.6004,   original_id="r2"),
+        _sr_row("Scope 3", "Travel",       calc_tco2e=13.1955,  original_id="r3"),
+        _sr_row("Scope 3", "Travel",       calc_tco2e=13.1959,  original_id="r4"),
+    ]
+    df = pd.DataFrame(rows)
+
+    _, totals = _build_scope_summary(df, resolver=None)
+
+    raw_sum = 103.1011 + 0.6004 + 13.1955 + 13.1959
+    expected_total = round(raw_sum, 2)
+
+    # The naive sum-of-2dp-rounded-scope-values would give:
+    # round(103.10 + 0.60 + round(13.20 + 13.20, 2), 2) = round(103.10 + 0.60 + 26.40, 2) = 130.10
+    naive_scope_sum = round(
+        round(103.1011, 2) + round(0.6004, 2) + round(round(13.1955, 2) + round(13.1959, 2), 2),
+        2,
+    )
+
+    # Confirm this is actually a case where the gap exists before we assert the fix
+    assert naive_scope_sum != pytest.approx(expected_total, abs=0.001), (
+        "Test setup failed: expected naive_scope_sum to differ from raw total, "
+        f"but both are {expected_total}"
+    )
+
+    assert totals["Total"] == pytest.approx(expected_total, abs=0.001), (
+        f"totals['Total'] should be round(raw_sum)={expected_total} but got {totals['Total']}"
+    )

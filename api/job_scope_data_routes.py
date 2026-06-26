@@ -1580,7 +1580,7 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
                 "scope_1": scope_1_rounded,
                 "scope_2": scope_2_rounded,
                 "scope_3": scope_3_rounded,
-                "total": scope_1_rounded + scope_2_rounded + scope_3_rounded,
+                "total": round(float(totals.get("Total") or 0.0), 2),
                 "reporting_year": int(period_row[0]) if period_row and period_row[0] is not None else None,
                 "reporting_period_start": str(period_row[1]) if period_row and period_row[1] is not None else None,
                 "reporting_period_end": str(period_row[2]) if period_row and period_row[2] is not None else None,
