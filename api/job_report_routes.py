@@ -2673,10 +2673,11 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
         # Seed with configured sites so zero-emission sites are still shown.
         for s in configured_site_names:
             if s not in site_scope_totals:
-                site_scope_totals[s] = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
+                site_scope_totals[s] = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0, "RawTotal": 0.0}
             if s not in site_activity_totals:
                 site_activity_totals[s] = {k: 0.0 for k in ACTIVITY_GROUP_ORDER}
                 site_activity_totals[s]["Total"] = 0.0
+                site_activity_totals[s]["RawTotal"] = 0.0
 
         for row in rows:
             site_name = str(row.get("site_name") or "Unassigned")
@@ -2687,20 +2688,24 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
             metrics = combined_row_metrics(row, resolver)
             qty_val = float(metrics.get("display_qty") or 0.0)
             uom = str(metrics.get("display_uom") or "")
-            emissions = round(float(metrics.get("calc_tco2e") or 0.0), 2)
+            raw_tco2e = float(metrics.get("calc_tco2e") or 0.0)
+            emissions = round(raw_tco2e, 2)
 
             if site_name not in site_scope_totals:
-                site_scope_totals[site_name] = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
+                site_scope_totals[site_name] = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0, "RawTotal": 0.0}
             if scope in ("Scope 1", "Scope 2", "Scope 3"):
                 site_scope_totals[site_name][scope] += emissions
             site_scope_totals[site_name]["Total"] += emissions
+            site_scope_totals[site_name]["RawTotal"] += raw_tco2e
 
             group = _classify_activity_group(scope, category, report_label)
             if site_name not in site_activity_totals:
                 site_activity_totals[site_name] = {k: 0.0 for k in ACTIVITY_GROUP_ORDER}
                 site_activity_totals[site_name]["Total"] = 0.0
+                site_activity_totals[site_name]["RawTotal"] = 0.0
             site_activity_totals[site_name][group] += emissions
             site_activity_totals[site_name]["Total"] += emissions
+            site_activity_totals[site_name]["RawTotal"] += raw_tco2e
 
             appendix_rows.append(
                 {
@@ -2732,13 +2737,15 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
             )
 
         # Keep only non-empty sites and deterministic ordering.
+        # Use RawTotal (unrounded row sum) for the site total so it matches the
+        # grand total approach in _build_scope_summary and avoids per-row rounding artefacts.
         scope_rows = [
             {
                 "site_name": site,
                 "scope_1": round(vals.get("Scope 1", 0.0), 2),
                 "scope_2": round(vals.get("Scope 2", 0.0), 2),
                 "scope_3": round(vals.get("Scope 3", 0.0), 2),
-                "total": round(vals.get("Total", 0.0), 2),
+                "total": round(vals.get("RawTotal", 0.0), 2),
             }
             for site, vals in site_scope_totals.items()
         ]
@@ -2766,7 +2773,7 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
                     "employee_commuting": round(float(vals.get("Employee Commuting", 0.0) or 0.0), 2),
                     "pgs": round(float(vals.get("Purchased Goods & Services (PG&S)", 0.0) or 0.0), 2),
                     "other": round(float(vals.get("Other Emissions", 0.0) or 0.0), 2),
-                    "total": round(float(vals.get("Total", 0.0) or 0.0), 2),
+                    "total": round(float(vals.get("RawTotal", 0.0) or 0.0), 2),
                 }
             )
 
