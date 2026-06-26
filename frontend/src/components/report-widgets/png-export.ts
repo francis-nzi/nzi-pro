@@ -223,16 +223,20 @@ async function composeChartAsPngDataUrl({
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        ctx.fillStyle = "#111827";
+        ctx.fillStyle = "#6b7280";
         ctx.font = "600 18px Arial, sans-serif";
         ctx.textBaseline = "alphabetic";
-        ctx.fillText(title, 24, 40);
+        ctx.textAlign = "center";
+        ctx.fillText(title, outputWidth / 2, 40);
+        ctx.textAlign = "left";
 
         let y = 40;
         if (subtitle) {
           ctx.fillStyle = "#6b7280";
           ctx.font = "12px Arial, sans-serif";
-          ctx.fillText(subtitle, 24, 60);
+          ctx.textAlign = "center";
+          ctx.fillText(subtitle, outputWidth / 2, 60);
+          ctx.textAlign = "left";
           y = 60;
         }
 
@@ -305,7 +309,7 @@ async function composeChartAsPngDataUrl({
 
           if (callout?.text) {
             const paddingX = 12;
-            const pillWidth = Math.min(valueWidth + labelWidth, ctx.measureText(callout.text).width + paddingX * 2);
+            const pillWidth = valueWidth + labelWidth;
             const pillHeight = 28;
             const pillX = tableX;
             const pillY = rowY + 6;
@@ -342,16 +346,20 @@ async function composeChartAsPngDataUrl({
           ctx.fillStyle = "#ffffff";
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-          ctx.fillStyle = "#111827";
+          ctx.fillStyle = "#6b7280";
           ctx.font = "600 18px Arial, sans-serif";
           ctx.textBaseline = "alphabetic";
-          ctx.fillText(title, 24, 40);
+          ctx.textAlign = "center";
+          ctx.fillText(title, outputWidth / 2, 40);
+          ctx.textAlign = "left";
 
           y = 40;
           if (subtitle) {
             ctx.fillStyle = "#6b7280";
             ctx.font = "12px Arial, sans-serif";
-            ctx.fillText(subtitle, 24, 60);
+            ctx.textAlign = "center";
+            ctx.fillText(subtitle, outputWidth / 2, 60);
+            ctx.textAlign = "left";
             y = 60;
           }
 
