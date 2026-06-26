@@ -559,6 +559,17 @@ def _extract_bearer_token(request: Request) -> str:
     return ""
 
 
+def _wait_for_widget_pngs_ready(page, timeout_ms: int = 30000) -> None:
+    """Wait until the report page has fetched stored widget PNGs."""
+    page.wait_for_function(
+        """() => {
+            const root = document.querySelector('[data-report-ready="1"]');
+            return Boolean(root && root.getAttribute('data-widget-pngs-ready') === '1');
+        }""",
+        timeout=timeout_ms,
+    )
+
+
 def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
     from playwright.sync_api import sync_playwright
 
@@ -568,6 +579,7 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
     # Check whether stored widget PNGs exist so we can signal the React page
     # to render them instead of live Recharts charts (avoids SVG rendering issues).
     _has_stored_pngs = False
+    _png_check_failed = False
     try:
         with get_conn() as _chk_con:
             _chk_row = _chk_con.execute(
@@ -576,7 +588,15 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
             ).fetchone()
             _has_stored_pngs = _chk_row is not None
     except Exception:
-        _has_stored_pngs = False
+        _png_check_failed = True
+
+    # Require Insights charts before generating the PDF. Only block when the DB
+    # confirms no PNGs exist; a DB error falls through to let Playwright try anyway.
+    if not _png_check_failed and not _has_stored_pngs:
+        raise HTTPException(
+            status_code=422,
+            detail="Charts have not been captured from Insights. Please go to Insights → Capture Charts before generating a PDF.",
+        )
 
     # Target the Advanced Reports page directly so the PDF matches the UI.
     # Pass the bearer token as a query param so the in-page fetch calls
@@ -646,6 +666,12 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
             # If stored PNGs are being used, give React time to fetch them and
             # replace chart elements with <img> tags before we start the PDF render.
             if _has_stored_pngs:
+                try:
+                    _wait_for_widget_pngs_ready(page, timeout_ms=45000)
+                except Exception:
+                    # Fall back to the page's current state if the stored PNG
+                    # fetch is slow or a widget snapshot is unavailable.
+                    pass
                 page.wait_for_timeout(3000)
 
             # Inject stored widget PNGs BEFORE entering print media mode so that

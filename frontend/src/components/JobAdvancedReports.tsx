@@ -30,6 +30,8 @@ import {
   HistoricalEmissionsTrendWidget,
   IntensityPathwayWidget,
   buildActivityBarData,
+  captureSvgToPngDataUrl,
+  findLargestSvg,
   ScopeSummaryDonutWidget,
   ScopeYearOnYearBarWidget,
   SiteSummaryDonutWidget,
@@ -693,6 +695,18 @@ function MetaRow({ label, value }: { label: string; value: string | number | nul
   );
 }
 
+function ChartCapturePlaceholder({ className }: { className?: string }) {
+  return (
+    <div className={`flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 py-10 text-center ${className ?? ""}`}>
+      <svg className="h-8 w-8 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+      </svg>
+      <p className="text-xs font-medium text-gray-500">Chart not yet captured</p>
+      <p className="text-xs text-gray-400">Go to <strong>Insights → Capture Charts</strong> to generate this chart</p>
+    </div>
+  );
+}
+
 // Main component
 
 export default function JobAdvancedReports({
@@ -758,7 +772,6 @@ export default function JobAdvancedReports({
   } | null>(null);
   const [manifestValidationError, setManifestValidationError] = useState<string | null>(null);
   const [storedWidgetPngs, setStoredWidgetPngs] = useState<Record<string, string>>({});
-  const [useWidgetPngs, setUseWidgetPngs] = useState(false);
   const [widgetPngsReady, setWidgetPngsReady] = useState(false);
 
   function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
@@ -804,16 +817,10 @@ export default function JobAdvancedReports({
       .finally(() => setLoading(false));
   }, [jobId, baseUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When Playwright renders for PDF (use_widget_pngs=1), fetch stored PNGs so
-  // widgets can render them as <img> tags instead of live Recharts charts.
+  // Always fetch stored widget PNGs captured from Insights. Report Printing and the PDF
+  // use these images directly so charts match Insights exactly.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("use_widget_pngs") !== "1") {
-      setWidgetPngsReady(true);
-      return;
-    }
-    setUseWidgetPngs(true);
     void (async () => {
       try {
         const res = await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, { credentials: "include" });
@@ -831,11 +838,9 @@ export default function JobAdvancedReports({
     setDownloading(true);
     setDownloadError(null);
     try {
-      // Auto-capture all widget PNGs from this page before generating the PDF.
-      // Report Printing uses the same widget components and data as Insights, so
-      // this is safe and means users never need to visit Insights first.
-      const widgetIds = Object.values(REPORT_WIDGET_IDS);
-      await Promise.allSettled(widgetIds.map((id) => refreshWidgetPngForPdf(id)));
+      if (Object.keys(storedWidgetPngs).length === 0) {
+        throw new Error("Charts have not been captured yet. Please go to Insights → Capture Charts first, then try again.");
+      }
 
       const res = await authFetch(`${baseUrl}/jobs/${jobId}/report-live-pdf`);
       if (!res.ok) {
@@ -937,11 +942,47 @@ export default function JobAdvancedReports({
 
   async function refreshWidgetPngForPdf(widgetId: string) {
     const exporter = await waitForWidgetPngExporter(widgetId);
-    if (!exporter) return false;
+    if (!exporter) {
+      const container = document.querySelector(`[data-widget-key="${CSS.escape(widgetId)}"]`) as HTMLElement | null;
+      const svg = findLargestSvg(container);
+      if (!svg) return false;
+
+      try {
+        const pngData = await captureSvgToPngDataUrl(svg);
+        if (!pngData) return false;
+
+        const res = await authFetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            widget_id: widgetId,
+            png_data: pngData,
+          }),
+        });
+        return res.ok;
+      } catch {
+        return false;
+      }
+    }
 
     try {
       const pngData = await exporter();
-      if (!pngData) return false;
+      if (!pngData) {
+        const container = document.querySelector(`[data-widget-key="${CSS.escape(widgetId)}"]`) as HTMLElement | null;
+        const svg = findLargestSvg(container);
+        if (!svg) return false;
+        const fallbackPng = await captureSvgToPngDataUrl(svg);
+        if (!fallbackPng) return false;
+        const res = await authFetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            widget_id: widgetId,
+            png_data: fallbackPng,
+          }),
+        });
+        return res.ok;
+      }
 
       const res = await authFetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, {
         method: "POST",
@@ -1319,17 +1360,15 @@ export default function JobAdvancedReports({
     scope_totals?.["Scope 2"],
     scope_totals?.["Scope 3"],
   );
-  const pdfWidgetPngs = useWidgetPngs ? storedWidgetPngs : {};
-  const widgetPresentation = useWidgetPngs ? "image" : "card";
-  const widgetPngsReadyState = useWidgetPngs ? (widgetPngsReady ? "1" : "0") : "1";
+  const widgetPngsReadyState = widgetPngsReady ? "1" : "0";
   const widgetPngs = {
-    emissionsScopeDonut: pdfWidgetPngs["emissions_scope_donut"] ?? null,
-    scopeYearOnYearBar: pdfWidgetPngs["scope_year_on_year_bar"] ?? null,
-    emissionsSiteDonut: pdfWidgetPngs["emissions_site_donut"] ?? null,
-    emissionsReductionPathway: pdfWidgetPngs["emissions_reduction_pathway"] ?? null,
-    emissionsByActivity: pdfWidgetPngs["emissions_by_activity"] ?? null,
-    intensityPathway: pdfWidgetPngs["intensity_pathway"] ?? null,
-    historicalEmissionsTrend: pdfWidgetPngs["historical_emissions_trend"] ?? null,
+    emissionsScopeDonut: storedWidgetPngs["emissions_scope_donut"] ?? null,
+    scopeYearOnYearBar: storedWidgetPngs["scope_year_on_year_bar"] ?? null,
+    emissionsSiteDonut: storedWidgetPngs["emissions_site_donut"] ?? null,
+    emissionsReductionPathway: storedWidgetPngs["emissions_reduction_pathway"] ?? null,
+    emissionsByActivity: storedWidgetPngs["emissions_by_activity"] ?? null,
+    intensityPathway: storedWidgetPngs["intensity_pathway"] ?? null,
+    historicalEmissionsTrend: storedWidgetPngs["historical_emissions_trend"] ?? null,
   };
   const normalizedSiteData = (() => {
     const siteData = (site_breakdowns?.scope ?? [])
@@ -1933,18 +1972,20 @@ export default function JobAdvancedReports({
             )}
 
             <div className="mt-6">
-              <ScopeSummaryDonutWidget
-                title={`${data.job_data.client_name ?? "Client"} Emissions Summary by Scope`}
-                clientName={data.job_data.client_name}
-                data={scopeDonutData}
-                currentYear={currentReportYear}
-                currentTotal={totalEmissions}
-                benchmarkYear={donutBenchmarkYear}
-                benchmarkTotal={donutBenchmarkTotal}
-                showWidgetRef={true}
-                storedPngUrl={widgetPngs.emissionsScopeDonut}
-                presentation={widgetPresentation}
-              />
+              {widgetPngs.emissionsScopeDonut ? (
+                <ScopeSummaryDonutWidget
+                  title={`${data.job_data.client_name ?? "Client"} Emissions Summary by Scope`}
+                  clientName={data.job_data.client_name}
+                  data={scopeDonutData}
+                  currentYear={currentReportYear}
+                  currentTotal={totalEmissions}
+                  benchmarkYear={donutBenchmarkYear}
+                  benchmarkTotal={donutBenchmarkTotal}
+                  showWidgetRef={true}
+                  storedPngUrl={widgetPngs.emissionsScopeDonut}
+                  presentation="image"
+                />
+              ) : <ChartCapturePlaceholder />}
             </div>
 
           </CardContent>
@@ -2020,19 +2061,21 @@ export default function JobAdvancedReports({
             {/* Emissions Reduction Pathway chart */}
             {hasPathway && (
               <div className="break-inside-avoid">
-                <EmissionsReductionPathwayWidget
-                  title={`${data.job_data?.client_name ?? "Client"} Emissions Reduction Targets to ${netZeroYear}`}
-                  clientName={data.job_data?.client_name}
-                  data={emissionsReductionPathwayData}
-                  benchmarkYear={baselineYear}
-                  targetYear={netZeroYear}
-                  interimYear={interimYear}
-                  showScope2={scope2 > 0}
-                  showWidgetRef={true}
-                  storedPngUrl={widgetPngs.emissionsReductionPathway}
-                  presentation={widgetPresentation}
-                  className="w-full"
-                />
+                {widgetPngs.emissionsReductionPathway ? (
+                  <EmissionsReductionPathwayWidget
+                    title={`${data.job_data?.client_name ?? "Client"} Emissions Reduction Targets to ${netZeroYear}`}
+                    clientName={data.job_data?.client_name}
+                    data={emissionsReductionPathwayData}
+                    benchmarkYear={baselineYear}
+                    targetYear={netZeroYear}
+                    interimYear={interimYear}
+                    showScope2={scope2 > 0}
+                    showWidgetRef={true}
+                    storedPngUrl={widgetPngs.emissionsReductionPathway}
+                    presentation="image"
+                    className="w-full"
+                  />
+                ) : <ChartCapturePlaceholder />}
               </div>
             )}
 
@@ -2387,19 +2430,21 @@ export default function JobAdvancedReports({
                   </p>
                 )}
                 {hasPathway && intensityPathwayData.length > 0 && (
-                  <IntensityPathwayWidget
-                    title={`${data.job_data?.client_name ?? "Client"} Intensity Metrics Targets to ${netZeroYear}`}
-                    clientName={data.job_data?.client_name}
-                    data={intensityPathwayData}
-                    series={intensityPathwaySeries}
-                    benchmarkYear={baselineYear}
-                    targetYear={netZeroYear}
-                  interimYear={interimYear}
-                  showWidgetRef={true}
-                  storedPngUrl={widgetPngs.intensityPathway}
-                  presentation={widgetPresentation}
-                  className="w-full"
-                />
+                  widgetPngs.intensityPathway ? (
+                    <IntensityPathwayWidget
+                      title={`${data.job_data?.client_name ?? "Client"} Intensity Metrics Targets to ${netZeroYear}`}
+                      clientName={data.job_data?.client_name}
+                      data={intensityPathwayData}
+                      series={intensityPathwaySeries}
+                      benchmarkYear={baselineYear}
+                      targetYear={netZeroYear}
+                      interimYear={interimYear}
+                      showWidgetRef={true}
+                      storedPngUrl={widgetPngs.intensityPathway}
+                      presentation="image"
+                      className="w-full"
+                    />
+                  ) : <ChartCapturePlaceholder />
                 )}
               </CardContent>
             </Card>
@@ -2411,35 +2456,39 @@ export default function JobAdvancedReports({
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="mx-auto max-w-[640px]">
-              <ScopeSummaryDonutWidget
-                title={`${data.job_data.client_name ?? "Client"} Emissions Summary by Scope`}
-                clientName={data.job_data.client_name}
-                data={scopeDonutData}
-                currentYear={currentReportYear}
-                currentTotal={totalEmissions}
-                benchmarkYear={donutBenchmarkYear}
-                benchmarkTotal={donutBenchmarkTotal}
-                showWidgetRef={true}
-                storedPngUrl={widgetPngs.emissionsScopeDonut}
-                presentation={widgetPresentation}
-              />
+              {widgetPngs.emissionsScopeDonut ? (
+                <ScopeSummaryDonutWidget
+                  title={`${data.job_data.client_name ?? "Client"} Emissions Summary by Scope`}
+                  clientName={data.job_data.client_name}
+                  data={scopeDonutData}
+                  currentYear={currentReportYear}
+                  currentTotal={totalEmissions}
+                  benchmarkYear={donutBenchmarkYear}
+                  benchmarkTotal={donutBenchmarkTotal}
+                  showWidgetRef={true}
+                  storedPngUrl={widgetPngs.emissionsScopeDonut}
+                  presentation="image"
+                />
+              ) : <ChartCapturePlaceholder />}
             </div>
 
             {scopeYearOnYearBar ? (
-              <ScopeYearOnYearBarWidget
-                clientName={data.job_data.client_name}
-                data={scopeYearOnYearBar.data}
-                benchmarkLabel={scopeYearOnYearBar.benchmarkLabel}
-                previousLabel={scopeYearOnYearBar.previousLabel}
-                currentLabel={scopeYearOnYearBar.currentLabel}
-                showBenchmarkBar={scopeYearOnYearBar.showBenchmarkBar}
-                showPreviousBar={scopeYearOnYearBar.showPreviousBar}
-                showComparisonPct={scopeYearOnYearBar.showComparisonPct}
-                showWidgetRef={true}
-                storedPngUrl={widgetPngs.scopeYearOnYearBar}
-                presentation={widgetPresentation}
-                className="w-full"
-              />
+              widgetPngs.scopeYearOnYearBar ? (
+                <ScopeYearOnYearBarWidget
+                  clientName={data.job_data.client_name}
+                  data={scopeYearOnYearBar.data}
+                  benchmarkLabel={scopeYearOnYearBar.benchmarkLabel}
+                  previousLabel={scopeYearOnYearBar.previousLabel}
+                  currentLabel={scopeYearOnYearBar.currentLabel}
+                  showBenchmarkBar={scopeYearOnYearBar.showBenchmarkBar}
+                  showPreviousBar={scopeYearOnYearBar.showPreviousBar}
+                  showComparisonPct={scopeYearOnYearBar.showComparisonPct}
+                  showWidgetRef={true}
+                  storedPngUrl={widgetPngs.scopeYearOnYearBar}
+                  presentation="image"
+                  className="w-full"
+                />
+              ) : <ChartCapturePlaceholder />
             ) : null}
 
             {/* Benchmark / Previous Year / Current Year - Scope Comparison */}
@@ -2497,19 +2546,21 @@ export default function JobAdvancedReports({
               <div style={{ breakBefore: "page", pageBreakBefore: "always" }} className="break-inside-avoid">
                 <p className="text-sm font-semibold text-gray-700 mb-2">Site Breakdown by Scope</p>
                 <div className="mb-4">
-                  <SiteSummaryDonutWidget
-                    title={`${data.job_data?.client_name ?? "Client"} Emissions by Site`}
-                    clientName={data.job_data?.client_name}
-                    data={normalizedSiteData}
-                    currentYear={currentReportYear}
-                    currentTotal={totalEmissions}
-                    benchmarkYear={donutBenchmarkYear}
-                    benchmarkTotal={donutBenchmarkTotal}
-                    showWidgetRef={true}
-                    storedPngUrl={widgetPngs.emissionsSiteDonut}
-                    presentation={widgetPresentation}
-                    className="w-full"
-                  />
+                  {widgetPngs.emissionsSiteDonut ? (
+                    <SiteSummaryDonutWidget
+                      title={`${data.job_data?.client_name ?? "Client"} Emissions by Site`}
+                      clientName={data.job_data?.client_name}
+                      data={normalizedSiteData}
+                      currentYear={currentReportYear}
+                      currentTotal={totalEmissions}
+                      benchmarkYear={donutBenchmarkYear}
+                      benchmarkTotal={donutBenchmarkTotal}
+                      showWidgetRef={true}
+                      storedPngUrl={widgetPngs.emissionsSiteDonut}
+                      presentation="image"
+                      className="w-full"
+                    />
+                  ) : <ChartCapturePlaceholder />}
                 </div>
                 <div className="overflow-hidden rounded-lg border border-gray-200">
                   <div className="grid grid-cols-[1fr_80px_80px_80px_80px] px-3 py-2" style={{ backgroundColor: BRAND }}>
@@ -2554,15 +2605,17 @@ export default function JobAdvancedReports({
         {/* 6. Emissions by activity */}
         {activityBarData.length > 0 && (
           <div className="live-report-section space-y-6" data-section="Emissions by Activity">
-            <EmissionsByActivityWidget
-              title={`${data.job_data.client_name ?? "Client"} Emissions by Activity`}
-              clientName={data.job_data.client_name}
-              data={activityBarData}
-              showWidgetRef={true}
-              storedPngUrl={widgetPngs.emissionsByActivity}
-              presentation={widgetPresentation}
-              className="w-full"
-            />
+            {widgetPngs.emissionsByActivity ? (
+              <EmissionsByActivityWidget
+                title={`${data.job_data.client_name ?? "Client"} Emissions by Activity`}
+                clientName={data.job_data.client_name}
+                data={activityBarData}
+                showWidgetRef={true}
+                storedPngUrl={widgetPngs.emissionsByActivity}
+                presentation="image"
+                className="w-full"
+              />
+            ) : <ChartCapturePlaceholder />}
             {report_metadata?.activity_commentary && (
               <ReportMarkdown content={report_metadata.activity_commentary} />
             )}
@@ -2746,15 +2799,17 @@ export default function JobAdvancedReports({
           </Card>
         )}
         {effectiveYearlyEmissions.length > 0 && (
-          <HistoricalEmissionsTrendWidget
-            title={`${data.job_data?.client_name ?? "Client"} Historical Emissions Trend`}
-            clientName={data.job_data?.client_name}
-            data={effectiveYearlyEmissions.filter((r) => r.year >= baselineYear)}
-            showWidgetRef={true}
-            storedPngUrl={widgetPngs.historicalEmissionsTrend}
-            presentation={widgetPresentation}
-            className="live-report-section"
-          />
+          widgetPngs.historicalEmissionsTrend ? (
+            <HistoricalEmissionsTrendWidget
+              title={`${data.job_data?.client_name ?? "Client"} Historical Emissions Trend`}
+              clientName={data.job_data?.client_name}
+              data={effectiveYearlyEmissions.filter((r) => r.year >= baselineYear)}
+              showWidgetRef={true}
+              storedPngUrl={widgetPngs.historicalEmissionsTrend}
+              presentation="image"
+              className="live-report-section"
+            />
+          ) : <ChartCapturePlaceholder className="live-report-section" />
         )}
         {/* 10. Carbon reduction actions */}
         <Card className="live-report-section" data-section="Carbon Reduction Actions">
