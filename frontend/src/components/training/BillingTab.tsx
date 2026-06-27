@@ -43,7 +43,7 @@ export default function BillingTab({ runs, baseUrl, onRefresh }: Props) {
       for (const b of run.bookings) {
         result.push({
           ...b,
-          run_name: run.run_name || run.product_name || `Run #${run.training_course_run_id}`,
+          run_name: run.run_name || run.product_name || `Cohort #${run.training_course_run_id}`,
         });
       }
     }
@@ -102,12 +102,12 @@ export default function BillingTab({ runs, baseUrl, onRefresh }: Props) {
         })}
       </div>
 
-      {/* Per-run breakdown */}
+      {/* Per-cohort breakdown */}
       {runs.map((run) => (
         <Card key={run.training_course_run_id}>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center justify-between text-sm">
-              <span>{run.run_name || run.product_name || `Run #${run.training_course_run_id}`}</span>
+              <span>{run.run_name || run.product_name || `Cohort #${run.training_course_run_id}`}</span>
               <span className="text-xs font-normal text-slate-500">{run.booking_count} attendees</span>
             </CardTitle>
           </CardHeader>

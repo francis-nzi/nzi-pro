@@ -110,7 +110,7 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
         }),
       });
       if (!res.ok) throw new Error(await res.text());
-      toast.success(`${reassignBooking.person_name} moved to new run`);
+      toast.success(`${reassignBooking.person_name} moved to a new cohort`);
       setReassignBooking(null);
       onRefresh();
     } catch (e: unknown) {
@@ -176,7 +176,7 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
       for (const b of run.bookings) {
         result.push({
           ...b,
-          run_name: run.run_name || run.product_name || `Run #${run.training_course_run_id}`,
+          run_name: run.run_name || run.product_name || `Cohort #${run.training_course_run_id}`,
           run_id: run.training_course_run_id,
         });
       }
@@ -231,7 +231,7 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
   async function save() {
     if (!form.person_name?.trim()) { toast.error("Name is required"); return; }
     const runId = form.training_course_run_id;
-    if (!runId) { toast.error("Select a course run"); return; }
+    if (!runId) { toast.error("Select a cohort"); return; }
     setSaving(true);
     try {
       const url = editBooking
@@ -298,13 +298,13 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
         <Select value={filterRun} onValueChange={setFilterRun}>
           <SelectTrigger className="w-[180px]">
             <Filter className="mr-1.5 h-3.5 w-3.5 text-slate-400" />
-            <SelectValue placeholder="All runs" />
+            <SelectValue placeholder="All cohorts" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All runs</SelectItem>
+            <SelectItem value="all">All cohorts</SelectItem>
             {runs.map((r) => (
               <SelectItem key={r.training_course_run_id} value={String(r.training_course_run_id)}>
-                {r.run_name || r.product_name || `Run #${r.training_course_run_id}`}
+                {r.run_name || r.product_name || `Cohort #${r.training_course_run_id}`}
               </SelectItem>
             ))}
           </SelectContent>
@@ -339,7 +339,7 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Email</TableHead>
-                    <TableHead>Run</TableHead>
+                    <TableHead>Cohort</TableHead>
                     <TableHead>Attendance</TableHead>
                     <TableHead>Billing</TableHead>
                     <TableHead>Type</TableHead>
@@ -398,7 +398,7 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
                           {runs.length > 1 && (
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-blue-500" title="Reassign to different run" onClick={() => openReassign(b)}>
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-blue-500" title="Reassign to different cohort" onClick={() => openReassign(b)}>
                               <ArrowLeftRight className="h-3.5 w-3.5" />
                             </Button>
                           )}
@@ -433,16 +433,16 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
           <div className="grid grid-cols-2 gap-3 py-2">
             {!editBooking && (
               <div className="col-span-2">
-                <Label>Course Run *</Label>
+                <Label>Cohort *</Label>
                 <Select
                   value={String(form.training_course_run_id ?? "")}
                   onValueChange={(v) => setForm((f) => ({ ...f, training_course_run_id: Number(v) }))}
                 >
-                  <SelectTrigger><SelectValue placeholder="Select run..." /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select cohort..." /></SelectTrigger>
                   <SelectContent>
                     {runs.map((r) => (
                       <SelectItem key={r.training_course_run_id} value={String(r.training_course_run_id)}>
-                        {r.run_name || r.product_name || `Run #${r.training_course_run_id}`}
+                        {r.run_name || r.product_name || `Cohort #${r.training_course_run_id}`}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -603,15 +603,15 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
               </div>
 
               <div>
-                <Label>Move to Run</Label>
+                <Label>Move to Cohort</Label>
                 <Select value={reassignRunId} onValueChange={(v) => { setReassignRunId(v); setReassignSessionIds(new Set()); }}>
-                  <SelectTrigger><SelectValue placeholder="Select a different run…" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select a different cohort…" /></SelectTrigger>
                   <SelectContent>
                     {runs
                       .filter((r) => r.training_course_run_id !== reassignBooking.training_course_run_id)
                       .map((r) => (
                         <SelectItem key={r.training_course_run_id} value={String(r.training_course_run_id)}>
-                          {r.run_name || r.product_name || `Run #${r.training_course_run_id}`}
+                          {r.run_name || r.product_name || `Cohort #${r.training_course_run_id}`}
                           {r.start_date ? ` · ${new Date(r.start_date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : ""}
                         </SelectItem>
                       ))}
@@ -652,10 +652,10 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
                         );
                       })}
                     </div>
-                    <p className="mt-1.5 text-xs text-slate-400">Existing attendance records for the old run will be removed.</p>
+                    <p className="mt-1.5 text-xs text-slate-400">Existing attendance records for the old cohort will be removed.</p>
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-400">No sessions in this run yet.</p>
+                  <p className="text-xs text-slate-400">No sessions in this cohort yet.</p>
                 );
               })()}
             </div>

@@ -571,6 +571,7 @@ export default function useJobWorkspaceActions(deps: ActionDeps) {
       params.set("site", selectedSiteName);
       params.set("include_prev_year", includePrevYear ? "true" : "false");
       params.set("template_format", "single");
+      params.set("template_id", selectedTemplateId);
 
       const res = await fetch(`${baseUrl}/jobs/${jobId}/excel-template?${params.toString()}`);
       if (!res.ok) {

@@ -641,6 +641,7 @@ def job_excel_template(
     site: str = Query(..., min_length=1),
     include_prev_year: bool = Query(True),
     template_format: str = Query("single", regex="^(single|multi)$"),
+    template_id: int | None = Query(None),
     _user: dict[str, str] = Depends(_current_user),
 ):
     _tmp_template_file = None
@@ -668,23 +669,31 @@ def job_excel_template(
         reporting_period_end = job_row[3] if job_row and len(job_row) > 3 else None
         client_name = str(job_row[4] or "Client") if job_row and len(job_row) > 4 else "Client"
         job_template_id = int(job_row[5]) if job_row and len(job_row) > 5 and job_row[5] is not None else None
+        resolved_template_id = int(template_id) if template_id is not None else job_template_id
 
-        if job_template_id is None:
+        if resolved_template_id is None:
             raise HTTPException(status_code=400, detail="Please select a Job Template before downloading.")
 
         with get_conn() as con:
-            template_exists = con.execute(
+            template_row = con.execute(
                 """
-                SELECT 1
-                FROM job_templates
-                WHERE job_template_id = ?
-                  AND COALESCE(is_active, TRUE) = TRUE
+                SELECT
+                    jt.excel_template_path,
+                    jt.file_content,
+                    jt.template_name,
+                    jt.template_key
+                FROM job_templates jt
+                WHERE jt.job_template_id = ?
+                  AND COALESCE(jt.is_active, TRUE) = TRUE
                 LIMIT 1
                 """,
-                [int(job_template_id)],
+                [int(resolved_template_id)],
             ).fetchone()
-        if not template_exists:
+        if not template_row:
             raise HTTPException(status_code=400, detail="Please select a valid Job Template before downloading.")
+
+        template_excel_path = template_row[0] if len(template_row) > 0 else None
+        template_file_content = template_row[1] if len(template_row) > 1 else None
 
         def _fmt_period_part(val):
             if not val:
@@ -708,23 +717,13 @@ def job_excel_template(
             period_part = str(reporting_year or datetime.now().year)
 
         paths = _job_template_paths(int(job_id))
-        reference_template_path = paths.get("excel_template_path")
+        reference_template_path = str(template_excel_path or "").strip() or paths.get("excel_template_path")
 
         # If the assigned template has DB content (uploaded via Admin), write to a temp
         # file so the generator uses the correct file instead of a stale disk copy.
-        with get_conn() as con:
-            tpl_row = con.execute(
-                """
-                SELECT jt.file_content
-                FROM jobs j
-                LEFT JOIN job_templates jt ON jt.job_template_id = j.job_template_id
-                WHERE j.job_id = ?
-                """,
-                [int(job_id)],
-            ).fetchone()
-        if tpl_row and tpl_row[0]:
+        if template_file_content:
             import tempfile
-            file_content_bytes = bytes(tpl_row[0]) if not isinstance(tpl_row[0], bytes) else tpl_row[0]
+            file_content_bytes = bytes(template_file_content) if not isinstance(template_file_content, bytes) else template_file_content
             _tmp_template_file = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
             _tmp_template_file.write(file_content_bytes)
             _tmp_template_file.close()

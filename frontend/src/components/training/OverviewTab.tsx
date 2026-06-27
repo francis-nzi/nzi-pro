@@ -48,7 +48,7 @@ export default function OverviewTab({ overview }: Props) {
 
   const kpis = [
     {
-      label: "Course Runs",
+      label: "Cohorts",
       value: course_runs.length,
       sub: `${stats.activeRuns} active`,
       icon: BookOpen,
@@ -150,24 +150,24 @@ export default function OverviewTab({ overview }: Props) {
           </CardContent>
         </Card>
 
-        {/* Course runs summary */}
+        {/* Cohorts summary */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
               <AlertCircle className="h-4 w-4 text-blue-500" />
-              Course Runs
+              Cohorts
             </CardTitle>
           </CardHeader>
           <CardContent>
             {course_runs.length === 0 ? (
-              <p className="text-sm text-slate-400">No course runs yet.</p>
+              <p className="text-sm text-slate-400">No cohorts yet.</p>
             ) : (
               <div className="space-y-2">
                 {course_runs.map((run) => (
                   <div key={run.training_course_run_id} className="flex items-center gap-3 rounded-lg border border-slate-100 p-3">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-slate-800">
-                        {run.run_name || run.product_name || `Run #${run.training_course_run_id}`}
+                        {run.run_name || run.product_name || `Cohort #${run.training_course_run_id}`}
                       </p>
                       <p className="text-xs text-slate-500">
                         {run.start_date

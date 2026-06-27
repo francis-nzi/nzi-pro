@@ -165,7 +165,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
         }),
       });
       if (!res.ok) throw new Error(await res.text());
-      toast.success(editRun ? "Run updated" : "Run created");
+      toast.success(editRun ? "Cohort updated" : "Cohort created");
       setShowRunForm(false);
       onRefresh();
     } catch (e: unknown) {
@@ -176,7 +176,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
   }
 
   async function deleteRun(run: TrainingCourseRun) {
-    if (!confirm(`Delete run "${run.run_name || run.product_name || "this run"}"?`)) return;
+    if (!confirm(`Delete cohort "${run.run_name || run.product_name || "this cohort"}"?`)) return;
     setDeleting(`run-${run.training_course_run_id}`);
     try {
       const res = await fetch(`${baseUrl}/training-course-runs/${run.training_course_run_id}`, { method: "DELETE" });
@@ -184,7 +184,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
         const data = await res.json().catch(() => ({}));
         throw new Error(data.detail ?? "Delete failed");
       }
-      toast.success("Run deleted");
+      toast.success("Cohort deleted");
       onRefresh();
     } catch (e: unknown) {
       toast.error(String(e));
@@ -322,16 +322,16 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-700">Course Runs & Sessions</h3>
+        <h3 className="text-sm font-semibold text-slate-700">Cohorts & Sessions</h3>
         <Button size="sm" onClick={openCreateRun}>
-          <Plus className="mr-1 h-4 w-4" /> New Run
+          <Plus className="mr-1 h-4 w-4" /> New Cohort
         </Button>
       </div>
 
       {runs.length === 0 && (
         <Card>
           <CardContent className="py-10 text-center text-sm text-slate-400">
-            No course runs yet. Create the first one above.
+            No cohorts yet. Create the first one above.
           </CardContent>
         </Card>
       )}
@@ -354,7 +354,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-sm text-slate-900">
-                      {run.run_name || run.product_name || `Run #${run.training_course_run_id}`}
+                      {run.run_name || run.product_name || `Cohort #${run.training_course_run_id}`}
                     </span>
                     <Badge className={`text-xs ${runStatusColor(run.status)}`} variant="outline">
                       {formatTrainingCourseRunStatus(run.status)}
@@ -392,7 +392,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
 
             {isExpanded && (
               <CardContent className="border-t bg-slate-50/50 p-4">
-                {/* Run details summary */}
+                {/* Cohort details summary */}
                 <div className="mb-4 grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-slate-600 sm:grid-cols-3">
                   {run.venue_name && (
                     <span className="flex items-center gap-1"><MapPin className="h-3 w-3 text-slate-400" />{run.venue_name}</span>
@@ -491,13 +491,13 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                   })}
                 </div>
 
-                {/* Run-level documents */}
+                {/* Cohort-level documents */}
                 <div className="border-t border-slate-100 pt-4 mt-4">
                   <DocumentsPanel
                     targetType="run"
                     targetId={run.training_course_run_id}
                     baseUrl={baseUrl}
-                    title="Run Documents"
+                    title="Cohort Documents"
                   />
                 </div>
               </CardContent>
@@ -506,11 +506,11 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
         );
       })}
 
-      {/* Run form dialog */}
+      {/* Cohort form dialog */}
       <Dialog open={showRunForm} onOpenChange={(o) => !o && setShowRunForm(false)}>
         <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editRun ? "Edit Course Run" : "New Course Run"}</DialogTitle>
+            <DialogTitle>{editRun ? "Edit Cohort" : "New Cohort"}</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3 py-2">
             <div className="col-span-2">
@@ -528,7 +528,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
               </Select>
             </div>
             <div className="col-span-2">
-              <Label>Run Name</Label>
+              <Label>Cohort Name</Label>
               <Input value={runForm.run_name} onChange={(e) => setRunForm((f) => ({ ...f, run_name: e.target.value }))} />
             </div>
             <div>
@@ -588,7 +588,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
           </div>
           <div className="flex justify-end gap-2 border-t pt-3">
             <Button variant="outline" onClick={() => setShowRunForm(false)}>Cancel</Button>
-            <Button onClick={saveRun} disabled={saving}>{saving ? "Saving…" : editRun ? "Save" : "Create Run"}</Button>
+            <Button onClick={saveRun} disabled={saving}>{saving ? "Saving…" : editRun ? "Save" : "Create Cohort"}</Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -1,3 +1,4 @@
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -58,6 +59,7 @@ type JobUploadSectionProps = {
   selectedTemplateId: string;
   includePrevYear: boolean;
   templateStatus?: string;
+  templateSaveState?: "saved" | "saving" | "unsaved";
   onJobTemplateChange: (value: string) => void;
   onSaveTemplate: (templateId: string) => void;
   onDownloadTemplate: () => void;
@@ -88,6 +90,7 @@ export default function JobUploadSection({
   selectedTemplateId,
   includePrevYear,
   templateStatus,
+  templateSaveState = "unsaved",
   onJobTemplateChange,
   onSaveTemplate,
   onDownloadTemplate,
@@ -121,10 +124,18 @@ export default function JobUploadSection({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="jobTemplate" className="flex items-center gap-1">
-              Job Template
-              <span className="text-destructive">*</span>
-            </Label>
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="jobTemplate" className="flex items-center gap-1">
+                Job Template
+                <span className="text-destructive">*</span>
+              </Label>
+              <Badge
+                variant={templateSaveState === "saved" ? "secondary" : "outline"}
+                className="whitespace-nowrap"
+              >
+                {templateSaveState === "saved" ? "Saved" : templateSaveState === "saving" ? "Saving…" : "Unsaved changes"}
+              </Badge>
+            </div>
             <Select value={hasValidTemplateSelection ? selectedTemplateId : ""} onValueChange={onJobTemplateChange}>
               <SelectTrigger
                 id="jobTemplate"

@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
@@ -706,6 +706,20 @@ export default function JobDetailPage() {
     selectedMilestoneTemplateId,
   });
 
+  const handleJobTemplateChange = useCallback(
+    (value: string) => {
+      setSelectedTemplateId(value);
+      void workspaceActions.saveTemplate(value);
+    },
+    [workspaceActions, setSelectedTemplateId],
+  );
+  const templateSaveState: "saved" | "saving" | "unsaved" = (() => {
+    if (!selectedTemplateId || Number(selectedTemplateId) <= 0) return "unsaved";
+    if (busy && status.startsWith("Saving template")) return "saving";
+    if (job?.job_template_id != null && Number(job.job_template_id) === Number(selectedTemplateId)) return "saved";
+    return "unsaved";
+  })();
+
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-7xl px-6 py-10">
@@ -980,7 +994,8 @@ export default function JobDetailPage() {
               selectedTemplateId={selectedTemplateId}
               includePrevYear={includePrevYear}
               templateStatus={status}
-              onJobTemplateChange={setSelectedTemplateId}
+              templateSaveState={templateSaveState}
+              onJobTemplateChange={handleJobTemplateChange}
               onSaveTemplate={workspaceActions.saveTemplate}
               onDownloadTemplate={() =>
                 void workspaceActions.downloadTemplate(

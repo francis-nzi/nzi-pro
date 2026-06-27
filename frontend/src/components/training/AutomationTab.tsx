@@ -137,20 +137,20 @@ export default function AutomationTab({ jobId, runs, automationLog, baseUrl, onR
 
   return (
     <div className="space-y-6">
-      {/* Run selector */}
+      {/* Cohort selector */}
       <div className="flex items-center gap-3">
-        <Label className="shrink-0 text-sm">Course Run:</Label>
+        <Label className="shrink-0 text-sm">Cohort:</Label>
         <Select
           value={String(selectedRunId ?? "")}
           onValueChange={(v) => selectRun(Number(v))}
         >
           <SelectTrigger className="w-[280px]">
-            <SelectValue placeholder="Select a run…" />
+            <SelectValue placeholder="Select a cohort…" />
           </SelectTrigger>
           <SelectContent>
             {runs.map((r) => (
               <SelectItem key={r.training_course_run_id} value={String(r.training_course_run_id)}>
-                {r.run_name || r.product_name || `Run #${r.training_course_run_id}`}
+                {r.run_name || r.product_name || `Cohort #${r.training_course_run_id}`}
               </SelectItem>
             ))}
           </SelectContent>
