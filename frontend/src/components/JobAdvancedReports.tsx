@@ -1474,19 +1474,20 @@ export default function JobAdvancedReports({
       <style jsx global>{`
         @page {
           size: A4;
-          margin-top: 22mm;
+          margin-top: 15mm;
           margin-right: 12mm;
           margin-bottom: 22mm;
           margin-left: 12mm;
         }
         @page {
-          @top-left {
+          @top-center {
             content: "${printHeaderLine1}\\A ${printHeaderLine2}";
             white-space: pre;
             font-size: 8.5pt;
             font-weight: 600;
-            color: #1c3a2c;
+            color: #666;
             font-family: Arial, sans-serif;
+            text-align: center;
             vertical-align: middle;
           }
           @bottom-left {
@@ -1512,7 +1513,7 @@ export default function JobAdvancedReports({
           }
         }
         @page :first {
-          @top-left {
+          @top-center {
             content: none;
           }
         }
@@ -1891,7 +1892,7 @@ export default function JobAdvancedReports({
           {!integrityLoading && integrityCheck && integrityCheck.status === "pass" && (
             <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5">
               <span className="text-green-600 text-sm font-semibold">✓ Data integrity check passed</span>
-              <span className="text-green-600 text-xs">All totals, categories and rows match Outputs (canonical total {fmt(integrityCheck.canonical_total)} tCO₂e)</span>
+              <span className="text-green-600 text-xs">All totals, categories and rows match Outputs (canonical total {fmt(integrityCheck.canonical_total, 2)} tCO₂e)</span>
             </div>
           )}
           {!integrityLoading && integrityCheck && integrityCheck.status === "fail" && (() => {
