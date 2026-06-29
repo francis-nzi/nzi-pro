@@ -158,7 +158,7 @@ export function HistoricalEmissionsTrendWidget({
       <CardContent>
         <div className="h-[300px]" ref={chartWrapRef}>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={data} margin={{ top: 8, right: 24, left: 8, bottom: 8 }} barCategoryGap="35%">
+            <BarChart data={data} margin={{ top: 22, right: 24, left: 8, bottom: 8 }} barCategoryGap="35%">
               <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" vertical={false} />
               <XAxis
                 dataKey="year"
@@ -190,7 +190,7 @@ export function HistoricalEmissionsTrendWidget({
                   dataKey="total"
                   position="top"
                   formatter={(v: unknown) => (typeof v === "number" ? formatNumber(v, 0) : "")}
-                  style={{ fontSize: 9, fill: "#6b7280" }}
+                  style={{ fontSize: 11, fill: "#6b7280" }}
                 />
               </Bar>
             </BarChart>

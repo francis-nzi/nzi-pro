@@ -253,7 +253,7 @@ export function ScopeYearOnYearBarWidget({
                       dataKey="benchmark"
                       position="top"
                       formatter={(v: unknown) => (typeof v === "number" && v > 0 ? formatNumber(v, 1) : "")}
-                      style={{ fontSize: 9, fill: "#64748b" }}
+                      style={{ fontSize: 11, fill: "#64748b" }}
                     />
                   </Bar>
                 ) : null}
@@ -263,7 +263,7 @@ export function ScopeYearOnYearBarWidget({
                       dataKey="previous"
                       position="top"
                       formatter={(v: unknown) => (typeof v === "number" && v > 0 ? formatNumber(v, 1) : "")}
-                      style={{ fontSize: 9, fill: "#475569" }}
+                      style={{ fontSize: 11, fill: "#475569" }}
                     />
                   </Bar>
                 ) : null}
@@ -272,7 +272,7 @@ export function ScopeYearOnYearBarWidget({
                     dataKey="current"
                     position="top"
                     formatter={(v: unknown) => (typeof v === "number" && v > 0 ? formatNumber(v, 1) : "")}
-                    style={{ fontSize: 9, fill: CURRENT_COLOR }}
+                    style={{ fontSize: 11, fill: CURRENT_COLOR }}
                   />
                 </Bar>
               </BarChart>
