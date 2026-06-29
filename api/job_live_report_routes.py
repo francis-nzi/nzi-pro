@@ -576,36 +576,14 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
     frontend_base = _frontend_base_url(request)
     bearer = _extract_bearer_token(request)
 
-    # Check whether stored widget PNGs exist so we can signal the React page
-    # to render them instead of live Recharts charts (avoids SVG rendering issues).
-    _has_stored_pngs = False
-    _png_check_failed = False
-    try:
-        with get_conn() as _chk_con:
-            _chk_row = _chk_con.execute(
-                "SELECT 1 FROM job_widget_pngs WHERE job_id = %s LIMIT 1",
-                [int(job_id)],
-            ).fetchone()
-            _has_stored_pngs = _chk_row is not None
-    except Exception:
-        _png_check_failed = True
-
-    # Require Insights charts before generating the PDF. Only block when the DB
-    # confirms no PNGs exist; a DB error falls through to let Playwright try anyway.
-    if not _png_check_failed and not _has_stored_pngs:
-        raise HTTPException(
-            status_code=422,
-            detail="Charts have not been captured from Insights. Please go to Insights → Capture Charts before generating a PDF.",
-        )
-
-    # Target the Advanced Reports page directly so the PDF matches the UI.
-    # Pass the bearer token as a query param so the in-page fetch calls
-    # can include it — the /api/backend proxy forwards Authorization to the API.
+    # Target the Advanced Reports page. Playwright renders live Recharts charts
+    # directly — no stored PNG capture step is required before generating a PDF.
+    # Pass the bearer token as a query param so in-page fetch calls are authenticated.
     report_url = (
         f"{frontend_base}/jobs/{int(job_id)}/advanced-reports"
-        f"?print=1{'&use_widget_pngs=1' if _has_stored_pngs else ''}&pdf_token={urllib.parse.quote(bearer)}"
+        f"?print=1&pdf_token={urllib.parse.quote(bearer)}"
         if bearer
-        else f"{frontend_base}/jobs/{int(job_id)}/advanced-reports?print=1{'&use_widget_pngs=1' if _has_stored_pngs else ''}"
+        else f"{frontend_base}/jobs/{int(job_id)}/advanced-reports?print=1"
     )
 
     # Non-cookie headers to pass to all requests Playwright makes itself.
@@ -663,107 +641,26 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
             except Exception:
                 pass
 
-            # If stored PNGs are being used, give React time to fetch them and
-            # replace chart elements with <img> tags before we start the PDF render.
-            if _has_stored_pngs:
-                try:
-                    _wait_for_widget_pngs_ready(page, timeout_ms=45000)
-                except Exception:
-                    # Fall back to the page's current state if the stored PNG
-                    # fetch is slow or a widget snapshot is unavailable.
-                    pass
-                page.wait_for_timeout(3000)
+            # Disable all animations so Recharts charts render to their final state
+            # instantly — no waiting for bar/line transitions to complete.
+            page.add_style_tag(content=(
+                "*, *::before, *::after {"
+                "  animation-duration: 0.001s !important;"
+                "  animation-delay: 0s !important;"
+                "  transition-duration: 0.001s !important;"
+                "  transition-delay: 0s !important;"
+                "}"
+            ))
 
-            # Inject stored widget PNGs BEFORE entering print media mode so that
-            # aspect-ratio and responsive containers still have natural dimensions.
-            # Recharts SVGs often fail to render in headless print mode; this replaces
-            # the chart wrap div with a pre-captured <img> regardless.
-            _widget_pngs: dict[str, str] = {}
+            # Wait for at least one Recharts SVG to appear (confirms charts have rendered).
             try:
-                with get_conn() as _wp_con:
-                    _wp_rows = _wp_con.execute(
-                        "SELECT widget_id, png_data FROM job_widget_pngs WHERE job_id = %s",
-                        [int(job_id)],
-                    ).fetchall()
-                    _widget_pngs = {r[0]: r[1] for r in (_wp_rows or [])}
+                page.wait_for_selector(".recharts-surface", timeout=15000)
             except Exception:
-                _widget_pngs = {}
+                pass
 
-            if _widget_pngs:
-                _inject_log = page.evaluate(
-                    """
-                    (pngs) => {
-                        const log = [];
-                        for (const [widgetId, dataUrl] of Object.entries(pngs)) {
-                            const container = document.querySelector('[data-widget-key="' + widgetId + '"]');
-                            if (!container) { log.push(widgetId + ':no-container'); continue; }
-
-                            let target = null;
-
-                            // Donut widgets export as complete cards, so in print/PDF mode
-                            // replace the whole widget card rather than only the inner chart.
-                            if (widgetId.includes('donut')) {
-                                target = container;
-                            }
-
-                            // 1. recharts-responsive-container parent (chart rendered normally)
-                            if (!target) {
-                                const rc = container.querySelector('.recharts-responsive-container');
-                                if (rc) target = rc.parentElement;
-                            }
-
-                            // 2. aspect-square div (donut widgets — present even if chart not rendered)
-                            if (!target) {
-                                for (const div of container.querySelectorAll('div')) {
-                                    if (typeof div.className === 'string' && div.className.includes('aspect-square')) {
-                                        target = div; break;
-                                    }
-                                }
-                            }
-
-                            // 3. fixed-height div like h-[360px] (line / bar charts)
-                            if (!target) {
-                                for (const div of container.querySelectorAll('div')) {
-                                    if (typeof div.className === 'string' && div.className.includes('h-[')) {
-                                        target = div; break;
-                                    }
-                                }
-                            }
-
-                            // 4. any SVG parent as last resort
-                            if (!target) {
-                                const svg = container.querySelector('svg');
-                                if (svg) target = svg.parentElement;
-                            }
-
-                            if (!target) { log.push(widgetId + ':no-target'); continue; }
-
-                            // Read natural dimensions before any print-mode collapse
-                            const rect = target.getBoundingClientRect();
-                            const w = Math.round(rect.width) || 360;
-                            const h = Math.round(rect.height) || w;
-
-                            // Force explicit size so the img renders at the right dimensions
-                            target.style.setProperty('width', w + 'px', 'important');
-                            target.style.setProperty('height', h + 'px', 'important');
-                            target.style.setProperty('min-height', h + 'px', 'important');
-                            target.style.setProperty('aspect-ratio', 'auto', 'important');
-                            target.style.setProperty('overflow', 'visible', 'important');
-                            target.style.setProperty('display', 'block', 'important');
-
-                            const img = document.createElement('img');
-                            img.src = dataUrl;
-                            img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;';
-                            target.innerHTML = '';
-                            target.appendChild(img);
-                            log.push(widgetId + ':' + w + 'x' + h);
-                        }
-                        return log.join(' | ');
-                    }
-                    """,
-                    _widget_pngs,
-                )
-                print(f"[WIDGET PNG INJECTION] job={job_id} {_inject_log}", file=sys.stderr, flush=True)
+            # Brief settle: Recharts uses rAF internally; 600 ms ensures all
+            # chart geometry is painted even on slow headless renders.
+            page.wait_for_timeout(600)
 
             # Apply print media so measurements reflect the actual print layout.
             page.emulate_media(media="print")
