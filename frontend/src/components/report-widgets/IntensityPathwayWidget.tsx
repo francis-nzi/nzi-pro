@@ -193,7 +193,7 @@ export function IntensityPathwayWidget({
             <LineChart data={data} margin={{ top: 5, right: 24, left: 6, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toFixed(2)} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toFixed(2)} label={{ value: "tCO₂e", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "#94a3b8", textAnchor: "middle" } }} />
               <Tooltip content={renderTooltip} />
               <Legend iconType="circle" />
               {interimYear && interimYear > (benchmarkYear ?? 0) && (

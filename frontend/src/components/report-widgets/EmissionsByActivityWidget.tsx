@@ -123,6 +123,7 @@ export function EmissionsByActivityWidget({
       filename: buildPngFilename(title, clientName),
       title,
       subtitle,
+      canvasWidth: 960,
     });
   };
 
@@ -136,6 +137,7 @@ export function EmissionsByActivityWidget({
               type="number"
               tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })}
               tick={{ fontSize: 10 }}
+              label={{ value: "tCO₂e", position: "insideBottomRight", offset: 0, style: { fontSize: 10, fill: "#94a3b8" } }}
             />
             <YAxis type="category" dataKey="name" width={180} tick={{ fontSize: 9 }} />
             <Tooltip formatter={formatTooltipValue} />

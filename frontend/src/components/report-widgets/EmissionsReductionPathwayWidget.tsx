@@ -185,7 +185,7 @@ export function EmissionsReductionPathwayWidget({
             <LineChart data={data} margin={{ top: 5, right: 24, left: 6, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toLocaleString("en-GB", { maximumFractionDigits: 0 })} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toLocaleString("en-GB", { maximumFractionDigits: 0 })} label={{ value: "tCO₂e", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "#94a3b8", textAnchor: "middle" } }} />
               <Tooltip
                 content={(props: TooltipContentProps<number, string>) => {
                   if (!props.active) return null;

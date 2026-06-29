@@ -173,6 +173,7 @@ export function HistoricalEmissionsTrendWidget({
                 axisLine={false}
                 tickLine={false}
                 width={52}
+                label={{ value: "tCO₂e", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "#94a3b8", textAnchor: "middle" } }}
               />
               <Tooltip
                 formatter={(v: number | undefined, name: string | undefined) => [
