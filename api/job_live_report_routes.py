@@ -10,7 +10,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
+import threading
+import time
 import urllib.parse
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any
@@ -88,6 +92,22 @@ def _summarize_category(categories: list[dict[str, Any]]) -> dict[str, Any] | No
         "data_source": str(top.get("data_source") or ""),
         "reference_label": str(top.get("reference_label") or ""),
     }
+
+
+# ---------------------------------------------------------------------------
+# Async PDF task store — avoids HTTP request timeouts on long renders.
+# Tasks are held in memory (single-instance deployment). Cleaned up after 20 min.
+# ---------------------------------------------------------------------------
+_pdf_tasks: dict[str, dict] = {}
+_pdf_tasks_lock = threading.Lock()
+
+
+def _cleanup_pdf_tasks() -> None:
+    cutoff = time.time() - 1200  # 20 minutes
+    with _pdf_tasks_lock:
+        stale = [k for k, v in _pdf_tasks.items() if v.get("created_at", 0) < cutoff]
+        for k in stale:
+            del _pdf_tasks[k]
 
 
 def _frontend_base_url(request: Request) -> str:
@@ -570,11 +590,13 @@ def _wait_for_widget_pngs_ready(page, timeout_ms: int = 30000) -> None:
     )
 
 
-def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
+def _render_live_report_pdf_bytes(
+    job_id: int,
+    bearer: str,
+    frontend_base: str,
+    extra_headers: dict[str, str],
+) -> bytes:
     from playwright.sync_api import sync_playwright
-
-    frontend_base = _frontend_base_url(request)
-    bearer = _extract_bearer_token(request)
 
     # Target the Advanced Reports page. Playwright renders live Recharts charts
     # directly — no stored PNG capture step is required before generating a PDF.
@@ -585,13 +607,6 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
         if bearer
         else f"{frontend_base}/jobs/{int(job_id)}/advanced-reports?print=1"
     )
-
-    # Non-cookie headers to pass to all requests Playwright makes itself.
-    extra_headers: dict[str, str] = {}
-    for name in ("x-user", "x-user-email"):
-        val = str(request.headers.get(name) or "").strip()
-        if val:
-            extra_headers[name] = val
 
     ensure_playwright_browser()
     with sync_playwright() as p:
@@ -720,6 +735,18 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
             browser.close()
 
 
+def _extract_pdf_request_parts(request: Request) -> tuple[str, str, dict[str, str]]:
+    """Extract bearer token, frontend base URL, and extra headers from a request."""
+    bearer = _extract_bearer_token(request)
+    frontend_base = _frontend_base_url(request)
+    extra_headers: dict[str, str] = {}
+    for name in ("x-user", "x-user-email"):
+        val = str(request.headers.get(name) or "").strip()
+        if val:
+            extra_headers[name] = val
+    return bearer, frontend_base, extra_headers
+
+
 @router.get("/jobs/{job_id}/report-live-pdf")
 def get_job_live_report_pdf(
     job_id: int,
@@ -730,14 +757,104 @@ def get_job_live_report_pdf(
     if not job_data:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    bearer, frontend_base, extra_headers = _extract_pdf_request_parts(request)
     try:
-        pdf_bytes = _render_live_report_pdf_bytes(int(job_id), request)
+        pdf_bytes = _render_live_report_pdf_bytes(int(job_id), bearer, frontend_base, extra_headers)
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to render live report PDF: {exc}") from exc
 
     job_number = str(job_data.get("job_number") or f"job-{job_id}").strip() or f"job-{job_id}"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{job_number}-live-report.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+# ─── Async PDF generation (avoids HTTP request-timeout on long renders) ──────
+
+
+@router.post("/jobs/{job_id}/report-live-pdf/generate")
+def start_pdf_generation(
+    job_id: int,
+    request: Request,
+    _user: dict[str, str] = Depends(_current_user),
+) -> dict:
+    """Start background PDF generation. Returns a task_id to poll for status."""
+    job_data = get_job_data(int(job_id))
+    if not job_data:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    _cleanup_pdf_tasks()
+
+    # Extract request parts now — Request object must not be used across threads.
+    bearer, frontend_base, extra_headers = _extract_pdf_request_parts(request)
+    job_number = str(job_data.get("job_number") or f"job-{job_id}").strip() or f"job-{job_id}"
+    task_id = str(uuid.uuid4())
+
+    with _pdf_tasks_lock:
+        _pdf_tasks[task_id] = {
+            "job_id": int(job_id),
+            "status": "pending",
+            "created_at": time.time(),
+            "job_number": job_number,
+        }
+
+    def _run():
+        try:
+            pdf_bytes = _render_live_report_pdf_bytes(int(job_id), bearer, frontend_base, extra_headers)
+            with _pdf_tasks_lock:
+                _pdf_tasks[task_id]["status"] = "complete"
+                _pdf_tasks[task_id]["pdf_bytes"] = pdf_bytes
+        except Exception as exc:
+            print(f"[PDF TASK {task_id}] error: {exc}", file=sys.stderr, flush=True)
+            with _pdf_tasks_lock:
+                _pdf_tasks[task_id]["status"] = "error"
+                _pdf_tasks[task_id]["error"] = str(exc)
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"task_id": task_id}
+
+
+@router.get("/jobs/{job_id}/report-live-pdf/status/{task_id}")
+def get_pdf_task_status(
+    job_id: int,
+    task_id: str,
+    _user: dict[str, str] = Depends(_current_user),
+) -> dict:
+    with _pdf_tasks_lock:
+        task = dict(_pdf_tasks.get(task_id, {}))
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.get("job_id") != int(job_id):
+        raise HTTPException(status_code=403, detail="Task does not belong to this job")
+    return {
+        "status": task.get("status", "unknown"),
+        "error": task.get("error"),
+    }
+
+
+@router.get("/jobs/{job_id}/report-live-pdf/download/{task_id}")
+def download_pdf_task(
+    job_id: int,
+    task_id: str,
+    _user: dict[str, str] = Depends(_current_user),
+) -> Response:
+    with _pdf_tasks_lock:
+        task = dict(_pdf_tasks.get(task_id, {}))
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.get("job_id") != int(job_id):
+        raise HTTPException(status_code=403, detail="Task does not belong to this job")
+    if task.get("status") != "complete":
+        raise HTTPException(status_code=409, detail="PDF not yet ready")
+    pdf_bytes: bytes = task["pdf_bytes"]
+    job_number = task.get("job_number", f"job-{job_id}")
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

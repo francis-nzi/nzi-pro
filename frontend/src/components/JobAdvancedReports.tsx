@@ -843,16 +843,30 @@ export default function JobAdvancedReports({
     setDownloading(true);
     setDownloadError(null);
     try {
-      const res = await authFetch(`${baseUrl}/jobs/${jobId}/report-live-pdf`);
-      if (!res.ok) {
-        let detail = `PDF generation failed (${res.status})`;
-        try {
-          const body = await res.json() as { detail?: string };
-          if (body.detail) detail = body.detail;
-        } catch { /* ignore */ }
+      // 1. Start background PDF generation — returns immediately with a task_id.
+      const startRes = await authFetch(`${baseUrl}/jobs/${jobId}/report-live-pdf/generate`, { method: "POST" });
+      if (!startRes.ok) {
+        let detail = `Could not start PDF generation (${startRes.status})`;
+        try { const b = await startRes.json() as { detail?: string }; if (b.detail) detail = b.detail; } catch { /* ignore */ }
         throw new Error(detail);
       }
-      const blob = await res.blob();
+      const { task_id } = await startRes.json() as { task_id: string };
+
+      // 2. Poll every 4 seconds until the task completes or fails.
+      for (;;) {
+        await new Promise<void>((r) => setTimeout(r, 4000));
+        const statusRes = await authFetch(`${baseUrl}/jobs/${jobId}/report-live-pdf/status/${task_id}`);
+        if (!statusRes.ok) throw new Error(`Status check failed (${statusRes.status})`);
+        const { status, error } = await statusRes.json() as { status: string; error?: string };
+        if (status === "error") throw new Error(error ?? "PDF generation failed");
+        if (status === "complete") break;
+        // still pending — keep polling
+      }
+
+      // 3. Download the completed PDF.
+      const dlRes = await authFetch(`${baseUrl}/jobs/${jobId}/report-live-pdf/download/${task_id}`);
+      if (!dlRes.ok) throw new Error(`Download failed (${dlRes.status})`);
+      const blob = await dlRes.blob();
       const url = URL.createObjectURL(blob);
       const clientSlug = String(data?.job_data?.client_name ?? "report").replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-").toLowerCase();
       const year = data?.job_data?.reporting_year ?? new Date().getFullYear();
