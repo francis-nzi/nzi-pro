@@ -1122,7 +1122,7 @@ def compare_canonical_vs_report(
                 "canonical": 0.0, "report": report["emission"], "diff": report["emission"],
             })
 
-    canonical_total = round(sum(canonical_scopes.values()), 2)
+    canonical_total = round(canonical_total_precise, 2)
     report_total = round(sum(report_cats.values()), 2)
 
     return {
@@ -1161,11 +1161,13 @@ def check_report_data_integrity(
         canonical_rows: dict[str, dict[str, Any]] = {}
         canonical_cats: dict[str, float] = {}
         canonical_scopes: dict[str, float] = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0}
+        canonical_total_precise: float = 0.0
 
         for _, row in data_df.iterrows():
             try:
                 metrics = combined_row_metrics(row, resolver)
-                emission = round(float(metrics.get("calc_tco2e") or 0.0), 2)
+                emission_precise = float(metrics.get("calc_tco2e") or 0.0)
+                emission = round(emission_precise, 2)
             except Exception:
                 continue
             scope = _clean_label(row.get("scope"), "Unknown")
@@ -1173,6 +1175,7 @@ def check_report_data_integrity(
             row_id = str(row.get("original_id") or "")
             label = str(row.get("report_label") or category)
 
+            canonical_total_precise += emission_precise
             if row_id:
                 canonical_rows[row_id] = {"scope": scope, "category": category, "label": label, "emission": emission}
             cat_key = f"{scope}||{category}"

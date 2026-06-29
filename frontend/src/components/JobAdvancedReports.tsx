@@ -1892,7 +1892,7 @@ export default function JobAdvancedReports({
           {!integrityLoading && integrityCheck && integrityCheck.status === "pass" && (
             <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5">
               <span className="text-green-600 text-sm font-semibold">✓ Data integrity check passed</span>
-              <span className="text-green-600 text-xs">All totals, categories and rows match Outputs (canonical total {fmt(integrityCheck.canonical_total, 2)} tCO₂e)</span>
+              <span className="text-green-600 text-xs">All totals, categories and rows match Outputs (canonical total {fmt(integrityCheck.canonical_total)} tCO₂e)</span>
             </div>
           )}
           {!integrityLoading && integrityCheck && integrityCheck.status === "fail" && (() => {
