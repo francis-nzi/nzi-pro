@@ -341,8 +341,9 @@ async function composeChartAsPngDataUrl({
           }
         } else {
           const chartSpacer = callout?.text ? 44 : 0;
-          const chartX = centerChart ? Math.max(0, Math.floor((outputWidth - width) / 2)) : 0;
-          canvas.height = headerHeight + chartSpacer + height + 24;
+          const scaleRatio = outputWidth / width;
+          const scaledChartHeight = Math.round(height * scaleRatio);
+          canvas.height = headerHeight + chartSpacer + scaledChartHeight + 24;
           ctx.fillStyle = "#ffffff";
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -418,7 +419,7 @@ async function composeChartAsPngDataUrl({
             ctx.fillText(callout.text, pillX + paddingX, pillY + 19);
           }
 
-          ctx.drawImage(image, chartX, headerHeight + chartSpacer, width, height);
+          ctx.drawImage(image, 0, headerHeight + chartSpacer, outputWidth, scaledChartHeight);
         }
 
         resolve(canvas.toDataURL("image/png"));

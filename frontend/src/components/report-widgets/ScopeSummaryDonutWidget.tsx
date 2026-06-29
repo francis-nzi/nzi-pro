@@ -125,7 +125,7 @@ export function ScopeSummaryDonutWidget({
         },
       ],
       callout: benchmarkPill?.callout ?? null,
-      canvasWidth: 960,
+      canvasWidth: 700,
       tableLayout: DONUT_EXPORT_LAYOUT,
     });
   };
@@ -160,7 +160,7 @@ export function ScopeSummaryDonutWidget({
         },
       ],
       callout: benchmarkPill?.callout ?? null,
-      canvasWidth: 960,
+      canvasWidth: 700,
       tableLayout: DONUT_EXPORT_LAYOUT,
     });
   };
@@ -171,8 +171,8 @@ export function ScopeSummaryDonutWidget({
         <img
           src={storedPngUrl}
           alt={title}
-          className="mx-auto block max-w-full h-auto object-contain"
-          style={{ width: "100%" }}
+          className="mx-auto block h-auto object-contain"
+          style={{ width: "700px", maxWidth: "100%" }}
         />
       </div>
     );
