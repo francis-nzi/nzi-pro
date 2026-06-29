@@ -693,6 +693,9 @@ def _render_live_report_pdf_bytes(
         try:
             t0 = time.time()
             page = context.new_page()
+            # Cap every Playwright operation at 30s so a frozen Chromium can never
+            # hold the semaphore indefinitely and block all subsequent PDF requests.
+            page.set_default_timeout(30000)
 
             # Inject animation-kill + border-removal CSS immediately via
             # an init script so it is active from the very first paint —
@@ -769,6 +772,7 @@ def _render_live_report_pdf_bytes(
                     "bottom": "10mm",
                     "left": "10mm",
                 },
+                timeout=90000,  # 90s cap — prevents indefinite hang if Chromium freezes
             )
         finally:
             print(f"[PDF] job={job_id} total {time.time()-t0:.1f}s", file=sys.stderr, flush=True)
