@@ -229,7 +229,7 @@ export function ScopeSummaryDonutWidget({
                   </Pie>
                   <Tooltip formatter={(value: unknown) => [`${formatNumber(Number(value || 0), 1)} tCO₂e`, ""]} />
                   <g aria-hidden="true">
-                    <text x="50%" y="46%" textAnchor="middle" dominantBaseline="middle" fill="#111827" fontSize="38" fontWeight="600" fontFamily="Arial, sans-serif">
+                    <text x="50%" y="46%" textAnchor="middle" dominantBaseline="middle" fill="#111827" fontSize="18" fontWeight="600" fontFamily="Arial, sans-serif">
                       {formatNumber(total, 1)}
                     </text>
                     <text x="50%" y="56%" textAnchor="middle" dominantBaseline="middle" fill="#6b7280" fontSize="12" fontFamily="Arial, sans-serif">
