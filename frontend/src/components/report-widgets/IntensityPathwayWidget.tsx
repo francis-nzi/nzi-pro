@@ -87,6 +87,7 @@ export function IntensityPathwayWidget({
         label: formatIntensityLabel(entry.label),
         color: entry.color,
       })),
+      canvasWidth: 960,
     });
   };
 
@@ -133,6 +134,7 @@ export function IntensityPathwayWidget({
         label: formatIntensityLabel(entry.label),
         color: entry.color,
       })),
+      canvasWidth: 960,
     });
   };
 

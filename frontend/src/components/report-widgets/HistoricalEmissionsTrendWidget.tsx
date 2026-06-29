@@ -58,6 +58,7 @@ export function HistoricalEmissionsTrendWidget({
         { label: "Scope 2", color: SCOPE_COLORS["Scope 2"] },
         { label: "Scope 3", color: SCOPE_COLORS["Scope 3"] },
       ],
+      canvasWidth: 960,
     });
   };
 
@@ -79,6 +80,7 @@ export function HistoricalEmissionsTrendWidget({
         { label: "Scope 2", color: SCOPE_COLORS["Scope 2"] },
         { label: "Scope 3", color: SCOPE_COLORS["Scope 3"] },
       ],
+      canvasWidth: 960,
     });
   };
 

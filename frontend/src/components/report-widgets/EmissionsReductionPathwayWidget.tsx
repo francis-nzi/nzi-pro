@@ -106,6 +106,7 @@ export function EmissionsReductionPathwayWidget({
         ...(showScope2 ? [{ label: "Scope 2", color: DEFAULT_SCOPE_COLORS[1] }] : []),
         { label: "Scope 3", color: DEFAULT_SCOPE_COLORS[2] },
       ],
+      canvasWidth: 960,
     });
   }, [showScope2, subtitle, title, waitForRenderedSvg]);
 

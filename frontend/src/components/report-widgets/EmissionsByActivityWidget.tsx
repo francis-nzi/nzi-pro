@@ -57,6 +57,7 @@ export function EmissionsByActivityWidget({
       svg,
       title,
       subtitle,
+      canvasWidth: 960,
     });
   };
 

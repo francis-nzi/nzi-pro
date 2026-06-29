@@ -96,6 +96,7 @@ export function ScopeYearOnYearBarWidget({
       title: resolvedTitle,
       subtitle,
       legendItems,
+      canvasWidth: 960,
     });
   };
 
@@ -107,6 +108,7 @@ export function ScopeYearOnYearBarWidget({
       title: resolvedTitle,
       subtitle,
       legendItems,
+      canvasWidth: 960,
     });
   };
 
