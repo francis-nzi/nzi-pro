@@ -436,6 +436,20 @@ async def startup_event():
     except Exception as e:
         _safe_startup_log("WARN", f"Kaleido browser setup failed: {e}")
 
+    # Pre-warm Playwright/Chromium in a background thread so the first PDF
+    # request after a deployment doesn't pay the 2-3 minute download cost.
+    import threading
+
+    def _warmup_playwright():
+        try:
+            from services.playwright_browser import ensure_playwright_browser
+            path = ensure_playwright_browser()
+            _safe_startup_log("OK", f"Playwright Chromium ready at {path}")
+        except Exception as exc:
+            _safe_startup_log("WARN", f"Playwright warmup failed: {exc}")
+
+    threading.Thread(target=_warmup_playwright, daemon=True).start()
+
 
 
 
