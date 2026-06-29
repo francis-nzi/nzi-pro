@@ -641,8 +641,8 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
             except Exception:
                 pass
 
-            # Disable all animations so Recharts charts render to their final state
-            # instantly — no waiting for bar/line transitions to complete.
+            # Disable animations so Recharts renders instantly, and strip card borders
+            # from widget cards (not needed in print; avoids visual noise in PDF).
             page.add_style_tag(content=(
                 "*, *::before, *::after {"
                 "  animation-duration: 0.001s !important;"
@@ -650,17 +650,22 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
                 "  transition-duration: 0.001s !important;"
                 "  transition-delay: 0s !important;"
                 "}"
+                "[data-widget-key] {"
+                "  border: none !important;"
+                "  box-shadow: none !important;"
+                "  border-radius: 0 !important;"
+                "}"
             ))
 
             # Wait for at least one Recharts SVG to appear (confirms charts have rendered).
             try:
-                page.wait_for_selector(".recharts-surface", timeout=15000)
+                page.wait_for_selector(".recharts-surface", timeout=12000)
             except Exception:
                 pass
 
-            # Brief settle: Recharts uses rAF internally; 600 ms ensures all
+            # Brief settle: Recharts uses rAF internally; 800 ms ensures all
             # chart geometry is painted even on slow headless renders.
-            page.wait_for_timeout(600)
+            page.wait_for_timeout(800)
 
             # Apply print media so measurements reflect the actual print layout.
             page.emulate_media(media="print")

@@ -29,6 +29,8 @@ type ScopeSummaryDonutWidgetProps = {
   clientName?: string | null;
   data: ScopeDonutItem[];
   currentYear?: number | null;
+  /** Overrides the year text in the donut centre — use "2024-2025" for cross-year periods */
+  yearLabel?: string | null;
   benchmarkYear?: number | null;
   benchmarkTotal?: number | null;
   currentTotal?: number | null;
@@ -55,6 +57,7 @@ export function ScopeSummaryDonutWidget({
   clientName,
   data,
   currentYear,
+  yearLabel,
   benchmarkYear,
   benchmarkTotal,
   currentTotal,
@@ -66,6 +69,7 @@ export function ScopeSummaryDonutWidget({
   className,
   storedPngUrl,
 }: ScopeSummaryDonutWidgetProps) {
+  const displayYear = yearLabel ?? (currentYear != null ? String(currentYear) : null);
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
   const total = Number(currentTotal ?? data.reduce((sum, item) => sum + Number(item.value || 0), 0));
   const benchmarkPill = useMemo(() => {
@@ -225,15 +229,15 @@ export function ScopeSummaryDonutWidget({
                   </Pie>
                   <Tooltip formatter={(value: unknown) => [`${formatNumber(Number(value || 0), 1)} tCO₂e`, ""]} />
                   <g aria-hidden="true">
-                    <text x="50%" y="48%" textAnchor="middle" dominantBaseline="middle" fill="#111827" fontSize="32" fontWeight="600" fontFamily="Arial, sans-serif">
+                    <text x="50%" y="46%" textAnchor="middle" dominantBaseline="middle" fill="#111827" fontSize="38" fontWeight="600" fontFamily="Arial, sans-serif">
                       {formatNumber(total, 1)}
                     </text>
                     <text x="50%" y="56%" textAnchor="middle" dominantBaseline="middle" fill="#6b7280" fontSize="12" fontFamily="Arial, sans-serif">
                       tCO₂e total
                     </text>
-                    {currentYear ? (
-                      <text x="50%" y="64%" textAnchor="middle" dominantBaseline="middle" fill="#9ca3af" fontSize="10" fontFamily="Arial, sans-serif">
-                        {currentYear}
+                    {displayYear ? (
+                      <text x="50%" y="65%" textAnchor="middle" dominantBaseline="middle" fill="#9ca3af" fontSize="11" fontFamily="Arial, sans-serif">
+                        {displayYear}
                       </text>
                     ) : null}
                   </g>

@@ -1335,6 +1335,9 @@ export default function JobAdvancedReports({
     toYearNumber(data.job_data.reporting_period_start, data.job_data.reporting_period_end) ??
     toNum(data.job_data.reporting_year) ??
     new Date().getFullYear();
+  const currentReportYearLabel =
+    toYearLabel(data.job_data.reporting_period_start, data.job_data.reporting_period_end) ||
+    String(currentReportYear);
   const firstHistoricalYear = Array.isArray(yearly_emissions) && yearly_emissions.length > 0 ? yearly_emissions[0]?.year ?? null : null;
   const donutBenchmarkYear = resolveScopeDonutBenchmarkYear(
     toYearNumber(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end),
@@ -1980,6 +1983,7 @@ export default function JobAdvancedReports({
                   clientName={data.job_data.client_name}
                   data={scopeDonutData}
                   currentYear={currentReportYear}
+                  yearLabel={currentReportYearLabel}
                   currentTotal={totalEmissions}
                   benchmarkYear={donutBenchmarkYear}
                   benchmarkTotal={donutBenchmarkTotal}
@@ -1993,6 +1997,7 @@ export default function JobAdvancedReports({
                   clientName={data.job_data.client_name}
                   data={scopeDonutData}
                   currentYear={currentReportYear}
+                  yearLabel={currentReportYearLabel}
                   currentTotal={totalEmissions}
                   benchmarkYear={donutBenchmarkYear}
                   benchmarkTotal={donutBenchmarkTotal}
@@ -2499,6 +2504,7 @@ export default function JobAdvancedReports({
                   clientName={data.job_data.client_name}
                   data={scopeDonutData}
                   currentYear={currentReportYear}
+                  yearLabel={currentReportYearLabel}
                   currentTotal={totalEmissions}
                   benchmarkYear={donutBenchmarkYear}
                   benchmarkTotal={donutBenchmarkTotal}
@@ -2512,6 +2518,7 @@ export default function JobAdvancedReports({
                   clientName={data.job_data.client_name}
                   data={scopeDonutData}
                   currentYear={currentReportYear}
+                  yearLabel={currentReportYearLabel}
                   currentTotal={totalEmissions}
                   benchmarkYear={donutBenchmarkYear}
                   benchmarkTotal={donutBenchmarkTotal}
@@ -2613,6 +2620,7 @@ export default function JobAdvancedReports({
                       clientName={data.job_data?.client_name}
                       data={normalizedSiteData}
                       currentYear={currentReportYear}
+                  yearLabel={currentReportYearLabel}
                       currentTotal={totalEmissions}
                       benchmarkYear={donutBenchmarkYear}
                       benchmarkTotal={donutBenchmarkTotal}
@@ -2627,6 +2635,7 @@ export default function JobAdvancedReports({
                       clientName={data.job_data?.client_name}
                       data={normalizedSiteData}
                       currentYear={currentReportYear}
+                  yearLabel={currentReportYearLabel}
                       currentTotal={totalEmissions}
                       benchmarkYear={donutBenchmarkYear}
                       benchmarkTotal={donutBenchmarkTotal}
