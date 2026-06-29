@@ -628,89 +628,77 @@ def _render_live_report_pdf_bytes(
                 "domain": hostname,
                 "path": "/",
             }])
-        try:
-            import sys
-            page = context.new_page()
-            page.goto(report_url, wait_until="domcontentloaded", timeout=30000)
-            page.locator('[data-report-ready="1"]').wait_for(state="visible", timeout=90000)
+        _PDF_STYLES = (
+            # Kill all CSS animations/transitions so charts render to their final
+            # state immediately — no waiting for Recharts bar/line transitions.
+            "*, *::before, *::after {"
+            "  animation-duration: 0.001s !important;"
+            "  animation-delay: 0s !important;"
+            "  transition-duration: 0.001s !important;"
+            "  transition-delay: 0s !important;"
+            "}"
+            # Strip card borders/shadows from widget cards — not needed in print.
+            "[data-widget-key] {"
+            "  border: none !important;"
+            "  box-shadow: none !important;"
+            "  border-radius: 0 !important;"
+            "}"
+        )
 
-            # Scroll each section into view to trigger any observer-based renders.
+        try:
+            t0 = time.time()
+            page = context.new_page()
+
+            # Inject animation-kill + border-removal CSS immediately via
+            # an init script so it is active from the very first paint —
+            # charts that load data later will never animate.
+            page.add_init_script(f"document.addEventListener('DOMContentLoaded', () => {{ const s = document.createElement('style'); s.textContent = {repr(_PDF_STYLES)}; document.head.appendChild(s); }})")
+
+            page.goto(report_url, wait_until="domcontentloaded", timeout=30000)
+            print(f"[PDF] job={job_id} domcontentloaded in {time.time()-t0:.1f}s", file=sys.stderr, flush=True)
+
+            # networkidle: wait until all in-page API fetches (chart data, scope
+            # totals, historical emissions, etc.) have completed — no new network
+            # requests for 500 ms.  This is the most accurate signal that every
+            # chart has its data and can render.  Timeout is generous because
+            # Render cold-starts can be slow.
+            try:
+                page.wait_for_load_state("networkidle", timeout=90000)
+                print(f"[PDF] job={job_id} networkidle in {time.time()-t0:.1f}s", file=sys.stderr, flush=True)
+            except Exception:
+                print(f"[PDF] job={job_id} networkidle timed out at {time.time()-t0:.1f}s — proceeding", file=sys.stderr, flush=True)
+
+            # Re-inject styles via add_style_tag in case init_script missed the window.
+            page.add_style_tag(content=_PDF_STYLES)
+
+            # Scroll each section into view quickly to trigger any
+            # intersection-observer-gated renders.
             page.evaluate("""
                 async () => {
                     const delay = ms => new Promise(r => setTimeout(r, ms));
                     const sections = document.querySelectorAll('.live-report-section');
                     for (const section of sections) {
                         section.scrollIntoView();
-                        await delay(150);
+                        await delay(50);
                     }
                     window.scrollTo(0, 0);
                 }
             """)
 
-            # Wait until at least 11 sections are present (cover + 2..10 + 12 + 13).
-            try:
-                page.wait_for_function(
-                    "() => document.querySelectorAll('.live-report-section').length >= 11",
-                    timeout=30000,
-                )
-            except Exception:
-                pass
-
-            # Disable animations so Recharts renders instantly, and strip card borders
-            # from widget cards (not needed in print; avoids visual noise in PDF).
-            page.add_style_tag(content=(
-                "*, *::before, *::after {"
-                "  animation-duration: 0.001s !important;"
-                "  animation-delay: 0s !important;"
-                "  transition-duration: 0.001s !important;"
-                "  transition-delay: 0s !important;"
-                "}"
-                "[data-widget-key] {"
-                "  border: none !important;"
-                "  box-shadow: none !important;"
-                "  border-radius: 0 !important;"
-                "}"
-            ))
-
-            # Wait for at least one Recharts SVG to appear (confirms charts have rendered).
-            try:
-                page.wait_for_selector(".recharts-surface", timeout=12000)
-            except Exception:
-                pass
-
-            # Brief settle: Recharts uses rAF internally; 800 ms ensures all
-            # chart geometry is painted even on slow headless renders.
-            page.wait_for_timeout(800)
+            # Short settle so rAF-based repaints complete.
+            page.wait_for_timeout(600)
+            print(f"[PDF] job={job_id} pre-print ready in {time.time()-t0:.1f}s", file=sys.stderr, flush=True)
 
             # Apply print media so measurements reflect the actual print layout.
             page.emulate_media(media="print")
 
-            # --- Diagnostic: container scroll heights (confirm scroll-clip theory) ---
-            container_info = page.evaluate("""
-                () => {
-                    const w = document.querySelector('.overflow-x-hidden');
-                    const p = document.querySelector('.advanced-report-preview');
-                    return [
-                        'wrapper:' + (w ? w.clientHeight+'c/'+w.scrollHeight+'s' : 'none'),
-                        'preview:' + (p ? p.clientHeight+'c/'+p.scrollHeight+'s' : 'none'),
-                        'body:' + document.body.clientHeight+'c/'+document.body.scrollHeight+'s',
-                    ].join(' | ');
-                }
-            """)
-            print(f"[PDF CONTAINERS] job={job_id} {container_info}", file=sys.stderr, flush=True)
-
-            # ROOT CAUSE FIX: The layout wrapper has `overflow-x-hidden` which the
-            # CSS spec silently promotes overflow-y to `auto`, creating a scroll
-            # container.  Chrome's print engine clips output at the scroll container's
-            # scrollHeight — so pages beyond that cutoff never generate.
-            # Removing all overflow constraints forces Chrome to print the full document.
+            # ROOT CAUSE FIX: overflow-x-hidden silently promotes overflow-y to
+            # auto, creating a scroll container that clips Chrome's print output.
             page.evaluate("""
                 () => {
-                    // Main content wrapper (overflow-x-hidden → scroll container)
                     document.querySelectorAll('.overflow-x-hidden').forEach(el => {
                         el.style.setProperty('overflow', 'visible', 'important');
                     });
-                    // Root flex shell (min-h-screen constrains flex children)
                     document.querySelectorAll('.min-h-screen').forEach(el => {
                         el.style.setProperty('min-height', '0', 'important');
                         el.style.setProperty('height', 'auto', 'important');
@@ -718,7 +706,8 @@ def _render_live_report_pdf_bytes(
                 }
             """)
 
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(500)
+            print(f"[PDF] job={job_id} calling page.pdf()", file=sys.stderr, flush=True)
 
             return page.pdf(
                 format="A4",
@@ -731,6 +720,7 @@ def _render_live_report_pdf_bytes(
                 },
             )
         finally:
+            print(f"[PDF] job={job_id} total {time.time()-t0:.1f}s", file=sys.stderr, flush=True)
             context.close()
             browser.close()
 
