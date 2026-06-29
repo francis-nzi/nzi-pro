@@ -2451,7 +2451,7 @@ export default function JobAdvancedReports({
                       const currIntensity  = calcIntensity(m, totalEmissions);
                       const pct = pctChange(currIntensity, benchIntensity);
                       return (
-                        <div key={key} className={`grid grid-cols-[56px_1fr_110px_110px_90px] items-center border-b border-gray-100 last:border-0 px-3 py-4 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                        <div key={key} className={`grid grid-cols-[56px_1fr_110px_110px_90px] items-center border-b border-gray-100 last:border-0 px-3 py-2 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
                           <div className="flex items-center justify-center"><MetricIcon metricKey={key} label={m.label} /></div>
                           <span className="text-sm font-medium text-gray-700">{perLabel(key, m)}</span>
                           <span className="text-right text-sm text-gray-600">{benchIntensity != null ? fmt(benchIntensity) : "-"}</span>
@@ -2474,33 +2474,35 @@ export default function JobAdvancedReports({
                   </p>
                 )}
                 {hasPathway && intensityPathwayData.length > 0 && (
-                  widgetPngs.intensityPathway ? (
-                    <IntensityPathwayWidget
-                      title={`${data.job_data?.client_name ?? "Client"} Intensity Metrics Targets to ${netZeroYear}`}
-                      clientName={data.job_data?.client_name}
-                      data={intensityPathwayData}
-                      series={intensityPathwaySeries}
-                      benchmarkYear={baselineYear}
-                      targetYear={netZeroYear}
-                      interimYear={interimYear}
-                      showWidgetRef={true}
-                      storedPngUrl={widgetPngs.intensityPathway}
-                      presentation="image"
-                      className="w-full"
-                    />
-                  ) : (
-                    <IntensityPathwayWidget
-                      title={`${data.job_data?.client_name ?? "Client"} Intensity Metrics Targets to ${netZeroYear}`}
-                      clientName={data.job_data?.client_name}
-                      data={intensityPathwayData}
-                      series={intensityPathwaySeries}
-                      benchmarkYear={baselineYear}
-                      targetYear={netZeroYear}
-                      interimYear={interimYear}
-                      showWidgetRef={false}
-                      className="w-full"
-                    />
-                  )
+                  <div className="break-inside-avoid">
+                    {widgetPngs.intensityPathway ? (
+                      <IntensityPathwayWidget
+                        title={`${data.job_data?.client_name ?? "Client"} Intensity Metrics Targets to ${netZeroYear}`}
+                        clientName={data.job_data?.client_name}
+                        data={intensityPathwayData}
+                        series={intensityPathwaySeries}
+                        benchmarkYear={baselineYear}
+                        targetYear={netZeroYear}
+                        interimYear={interimYear}
+                        showWidgetRef={true}
+                        storedPngUrl={widgetPngs.intensityPathway}
+                        presentation="image"
+                        className="w-full"
+                      />
+                    ) : (
+                      <IntensityPathwayWidget
+                        title={`${data.job_data?.client_name ?? "Client"} Intensity Metrics Targets to ${netZeroYear}`}
+                        clientName={data.job_data?.client_name}
+                        data={intensityPathwayData}
+                        series={intensityPathwaySeries}
+                        benchmarkYear={baselineYear}
+                        targetYear={netZeroYear}
+                        interimYear={interimYear}
+                        showWidgetRef={false}
+                        className="w-full"
+                      />
+                    )}
+                  </div>
                 )}
               </CardContent>
             </Card>
