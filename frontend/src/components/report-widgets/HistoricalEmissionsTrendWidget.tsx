@@ -168,6 +168,7 @@ export function HistoricalEmissionsTrendWidget({
                 padding={{ left: 60, right: 60 }}
               />
               <YAxis
+                domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.2)]}
                 tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                 tick={{ fontSize: 10 }}
                 axisLine={false}
