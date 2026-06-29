@@ -121,6 +121,17 @@ def ensure_portal_schema(con) -> None:
         "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS contact_id INTEGER",
         "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS reset_token_hash VARCHAR",
         "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP",
+        # T&C acceptance
+        "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS accepted_tac_at TIMESTAMPTZ",
+        "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS accepted_tac_version VARCHAR",
+        # MFA (TOTP)
+        "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS mfa_secret_encrypted TEXT",
+        "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS mfa_setup_secret_encrypted TEXT",
+        "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS mfa_recovery_codes_hash TEXT DEFAULT '[]'",
+        "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS mfa_enabled_at TIMESTAMPTZ",
+        "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS mfa_last_used_at TIMESTAMPTZ",
+        # report_reviews additions
         "ALTER TABLE report_reviews ADD COLUMN IF NOT EXISTS sent_for_review_at TIMESTAMP",
         "ALTER TABLE report_reviews ADD COLUMN IF NOT EXISTS pdf_generated_at TIMESTAMP",
         "ALTER TABLE report_reviews ADD COLUMN IF NOT EXISTS portal_version_id BIGINT",
@@ -209,6 +220,44 @@ def get_portal_user_by_email(email: str, *, con=None) -> dict[str, Any] | None:
     user = _row_to_portal_user(row)
     user["password_hash"] = row[9]
     return user
+
+
+def get_portal_user_auth_data(portal_user_id: int, *, con=None) -> dict[str, Any] | None:
+    """Return T&C + MFA fields for a portal user (used by auth routes only)."""
+    if con is None:
+        with get_conn() as managed:
+            return get_portal_user_auth_data(portal_user_id, con=managed)
+    ensure_portal_schema(con)
+    row = con.execute(
+        """
+        SELECT portal_user_id, client_db_id, email, full_name, is_active,
+               accepted_tac_version, accepted_tac_at,
+               COALESCE(mfa_enabled, FALSE),
+               mfa_secret_encrypted, mfa_setup_secret_encrypted,
+               COALESCE(mfa_recovery_codes_hash, '[]'),
+               mfa_enabled_at, mfa_last_used_at
+        FROM client_portal_users
+        WHERE portal_user_id = %s
+        """,
+        [int(portal_user_id)],
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "portal_user_id": int(row[0]),
+        "client_db_id": int(row[1]),
+        "email": str(row[2] or ""),
+        "full_name": str(row[3] or ""),
+        "is_active": bool(row[4]),
+        "accepted_tac_version": row[5],
+        "accepted_tac_at": str(row[6]) if row[6] else None,
+        "mfa_enabled": bool(row[7]),
+        "mfa_secret_encrypted": row[8],
+        "mfa_setup_secret_encrypted": row[9],
+        "mfa_recovery_codes_hash": str(row[10] or "[]"),
+        "mfa_enabled_at": str(row[11]) if row[11] else None,
+        "mfa_last_used_at": str(row[12]) if row[12] else None,
+    }
 
 
 def create_portal_user(

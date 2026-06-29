@@ -3,14 +3,15 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
-import { apiFetch, clearToken, getToken } from "@/lib/auth";
+import { apiFetch, clearAllTokens, getBestToken } from "@/lib/auth";
 import PortalStatusBar from "@/components/PortalStatusBar";
 
 type PortalUser = {
-  portal_user_id: number;
+  portal_user_id: number | null;
   full_name: string;
   email: string;
   client_db_id: number;
+  is_staff?: boolean;
 };
 
 export default function PortalShell({ children }: { children: React.ReactNode }) {
@@ -18,15 +19,32 @@ export default function PortalShell({ children }: { children: React.ReactNode })
   const [user, setUser] = useState<PortalUser | null>(null);
 
   useEffect(() => {
-    if (!getToken()) { router.replace("/login"); return; }
+    if (!getBestToken()) {
+      router.replace("/login");
+      return;
+    }
+
     apiFetch("/portal/auth/me")
       .then(r => r.ok ? r.json() : Promise.reject())
-      .then((d: { user: PortalUser }) => setUser(d.user))
-      .catch(() => { clearToken(); router.replace("/login"); });
+      .then((d: { user: PortalUser; must_accept_tac?: boolean; mfa_setup_required?: boolean }) => {
+        if (d.must_accept_tac) {
+          router.replace("/accept-terms");
+          return;
+        }
+        if (d.mfa_setup_required) {
+          router.replace("/setup-mfa");
+          return;
+        }
+        setUser(d.user);
+      })
+      .catch(() => {
+        clearAllTokens();
+        router.replace("/login");
+      });
   }, [router]);
 
   function handleLogout() {
-    clearToken();
+    clearAllTokens();
     router.replace("/login");
   }
 
@@ -46,6 +64,9 @@ export default function PortalShell({ children }: { children: React.ReactNode })
           </div>
           {user && (
             <div className="flex items-center gap-3">
+              {user.is_staff && (
+                <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">Staff</span>
+              )}
               <span className="text-sm text-gray-600 hidden sm:inline">{user.full_name}</span>
               <button
                 onClick={handleLogout}
