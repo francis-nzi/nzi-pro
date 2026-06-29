@@ -48,7 +48,7 @@ export function EmissionsByActivityWidget({
   className,
 }: EmissionsByActivityWidgetProps) {
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
-  const chartHeight = Math.max(200, data.length * 52 + 40);
+  const chartHeight = Math.max(150, data.length * 36 + 40);
 
   const exportPngDataUrl = async () => {
     const svg = findLargestSvg(chartWrapRef.current);
@@ -141,7 +141,7 @@ export function EmissionsByActivityWidget({
             />
             <YAxis type="category" dataKey="name" width={180} tick={{ fontSize: 9 }} />
             <Tooltip formatter={formatTooltipValue} />
-            <Bar dataKey="value" name="tCO2e" radius={[0, 3, 3, 0]}>
+            <Bar dataKey="value" name="tCO2e" radius={[0, 3, 3, 0]} barSize={22}>
               {data.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={entry.fill || FALLBACK_COLORS[index % FALLBACK_COLORS.length]} />
               ))}

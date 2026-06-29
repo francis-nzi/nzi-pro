@@ -2511,7 +2511,7 @@ export default function JobAdvancedReports({
             <SectionHeader title="Analysis by Scope" />
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="mx-auto max-w-[640px]">
+            <div>
               {widgetPngs.emissionsScopeDonut ? (
                 <ScopeSummaryDonutWidget
                   title={`${data.job_data.client_name ?? "Client"} Emissions Summary by Scope`}

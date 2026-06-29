@@ -244,7 +244,7 @@ export function ScopeSummaryDonutWidget({
                     pointerEvents: "none",
                   }}
                 >
-                  <span style={{ fontSize: compact ? "22px" : "48px", fontWeight: 700, color: "#111827", lineHeight: 1, fontFamily: "Arial, sans-serif" }}>
+                  <span style={{ fontSize: compact ? "22px" : "36px", fontWeight: 700, color: "#111827", lineHeight: 1, fontFamily: "Arial, sans-serif" }}>
                     {formatNumber(total, 1)}
                   </span>
                   <span style={{ fontSize: compact ? "10px" : "13px", color: "#6b7280", lineHeight: 2, fontFamily: "Arial, sans-serif" }}>

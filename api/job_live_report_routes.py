@@ -660,10 +660,18 @@ def _render_live_report_pdf_bytes(
             "  box-shadow: none !important;"
             "  border-radius: 0 !important;"
             "}"
+            # Remove horizontal padding from all card children (CardHeader &
+            # CardContent) inside section cards and widget cards so charts fill
+            # the full PDF page width rather than stopping at the card padding.
+            "[data-section] > div,"
+            "[data-widget-key] > div {"
+            "  padding-left: 0 !important;"
+            "  padding-right: 0 !important;"
+            "}"
             # Force donut centre number to large size regardless of whatever
             # print-media CSS Chromium applies that silently caps inline font-size.
             "[data-donut-center] > span:first-child {"
-            "  font-size: 48px !important;"
+            "  font-size: 36px !important;"
             "  font-weight: 700 !important;"
             "  line-height: 1 !important;"
             "}"
