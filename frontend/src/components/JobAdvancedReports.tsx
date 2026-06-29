@@ -1420,10 +1420,10 @@ export default function JobAdvancedReports({
   const printClientName = String(data.job_data?.client_name ?? "").replace(/['"\\]/g, "");
   const printPeriodStart = formatDate(data.job_data?.reporting_period_start ?? "");
   const printPeriodEnd = formatDate(data.job_data?.reporting_period_end ?? "");
-  const printHeaderLine1 = printPeriodStart && printPeriodEnd
+  const printHeaderLine1 = printClientName;
+  const printHeaderLine2 = printPeriodStart && printPeriodEnd
     ? `Carbon Reduction Plan  ${printPeriodStart} - ${printPeriodEnd}`
     : "Carbon Reduction Plan";
-  const printHeaderLine2 = printClientName;
   const printJobNumber = String(data.job_data?.job_number ?? "").replace(/['"\\]/g, "");
 
   // (integrity check result is in integrityCheck state, populated by /report-data-check endpoint)

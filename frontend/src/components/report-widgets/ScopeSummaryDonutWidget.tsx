@@ -131,9 +131,11 @@ export function ScopeSummaryDonutWidget({
   };
 
   useEffect(() => {
-    if (!widgetKey) return;
+    // Only register when rendering the live chart — image-mode instances must not
+    // overwrite the Insights-tab exporter (which has the SVG and benchmark pill).
+    if (!widgetKey || storedPngUrl) return;
     return registerWidgetPngExporter(widgetKey, exportPngDataUrl);
-  }, [exportPngDataUrl, widgetKey]);
+  }, [exportPngDataUrl, widgetKey, storedPngUrl]);
 
   const downloadPng = async () => {
     const svg = chartWrapRef.current?.querySelector("svg") as SVGSVGElement | null;

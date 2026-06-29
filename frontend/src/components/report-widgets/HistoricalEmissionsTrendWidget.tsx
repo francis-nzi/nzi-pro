@@ -62,9 +62,9 @@ export function HistoricalEmissionsTrendWidget({
   };
 
   useEffect(() => {
-    if (!widgetKey) return;
+    if (!widgetKey || storedPngUrl) return;
     return registerWidgetPngExporter(widgetKey, exportPngDataUrl);
-  }, [exportPngDataUrl, widgetKey]);
+  }, [exportPngDataUrl, widgetKey, storedPngUrl]);
 
   const downloadPng = async () => {
     const svg = findLargestSvg(chartWrapRef.current);

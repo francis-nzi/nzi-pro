@@ -121,9 +121,9 @@ export function SiteSummaryDonutWidget({
   };
 
   useEffect(() => {
-    if (!widgetKey) return;
+    if (!widgetKey || storedPngUrl) return;
     return registerWidgetPngExporter(widgetKey, exportPngDataUrl);
-  }, [exportPngDataUrl, widgetKey]);
+  }, [exportPngDataUrl, widgetKey, storedPngUrl]);
 
   const downloadPng = async () => {
     const svg = chartWrapRef.current?.querySelector("svg") as SVGSVGElement | null;

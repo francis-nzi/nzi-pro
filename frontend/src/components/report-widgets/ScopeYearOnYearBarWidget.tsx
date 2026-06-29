@@ -111,9 +111,9 @@ export function ScopeYearOnYearBarWidget({
   };
 
   useEffect(() => {
-    if (!widgetKey) return;
+    if (!widgetKey || storedPngUrl) return;
     return registerWidgetPngExporter(widgetKey, exportPngDataUrl);
-  }, [exportPngDataUrl, widgetKey]);
+  }, [exportPngDataUrl, widgetKey, storedPngUrl]);
 
   const renderTooltip = (props: any) => {
     if (!props.active) return null;

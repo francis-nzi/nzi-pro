@@ -61,9 +61,9 @@ export function EmissionsByActivityWidget({
   };
 
   useEffect(() => {
-    if (!widgetKey) return;
+    if (!widgetKey || storedPngUrl) return;
     return registerWidgetPngExporter(widgetKey, exportPngDataUrl);
-  }, [exportPngDataUrl, widgetKey]);
+  }, [exportPngDataUrl, widgetKey, storedPngUrl]);
 
   if (presentation === "image" && storedPngUrl) {
     return (
