@@ -2575,7 +2575,7 @@ export default function JobAdvancedReports({
 
             {/* Benchmark / Previous Year / Current Year - Scope Comparison */}
             {/* Scope Descriptions table */}
-            <div>
+            <div className="break-inside-avoid">
               <p className="text-sm font-semibold text-gray-700 mb-2">Scope Descriptions</p>
               <div className="overflow-hidden rounded-lg border border-gray-200">
                 <div className="grid grid-cols-[52px_1fr_90px_58px] px-3 py-2" style={{ backgroundColor: BRAND }}>
