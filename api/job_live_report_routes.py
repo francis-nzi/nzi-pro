@@ -101,6 +101,10 @@ def _summarize_category(categories: list[dict[str, Any]]) -> dict[str, Any] | No
 _pdf_tasks: dict[str, dict] = {}
 _pdf_tasks_lock = threading.Lock()
 
+# Semaphore: only one Playwright/Chromium instance at a time.
+# Chromium is memory-hungry; running two concurrently crashes Render's container.
+_pdf_semaphore = threading.Semaphore(1)
+
 
 def _cleanup_pdf_tasks() -> None:
     cutoff = time.time() - 1200  # 20 minutes
@@ -610,7 +614,20 @@ def _render_live_report_pdf_bytes(
 
     ensure_playwright_browser()
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        browser = p.chromium.launch(args=[
+            # --disable-dev-shm-usage is critical in Linux containers: Chromium
+            # writes to /dev/shm by default, which is only ~64 MB in most container
+            # runtimes.  This redirects shared memory to /tmp (no size limit).
+            "--disable-dev-shm-usage",
+            # No setuid sandbox in typical container environments.
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            # No GPU in headless containers — avoids GPU process memory overhead.
+            "--disable-gpu",
+            # Reduce idle-process overhead.
+            "--disable-extensions",
+            "--disable-background-networking",
+        ])
         context = browser.new_context(
             # Start at the target A4 content width so Recharts measures correctly
             # from the first render — no later viewport resize needed.
@@ -652,7 +669,13 @@ def _render_live_report_pdf_bytes(
             # Inject animation-kill + border-removal CSS immediately via
             # an init script so it is active from the very first paint —
             # charts that load data later will never animate.
-            page.add_init_script(f"document.addEventListener('DOMContentLoaded', () => {{ const s = document.createElement('style'); s.textContent = {repr(_PDF_STYLES)}; document.head.appendChild(s); }})")
+            page.add_init_script(
+                f"document.addEventListener('DOMContentLoaded', () => {{"
+                f"  const s = document.createElement('style');"
+                f"  s.textContent = {repr(_PDF_STYLES)};"
+                f"  document.head.appendChild(s);"
+                f"}});"
+            )
 
             page.goto(report_url, wait_until="domcontentloaded", timeout=30000)
             print(f"[PDF] job={job_id} domcontentloaded in {time.time()-t0:.1f}s", file=sys.stderr, flush=True)
@@ -796,6 +819,14 @@ def start_pdf_generation(
         }
 
     def _run():
+        # Acquire the global semaphore — only one Playwright/Chromium instance
+        # may run at a time.  Other tasks stay "pending" until it is released.
+        acquired = _pdf_semaphore.acquire(timeout=600)  # 10-min queue wait max
+        if not acquired:
+            with _pdf_tasks_lock:
+                _pdf_tasks[task_id]["status"] = "error"
+                _pdf_tasks[task_id]["error"] = "PDF generation queue timed out. Please try again."
+            return
         try:
             pdf_bytes = _render_live_report_pdf_bytes(int(job_id), bearer, frontend_base, extra_headers)
             with _pdf_tasks_lock:
@@ -806,6 +837,8 @@ def start_pdf_generation(
             with _pdf_tasks_lock:
                 _pdf_tasks[task_id]["status"] = "error"
                 _pdf_tasks[task_id]["error"] = str(exc)
+        finally:
+            _pdf_semaphore.release()
 
     threading.Thread(target=_run, daemon=True).start()
     return {"task_id": task_id}
