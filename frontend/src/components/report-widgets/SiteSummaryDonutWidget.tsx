@@ -205,7 +205,7 @@ export function SiteSummaryDonutWidget({
                 <Tooltip formatter={(value: unknown) => [`${formatNumber(Number(value || 0), 1)} tCO₂e`, ""]} />
                 <g aria-hidden="true">
                   <text x="50%" y="46%" textAnchor="middle" dominantBaseline="middle"
-                    style={{ fontSize: "28px", fontWeight: 600, fill: "#111827", fontFamily: "Arial, sans-serif" }}>
+                    style={{ fontSize: "36px", fontWeight: 600, fill: "#111827", fontFamily: "Arial, sans-serif" }}>
                     {formatNumber(total, 1)}
                   </text>
                   <text x="50%" y="56%" textAnchor="middle" dominantBaseline="middle"
