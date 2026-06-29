@@ -220,32 +220,42 @@ export function ScopeSummaryDonutWidget({
                 style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
               />
             ) : (
-              <ResponsiveContainer width="100%" aspect={1}>
-                <PieChart>
-                  <Pie data={data} dataKey="value" nameKey="name" innerRadius={compact ? "58%" : "72%"} outerRadius={compact ? "80%" : "94%"} paddingAngle={2}>
-                    {data.map((_, index) => (
-                      <Cell key={index} fill={SCOPE_COLORS[index % SCOPE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value: unknown) => [`${formatNumber(Number(value || 0), 1)} tCO₂e`, ""]} />
-                  <g aria-hidden="true">
-                    <text x="50%" y="46%" textAnchor="middle" dominantBaseline="middle"
-                      style={{ fontSize: "36px", fontWeight: 600, fill: "#111827", fontFamily: "Arial, sans-serif" }}>
-                      {formatNumber(total, 1)}
-                    </text>
-                    <text x="50%" y="56%" textAnchor="middle" dominantBaseline="middle"
-                      style={{ fontSize: "12px", fill: "#6b7280", fontFamily: "Arial, sans-serif" }}>
-                      tCO₂e total
-                    </text>
-                    {displayYear ? (
-                      <text x="50%" y="65%" textAnchor="middle" dominantBaseline="middle"
-                        style={{ fontSize: "11px", fill: "#9ca3af", fontFamily: "Arial, sans-serif" }}>
-                        {displayYear}
-                      </text>
-                    ) : null}
-                  </g>
-                </PieChart>
-              </ResponsiveContainer>
+              <>
+                <ResponsiveContainer width="100%" aspect={1}>
+                  <PieChart>
+                    <Pie data={data} dataKey="value" nameKey="name" innerRadius={compact ? "58%" : "72%"} outerRadius={compact ? "80%" : "94%"} paddingAngle={2}>
+                      {data.map((_, index) => (
+                        <Cell key={index} fill={SCOPE_COLORS[index % SCOPE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: unknown) => [`${formatNumber(Number(value || 0), 1)} tCO₂e`, ""]} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    pointerEvents: "none",
+                  }}
+                >
+                  <span style={{ fontSize: compact ? "22px" : "48px", fontWeight: 700, color: "#111827", lineHeight: 1, fontFamily: "Arial, sans-serif" }}>
+                    {formatNumber(total, 1)}
+                  </span>
+                  <span style={{ fontSize: compact ? "10px" : "13px", color: "#6b7280", lineHeight: 2, fontFamily: "Arial, sans-serif" }}>
+                    tCO₂e total
+                  </span>
+                  {displayYear ? (
+                    <span style={{ fontSize: compact ? "9px" : "12px", color: "#9ca3af", lineHeight: 1.5, fontFamily: "Arial, sans-serif" }}>
+                      {displayYear}
+                    </span>
+                  ) : null}
+                </div>
+              </>
             )}
           </div>
 

@@ -203,24 +203,32 @@ export function SiteSummaryDonutWidget({
                   ))}
                 </Pie>
                 <Tooltip formatter={(value: unknown) => [`${formatNumber(Number(value || 0), 1)} tCO₂e`, ""]} />
-                <g aria-hidden="true">
-                  <text x="50%" y="46%" textAnchor="middle" dominantBaseline="middle"
-                    style={{ fontSize: "36px", fontWeight: 600, fill: "#111827", fontFamily: "Arial, sans-serif" }}>
-                    {formatNumber(total, 1)}
-                  </text>
-                  <text x="50%" y="56%" textAnchor="middle" dominantBaseline="middle"
-                    style={{ fontSize: "12px", fill: "#6b7280", fontFamily: "Arial, sans-serif" }}>
-                    tCO₂e total
-                  </text>
-                  {displayYear ? (
-                    <text x="50%" y="65%" textAnchor="middle" dominantBaseline="middle"
-                      style={{ fontSize: "11px", fill: "#9ca3af", fontFamily: "Arial, sans-serif" }}>
-                      {displayYear}
-                    </text>
-                  ) : null}
-                </g>
               </PieChart>
             </ResponsiveContainer>
+            <div
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                pointerEvents: "none",
+              }}
+            >
+              <span style={{ fontSize: "48px", fontWeight: 700, color: "#111827", lineHeight: 1, fontFamily: "Arial, sans-serif" }}>
+                {formatNumber(total, 1)}
+              </span>
+              <span style={{ fontSize: "13px", color: "#6b7280", lineHeight: 2, fontFamily: "Arial, sans-serif" }}>
+                tCO₂e total
+              </span>
+              {displayYear ? (
+                <span style={{ fontSize: "12px", color: "#9ca3af", lineHeight: 1.5, fontFamily: "Arial, sans-serif" }}>
+                  {displayYear}
+                </span>
+              ) : null}
+            </div>
           </div>
           <div className={DONUT_TABLE_CLASS}>
             {data.map((site, index) => (
