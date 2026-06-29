@@ -660,6 +660,13 @@ def _render_live_report_pdf_bytes(
             "  box-shadow: none !important;"
             "  border-radius: 0 !important;"
             "}"
+            # Force donut centre number to large size regardless of whatever
+            # print-media CSS Chromium applies that silently caps inline font-size.
+            "[data-donut-center] > span:first-child {"
+            "  font-size: 48px !important;"
+            "  font-weight: 700 !important;"
+            "  line-height: 1 !important;"
+            "}"
         )
 
         try:

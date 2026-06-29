@@ -207,6 +207,7 @@ export function SiteSummaryDonutWidget({
             </ResponsiveContainer>
             <div
               aria-hidden="true"
+              data-donut-center="true"
               style={{
                 position: "absolute",
                 inset: 0,
