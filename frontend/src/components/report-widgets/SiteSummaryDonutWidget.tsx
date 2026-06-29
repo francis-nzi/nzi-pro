@@ -204,14 +204,17 @@ export function SiteSummaryDonutWidget({
                 </Pie>
                 <Tooltip formatter={(value: unknown) => [`${formatNumber(Number(value || 0), 1)} tCO₂e`, ""]} />
                 <g aria-hidden="true">
-                  <text x="50%" y="46%" textAnchor="middle" dominantBaseline="middle" fill="#111827" fontSize="24" fontWeight="600" fontFamily="Arial, sans-serif">
+                  <text x="50%" y="46%" textAnchor="middle" dominantBaseline="middle"
+                    style={{ fontSize: "28px", fontWeight: 600, fill: "#111827", fontFamily: "Arial, sans-serif" }}>
                     {formatNumber(total, 1)}
                   </text>
-                  <text x="50%" y="56%" textAnchor="middle" dominantBaseline="middle" fill="#6b7280" fontSize="12" fontFamily="Arial, sans-serif">
+                  <text x="50%" y="56%" textAnchor="middle" dominantBaseline="middle"
+                    style={{ fontSize: "12px", fill: "#6b7280", fontFamily: "Arial, sans-serif" }}>
                     tCO₂e total
                   </text>
                   {displayYear ? (
-                    <text x="50%" y="65%" textAnchor="middle" dominantBaseline="middle" fill="#9ca3af" fontSize="11" fontFamily="Arial, sans-serif">
+                    <text x="50%" y="65%" textAnchor="middle" dominantBaseline="middle"
+                      style={{ fontSize: "11px", fill: "#9ca3af", fontFamily: "Arial, sans-serif" }}>
                       {displayYear}
                     </text>
                   ) : null}
