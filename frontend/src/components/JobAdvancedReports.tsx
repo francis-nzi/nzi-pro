@@ -3037,8 +3037,6 @@ export default function JobAdvancedReports({
             </div>
           </CardContent>
         </Card>
-        {/* 12 + 13. Standards & Methodology + Declaration — kept together to avoid page split */}
-        <div className="break-inside-avoid">
         {/* 12. Standards & Methodology */}
         <Card className="live-report-section" data-section="Standards & Methodology">
           <CardHeader className="pb-3">
@@ -3079,8 +3077,8 @@ export default function JobAdvancedReports({
             </p>
           </CardContent>
         </Card>
-        {/* 13. Declaration / Sign-off */}
-        <Card className="live-report-section" data-section="Declaration and Sign Off">
+        {/* 13. Declaration / Sign-off — break-before-avoid keeps it on the same page as Standards */}
+        <Card className="live-report-section break-before-avoid" data-section="Declaration and Sign Off">
           <CardHeader className="pb-3">
             <SectionHeader title="Declaration and Sign Off" />
           </CardHeader>
@@ -3132,7 +3130,6 @@ export default function JobAdvancedReports({
             </div>
           </CardContent>
         </Card>
-        </div>{/* end break-inside-avoid wrapper for Standards + Declaration */}
         {/* 14. Glossary */}
         {hasGlossary && (
           <Card className="live-report-section" data-section="Glossary">
