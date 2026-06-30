@@ -763,6 +763,10 @@ def _render_live_report_pdf_bytes(
             page.wait_for_timeout(500)
             print(f"[PDF] job={job_id} calling page.pdf()", file=sys.stderr, flush=True)
 
+            # page.pdf() has no timeout parameter in Playwright Python — it inherits
+            # the default timeout.  Raise it to 3 min for the PDF render step since
+            # a 22-page report with many SVG charts can legitimately take >90s.
+            page.set_default_timeout(180000)
             return page.pdf(
                 format="A4",
                 print_background=True,
@@ -772,7 +776,6 @@ def _render_live_report_pdf_bytes(
                     "bottom": "10mm",
                     "left": "10mm",
                 },
-                timeout=180000,  # 3 min — complex 22-page reports with many SVG charts need time
             )
         finally:
             print(f"[PDF] job={job_id} total {time.time()-t0:.1f}s", file=sys.stderr, flush=True)
