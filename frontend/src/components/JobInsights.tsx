@@ -846,7 +846,7 @@ function MetricCard({
           <div className="text-sm text-muted-foreground">{label}</div>
           {subtitle ? <div className="text-[0.62rem] uppercase tracking-[0.28em] text-muted-foreground">{subtitle}</div> : null}
         </div>
-        <div className="text-3xl font-semibold tabular-nums">{value}{suffix ? ` ${suffix}` : ""}</div>
+        <div className="text-3xl font-semibold tabular-nums">{value}{suffix ? <span className="ml-1 text-base font-normal text-muted-foreground">{suffix}</span> : ""}</div>
       </CardContent>
     </Card>
   );
@@ -874,7 +874,7 @@ function LinkMetricCard({
           <div className="text-sm text-muted-foreground">{label}</div>
           {subtitle ? <div className="text-[0.62rem] uppercase tracking-[0.28em] text-muted-foreground">{subtitle}</div> : null}
         </div>
-        <div className="text-3xl font-semibold tabular-nums">{value}{suffix ? ` ${suffix}` : ""}</div>
+        <div className="text-3xl font-semibold tabular-nums">{value}{suffix ? <span className="ml-1 text-base font-normal text-muted-foreground">{suffix}</span> : ""}</div>
         <Link href={href} className="mt-2 inline-block max-w-full truncate text-sm font-medium text-slate-900 underline decoration-slate-300 underline-offset-2">
           {name}
         </Link>

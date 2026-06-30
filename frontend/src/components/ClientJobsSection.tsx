@@ -193,7 +193,7 @@ export default function ClientJobsSection({ loading = false, jobs }: ClientJobsS
                         {emissionsValue > 0 && (
                           <div className="min-w-[120px] text-right">
                             <div className="text-base font-semibold">{emissionsFormatted}</div>
-                            <div className="text-xs text-muted-foreground">tCO2e</div>
+                            <div className="text-xs text-muted-foreground">tCO₂e</div>
                           </div>
                         )}
                         <Button variant="secondary" asChild>
