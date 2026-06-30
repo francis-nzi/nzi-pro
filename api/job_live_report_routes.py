@@ -763,24 +763,53 @@ def _render_live_report_pdf_bytes(
             page.wait_for_timeout(500)
             print(f"[PDF] job={job_id} calling page.pdf()", file=sys.stderr, flush=True)
 
-            # page.pdf() has no timeout parameter in Playwright Python — it inherits
-            # the default timeout.  Raise it to 3 min for the PDF render step since
-            # a 22-page report with many SVG charts can legitimately take >90s.
-            page.set_default_timeout(180000)
-            return page.pdf(
-                format="A4",
-                print_background=True,
-                margin={
-                    "top": "10mm",
-                    "right": "10mm",
-                    "bottom": "10mm",
-                    "left": "10mm",
-                },
-            )
+            # page.pdf() has no internal timeout in Playwright Python —
+            # set_default_timeout does not reach the underlying CDP send call, so
+            # page.pdf() can hang indefinitely if Chromium stops responding.
+            # Force a hard 3-minute limit via threading.Timer: closing the browser
+            # from a side thread interrupts the pending CDP call with a
+            # "Browser was disconnected" error so the semaphore is always released.
+            _pdf_timed_out = threading.Event()
+
+            def _kill_browser():
+                _pdf_timed_out.set()
+                print(f"[PDF] job={job_id} 3-min PDF timeout — force-closing browser", file=sys.stderr, flush=True)
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+
+            _kill_timer = threading.Timer(180, _kill_browser)
+            _kill_timer.start()
+            try:
+                return page.pdf(
+                    format="A4",
+                    print_background=True,
+                    margin={
+                        "top": "10mm",
+                        "right": "10mm",
+                        "bottom": "10mm",
+                        "left": "10mm",
+                    },
+                )
+            except Exception as exc:
+                if _pdf_timed_out.is_set():
+                    raise RuntimeError(
+                        "PDF rendering timed out after 3 minutes. Please try again."
+                    ) from exc
+                raise
+            finally:
+                _kill_timer.cancel()
         finally:
             print(f"[PDF] job={job_id} total {time.time()-t0:.1f}s", file=sys.stderr, flush=True)
-            context.close()
-            browser.close()
+            try:
+                context.close()
+            except Exception:
+                pass
+            try:
+                browser.close()
+            except Exception:
+                pass
 
 
 def _extract_pdf_request_parts(request: Request) -> tuple[str, str, dict[str, str]]:
