@@ -624,14 +624,28 @@ def _render_live_report_pdf_bytes(
             "--disable-setuid-sandbox",
             # No GPU in headless containers — avoids GPU process memory overhead.
             "--disable-gpu",
-            # Reduce idle-process overhead.
+            # Run renderer in the browser process (no separate renderer process).
+            # Saves ~150-200 MB on constrained container instances; acceptable
+            # for a single-page PDF render with no concurrent tabs.
+            "--single-process",
+            # Reduce idle-process and background overhead.
             "--disable-extensions",
             "--disable-background-networking",
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-breakpad",
+            "--disable-default-apps",
+            "--disable-hang-monitor",
+            "--disable-sync",
+            "--metrics-recording-only",
+            "--no-first-run",
+            "--safebrowsing-disable-auto-update",
         ])
         context = browser.new_context(
-            # Start at the target A4 content width so Recharts measures correctly
-            # from the first render — no later viewport resize needed.
-            viewport={"width": 700, "height": 2200},
+            # Start at the A4 content width so Recharts measures correctly from
+            # the first render.  Height 1200 covers ~1 A4 page; we scroll each
+            # section into view anyway, so no need for a tall initial surface.
+            viewport={"width": 700, "height": 1200},
             extra_http_headers=extra_headers,
         )
         # Inject the JWT as the nzi_token cookie so the auth-client.ts global
