@@ -702,6 +702,13 @@ def _render_live_report_pdf_bytes(
             "  font-weight: 700 !important;"
             "  line-height: 1 !important;"
             "}"
+            # Keep Declaration and Sign Off on the same page as Standards & Methodology.
+            # Tailwind's break-before-avoid alone is overridden by Chromium's layout engine;
+            # both legacy and modern properties with !important are needed.
+            "[data-section='Declaration and Sign Off'] {"
+            "  break-before: avoid !important;"
+            "  page-break-before: avoid !important;"
+            "}"
         )
 
         try:
