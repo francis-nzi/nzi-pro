@@ -642,10 +642,12 @@ def _render_live_report_pdf_bytes(
             "--safebrowsing-disable-auto-update",
         ])
         context = browser.new_context(
-            # Start at the A4 content width so Recharts measures correctly from
-            # the first render.  Height 1200 covers ~1 A4 page; we scroll each
-            # section into view anyway, so no need for a tall initial surface.
-            viewport={"width": 700, "height": 1200},
+            # 700px wide = A4 content width so Recharts measures correctly.
+            # Height 2200px keeps all charts in the rendered layout tree so
+            # Recharts SVG label positions are calculated correctly; reducing
+            # this causes LabelList and other positioned SVG elements to
+            # miscalculate and disappear in the rendered PDF.
+            viewport={"width": 700, "height": 2200},
             extra_http_headers=extra_headers,
         )
         # Inject the JWT as the nzi_token cookie so the auth-client.ts global
