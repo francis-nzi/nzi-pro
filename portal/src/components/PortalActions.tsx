@@ -161,7 +161,9 @@ function LibraryModal({
         <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold text-gray-900">Action library</h2>
+              <h2 className="text-base font-semibold text-gray-900">
+                Action library ({filtered.length})
+              </h2>
               <p className="mt-0.5 text-sm text-gray-500">
                 Browse recommended actions and add them to your plan.
               </p>
