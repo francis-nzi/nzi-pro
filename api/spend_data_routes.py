@@ -1658,35 +1658,52 @@ def sync_spend_to_scope_data(
         if spend_df is None or spend_df.empty:
             return {"ok": True, "created": 0, "updated": 0, "deactivated": 0, "processed": 0}
 
+        # Aggregate by (scope, factor_db_id, site_id) → one scope row per category
+        groups: dict[tuple, dict[str, Any]] = {}
+        for _, row in spend_df.iterrows():
+            scope = str(row.get("mapped_scope") or "").strip()
+            factor_db_id = _safe_optional_int(row.get("factor_db_id"))
+            if not scope or not factor_db_id:
+                continue
+            site_id = _safe_optional_int(row.get("site_id"))
+            key = (scope, factor_db_id, site_id)
+            if key not in groups:
+                groups[key] = {
+                    "scope": scope,
+                    "factor_db_id": factor_db_id,
+                    "site_id": site_id,
+                    "amount_net": 0.0,
+                    "currency": str(row.get("conversion_currency") or row.get("currency") or "GBP"),
+                    "mapped_report_label": str(row.get("mapped_report_label") or "").strip(),
+                    "mapped_category": str(row.get("mapped_category") or "").strip(),
+                    "mapping_confidence": row.get("mapping_confidence"),
+                    "dataset_id": row.get("dataset_id"),
+                }
+            groups[key]["amount_net"] += _safe_float(row.get("amount_net"), 0.0)
+
         active_original_ids: list[str] = []
         created = 0
         updated = 0
 
-        for _, row in spend_df.iterrows():
-            entry_id = int(row["entry_id"])
-            scope = str(row.get("mapped_scope") or "").strip()
-            if not scope:
-                continue
-
-            original_id = f"SPEND-{entry_id}"
+        for (scope, factor_db_id_key, site_id), grp in groups.items():
+            # original_id encodes factor (and site if present) so each category gets one row
+            if site_id is not None:
+                original_id = f"SPEND-F{factor_db_id_key}-S{site_id}"
+            else:
+                original_id = f"SPEND-F{factor_db_id_key}"
             active_original_ids.append(original_id)
 
-            amount = _safe_float(row.get("amount_net"), 0.0)
-            factor = _factor_by_id(con, int(row.get("factor_db_id")))
+            factor = _factor_by_id(con, factor_db_id_key)
             if not factor:
                 continue
 
+            amount = grp["amount_net"]
             factor_value = _safe_float(factor.get("factor"), 0.0)
             calc_tco2e = amount * factor_value
-            report_label = str(row.get("mapped_report_label") or factor.get("report_label") or f"Spend row {entry_id}")
-            category = str(row.get("mapped_category") or factor.get("category") or "Spend")
-            note_text = str(row.get("notes") or "").strip()
-            meta_note = (
-                f"Spend entry #{entry_id}; conversion_currency={row.get('conversion_currency') or row.get('currency') or 'GBP'}; "
-                f"original_currency={row.get('currency') or 'GBP'}; VAT%={_safe_float(row.get('vat_pct'), 0.0)}"
-            )
-            notes = f"{meta_note}. {note_text}".strip()
-            data_conf = _confidence_to_hml(row.get("mapping_confidence"))
+            report_label = grp["mapped_report_label"] or factor.get("report_label") or f"Spend factor {factor_db_id_key}"
+            category = grp["mapped_category"] or factor.get("category") or "Spend"
+            data_conf = _confidence_to_hml(grp.get("mapping_confidence"))
+            currency = grp["currency"]
 
             existing = con.execute(
                 """
@@ -1701,7 +1718,7 @@ def sync_spend_to_scope_data(
                 ORDER BY row_id
                 LIMIT 1
                 """,
-                [int(job_id), scope, original_id, _safe_optional_int(row.get("site_id"))],
+                [int(job_id), scope, original_id, site_id],
             ).fetchone()
 
             if existing:
@@ -1732,12 +1749,12 @@ def sync_spend_to_scope_data(
                         category,
                         report_label,
                         amount,
-                        str(row.get("conversion_currency") or row.get("currency") or "GBP"),
+                        currency,
                         factor_value,
                         "kgCO2e",
                         calc_tco2e,
                         data_conf,
-                        notes,
+                        None,
                         int(existing[0]),
                     ],
                 )
@@ -1755,19 +1772,19 @@ def sync_spend_to_scope_data(
                     [
                         int(job_id),
                         scope,
-                        _safe_optional_int(row.get("site_id")),
+                        site_id,
                         factor.get("dataset_id"),
                         factor.get("db_id"),
                         original_id,
                         category,
                         report_label,
                         amount,
-                        str(row.get("conversion_currency") or row.get("currency") or "GBP"),
+                        currency,
                         factor_value,
                         "kgCO2e",
                         calc_tco2e,
                         data_conf,
-                        notes,
+                        None,
                     ],
                 )
                 created += 1
