@@ -346,7 +346,7 @@ export default function BillingTab({ jobId, clientId, jobTitle, jobNumber, runs,
                 </TableHeader>
                 <TableBody>
                   {run.bookings.map((b) => {
-                    const br = { ...b, run_name: run.run_name || "" };
+                    const br = { ...b, run_name: run.run_name || "", run_id: run.training_course_run_id };
                     return (
                       <TableRow key={b.training_booking_id}>
                         <TableCell className="text-sm">
