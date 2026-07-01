@@ -21,17 +21,28 @@ export default function TrainingBillingPage() {
     <JobSectionShell
       jobId={jobId}
       baseUrl={baseUrl}
-      sectionLabel="Training — Billing"
+      sectionLabel="Training - Billing"
       sectionHref={`/jobs/${jobId}/training/billing`}
-    >
-      <TrainingWorkspaceNav jobId={jobId} activeSection="billing" />
-      {loading && !overview ? (
-        <div className="py-10 text-center text-sm text-slate-400">Loading training data…</div>
-      ) : overview ? (
-        <BillingTab runs={overview.course_runs} baseUrl={baseUrl} onRefresh={refresh} />
-      ) : (
-        <div className="py-10 text-center text-sm text-slate-400">No training data yet.</div>
+      renderContent={(job) => (
+        <>
+          <TrainingWorkspaceNav jobId={jobId} activeSection="billing" />
+          {loading && !overview ? (
+            <div className="py-10 text-center text-sm text-slate-400">Loading training data...</div>
+          ) : overview ? (
+            <BillingTab
+              jobId={jobId}
+              clientId={job.client_db_id}
+              jobTitle={job.title}
+              jobNumber={job.job_number}
+              runs={overview.course_runs}
+              baseUrl={baseUrl}
+              onRefresh={refresh}
+            />
+          ) : (
+            <div className="py-10 text-center text-sm text-slate-400">No training data yet.</div>
+          )}
+        </>
       )}
-    </JobSectionShell>
+    />
   );
 }
