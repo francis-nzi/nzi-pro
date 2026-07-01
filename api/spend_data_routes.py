@@ -1349,15 +1349,25 @@ def download_spend_template(
     workbook.save(stream)
     stream.seek(0)
 
-    file_name = "-".join(
-        [
-            _safe_filename_part(job_number).replace(" ", "-"),
-            _safe_filename_part(client_name).replace(" ", "-"),
-            _safe_filename_part(site_label).replace(" ", "-"),
-            "Spend-Template",
-            _safe_filename_part(reporting_period_label).replace(" ", "-"),
-        ]
-    ) + ".xlsx"
+    # Build year range suffix: "2025-2025" or "2024-2025" for cross-year periods.
+    def _year(val: Any) -> str:
+        if val is None:
+            return "?"
+        if hasattr(val, "year"):
+            return str(val.year)
+        try:
+            return str(datetime.fromisoformat(str(val).strip()[:10]).year)
+        except Exception:
+            return str(val)[:4]
+
+    period_years = f"{_year(row[1])}-{_year(row[2])}"
+    file_name = (
+        f"{_safe_filename_part(job_number)} "
+        f"{_safe_filename_part(client_name)} "
+        f"Spend Analysis "
+        f"{period_years}"
+        f".xlsx"
+    )
     return Response(
         content=stream.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
