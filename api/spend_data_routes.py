@@ -1285,6 +1285,44 @@ def download_spend_template(
             except Exception:
                 pass
 
+        # Find the most recent prior job for the same client (for prior-year reference tab).
+        prior_source = con.execute(
+            """
+            SELECT j2.job_id, j2.job_number,
+                   j2.reporting_period_start, j2.reporting_period_end
+            FROM jobs j
+            JOIN jobs j2 ON j2.client_db_id = j.client_db_id
+            WHERE j.job_id = %s
+              AND j2.job_id <> j.job_id
+              AND (
+                    (j2.reporting_period_end IS NOT NULL AND j.reporting_period_start IS NOT NULL
+                     AND j2.reporting_period_end < j.reporting_period_start)
+                    OR (j2.reporting_year IS NOT NULL AND j.reporting_year IS NOT NULL
+                        AND j2.reporting_year < j.reporting_year)
+                  )
+            ORDER BY COALESCE(j2.reporting_period_end, DATE '1900-01-01') DESC,
+                     COALESCE(j2.reporting_year, 0) DESC, j2.job_id DESC
+            LIMIT 1
+            """,
+            [int(job_id)],
+        ).fetchone()
+        prior_rows = None
+        if prior_source:
+            prior_rows = con.execute(
+                """
+                SELECT e.reference_code, e.spend_description, e.currency,
+                       e.amount_net, e.vat_pct, e.conversion_currency, e.conversion_rate,
+                       e.mapped_scope, e.mapped_report_label, e.factor_db_id,
+                       COALESCE(NULLIF(TRIM(f.original_id), ''), CAST(f.db_id AS VARCHAR)) AS conversion_reference
+                FROM job_spend_entries e
+                LEFT JOIN factor_lookup f ON f.db_id = e.factor_db_id
+                WHERE e.job_id = %s
+                  AND COALESCE(e.is_deleted, FALSE) = FALSE
+                ORDER BY e.mapped_scope NULLS LAST, e.spend_description
+                """,
+                [int(prior_source[0])],
+            ).fetchall()
+
         label_expr = _factor_label_expr(con, "f")
         category_expr = _factor_category_expr(con, "f")
         year_filter = f"AND d.year = {int(reporting_year)}" if reporting_year else ""
@@ -1362,6 +1400,55 @@ def download_spend_template(
         option_row_end = option_row_start + len(factors_df) - 1
 
     conversions_sheet.column_dimensions["C"].hidden = True
+
+    # Add prior-year reference tab if a previous job exists.
+    if prior_rows:
+        prior_job_label = _format_period_label(prior_source[2], prior_source[3]) if prior_source else "Prior Year"
+        prior_sheet = workbook.create_sheet(f"Prior Year Spend")
+        prior_header_fill = PatternFill(start_color="2E4057", end_color="2E4057", fill_type="solid")
+        prior_headers = [
+            "Reference Code", "Spend Description", "Currency",
+            "Spend Amount (Net Ex VAT)", "VAT %",
+            "Conversion Currency", "Conversion Rate",
+            "Prior Spend Conversion", "Mapped Category",
+        ]
+        prior_sheet.append([f"Prior Year: {prior_job_label}"] + [""] * (len(prior_headers) - 1))
+        prior_sheet.append([])
+        prior_sheet.append(prior_headers)
+        for col_idx, _ in enumerate(prior_headers, start=1):
+            cell = prior_sheet.cell(row=3, column=col_idx)
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = prior_header_fill
+        prior_sheet["A1"].font = Font(bold=True, color="FFFFFF")
+        prior_sheet["A1"].fill = prior_header_fill
+        for pr in prior_rows:
+            factor_db_id_val = pr[9]
+            conversion_ref = str(pr[10] or "").strip() if pr[10] else ""
+            option_value = (
+                f"{factor_db_id_val} | {conversion_ref}" if factor_db_id_val else ""
+            )
+            prior_sheet.append([
+                str(pr[0] or ""),
+                str(pr[1] or ""),
+                str(pr[2] or "GBP"),
+                _safe_float(pr[3], 0.0),
+                _safe_float(pr[4], 0.0),
+                str(pr[5] or "GBP"),
+                _safe_float(pr[6], 1.0),
+                option_value,
+                str(pr[8] or ""),
+            ])
+        prior_sheet.column_dimensions["A"].width = 20
+        prior_sheet.column_dimensions["B"].width = 42
+        prior_sheet.column_dimensions["C"].width = 12
+        prior_sheet.column_dimensions["D"].width = 26
+        prior_sheet.column_dimensions["E"].width = 10
+        prior_sheet.column_dimensions["F"].width = 20
+        prior_sheet.column_dimensions["G"].width = 16
+        prior_sheet.column_dimensions["H"].width = 40
+        prior_sheet.column_dimensions["I"].width = 40
+        prior_sheet.freeze_panes = "A4"
+
     spend_sheet.column_dimensions["A"].width = 20
     spend_sheet.column_dimensions["B"].width = 42
     spend_sheet.column_dimensions["C"].width = 14
@@ -1407,7 +1494,10 @@ def download_spend_template(
     return Response(
         content=stream.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{file_name}"',
+            "X-Filename": file_name,
+        },
     )
 
 
