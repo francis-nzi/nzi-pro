@@ -24,7 +24,7 @@ type Props = {
   onRefresh: () => void;
 };
 
-type BookingRow = TrainingBooking & { run_name: string };
+type BookingRow = TrainingBooking & { run_name: string; run_id: number };
 
 type LookupItem = {
   item_id: number;
@@ -81,6 +81,7 @@ export default function BillingTab({ jobId, clientId, jobTitle, jobNumber, runs,
         result.push({
           ...b,
           run_name: run.run_name || run.product_name || `Cohort #${run.training_course_run_id}`,
+          run_id: run.training_course_run_id,
         });
       }
     }
