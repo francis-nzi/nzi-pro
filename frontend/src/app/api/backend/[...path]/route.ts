@@ -63,6 +63,10 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
     const outHeaders = new Headers();
     const contentType = res.headers.get("content-type");
     if (contentType) outHeaders.set("content-type", contentType);
+    const contentDisposition = res.headers.get("content-disposition");
+    if (contentDisposition) outHeaders.set("content-disposition", contentDisposition);
+    const xFilename = res.headers.get("x-filename");
+    if (xFilename) outHeaders.set("x-filename", xFilename);
     res.headers.forEach((value, key) => {
       if (key.toLowerCase() === "set-cookie") outHeaders.append("set-cookie", value);
     });
