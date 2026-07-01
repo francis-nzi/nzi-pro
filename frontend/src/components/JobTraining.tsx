@@ -15,6 +15,7 @@ const BillingTab = dynamic(() => import("./training/BillingTab"));
 
 type JobTrainingProps = {
   jobId: number;
+  clientId: number | null;
   baseUrl: string;
   jobFamily?: string | null;
 };
@@ -30,7 +31,7 @@ const TABS = [
 
 type TabKey = typeof TABS[number]["key"];
 
-export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingProps) {
+export default function JobTraining({ jobId, clientId, baseUrl, jobFamily }: JobTrainingProps) {
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [overview, setOverview] = useState<TrainingOverview | null>(null);
   const [automationLog, setAutomationLog] = useState<TrainingLogEntry[]>([]);
@@ -164,6 +165,8 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
             )}
             {activeTab === "billing" && (
               <BillingTab
+                jobId={jobId}
+                clientId={clientId}
                 runs={overview.course_runs}
                 baseUrl={baseUrl}
                 onRefresh={refresh}

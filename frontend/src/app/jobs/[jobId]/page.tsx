@@ -786,7 +786,12 @@ export default function JobDetailPage() {
               />
 
               {job?.job_family === "training" ? (
-                <JobTraining jobId={jobId} baseUrl={baseUrl} jobFamily={job?.job_family ?? null} />
+                <JobTraining
+                  jobId={jobId}
+                  clientId={job?.client_db_id ?? null}
+                  baseUrl={baseUrl}
+                  jobFamily={job?.job_family ?? null}
+                />
               ) : job?.job_family === "consultancy" ? (
                 <JobConsultancy jobId={jobId} baseUrl={baseUrl} jobFamily={job?.job_family ?? null} />
               ) : job?.job_family === "pcf" ? (

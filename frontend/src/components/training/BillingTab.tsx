@@ -16,7 +16,7 @@ import type { TrainingCourseRun, TrainingBooking } from "./types";
 
 type Props = {
   jobId: number;
-  clientId: number;
+  clientId: number | null;
   jobTitle?: string | null;
   jobNumber?: string | null;
   runs: TrainingCourseRun[];
