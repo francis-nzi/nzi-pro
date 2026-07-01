@@ -1240,8 +1240,18 @@ def download_spend_template(
         if not site_row:
             raise HTTPException(status_code=400, detail="Selected site is not valid for this job")
 
+        # Derive the reporting year so we only show datasets for that year.
+        reporting_period_end = row[2]
+        reporting_year: int | None = None
+        if reporting_period_end:
+            try:
+                reporting_year = int(str(reporting_period_end)[:4])
+            except Exception:
+                pass
+
         label_expr = _factor_label_expr(con, "f")
         category_expr = _factor_category_expr(con, "f")
+        year_filter = f"AND d.year = {int(reporting_year)}" if reporting_year else ""
         factors_df = con.execute(
             f"""
             SELECT f.db_id,
@@ -1251,6 +1261,7 @@ def download_spend_template(
             LEFT JOIN datasets d ON d.dataset_id = f.dataset_id
             WHERE (d.archived IS NULL OR d.archived = FALSE)
               AND upper(COALESCE(f.original_id, '')) LIKE 'SPEND%%'
+              {year_filter}
             ORDER BY conversion_label
             """
         ).df()
