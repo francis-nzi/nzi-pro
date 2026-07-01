@@ -293,6 +293,38 @@ def _factor_by_id(con, factor_db_id: int) -> dict[str, Any] | None:
     }
 
 
+def _factor_by_original_id(con, original_id: str) -> dict[str, Any] | None:
+    """Fallback lookup by original_id when db_id is stale (e.g. after dataset re-import)."""
+    category_expr = _factor_category_expr(con)
+    label_expr = _factor_label_expr(con)
+    row = con.execute(
+        f"""
+        SELECT f.db_id, f.dataset_id, f.original_id, f.scope,
+               {category_expr} AS category, {label_expr} AS report_label, f.factor, f.ghg_unit
+        FROM factor_lookup f
+        LEFT JOIN datasets d ON d.dataset_id = f.dataset_id
+        WHERE TRIM(f.original_id) = %s
+          AND (d.spend_dataset = TRUE OR d.spend_dataset IS NULL)
+          AND (d.archived IS NULL OR d.archived = FALSE)
+        ORDER BY f.db_id DESC
+        LIMIT 1
+        """,
+        [original_id.strip()],
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "db_id": int(row[0]),
+        "dataset_id": int(row[1]) if row[1] is not None else None,
+        "original_id": row[2],
+        "scope": row[3],
+        "category": row[4],
+        "report_label": row[5],
+        "factor": _safe_float(row[6], 0.0),
+        "ghg_unit": str(row[7]).strip() if row[7] is not None else None,
+    }
+
+
 def _is_kg_based_unit(ghg_unit: str | None) -> bool:
     return "kg" in str(ghg_unit or "").replace(" ", "").lower()
 
@@ -598,6 +630,10 @@ def _parse_upload(file_bytes: bytes, filename: str) -> pd.DataFrame:
                 "factor_db_id": _safe_optional_int(r.get(factor_id_col)) if factor_id_col else _safe_optional_int(
                     re.match(r"^\s*(\d+)", str(r.get(conversion_col) or "")).group(1)
                 ) if conversion_col and re.match(r"^\s*(\d+)", str(r.get(conversion_col) or "")) else None,
+                "factor_conversion_ref": (lambda _cv: (
+                    re.match(r"^\s*\d+\s*\|\s*(.+?)\s*\|", _cv).group(1).strip()
+                    if re.match(r"^\s*\d+\s*\|\s*(.+?)\s*\|", _cv) else None
+                ))(str(r.get(conversion_col) or "")) if conversion_col else None,
             }
         )
 
@@ -1398,13 +1434,25 @@ async def preview_spend_upload(
             desc = str(r.get("spend_description") or "").strip()
             code = str(r.get("reference_code") or "").strip()
             explicit_factor_db_id = _safe_optional_int(r.get("factor_db_id"))
-            mapping = _factor_by_id(con, int(explicit_factor_db_id)) if explicit_factor_db_id else _auto_mapping(
-                con=con,
-                client_db_id=int(client_db_id),
-                code_type=code_type,
-                reference_code=code,
-                normalized_description=_normalize_description(desc),
-            )
+            conversion_ref = str(r.get("factor_conversion_ref") or "").strip() or None
+            mapping: dict[str, Any] | None = None
+            mapping_source = "auto"
+            if explicit_factor_db_id:
+                mapping = _factor_by_id(con, int(explicit_factor_db_id))
+                if mapping:
+                    mapping_source = "explicit"
+                elif conversion_ref and not conversion_ref.isdigit():
+                    mapping = _factor_by_original_id(con, conversion_ref)
+                    if mapping:
+                        mapping_source = "explicit"
+            if mapping is None:
+                mapping = _auto_mapping(
+                    con=con,
+                    client_db_id=int(client_db_id),
+                    code_type=code_type,
+                    reference_code=code,
+                    normalized_description=_normalize_description(desc),
+                )
             if mapping:
                 mapped += 1
             amount_net = _safe_float(r.get("amount_net"), 0.0)
@@ -1428,9 +1476,10 @@ async def preview_spend_upload(
                     "conversion_currency": conversion_currency,
                     "conversion_rate": conversion_rate,
                     "mapping_status": "suggested" if mapping else "unmapped",
+                    "mapping_source": mapping_source if mapping else "unmapped",
                     "mapped_scope": (mapping or {}).get("scope"),
                     "mapped_report_label": (mapping or {}).get("report_label"),
-                    "factor_db_id": (mapping or {}).get("factor_db_id"),
+                    "factor_db_id": (mapping or {}).get("factor_db_id") or (mapping or {}).get("db_id"),
                     "factor_ghg_unit": factor_ghg_unit,
                     "unit_warning": _spend_factor_warning(factor_ghg_unit) if mapping else None,
                     "estimated_emissions_kgco2e": converted_net * factor if mapping else None,
@@ -1485,6 +1534,12 @@ async def commit_spend_upload(
         auto_mapped = 0
         for _, r in df.iterrows():
             explicit_factor_db_id = _safe_optional_int(r.get("factor_db_id"))
+            conversion_ref = str(r.get("factor_conversion_ref") or "").strip() or None
+            factor_override: dict[str, Any] | None = None
+            if explicit_factor_db_id:
+                factor_override = _factor_by_id(con, int(explicit_factor_db_id))
+                if factor_override is None and conversion_ref and not conversion_ref.isdigit():
+                    factor_override = _factor_by_original_id(con, conversion_ref)
             saved = _persist_spend_row(
                 con=con,
                 job_id=int(job_id),
@@ -1501,7 +1556,7 @@ async def commit_spend_upload(
                 vat_pct=_safe_float(r.get("vat_pct"), 0.0),
                 notes=None,
                 actor=actor,
-                factor_override=_factor_by_id(con, int(explicit_factor_db_id)) if explicit_factor_db_id else None,
+                factor_override=factor_override,
             )
             inserted += 1
             if saved.get("auto_mapped"):
