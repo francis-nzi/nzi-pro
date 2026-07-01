@@ -1056,7 +1056,8 @@ def generate_job_report_react(
 
     # Render PDF via Playwright
     try:
-        pdf_bytes = _render_live_report_pdf_bytes(int(job_id), request)
+        bearer, frontend_base, extra_headers = _extract_pdf_request_parts(request)
+        pdf_bytes = _render_live_report_pdf_bytes(int(job_id), bearer, frontend_base, extra_headers)
     except HTTPException:
         raise
     except Exception as exc:
