@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   Plus, ChevronDown, ChevronRight, Pencil, Trash2, UserPlus, ArrowLeftRight, X,
   MapPin, Video, Clock,
@@ -18,12 +18,22 @@ import {
   TRAINING_COURSE_RUN_STATUS_OPTIONS,
   TRAINING_DELIVERY_MODE_OPTIONS,
   TRAINING_SESSION_STATUS_OPTIONS,
+  TRAINING_BOOKING_STATUS_OPTIONS,
   formatTrainingCourseRunStatus,
   formatTrainingDeliveryMode,
 } from "@/lib/training-workflow";
 import type { TrainingCourseRun, TrainingProduct, TrainingSession, TrainingSessionStaff } from "./types";
 import { STAFF_ROLE_OPTIONS, formatStaffRole } from "./types";
 import DocumentsPanel from "./DocumentsPanel";
+
+type BookingRow = {
+  training_booking_id: number;
+  person_name: string;
+  client_name: string | null;
+  training_course_run_id: number;
+  run_name: string;
+  attendance_status: string;
+};
 
 type Props = {
   jobId: number;
@@ -74,6 +84,10 @@ type ReassignTarget = {
   source_session: TrainingSession;
 };
 
+type AssignTarget = {
+  session: TrainingSession;
+};
+
 function runStatusColor(s: string) {
   switch (s) {
     case "open": return "bg-green-100 text-green-800";
@@ -117,9 +131,30 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
   const [reassignSessionIds, setReassignSessionIds] = useState<Set<number>>(new Set());
   const [reassigning, setReassigning] = useState(false);
   const [participantsOpen, setParticipantsOpen] = useState<Set<number>>(new Set());
+  const [assignTarget, setAssignTarget] = useState<AssignTarget | null>(null);
+  const [assignBookingId, setAssignBookingId] = useState<string>("");
+  const [assignAttendanceStatus, setAssignAttendanceStatus] = useState<string>("booked");
+  const [assigning, setAssigning] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+
+  const allBookings = useMemo<BookingRow[]>(() => {
+    const result: BookingRow[] = [];
+    for (const run of runs) {
+      for (const booking of run.bookings) {
+        result.push({
+          training_booking_id: booking.training_booking_id,
+          person_name: booking.person_name,
+          client_name: booking.client_name,
+          training_course_run_id: run.training_course_run_id,
+          run_name: run.run_name || run.product_name || `Cohort #${run.training_course_run_id}`,
+          attendance_status: booking.attendance_status,
+        });
+      }
+    }
+    return result;
+  }, [runs]);
 
   const sessionsForRun = (runId: number) =>
     sessions.filter((s) => s.training_course_run_id === runId).sort((a, b) =>
@@ -135,6 +170,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
   const reassignSelectedParticipant = reassignSourceParticipants.find(
     (p) => String(p.training_booking_id) === reassignSelectedBookingId
   ) ?? null;
+  const assignSession = assignTarget?.session ?? null;
 
   async function loadStaff(sessionId: number) {
     try {
@@ -365,6 +401,12 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
     setReassignSessionIds(new Set());
   }
 
+  function openAssignToSession(session: TrainingSession) {
+    setAssignTarget({ session });
+    setAssignBookingId("");
+    setAssignAttendanceStatus("booked");
+  }
+
   async function submitReassign() {
     if (!reassignBooking || !reassignRunId || !reassignSelectedBookingId) return;
     setReassigning(true);
@@ -386,6 +428,36 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
       toast.error(String(e));
     } finally {
       setReassigning(false);
+    }
+  }
+
+  async function submitAssignToSession() {
+    if (!assignSession || !assignBookingId) return;
+    setAssigning(true);
+    try {
+      const res = await fetch(`${baseUrl}/training-course-sessions/${assignSession.training_course_session_id}/attendance`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: [
+            {
+              training_booking_id: Number(assignBookingId),
+              attendance_status: assignAttendanceStatus,
+              attendance_minutes: null,
+              notes: null,
+            },
+          ],
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      toast.success("Participant assigned to session");
+      setAssignTarget(null);
+      setAssignBookingId("");
+      onRefresh();
+    } catch (e: unknown) {
+      toast.error(String(e));
+    } finally {
+      setAssigning(false);
     }
   }
 
@@ -590,6 +662,16 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
                             <span className="text-xs text-slate-400">{s.attendance_count} enrolled</span>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2 text-emerald-600"
+                              onClick={() => openAssignToSession(s)}
+                              title="Assign participant to this session"
+                            >
+                              <UserPlus className="mr-1 h-3.5 w-3.5" />
+                              Assign
+                            </Button>
                             <Button
                               size="sm"
                               variant="ghost"
@@ -838,6 +920,71 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
           <div className="flex justify-end gap-2 border-t pt-3">
             <Button variant="outline" onClick={() => { setShowStaffForm(null); setEditStaff(null); }}>Cancel</Button>
             <Button onClick={saveStaff} disabled={saving}>{saving ? "Saving…" : editStaff ? "Save" : "Add"}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!assignTarget} onOpenChange={(o) => !o && setAssignTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-4 w-4 text-emerald-500" />
+              Assign Participant to Session
+            </DialogTitle>
+          </DialogHeader>
+          {assignSession && (
+            <div className="space-y-4 py-1">
+              <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                <span className="font-medium">
+                  {assignSession.session_title || `Session #${assignSession.training_course_session_id}`}
+                </span>
+                <span className="ml-2 text-slate-500">
+                  {assignSession.session_date
+                    ? new Date(assignSession.session_date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+                    : "No date"}
+                </span>
+              </div>
+
+              <div>
+                <Label>Participant</Label>
+                <Select value={assignBookingId} onValueChange={setAssignBookingId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose participant..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allBookings.map((b) => (
+                      <SelectItem key={b.training_booking_id} value={String(b.training_booking_id)}>
+                        {b.person_name}{b.client_name ? ` · ${b.client_name}` : ""} · {b.run_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label>Attendance Status</Label>
+                <Select value={assignAttendanceStatus} onValueChange={setAssignAttendanceStatus}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TRAINING_BOOKING_STATUS_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <p className="text-xs text-slate-400">
+                This creates or updates the participant’s attendance record for the selected session.
+              </p>
+            </div>
+          )}
+          <div className="flex justify-end gap-2 border-t pt-3">
+            <Button variant="outline" onClick={() => setAssignTarget(null)}>Cancel</Button>
+            <Button onClick={() => void submitAssignToSession()} disabled={assigning || !assignBookingId || !assignSession}>
+              {assigning ? "Assigning..." : "Assign"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
