@@ -517,7 +517,7 @@ def _persist_spend_row(
         effective_rate = 1.0
     converted_net = float(amount_net) * float(effective_rate)
     amount_gross = _gross_from_net(converted_net, vat_pct)
-    estimated_tco2e = converted_net * factor if mapping else None
+    estimated_tco2e = amount_gross * factor if mapping else None
 
     result = con.execute(
         """
@@ -1572,8 +1572,8 @@ async def preview_spend_upload(
                     "factor_db_id": (mapping or {}).get("factor_db_id") or (mapping or {}).get("db_id"),
                     "factor_ghg_unit": factor_ghg_unit,
                     "unit_warning": _spend_factor_warning(factor_ghg_unit) if mapping else None,
-                    "estimated_emissions_kgco2e": converted_net * factor if mapping else None,
-                    "estimated_emissions_tco2e": (converted_net * factor / 1000.0) if mapping else None,
+                    "estimated_emissions_kgco2e": amount * factor if mapping else None,
+                    "estimated_emissions_tco2e": (amount * factor / 1000.0) if mapping else None,
                 }
             )
 
@@ -1762,14 +1762,14 @@ def sync_spend_to_scope_data(
                     "scope": scope,
                     "factor_db_id": factor_db_id,
                     "site_id": site_id,
-                    "amount_net": 0.0,
+                    "amount_gross": 0.0,
                     "currency": str(row.get("conversion_currency") or row.get("currency") or "GBP"),
                     "mapped_report_label": str(row.get("mapped_report_label") or "").strip(),
                     "mapped_category": str(row.get("mapped_category") or "").strip(),
                     "mapping_confidence": row.get("mapping_confidence"),
                     "dataset_id": row.get("dataset_id"),
                 }
-            groups[key]["amount_net"] += _safe_float(row.get("amount_net"), 0.0)
+            groups[key]["amount_gross"] += _safe_float(row.get("amount_gross"), 0.0)
 
         active_original_ids: list[str] = []
         created = 0
@@ -1787,7 +1787,7 @@ def sync_spend_to_scope_data(
             if not factor:
                 continue
 
-            amount = grp["amount_net"]
+            amount = grp["amount_gross"]
             factor_value = _safe_float(factor.get("factor"), 0.0)
             calc_tco2e = amount * factor_value
             report_label = grp["mapped_report_label"] or factor.get("report_label") or f"Spend factor {factor_db_id_key}"
