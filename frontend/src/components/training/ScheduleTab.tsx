@@ -71,12 +71,7 @@ const EMPTY_STAFF = () => ({
 });
 
 type ReassignTarget = {
-  training_booking_id: number;
-  person_name: string;
-  client_name: string | null;
-  current_run_id: number;
-  current_run_name: string;
-  current_session_name: string;
+  source_session: TrainingSession;
 };
 
 function runStatusColor(s: string) {
@@ -117,9 +112,11 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
   const [staffForm, setStaffForm] = useState(EMPTY_STAFF());
   const [editStaff, setEditStaff] = useState<TrainingSessionStaff | null>(null);
   const [reassignBooking, setReassignBooking] = useState<ReassignTarget | null>(null);
+  const [reassignSelectedBookingId, setReassignSelectedBookingId] = useState<string>("");
   const [reassignRunId, setReassignRunId] = useState<string>("");
   const [reassignSessionIds, setReassignSessionIds] = useState<Set<number>>(new Set());
   const [reassigning, setReassigning] = useState(false);
+  const [participantsOpen, setParticipantsOpen] = useState<Set<number>>(new Set());
 
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -133,6 +130,11 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
   const reassignTargetSessions = reassignTargetRun
     ? sessionsForRun(reassignTargetRun.training_course_run_id)
     : [];
+  const reassignSourceSession = reassignBooking?.source_session ?? null;
+  const reassignSourceParticipants = reassignSourceSession?.attendance ?? [];
+  const reassignSelectedParticipant = reassignSourceParticipants.find(
+    (p) => String(p.training_booking_id) === reassignSelectedBookingId
+  ) ?? null;
 
   async function loadStaff(sessionId: number) {
     try {
@@ -350,24 +352,24 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
   }
 
   function openReassignParticipant(session: TrainingSession, participant: NonNullable<TrainingSession["attendance"]>[number]) {
-    const currentRun = runs.find((r) => r.training_course_run_id === session.training_course_run_id);
-    setReassignBooking({
-      training_booking_id: participant.training_booking_id,
-      person_name: participant.person_name,
-      client_name: participant.client_name,
-      current_run_id: session.training_course_run_id,
-      current_run_name: currentRun?.run_name || currentRun?.product_name || `Cohort #${session.training_course_run_id}`,
-      current_session_name: session.session_title || `Session ${session.training_course_session_id}`,
-    });
+    setReassignBooking({ source_session: session });
+    setReassignSelectedBookingId(String(participant.training_booking_id));
+    setReassignRunId("");
+    setReassignSessionIds(new Set());
+  }
+
+  function openReassignFromSession(session: TrainingSession) {
+    setReassignBooking({ source_session: session });
+    setReassignSelectedBookingId("");
     setReassignRunId("");
     setReassignSessionIds(new Set());
   }
 
   async function submitReassign() {
-    if (!reassignBooking || !reassignRunId) return;
+    if (!reassignBooking || !reassignRunId || !reassignSelectedBookingId) return;
     setReassigning(true);
     try {
-      const res = await fetch(`${baseUrl}/training-bookings/${reassignBooking.training_booking_id}/reassign`, {
+      const res = await fetch(`${baseUrl}/training-bookings/${reassignSelectedBookingId}/reassign`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -376,14 +378,24 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
         }),
       });
       if (!res.ok) throw new Error(await res.text());
-      toast.success(`${reassignBooking.person_name} moved to a new cohort`);
+      toast.success(`${reassignSelectedParticipant?.person_name || "Participant"} moved to a new cohort`);
       setReassignBooking(null);
+      setReassignSelectedBookingId("");
       onRefresh();
     } catch (e: unknown) {
       toast.error(String(e));
     } finally {
       setReassigning(false);
     }
+  }
+
+  function toggleParticipants(sessionId: number) {
+    setParticipantsOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      return next;
+    });
   }
 
   return (
@@ -489,6 +501,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                   {runSessions.map((s) => {
                     const staff = staffBySession[s.training_course_session_id] ?? [];
                     const participants = s.attendance ?? [];
+                    const participantsExpanded = participantsOpen.has(s.training_course_session_id);
                     return (
                       <div key={s.training_course_session_id} className="rounded-lg border border-slate-200 bg-white">
                         <div className="flex items-start gap-3 p-3">
@@ -510,7 +523,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                               {s.session_hours ? ` · ${s.session_hours}h` : ""}
                               {s.venue_name ? ` · ${s.venue_name}` : ""}
                             </p>
-                            <div className="mt-2 rounded-md border border-slate-100 bg-slate-50 p-2">
+                            <div className={`mt-2 rounded-md border border-slate-100 bg-slate-50 p-2 ${participantsExpanded ? "" : "hidden"}`}>
                               <div className="mb-2 flex items-center justify-between gap-2">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Participants</p>
                                 <span className="text-xs text-slate-400">
@@ -577,6 +590,27 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
                             <span className="text-xs text-slate-400">{s.attendance_count} enrolled</span>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2 text-slate-500"
+                              onClick={() => toggleParticipants(s.training_course_session_id)}
+                              title={participantsExpanded ? "Hide participants" : "View participants"}
+                            >
+                              {participantsExpanded ? "Hide participants" : "View participants"}
+                            </Button>
+                            {participants.length > 0 && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 text-blue-600"
+                                onClick={() => openReassignFromSession(s)}
+                                title="Move a participant from this session"
+                              >
+                                <ArrowLeftRight className="mr-1 h-3.5 w-3.5" />
+                                Move
+                              </Button>
+                            )}
                             <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-blue-500" title="Add trainer/staff" onClick={() => openAddStaff(s.training_course_session_id)}>
                               <UserPlus className="h-3.5 w-3.5" />
                             </Button>
@@ -819,13 +853,36 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
           {reassignBooking && (
             <div className="space-y-4 py-1">
               <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                <span className="font-medium">{reassignBooking.person_name}</span>
-                <span className="ml-2 text-slate-500">
-                  currently in {reassignBooking.current_run_name} / {reassignBooking.current_session_name}
+                <span className="font-medium">
+                  {reassignSelectedParticipant?.person_name || reassignSourceSession?.session_title || "Select participant"}
                 </span>
+                {reassignSelectedParticipant ? (
+                  <span className="ml-2 text-slate-500">
+                    currently in {runs.find((r) => r.training_course_run_id === reassignSourceSession?.training_course_run_id)?.run_name || `Cohort #${reassignSourceSession?.training_course_run_id ?? ""}`} / {reassignSourceSession?.session_title || `Session #${reassignSourceSession?.training_course_session_id}`}
+                  </span>
+                ) : (
+                  <span className="ml-2 text-slate-500">choose a participant from this session first</span>
+                )}
               </div>
 
               <div>
+                {reassignSourceSession && reassignSourceParticipants.length > 0 && (
+                  <div className="mb-3">
+                    <Label>Participant</Label>
+                    <Select value={reassignSelectedBookingId} onValueChange={setReassignSelectedBookingId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose participant..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {reassignSourceParticipants.map((p) => (
+                          <SelectItem key={p.training_session_attendance_id} value={String(p.training_booking_id)}>
+                            {p.person_name}{p.client_name ? ` · ${p.client_name}` : ""} · {p.attendance_status.replace(/_/g, " ")}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <Label>Move to Cohort</Label>
                 <Select
                   value={reassignRunId}
@@ -839,7 +896,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                   </SelectTrigger>
                   <SelectContent>
                     {runs
-                      .filter((r) => r.training_course_run_id !== reassignBooking.current_run_id)
+                      .filter((r) => r.training_course_run_id !== reassignSourceSession?.training_course_run_id)
                       .map((r) => (
                         <SelectItem key={r.training_course_run_id} value={String(r.training_course_run_id)}>
                           {r.run_name || r.product_name || `Cohort #${r.training_course_run_id}`}
