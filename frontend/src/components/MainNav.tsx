@@ -37,6 +37,7 @@ const ADMIN_QUICK_LINKS: Array<{
   { label: "Custom Fields", href: "/admin/custom-fields", domain: "System & Governance" },
   { label: "System Settings", href: "/admin/settings", domain: "System & Governance" },
   { label: "Import / Export", href: "/admin/import-export", domain: "System & Governance" },
+  { label: "Audit Log", href: "/admin/audit-log", domain: "System & Governance" },
   { label: "Email Outbox", href: "/admin/email-outbox", domain: "System & Governance" },
   { label: "Archive Management", href: "/admin/archive", domain: "System & Governance" },
 ];

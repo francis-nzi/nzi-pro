@@ -572,13 +572,15 @@ def _booking_payload(row) -> dict[str, Any]:
         "notes": row[14],
         "entitlement_id": int(row[15]) if row[15] is not None else None,
         "client_name": row[16],
-        "source_job_number": row[17],
-        "entitlement_status": row[18],
-        "allocated_booking_name": row[19],
-        "created_at": str(row[20]) if row[20] else None,
-        "created_by": row[21],
-        "updated_at": str(row[22]) if row[22] else None,
-        "updated_by": row[23],
+        "client_addr_city": row[17],
+        "client_addr_country": row[18],
+        "source_job_number": row[19],
+        "entitlement_status": row[20],
+        "allocated_booking_name": row[21],
+        "created_at": str(row[22]) if row[22] else None,
+        "created_by": row[23],
+        "updated_at": str(row[24]) if row[24] else None,
+        "updated_by": row[25],
     }
 
 
@@ -769,7 +771,7 @@ def _get_course_run_rows(con, org_id: str, job_id: int) -> list[dict[str, Any]]:
         SELECT b.training_booking_id, b.org_id, b.training_course_run_id, b.client_db_id, b.contact_id,
                b.participant_type, b.booking_source, b.person_name, b.person_email, b.person_phone,
                b.billing_status, b.attendance_status, b.special_requirements, b.consent_status,
-               b.notes, b.entitlement_id, c.client_name, e.source_job_number,
+               b.notes, b.entitlement_id, c.client_name, c.addr_city, c.addr_country, e.source_job_number,
                e.status, COALESCE(b2.person_name, ''),
                b.created_at, b.created_by, b.updated_at, b.updated_by
         FROM training_bookings b
@@ -978,7 +980,7 @@ def _get_run_bookings(con, org_id: str, training_course_run_id: int) -> list[dic
         SELECT b.training_booking_id, b.org_id, b.training_course_run_id, b.client_db_id, b.contact_id,
                b.participant_type, b.booking_source, b.person_name, b.person_email, b.person_phone,
                b.billing_status, b.attendance_status, b.special_requirements, b.consent_status,
-               b.notes, b.entitlement_id, c.client_name, e.source_job_number,
+               b.notes, b.entitlement_id, c.client_name, c.addr_city, c.addr_country, e.source_job_number,
                e.status, COALESCE(b2.person_name, ''),
                b.created_at, b.created_by, b.updated_at, b.updated_by
         FROM training_bookings b
@@ -2311,7 +2313,7 @@ def create_training_booking(
             SELECT b.training_booking_id, b.org_id, b.training_course_run_id, b.client_db_id, b.contact_id,
                    b.participant_type, b.booking_source, b.person_name, b.person_email, b.person_phone,
                    b.billing_status, b.attendance_status, b.special_requirements, b.consent_status,
-                   b.notes, b.entitlement_id, c.client_name, e.source_job_number,
+                   b.notes, b.entitlement_id, c.client_name, c.addr_city, c.addr_country, e.source_job_number,
                    e.status, COALESCE(b2.person_name, ''),
                    b.created_at, b.created_by, b.updated_at, b.updated_by
             FROM training_bookings b
@@ -2331,7 +2333,7 @@ def create_training_booking(
                 SELECT b.training_booking_id, b.org_id, b.training_course_run_id, b.client_db_id, b.contact_id,
                        b.participant_type, b.booking_source, b.person_name, b.person_email, b.person_phone,
                        b.billing_status, b.attendance_status, b.special_requirements, b.consent_status,
-                       b.notes, b.entitlement_id, c.client_name, e.source_job_number,
+                       b.notes, b.entitlement_id, c.client_name, c.addr_city, c.addr_country, e.source_job_number,
                        e.status, COALESCE(b2.person_name, ''),
                        b.created_at, b.created_by, b.updated_at, b.updated_by
                 FROM training_bookings b
@@ -2392,7 +2394,7 @@ def update_training_booking(
             SELECT b.training_booking_id, b.org_id, b.training_course_run_id, b.client_db_id, b.contact_id,
                    b.participant_type, b.booking_source, b.person_name, b.person_email, b.person_phone,
                    b.billing_status, b.attendance_status, b.special_requirements, b.consent_status,
-                   b.notes, b.entitlement_id, c.client_name, e.source_job_number,
+                   b.notes, b.entitlement_id, c.client_name, c.addr_city, c.addr_country, e.source_job_number,
                    e.status, COALESCE(b2.person_name, ''),
                    b.created_at, b.created_by, b.updated_at, b.updated_by
             FROM training_bookings b

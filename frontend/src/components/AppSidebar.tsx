@@ -62,6 +62,7 @@ const ADMIN_CENTER_LINKS = [
   { label: "Custom Fields",           href: "/admin-center/custom-fields", domain: "System & Governance" },
   { label: "System Settings",         href: "/admin-center/settings",      domain: "System & Governance" },
   { label: "Import / Export",         href: "/admin-center/import-export", domain: "System & Governance" },
+  { label: "Audit Log",               href: "/admin-center/audit-log",     domain: "System & Governance" },
   { label: "Email Outbox",            href: "/admin-center/email-outbox",  domain: "System & Governance" },
   { label: "Archive Management",      href: "/admin-center/archive",       domain: "System & Governance" },
 ] as const;

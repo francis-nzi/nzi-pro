@@ -41,6 +41,8 @@ export type TrainingBooking = {
   notes: string | null;
   entitlement_id: number | null;
   client_name: string | null;
+  client_addr_city: string | null;
+  client_addr_country: string | null;
   source_job_number: string | null;
   entitlement_status: string | null;
   allocated_booking_name: string | null;

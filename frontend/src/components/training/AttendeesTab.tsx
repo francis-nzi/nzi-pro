@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, useDeferredValue } from "react";
 import { Plus, Pencil, Trash2, Search, Filter, Building2, ChevronDown, ArrowLeftRight, BookOpen, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
@@ -58,6 +58,16 @@ function billingColor(s: string) {
   }
 }
 
+function formatDisplayDate(date: string | null | undefined) {
+  return date
+    ? new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      })
+    : "No date";
+}
+
 const EMPTY_BOOKING = (): Partial<TrainingBooking> => ({
   person_name: "",
   person_email: "",
@@ -73,6 +83,71 @@ const EMPTY_BOOKING = (): Partial<TrainingBooking> => ({
 });
 
 type BookingWithRun = TrainingBooking & { run_name: string; run_id: number };
+
+function normalizeSearchText(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function buildBookingSearchText(b: BookingWithRun) {
+  return [
+    b.person_name,
+    b.person_email,
+    b.person_phone,
+    b.client_name,
+    b.client_addr_city,
+    b.client_addr_country,
+    b.run_name,
+    b.source_job_number,
+    b.participant_type,
+    b.attendance_status,
+    b.billing_status,
+  ]
+    .filter((part) => Boolean(part && String(part).trim()))
+    .map((part) => String(part).toLowerCase())
+    .join(" ");
+}
+
+function parseSessionDateTime(sessionDate: string | null, timeText: string | null, offsetMinutes = 0) {
+  if (!sessionDate) return null;
+  const base = new Date(`${sessionDate}T00:00:00`);
+  if (Number.isNaN(base.getTime())) return null;
+  if (!timeText) {
+    if (offsetMinutes !== 0) base.setMinutes(base.getMinutes() + offsetMinutes);
+    return base;
+  }
+  const [hoursText, minutesText, secondsText] = timeText.split(":");
+  const hours = Number(hoursText);
+  const minutes = Number(minutesText || 0);
+  const seconds = Number(secondsText || 0);
+  if (Number.isNaN(hours) || Number.isNaN(minutes) || Number.isNaN(seconds)) return null;
+  base.setHours(hours, minutes + offsetMinutes, seconds, 0);
+  return base;
+}
+
+function getSessionRange(session: TrainingSession) {
+  const start = parseSessionDateTime(session.session_date, session.start_time);
+  const end = parseSessionDateTime(session.session_date, session.end_time);
+  if (start && end) return { start, end };
+  if (start && !end) return { start, end: new Date(start.getTime() + 60 * 60 * 1000) };
+  if (!start && end) return { start: new Date(end.getTime() - 60 * 60 * 1000), end };
+  if (session.session_date) {
+    const day = parseSessionDateTime(session.session_date, null);
+    if (day) return { start: day, end: new Date(day.getTime() + 24 * 60 * 60 * 1000) };
+  }
+  return null;
+}
+
+function sessionsClash(a: TrainingSession, b: TrainingSession) {
+  if (a.training_course_session_id === b.training_course_session_id) return false;
+  if (!a.session_date || !b.session_date) return false;
+  const aStatus = normalizeSearchText(a.status);
+  const bStatus = normalizeSearchText(b.status);
+  if (aStatus === "completed" || aStatus === "cancelled" || bStatus === "completed" || bStatus === "cancelled") return false;
+  const rangeA = getSessionRange(a);
+  const rangeB = getSessionRange(b);
+  if (!rangeA || !rangeB) return a.session_date === b.session_date;
+  return rangeA.start < rangeB.end && rangeB.start < rangeA.end;
+}
 
 export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Props) {
   const [search, setSearch] = useState("");
@@ -93,6 +168,10 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
   const [assignBookingId, setAssignBookingId] = useState<string>("");
   const [assignAttendanceStatus, setAssignAttendanceStatus] = useState<string>("booked");
   const [assigning, setAssigning] = useState(false);
+  const [assignSearchName, setAssignSearchName] = useState("");
+  const [assignSearchCompany, setAssignSearchCompany] = useState("");
+  const [assignSearchCity, setAssignSearchCity] = useState("");
+  const [assignSearchCountry, setAssignSearchCountry] = useState("");
   const [historyTarget, setHistoryTarget] = useState<LearningHistoryTarget | null>(null);
 
   function openReassign(b: BookingWithRun) {
@@ -137,6 +216,10 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
     setAssignTarget({ session });
     setAssignBookingId("");
     setAssignAttendanceStatus("booked");
+    setAssignSearchName("");
+    setAssignSearchCompany("");
+    setAssignSearchCity("");
+    setAssignSearchCountry("");
   }
 
   async function submitAssignToSession() {
@@ -234,6 +317,46 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
   }, [runs]);
 
   const assignSession = assignTarget?.session ?? null;
+  const deferredAssignSearchName = useDeferredValue(assignSearchName);
+  const deferredAssignSearchCompany = useDeferredValue(assignSearchCompany);
+  const deferredAssignSearchCity = useDeferredValue(assignSearchCity);
+  const deferredAssignSearchCountry = useDeferredValue(assignSearchCountry);
+
+  const assignCandidateBookings = useMemo(() => {
+    const nameQuery = normalizeSearchText(deferredAssignSearchName);
+    const companyQuery = normalizeSearchText(deferredAssignSearchCompany);
+    const cityQuery = normalizeSearchText(deferredAssignSearchCity);
+    const countryQuery = normalizeSearchText(deferredAssignSearchCountry);
+
+    return allBookings.filter((booking) => {
+      const searchText = buildBookingSearchText(booking);
+      if (nameQuery && !searchText.includes(nameQuery)) return false;
+      if (companyQuery && !normalizeSearchText(booking.client_name).includes(companyQuery)) return false;
+      if (cityQuery && !normalizeSearchText(booking.client_addr_city).includes(cityQuery)) return false;
+      if (countryQuery && !normalizeSearchText(booking.client_addr_country).includes(countryQuery)) return false;
+      return true;
+    }).slice(0, 100);
+  }, [allBookings, deferredAssignSearchCompany, deferredAssignSearchCountry, deferredAssignSearchCity, deferredAssignSearchName]);
+
+  const assignSelectedBooking = useMemo(
+    () => allBookings.find((b) => String(b.training_booking_id) === assignBookingId) ?? null,
+    [allBookings, assignBookingId],
+  );
+
+  const assignSelectedClashes = useMemo(() => {
+    if (!assignSession || !assignSelectedBooking) return [];
+    return sessions
+      .filter((session) => {
+        if (session.training_course_session_id === assignSession.training_course_session_id) return false;
+        return (session.attendance ?? []).some((attendance) => attendance.training_booking_id === assignSelectedBooking.training_booking_id);
+      })
+      .filter((session) => sessionsClash(session, assignSession))
+      .sort((a, b) => {
+        const aDate = a.session_date ?? "";
+        const bDate = b.session_date ?? "";
+        return aDate.localeCompare(bDate) || (a.start_time ?? "").localeCompare(b.start_time ?? "") || a.training_course_session_id - b.training_course_session_id;
+      });
+  }, [assignSelectedBooking, assignSession, sessions]);
 
   const learningHistoryBookings = useMemo(() => {
     if (!historyTarget) return [];
@@ -689,7 +812,7 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
       </Dialog>
 
       <Dialog open={!!historyTarget} onOpenChange={(o) => !o && setHistoryTarget(null)}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <BookOpen className="h-4 w-4 text-emerald-600" />
@@ -705,66 +828,83 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
                 </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-4">
                 <div className="rounded-lg border border-slate-200 p-3">
-                  <div className="mb-2 flex items-center justify-between">
+                  <div className="mb-3 flex items-center justify-between gap-2">
                     <h4 className="text-sm font-semibold text-slate-800">Cohort history</h4>
                     <span className="text-xs text-slate-400">{learningHistoryBookings.length} booking{learningHistoryBookings.length === 1 ? "" : "s"}</span>
                   </div>
                   {learningHistoryBookings.length === 0 ? (
                     <p className="text-xs text-slate-400">No cohort history found.</p>
                   ) : (
-                    <div className="space-y-2">
-                      {learningHistoryBookings.map((b) => (
-                        <div key={b.training_booking_id} className="rounded-md border border-slate-100 bg-white px-3 py-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <div className="text-sm font-medium text-slate-900">{b.run_name}</div>
-                              <div className="text-xs text-slate-500">
-                                {b.training_course_run_id ? `Booking #${b.training_booking_id}` : ""}
-                              </div>
-                            </div>
-                            <Badge className={`text-xs ${billingColor(b.billing_status)}`} variant="outline">
-                              {formatTrainingBillingStatus(b.billing_status)}
-                            </Badge>
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                            <Badge className={`text-xs ${attendanceColor(b.attendance_status)}`} variant="outline">
-                              {formatTrainingBookingStatus(b.attendance_status)}
-                            </Badge>
-                            <span className="text-slate-500">{formatTrainingParticipantType(b.participant_type)}</span>
-                          </div>
-                        </div>
-                      ))}
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Cohort</TableHead>
+                            <TableHead>Booking</TableHead>
+                            <TableHead>Attendance</TableHead>
+                            <TableHead>Billing</TableHead>
+                            <TableHead>Type</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {learningHistoryBookings.map((b) => (
+                            <TableRow key={b.training_booking_id}>
+                              <TableCell className="font-medium text-slate-900">{b.run_name}</TableCell>
+                              <TableCell className="text-slate-500">#{b.training_booking_id}</TableCell>
+                              <TableCell>
+                                <Badge className={`text-xs ${attendanceColor(b.attendance_status)}`} variant="outline">
+                                  {formatTrainingBookingStatus(b.attendance_status)}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge className={`text-xs ${billingColor(b.billing_status)}`} variant="outline">
+                                  {formatTrainingBillingStatus(b.billing_status)}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-slate-500">{formatTrainingParticipantType(b.participant_type)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
                     </div>
                   )}
                 </div>
 
                 <div className="rounded-lg border border-slate-200 p-3">
-                  <div className="mb-2 flex items-center justify-between">
+                  <div className="mb-3 flex items-center justify-between gap-2">
                     <h4 className="text-sm font-semibold text-slate-800">Session history</h4>
                     <span className="text-xs text-slate-400">{learningHistorySessionItems.length} session{learningHistorySessionItems.length === 1 ? "" : "s"}</span>
                   </div>
                   {learningHistorySessionItems.length === 0 ? (
                     <p className="text-xs text-slate-400">No session attendance found.</p>
                   ) : (
-                    <div className="space-y-2">
-                      {learningHistorySessionItems.map((item) => (
-                        <div key={`${item.training_course_session_id}-${item.booking_name}-${item.attendance_status}`} className="rounded-md border border-slate-100 bg-white px-3 py-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <div className="text-sm font-medium text-slate-900">{item.session_title}</div>
-                              <div className="text-xs text-slate-500">
-                                {item.run_name}
-                                {item.session_date ? ` · ${new Date(item.session_date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : ""}
-                              </div>
-                            </div>
-                            <Badge className={`text-xs ${attendanceColor(item.attendance_status)}`} variant="outline">
-                              {item.attendance_status.replace(/_/g, " ")}
-                            </Badge>
-                          </div>
-                        </div>
-                      ))}
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Session</TableHead>
+                            <TableHead>Cohort</TableHead>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {learningHistorySessionItems.map((item) => (
+                            <TableRow key={`${item.training_course_session_id}-${item.booking_name}-${item.attendance_status}`}>
+                              <TableCell className="font-medium text-slate-900">{item.session_title}</TableCell>
+                              <TableCell className="text-slate-500">{item.run_name}</TableCell>
+                              <TableCell className="text-slate-500">{formatDisplayDate(item.session_date)}</TableCell>
+                              <TableCell>
+                                <Badge className={`text-xs ${attendanceColor(item.attendance_status)}`} variant="outline">
+                                  {item.attendance_status.replace(/_/g, " ")}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
                     </div>
                   )}
                 </div>
@@ -778,7 +918,7 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
       </Dialog>
 
       <Dialog open={!!assignTarget} onOpenChange={(o) => !o && setAssignTarget(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <UserPlus className="h-4 w-4 text-emerald-600" />
@@ -793,24 +933,147 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
                   {assignSession.session_date
                     ? new Date(assignSession.session_date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
                     : "No date"}
+                  {assignSession.start_time ? ` · ${assignSession.start_time}` : ""}
+                  {assignSession.end_time ? ` - ${assignSession.end_time}` : ""}
                 </div>
               </div>
 
-              <div>
-                <Label>Participant</Label>
-                <Select value={assignBookingId} onValueChange={setAssignBookingId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose participant..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {allBookings.map((b) => (
-                      <SelectItem key={b.training_booking_id} value={String(b.training_booking_id)}>
-                        {b.person_name}{b.client_name ? ` · ${b.client_name}` : ""} · {b.run_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="grid gap-3 md:grid-cols-4">
+                <div>
+                  <Label>Search name / email</Label>
+                  <Input value={assignSearchName} onChange={(e) => setAssignSearchName(e.target.value)} placeholder="Name, email, phone, job #" />
+                </div>
+                <div>
+                  <Label>Company</Label>
+                  <Input value={assignSearchCompany} onChange={(e) => setAssignSearchCompany(e.target.value)} placeholder="Company name" />
+                </div>
+                <div>
+                  <Label>Town / City</Label>
+                  <Input value={assignSearchCity} onChange={(e) => setAssignSearchCity(e.target.value)} placeholder="Town or city" />
+                </div>
+                <div>
+                  <Label>Country</Label>
+                  <Input value={assignSearchCountry} onChange={(e) => setAssignSearchCountry(e.target.value)} placeholder="Country" />
+                </div>
               </div>
+
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>{assignCandidateBookings.length} matching participant booking{assignCandidateBookings.length === 1 ? "" : "s"}</span>
+                <span>Search by participant, company, city, country, email, phone, or job number.</span>
+              </div>
+
+              <div className="overflow-hidden rounded-lg border border-slate-200">
+                <div className="max-h-72 overflow-y-auto">
+                  {assignCandidateBookings.length > 0 ? (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Participant</TableHead>
+                          <TableHead>Company</TableHead>
+                          <TableHead>Location</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Cohort</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {assignCandidateBookings.map((b) => {
+                          const selected = String(b.training_booking_id) === assignBookingId;
+                          return (
+                            <TableRow
+                              key={b.training_booking_id}
+                              className={selected ? "bg-emerald-50/60" : "cursor-pointer hover:bg-slate-50"}
+                              onClick={() => setAssignBookingId(String(b.training_booking_id))}
+                            >
+                              <TableCell className="align-top">
+                                <div className="font-medium text-slate-900">{b.person_name}</div>
+                                <div className="text-xs text-slate-500">
+                                  {formatTrainingParticipantType(b.participant_type)} · {formatTrainingBookingStatus(b.attendance_status)}
+                                </div>
+                              </TableCell>
+                              <TableCell className="align-top text-slate-600">
+                                <div>{b.client_name || "-"}</div>
+                                {b.source_job_number ? <div className="text-xs text-slate-400">Job {b.source_job_number}</div> : null}
+                              </TableCell>
+                              <TableCell className="align-top text-slate-600">
+                                <div>{b.client_addr_city || "-"}</div>
+                                <div className="text-xs text-slate-400">{b.client_addr_country || "-"}</div>
+                              </TableCell>
+                              <TableCell className="align-top text-slate-600">
+                                <div className="truncate">{b.person_email || "-"}</div>
+                                {b.person_phone ? <div className="text-xs text-slate-400">{b.person_phone}</div> : null}
+                              </TableCell>
+                              <TableCell className="align-top text-slate-600">
+                                <div className="font-medium text-slate-800">{b.run_name}</div>
+                                <div className="mt-1 flex flex-wrap gap-2">
+                                  <Badge className={`text-xs ${billingColor(b.billing_status)}`} variant="outline">{formatTrainingBillingStatus(b.billing_status)}</Badge>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <div className="px-4 py-6 text-sm text-slate-500">
+                      No matches found. Try a broader name, company, city, or country filter.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {assignSelectedBooking ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="font-medium text-slate-900">Selected: {assignSelectedBooking.person_name}</div>
+                      <div className="text-xs text-slate-500">
+                        {assignSelectedBooking.client_name || "No company"}
+                        {assignSelectedBooking.client_addr_city ? ` · ${assignSelectedBooking.client_addr_city}` : ""}
+                        {assignSelectedBooking.client_addr_country ? ` · ${assignSelectedBooking.client_addr_country}` : ""}
+                        {assignSelectedBooking.person_email ? ` · ${assignSelectedBooking.person_email}` : ""}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge className={`text-xs ${attendanceColor(assignSelectedBooking.attendance_status)}`} variant="outline">
+                        {formatTrainingBookingStatus(assignSelectedBooking.attendance_status)}
+                      </Badge>
+                      <Badge className={`text-xs ${billingColor(assignSelectedBooking.billing_status)}`} variant="outline">
+                        {formatTrainingBillingStatus(assignSelectedBooking.billing_status)}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  {assignSelectedClashes.length > 0 ? (
+                    <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      <div className="font-medium">Potential clash detected</div>
+                      <div className="mt-1 text-amber-800">
+                        This participant is already booked on {assignSelectedClashes.length} other active session{assignSelectedClashes.length === 1 ? "" : "s"} that overlap with the selected session.
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        {assignSelectedClashes.map((session) => (
+                          <div key={session.training_course_session_id} className="rounded border border-amber-200 bg-white/70 px-2 py-1 text-amber-900">
+                            <div className="font-medium">{session.session_title || `Session #${session.training_course_session_id}`}</div>
+                            <div className="text-[11px] text-amber-800">
+                              {session.session_date ? formatDisplayDate(session.session_date) : "No date"}
+                              {session.start_time ? ` · ${session.start_time}` : ""}
+                              {session.end_time ? ` - ${session.end_time}` : ""}
+                              {session.status ? ` · ${formatTrainingBookingStatus(session.status)}` : ""}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                      No obvious clash found with the selected session.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                  Select a participant from the filtered list above.
+                </div>
+              )}
 
               <div>
                 <Label>Attendance Status</Label>
@@ -827,7 +1090,7 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
               </div>
 
               <p className="text-xs text-slate-400">
-                This creates or updates the selected participant’s attendance record for the session.
+                This creates or updates the selected participant&apos;s attendance record for the session.
               </p>
             </div>
           )}
