@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { Plus, Pencil, Trash2, Search, Filter, Building2, ChevronDown, ArrowLeftRight } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Filter, Building2, ChevronDown, ArrowLeftRight, BookOpen, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,12 @@ type Props = {
   baseUrl: string;
   onRefresh: () => void;
 };
+
+type SessionAssignTarget = {
+  session: TrainingSession;
+};
+
+type LearningHistoryTarget = BookingWithRun;
 
 function attendanceColor(s: string) {
   switch (s) {
@@ -78,18 +84,25 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
   const [form, setForm] = useState<Partial<TrainingBooking>>(EMPTY_BOOKING());
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
-  const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
-
   // Reassign state
   const [reassignBooking, setReassignBooking] = useState<BookingWithRun | null>(null);
   const [reassignRunId, setReassignRunId] = useState<string>("");
   const [reassignSessionIds, setReassignSessionIds] = useState<Set<number>>(new Set());
   const [reassigning, setReassigning] = useState(false);
+  const [assignTarget, setAssignTarget] = useState<SessionAssignTarget | null>(null);
+  const [assignBookingId, setAssignBookingId] = useState<string>("");
+  const [assignAttendanceStatus, setAssignAttendanceStatus] = useState<string>("booked");
+  const [assigning, setAssigning] = useState(false);
+  const [historyTarget, setHistoryTarget] = useState<LearningHistoryTarget | null>(null);
 
   function openReassign(b: BookingWithRun) {
     setReassignBooking(b);
     setReassignRunId("");
     setReassignSessionIds(new Set());
+  }
+
+  function openLearningHistory(b: BookingWithRun) {
+    setHistoryTarget(b);
   }
 
   const reassignTargetRun = useMemo(
@@ -117,6 +130,42 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
       toast.error(String(e));
     } finally {
       setReassigning(false);
+    }
+  }
+
+  function openAssignToSession(session: TrainingSession) {
+    setAssignTarget({ session });
+    setAssignBookingId("");
+    setAssignAttendanceStatus("booked");
+  }
+
+  async function submitAssignToSession() {
+    if (!assignSession || !assignBookingId) return;
+    setAssigning(true);
+    try {
+      const res = await fetch(`${baseUrl}/training-course-sessions/${assignSession.training_course_session_id}/attendance`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: [
+            {
+              training_booking_id: Number(assignBookingId),
+              attendance_status: assignAttendanceStatus,
+              attendance_minutes: null,
+              notes: null,
+            },
+          ],
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      toast.success("Participant assigned to session");
+      setAssignTarget(null);
+      setAssignBookingId("");
+      onRefresh();
+    } catch (e: unknown) {
+      toast.error(String(e));
+    } finally {
+      setAssigning(false);
     }
   }
 
@@ -184,6 +233,53 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
     return result;
   }, [runs]);
 
+  const assignSession = assignTarget?.session ?? null;
+
+  const learningHistoryBookings = useMemo(() => {
+    if (!historyTarget) return [];
+    const email = (historyTarget.person_email ?? "").trim().toLowerCase();
+    const name = historyTarget.person_name.trim().toLowerCase();
+    const client = (historyTarget.client_name ?? "").trim().toLowerCase();
+    return allBookings.filter((b) => {
+      const bEmail = (b.person_email ?? "").trim().toLowerCase();
+      const bName = b.person_name.trim().toLowerCase();
+      const bClient = (b.client_name ?? "").trim().toLowerCase();
+      if (email && bEmail && email === bEmail) return true;
+      if (!email && bName === name && (!client || bClient === client)) return true;
+      if (historyTarget.training_booking_id === b.training_booking_id) return true;
+      return false;
+    });
+  }, [allBookings, historyTarget]);
+
+  const learningHistorySessionItems = useMemo(() => {
+    if (!historyTarget) return [];
+    const bookingIds = new Set(learningHistoryBookings.map((b) => b.training_booking_id));
+    const items: Array<{
+      training_course_session_id: number;
+      session_title: string;
+      session_date: string | null;
+      attendance_status: string;
+      run_name: string;
+      booking_name: string;
+    }> = [];
+    for (const session of sessions) {
+      for (const attendance of session.attendance ?? []) {
+        if (!bookingIds.has(attendance.training_booking_id)) continue;
+        items.push({
+          training_course_session_id: session.training_course_session_id,
+          session_title: session.session_title || `Session #${session.training_course_session_id}`,
+          session_date: session.session_date,
+          attendance_status: attendance.attendance_status,
+          run_name: runs.find((r) => r.training_course_run_id === session.training_course_run_id)?.run_name
+            || runs.find((r) => r.training_course_run_id === session.training_course_run_id)?.product_name
+            || `Cohort #${session.training_course_run_id}`,
+          booking_name: attendance.person_name,
+        });
+      }
+    }
+    return items.sort((a, b) => (a.session_date ?? "").localeCompare(b.session_date ?? "") || a.session_title.localeCompare(b.session_title));
+  }, [historyTarget, learningHistoryBookings, runs, sessions]);
+
   const filtered = useMemo(() => {
     return allBookings.filter((b) => {
       if (filterRun !== "all" && String(b.training_course_run_id) !== filterRun) return false;
@@ -203,7 +299,6 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
   function openCreate() {
     setEditBooking(null);
     setForm({ ...EMPTY_BOOKING(), training_course_run_id: runs[0]?.training_course_run_id ?? 0 });
-    setSelectedRunId(runs[0]?.training_course_run_id ?? null);
     setSelectedClientName(null);
     setContacts([]);
     setClientQuery("");
@@ -213,7 +308,6 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
   function openEdit(b: BookingWithRun) {
     setEditBooking(b);
     setForm({ ...b });
-    setSelectedRunId(b.training_course_run_id);
     setSelectedClientName(b.client_name ?? null);
     setContacts([]);
     setClientQuery("");
@@ -396,6 +490,14 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
                         <div className="flex items-center gap-1">
                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Edit" onClick={() => openEdit(b)}>
                             <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          {sessions.length > 0 && (
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-emerald-600" title="Assign to session" onClick={() => openAssignToSession(sessions.find((s) => s.training_course_run_id === b.training_course_run_id) ?? sessions[0])}>
+                              <UserPlus className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-emerald-600" title="Learning history" onClick={() => openLearningHistory(b)}>
+                            <BookOpen className="h-3.5 w-3.5" />
                           </Button>
                           {runs.length > 1 && (
                             <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-blue-500" title="Reassign to different cohort" onClick={() => openReassign(b)}>
@@ -586,6 +688,158 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!historyTarget} onOpenChange={(o) => !o && setHistoryTarget(null)}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BookOpen className="h-4 w-4 text-emerald-600" />
+              Learning History
+            </DialogTitle>
+          </DialogHeader>
+          {historyTarget && (
+            <div className="space-y-4 py-1">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                <div className="font-medium text-slate-900">{historyTarget.person_name}</div>
+                <div className="text-xs text-slate-500">
+                  {historyTarget.person_email || "No email"}{historyTarget.client_name ? ` · ${historyTarget.client_name}` : ""}
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-lg border border-slate-200 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-slate-800">Cohort history</h4>
+                    <span className="text-xs text-slate-400">{learningHistoryBookings.length} booking{learningHistoryBookings.length === 1 ? "" : "s"}</span>
+                  </div>
+                  {learningHistoryBookings.length === 0 ? (
+                    <p className="text-xs text-slate-400">No cohort history found.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {learningHistoryBookings.map((b) => (
+                        <div key={b.training_booking_id} className="rounded-md border border-slate-100 bg-white px-3 py-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="text-sm font-medium text-slate-900">{b.run_name}</div>
+                              <div className="text-xs text-slate-500">
+                                {b.training_course_run_id ? `Booking #${b.training_booking_id}` : ""}
+                              </div>
+                            </div>
+                            <Badge className={`text-xs ${billingColor(b.billing_status)}`} variant="outline">
+                              {formatTrainingBillingStatus(b.billing_status)}
+                            </Badge>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                            <Badge className={`text-xs ${attendanceColor(b.attendance_status)}`} variant="outline">
+                              {formatTrainingBookingStatus(b.attendance_status)}
+                            </Badge>
+                            <span className="text-slate-500">{formatTrainingParticipantType(b.participant_type)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-lg border border-slate-200 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-slate-800">Session history</h4>
+                    <span className="text-xs text-slate-400">{learningHistorySessionItems.length} session{learningHistorySessionItems.length === 1 ? "" : "s"}</span>
+                  </div>
+                  {learningHistorySessionItems.length === 0 ? (
+                    <p className="text-xs text-slate-400">No session attendance found.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {learningHistorySessionItems.map((item) => (
+                        <div key={`${item.training_course_session_id}-${item.booking_name}-${item.attendance_status}`} className="rounded-md border border-slate-100 bg-white px-3 py-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="text-sm font-medium text-slate-900">{item.session_title}</div>
+                              <div className="text-xs text-slate-500">
+                                {item.run_name}
+                                {item.session_date ? ` · ${new Date(item.session_date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : ""}
+                              </div>
+                            </div>
+                            <Badge className={`text-xs ${attendanceColor(item.attendance_status)}`} variant="outline">
+                              {item.attendance_status.replace(/_/g, " ")}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="flex justify-end border-t pt-3">
+            <Button variant="outline" onClick={() => setHistoryTarget(null)}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!assignTarget} onOpenChange={(o) => !o && setAssignTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-4 w-4 text-emerald-600" />
+              Assign Participant to Session
+            </DialogTitle>
+          </DialogHeader>
+          {assignSession && (
+            <div className="space-y-4 py-1">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                <div className="font-medium text-slate-900">{assignSession.session_title || `Session #${assignSession.training_course_session_id}`}</div>
+                <div className="text-xs text-slate-500">
+                  {assignSession.session_date
+                    ? new Date(assignSession.session_date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+                    : "No date"}
+                </div>
+              </div>
+
+              <div>
+                <Label>Participant</Label>
+                <Select value={assignBookingId} onValueChange={setAssignBookingId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose participant..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allBookings.map((b) => (
+                      <SelectItem key={b.training_booking_id} value={String(b.training_booking_id)}>
+                        {b.person_name}{b.client_name ? ` · ${b.client_name}` : ""} · {b.run_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label>Attendance Status</Label>
+                <Select value={assignAttendanceStatus} onValueChange={setAssignAttendanceStatus}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TRAINING_BOOKING_STATUS_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <p className="text-xs text-slate-400">
+                This creates or updates the selected participant’s attendance record for the session.
+              </p>
+            </div>
+          )}
+          <div className="flex justify-end gap-2 border-t pt-3">
+            <Button variant="outline" onClick={() => setAssignTarget(null)}>Cancel</Button>
+            <Button onClick={() => void submitAssignToSession()} disabled={assigning || !assignBookingId || !assignSession}>
+              {assigning ? "Assigning..." : "Assign"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Reassign dialog */}
       <Dialog open={!!reassignBooking} onOpenChange={(o) => !o && setReassignBooking(null)}>
         <DialogContent className="max-w-md">
@@ -636,7 +890,11 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
                               onChange={(e) => {
                                 setReassignSessionIds((prev) => {
                                   const next = new Set(prev);
-                                  e.target.checked ? next.add(s.training_course_session_id) : next.delete(s.training_course_session_id);
+                                  if (e.target.checked) {
+                                    next.add(s.training_course_session_id);
+                                  } else {
+                                    next.delete(s.training_course_session_id);
+                                  }
                                   return next;
                                 });
                               }}
