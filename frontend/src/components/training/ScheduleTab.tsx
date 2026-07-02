@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import {
   Plus, ChevronDown, ChevronRight, Pencil, Trash2, UserPlus, X,
-  MapPin, Video, Calendar, Clock,
+  MapPin, Video, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -78,6 +78,18 @@ function runStatusColor(s: string) {
     case "cancelled": return "bg-red-100 text-red-800";
     case "full": return "bg-amber-100 text-amber-800";
     default: return "bg-purple-100 text-purple-800";
+  }
+}
+
+function attendanceColor(status: string) {
+  switch (status) {
+    case "attended": return "bg-green-100 text-green-800";
+    case "confirmed": return "bg-blue-100 text-blue-800";
+    case "booked": return "bg-slate-100 text-slate-700";
+    case "cancelled": return "bg-red-100 text-red-700";
+    case "no_show": return "bg-orange-100 text-orange-700";
+    case "waitlist": return "bg-purple-100 text-purple-700";
+    default: return "bg-slate-100 text-slate-600";
   }
 }
 
@@ -421,6 +433,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
 
                   {runSessions.map((s) => {
                     const staff = staffBySession[s.training_course_session_id] ?? [];
+                    const participants = s.attendance ?? [];
                     return (
                       <div key={s.training_course_session_id} className="rounded-lg border border-slate-200 bg-white">
                         <div className="flex items-start gap-3 p-3">
@@ -442,6 +455,36 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                               {s.session_hours ? ` · ${s.session_hours}h` : ""}
                               {s.venue_name ? ` · ${s.venue_name}` : ""}
                             </p>
+                            <div className="mt-2 rounded-md border border-slate-100 bg-slate-50 p-2">
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Participants</p>
+                                <span className="text-xs text-slate-400">
+                                  {participants.length} record{participants.length === 1 ? "" : "s"}
+                                </span>
+                              </div>
+                              {participants.length === 0 ? (
+                                <p className="text-xs text-slate-400">No participants assigned to this session yet.</p>
+                              ) : (
+                                <div className="max-h-32 space-y-1 overflow-y-auto pr-1">
+                                  {participants.map((p) => (
+                                    <div
+                                      key={p.training_session_attendance_id}
+                                      className="flex flex-wrap items-center gap-2 rounded bg-white px-2 py-1 text-xs shadow-sm ring-1 ring-slate-100"
+                                    >
+                                      <span className="font-medium text-slate-800">{p.person_name}</span>
+                                      {p.client_name && <span className="text-slate-400">({p.client_name})</span>}
+                                      <Badge className={`text-[10px] ${attendanceColor(p.attendance_status)}`} variant="outline">
+                                        {p.attendance_status.replace(/_/g, " ")}
+                                      </Badge>
+                                      {p.participant_type && (
+                                        <span className="text-slate-400">{p.participant_type.replace(/_/g, " ")}</span>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
                             {/* Staff pills */}
                             {staff.length > 0 && (
                               <div className="mt-1.5 flex flex-wrap gap-1">
