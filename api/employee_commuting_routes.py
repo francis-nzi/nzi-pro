@@ -971,7 +971,7 @@ def _resolve_preview_rows(
                         "sheet": parsed_row["sheet"],
                         "row_number": row_number,
                         "employee_name": employee_name,
-                        "reason": f"Original ID {original_id} was not found in factor_lookup",
+                        "reason": f"Original ID {original_id} was not found in available emission factors",
                         "original_id": original_id,
                     }
                 )
@@ -1064,7 +1064,7 @@ def _resolve_preview_rows(
                     "sheet": parsed_row["sheet"],
                     "row_number": row_number,
                     "employee_name": employee_name,
-                    "reason": f"Original ID {original_id} was not found in factor_lookup",
+                    "reason": f"Original ID {original_id} was not found in available emission factors",
                     "original_id": original_id,
                 }
             )
@@ -1410,7 +1410,7 @@ def _resolve_manual_commuting_rows(
                         "sheet": "Direct Entry",
                         "row_number": idx,
                         "employee_name": employee_name,
-                        "reason": f"Original ID {original_id} was not found in factor_lookup",
+                        "reason": f"Original ID {original_id} was not found in available emission factors",
                         "original_id": original_id,
                     }
                 )
@@ -1497,7 +1497,7 @@ def _resolve_manual_commuting_rows(
                     "sheet": "Direct Entry",
                     "row_number": idx,
                     "employee_name": employee_name,
-                    "reason": f"Original ID {original_id} was not found in factor_lookup",
+                    "reason": f"Original ID {original_id} was not found in available emission factors",
                     "original_id": original_id,
                 }
             )
