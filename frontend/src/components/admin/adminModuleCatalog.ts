@@ -13,6 +13,7 @@ import {
   Gauge,
   History,
   Layers3,
+  LibraryBig,
   Mail,
   Megaphone,
   Palette,
@@ -122,6 +123,14 @@ export const ADMIN_MODULES: AdminModule[] = [
     cta: "Manage factors",
     domain: "Reference Data",
     icon: Layers3,
+  },
+  {
+    title: "Factor Definitions",
+    description: "Edit descriptions (Category, Levels, Report Label) that propagate across all datasets and years via the normalised factor tables.",
+    href: "/admin/factor-definitions",
+    cta: "Edit definitions",
+    domain: "Reference Data",
+    icon: LibraryBig,
   },
   {
     title: "Templates",
