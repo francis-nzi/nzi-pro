@@ -21,6 +21,7 @@ type AuditLogItem = {
   audit_id: number;
   created_at: string;
   org_id: string | null;
+  org_name: string | null;
   actor_user_id: number | null;
   actor_email: string | null;
   actor_name: string | null;
@@ -28,7 +29,9 @@ type AuditLogItem = {
   entity_type: string;
   entity_id: string | number | null;
   client_id: number | null;
+  client_name: string | null;
   job_id: number | null;
+  job_number: string | null;
   page: string | null;
   section: string | null;
   container: string | null;
@@ -84,6 +87,52 @@ function stringifyJson(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function PaginationControls({
+  total,
+  pageStart,
+  pageEnd,
+  offset,
+  limit,
+  loading,
+  onPrevious,
+  onNext,
+}: {
+  total: number;
+  pageStart: number;
+  pageEnd: number;
+  offset: number;
+  limit: number;
+  loading: boolean;
+  onPrevious: () => void;
+  onNext: () => void;
+}) {
+  if (total === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="text-sm text-muted-foreground">Showing {pageStart}-{pageEnd} of {total}</div>
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          disabled={offset <= 0 || loading}
+          onClick={onPrevious}
+        >
+          Previous
+        </Button>
+        <Button
+          variant="outline"
+          disabled={loading || offset + limit >= total}
+          onClick={onNext}
+        >
+          Next
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 export default function AuditLogPage() {
@@ -305,16 +354,28 @@ export default function AuditLogPage() {
               <div className="text-sm text-muted-foreground">Loading audit events...</div>
             ) : data?.items?.length ? (
               <>
+                <div className="mb-4">
+                  <PaginationControls
+                    total={total}
+                    pageStart={pageStart}
+                    pageEnd={pageEnd}
+                    offset={offset}
+                    limit={limit}
+                    loading={loading}
+                    onPrevious={() => setOffset((prev) => Math.max(prev - limit, 0))}
+                    onNext={() => setOffset((prev) => prev + limit)}
+                  />
+                </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>When</TableHead>
-                      <TableHead>Org</TableHead>
+                      <TableHead>Organisation</TableHead>
                       <TableHead>Actor</TableHead>
                       <TableHead>Action</TableHead>
                       <TableHead>Entity</TableHead>
                       <TableHead>Client</TableHead>
-                      <TableHead>Job</TableHead>
+                      <TableHead>Job Number</TableHead>
                       <TableHead>UI Context</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -322,7 +383,9 @@ export default function AuditLogPage() {
                     {data.items.map((item) => (
                       <TableRow key={item.audit_id}>
                         <TableCell className="align-top">{fmtDate(item.created_at)}</TableCell>
-                        <TableCell className="align-top text-xs text-muted-foreground">{item.org_id || "-"}</TableCell>
+                        <TableCell className="align-top">
+                          <div className="font-medium">{item.org_name || "-"}</div>
+                        </TableCell>
                         <TableCell className="align-top">
                           <div className="font-medium">{item.actor_name || item.actor_email || "Unknown"}</div>
                           {item.actor_email ? (
@@ -336,8 +399,8 @@ export default function AuditLogPage() {
                           <div className="font-medium">{item.entity_type}</div>
                           <div className="text-xs text-muted-foreground">{String(item.entity_id ?? "-")}</div>
                         </TableCell>
-                        <TableCell className="align-top">{item.client_id ?? "-"}</TableCell>
-                        <TableCell className="align-top">{item.job_id ?? "-"}</TableCell>
+                        <TableCell className="align-top">{item.client_name || "-"}</TableCell>
+                        <TableCell className="align-top">{item.job_number || "-"}</TableCell>
                         <TableCell className="align-top">
                           <div className="text-sm">{item.page || "-"}</div>
                           <div className="text-xs text-muted-foreground">
@@ -392,26 +455,17 @@ export default function AuditLogPage() {
                   </TableBody>
                 </Table>
 
-                <div className="mt-4 flex items-center justify-between gap-4">
-                  <div className="text-sm text-muted-foreground">
-                    {total === 0 ? "No results" : `Showing ${pageStart}-${pageEnd} of ${total}`}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      disabled={offset <= 0 || loading}
-                      onClick={() => setOffset((prev) => Math.max(prev - limit, 0))}
-                    >
-                      Previous
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={loading || offset + limit >= total}
-                      onClick={() => setOffset((prev) => prev + limit)}
-                    >
-                      Next
-                    </Button>
-                  </div>
+                <div className="mt-4">
+                  <PaginationControls
+                    total={total}
+                    pageStart={pageStart}
+                    pageEnd={pageEnd}
+                    offset={offset}
+                    limit={limit}
+                    loading={loading}
+                    onPrevious={() => setOffset((prev) => Math.max(prev - limit, 0))}
+                    onNext={() => setOffset((prev) => prev + limit)}
+                  />
                 </div>
               </>
             ) : (

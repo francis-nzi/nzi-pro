@@ -117,14 +117,17 @@ def get_audit_log(
             rows = con.execute(
                 f"""
                 SELECT
-                    audit_id, created_at, org_id, actor_user_id, actor_email, actor_name,
-                    action, entity_type, entity_id, client_id, job_id,
-                    page, section, container, route, method,
-                    before_json, after_json, diff_json, metadata_json,
-                    ip_address, user_agent
-                FROM audit_log
+                    a.audit_id, a.created_at, a.org_id, o.name AS org_name, a.actor_user_id, a.actor_email, a.actor_name,
+                    a.action, a.entity_type, a.entity_id, a.client_id, c.client_name AS client_name, a.job_id, j.job_number AS job_number,
+                    a.page, a.section, a.container, a.route, a.method,
+                    a.before_json, a.after_json, a.diff_json, a.metadata_json,
+                    a.ip_address, a.user_agent
+                FROM audit_log a
+                LEFT JOIN organisations o ON o.org_id::text = a.org_id
+                LEFT JOIN clients c ON c.db_id = a.client_id
+                LEFT JOIN jobs j ON j.job_id = a.job_id
                 {where_sql}
-                ORDER BY created_at DESC, audit_id DESC
+                ORDER BY a.created_at DESC, a.audit_id DESC
                 LIMIT %s OFFSET %s
                 """,
                 [*params, int(limit), int(offset)],
@@ -137,25 +140,28 @@ def get_audit_log(
                     "audit_id": int(row[0]),
                     "created_at": str(row[1]) if row[1] is not None else None,
                     "org_id": row[2],
-                    "actor_user_id": row[3],
-                    "actor_email": row[4],
-                    "actor_name": row[5],
-                    "action": row[6],
-                    "entity_type": row[7],
-                    "entity_id": row[8],
-                    "client_id": row[9],
-                    "job_id": row[10],
-                    "page": row[11],
-                    "section": row[12],
-                    "container": row[13],
-                    "route": row[14],
-                    "method": row[15],
-                    "before": parse_json_text(row[16]),
-                    "after": parse_json_text(row[17]),
-                    "diff": parse_json_text(row[18]),
-                    "metadata": parse_json_text(row[19]),
-                    "ip_address": row[20],
-                    "user_agent": row[21],
+                    "org_name": row[3],
+                    "actor_user_id": row[4],
+                    "actor_email": row[5],
+                    "actor_name": row[6],
+                    "action": row[7],
+                    "entity_type": row[8],
+                    "entity_id": row[9],
+                    "client_id": row[10],
+                    "client_name": row[11],
+                    "job_id": row[12],
+                    "job_number": row[13],
+                    "page": row[14],
+                    "section": row[15],
+                    "container": row[16],
+                    "route": row[17],
+                    "method": row[18],
+                    "before": parse_json_text(row[19]),
+                    "after": parse_json_text(row[20]),
+                    "diff": parse_json_text(row[21]),
+                    "metadata": parse_json_text(row[22]),
+                    "ip_address": row[23],
+                    "user_agent": row[24],
                 }
             )
 
@@ -232,14 +238,17 @@ def export_audit_log(
             rows = con.execute(
                 f"""
                 SELECT
-                    audit_id, created_at, org_id, actor_user_id, actor_email, actor_name,
-                    action, entity_type, entity_id, client_id, job_id,
-                    page, section, container, route, method,
-                    before_json, after_json, diff_json, metadata_json,
-                    ip_address, user_agent
-                FROM audit_log
+                    a.audit_id, a.created_at, a.org_id, o.name AS org_name, a.actor_user_id, a.actor_email, a.actor_name,
+                    a.action, a.entity_type, a.entity_id, a.client_id, c.client_name AS client_name, a.job_id, j.job_number AS job_number,
+                    a.page, a.section, a.container, a.route, a.method,
+                    a.before_json, a.after_json, a.diff_json, a.metadata_json,
+                    a.ip_address, a.user_agent
+                FROM audit_log a
+                LEFT JOIN organisations o ON o.org_id::text = a.org_id
+                LEFT JOIN clients c ON c.db_id = a.client_id
+                LEFT JOIN jobs j ON j.job_id = a.job_id
                 {where_sql}
-                ORDER BY created_at DESC, audit_id DESC
+                ORDER BY a.created_at DESC, a.audit_id DESC
                 """,
                 params,
             ).fetchall()
@@ -249,6 +258,7 @@ def export_audit_log(
         writer.writerow([
             "audit_id",
             "created_at",
+            "org_name",
             "org_id",
             "actor_user_id",
             "actor_email",
@@ -256,7 +266,9 @@ def export_audit_log(
             "action",
             "entity_type",
             "entity_id",
+            "client_name",
             "client_id",
+            "job_number",
             "job_id",
             "page",
             "section",
@@ -294,6 +306,9 @@ def export_audit_log(
                 row[19],
                 row[20],
                 row[21],
+                row[22],
+                row[23],
+                row[24],
             ])
 
         filename = "audit_log.csv"
