@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, Copy, Plus, Save, Sparkles, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, Save, Sparkles, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -80,21 +80,6 @@ type JobActionsProps = {
   onOpenReportNew?: () => void;
   isActive?: boolean;
 };
-
-function blankCustomAction(termOptions: TermOption[], sortOrder: number): JobActionItem {
-  const defaultTerm = termOptions[1]?.value || termOptions[0]?.value || "medium";
-  return {
-    action_name: "",
-    description: "",
-    action_term: defaultTerm,
-    action_term_label: termOptions.find((item) => item.value === defaultTerm)?.label || "Medium term",
-    action_term_hint: termOptions.find((item) => item.value === defaultTerm)?.hint || "1-3 years",
-    action_category: "",
-    scope_focus: "",
-    is_custom: true,
-    sort_order: sortOrder,
-  };
-}
 
 function termBadgeVariant(term: string): string {
   const normalized = String(term || "").trim().toLowerCase();
@@ -207,11 +192,6 @@ export default function JobActions({
         sort_order: (prev.length + 1) * 10,
       },
     ]);
-    setStatus("");
-  }
-
-  function addCustomAction() {
-    setItems((prev) => [...prev, blankCustomAction(termOptions, (prev.length + 1) * 10)]);
     setStatus("");
   }
 
@@ -511,10 +491,6 @@ export default function JobActions({
             <Button variant="outline" onClick={() => void openCopyDialog()}>
               <Copy className="mr-2 h-4 w-4" />
               Copy from Another Job
-            </Button>
-            <Button variant="outline" onClick={addCustomAction}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Custom Action
             </Button>
             <Button onClick={saveActions} disabled={saving || loading}>
               <Save className="mr-2 h-4 w-4" />
