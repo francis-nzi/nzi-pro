@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation";
 
+import ActivityHistoryModal from "@/components/ActivityHistoryModal";
 import JobFinancial from "@/components/JobFinancial";
 import JobSectionShell from "@/components/job-workspace/JobSectionShell";
 
@@ -10,10 +11,10 @@ function apiBaseUrl(): string {
 }
 
 const FINANCIAL_SECTIONS = {
-  quotes: { key: "financial-quotes", label: "Quotes", mode: "quotes" as const },
-  invoices: { key: "financial-invoices", label: "Invoices", mode: "invoices" as const },
-  "other-costs": { key: "financial-other-costs", label: "Other Costs", mode: "other-costs" as const },
-  "profit-loss": { key: "financial-profit-loss", label: "Profit & Loss", mode: "profit-loss" as const },
+  quotes:       { key: "financial-quotes",       label: "Quotes",       mode: "quotes" as const,       entityType: "quote" },
+  invoices:     { key: "financial-invoices",     label: "Invoices",     mode: "invoices" as const,     entityType: "invoice" },
+  "other-costs":{ key: "financial-other-costs",  label: "Other Costs",  mode: "other-costs" as const },
+  "profit-loss":{ key: "financial-profit-loss",  label: "Profit & Loss",mode: "profit-loss" as const },
 } as const;
 
 type FinancialSectionKey = keyof typeof FINANCIAL_SECTIONS;
@@ -25,6 +26,16 @@ export default function JobFinancialSectionPage() {
   const section = FINANCIAL_SECTIONS[sectionSegment as FinancialSectionKey] ?? FINANCIAL_SECTIONS.quotes;
   const baseUrl = apiBaseUrl();
 
+  const entityType = "entityType" in section ? section.entityType : undefined;
+  const historyButton = entityType ? (
+    <ActivityHistoryModal
+      jobId={jobId}
+      baseUrl={baseUrl}
+      entityType={entityType}
+      label="Activity History"
+    />
+  ) : null;
+
   return (
     <JobSectionShell
       jobId={jobId}
@@ -33,6 +44,7 @@ export default function JobFinancialSectionPage() {
       sectionHref={`/jobs/${jobId}/financial/${sectionSegment}`}
       activeGroup="financial"
       activeSubtab={section.key}
+      headerSlot={historyButton}
       renderContent={(job) => (
         <JobFinancial
           jobId={jobId}

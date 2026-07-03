@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
+import ActivityHistoryModal from "@/components/ActivityHistoryModal";
 import JobWorkspaceHeader from "@/components/job-workspace/JobWorkspaceHeader";
 import JobReviewNotificationBar from "@/components/job-workspace/JobReviewNotificationBar";
 import JobSetupOverviewSection from "@/components/job-workspace/JobSetupOverviewSection";
@@ -740,6 +741,20 @@ export default function JobDetailPage() {
 
           <TabsContent value="setup" className="mt-0">
             <div className="space-y-6">
+              <div className="flex justify-end gap-2">
+                <ActivityHistoryModal
+                  jobId={jobId}
+                  baseUrl={baseUrl}
+                  entityType="job"
+                  label="Job Setup History"
+                />
+                <ActivityHistoryModal
+                  jobId={jobId}
+                  baseUrl={baseUrl}
+                  entityType="job_template_milestone_completion"
+                  label="Milestone History"
+                />
+              </div>
               {loadingScopeConfig || loadingReportMetadata ? (
                 <div className="text-sm text-muted-foreground">
                   Loading setup resources for the active section...
