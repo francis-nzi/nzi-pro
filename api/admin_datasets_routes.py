@@ -167,7 +167,7 @@ def _build_dataset_template_workbook(country: str, year: int) -> tuple[bytes, st
                 COALESCE(NULLIF(fl.source, ''), '') AS source,
                 COALESCE(NULLIF(fl.region, ''), '') AS region,
                 COALESCE(NULLIF(fl.method, ''), '') AS method
-            FROM factor_lookup fl
+            FROM v_factor_lookup fl
             JOIN datasets d ON d.dataset_id = fl.dataset_id
             WHERE LOWER(TRIM(COALESCE(d.country, ''))) = LOWER(TRIM(%s))
               AND d.year = %s
@@ -298,6 +298,90 @@ def download_dataset_template_workbook(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to build dataset workbook: {e}")
+
+
+@router.get("/datasets/blank-upload-template")
+def download_blank_upload_template(_user: dict = Depends(_current_user)):
+    """Download a blank XLSX template for uploading conversion factors via CSV upload."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Factors Upload"
+
+    note_fill = PatternFill(start_color="FFF3CD", end_color="FFF3CD", fill_type="solid")
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    example_fill = PatternFill(start_color="E8F0FE", end_color="E8F0FE", fill_type="solid")
+
+    note_cell = ws.cell(row=1, column=1, value="Required columns: ID, Scope, Factor. Save as CSV (.csv) before uploading via Admin > Datasets.")
+    note_cell.fill = note_fill
+    ws.merge_cells("A1:R1")
+
+    headers = [
+        "ID", "Scope", "Category", "Level 1", "Level 2", "Level 3", "Level 4",
+        "Column Text", "Report Label", "UOM", "GHG Unit", "Factor", "Year",
+        "Source", "Region", "Method", "Valid From", "Valid To",
+    ]
+    for col_idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=2, column=col_idx, value=header)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    example = [
+        "1.A.1.a", "Scope 1", "Stationary combustion", "Fuels", "Gas", "", "",
+        "Natural gas combustion", "Natural Gas", "kWh", "kgCO2e", 0.18289, 2025,
+        "DESNZ", "United Kingdom", "Market-based", "", "",
+    ]
+    for col_idx, value in enumerate(example, start=1):
+        ws.cell(row=3, column=col_idx, value=value).fill = example_fill
+
+    widths = [14, 14, 24, 22, 22, 20, 20, 30, 30, 10, 12, 12, 8, 16, 16, 18, 12, 12]
+    for col_idx, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = w
+    ws.freeze_panes = "A3"
+
+    ws2 = wb.create_sheet("Instructions")
+    instr_rows = [
+        ("Column", "Required?", "Description", "Example"),
+        ("ID", "Required", "Unique identifier for this factor row", "1.A.1.a"),
+        ("Scope", "Required", "Emission scope (e.g. Scope 1, Scope 2, Scope 3)", "Scope 1"),
+        ("Factor", "Required", "Numeric emission factor value (kgCO2e per unit)", "0.18289"),
+        ("Category", "Optional", "Top-level category label", "Stationary combustion"),
+        ("Level 1", "Optional", "Sub-category level 1", "Fuels"),
+        ("Level 2", "Optional", "Sub-category level 2", "Gas"),
+        ("Level 3", "Optional", "Sub-category level 3", ""),
+        ("Level 4", "Optional", "Sub-category level 4", ""),
+        ("Column Text", "Optional", "Activity description shown in dropdowns", "Natural gas combustion"),
+        ("Report Label", "Optional", "Label shown in reports", "Natural Gas"),
+        ("UOM", "Optional", "Unit of measure", "kWh"),
+        ("GHG Unit", "Optional", "Greenhouse gas unit", "kgCO2e"),
+        ("Year", "Optional", "Reporting year this factor applies to", "2025"),
+        ("Source", "Optional", "Data source name", "DESNZ"),
+        ("Region", "Optional", "Geographic region", "United Kingdom"),
+        ("Method", "Optional", "Calculation method", "Market-based"),
+        ("Valid From", "Optional", "Date from which factor is valid (YYYY-MM-DD)", "2025-01-01"),
+        ("Valid To", "Optional", "Date to which factor is valid (YYYY-MM-DD)", "2025-12-31"),
+    ]
+    req_fill = PatternFill(start_color="E8F5E9", end_color="E8F5E9", fill_type="solid")
+    for row_idx, row in enumerate(instr_rows, start=1):
+        for col_idx, val in enumerate(row, start=1):
+            cell = ws2.cell(row=row_idx, column=col_idx, value=val)
+            if row_idx == 1:
+                cell.font = Font(bold=True, color="FFFFFF")
+                cell.fill = header_fill
+            elif row[1] == "Required":
+                cell.fill = req_fill
+    ws2.column_dimensions["A"].width = 14
+    ws2.column_dimensions["B"].width = 12
+    ws2.column_dimensions["C"].width = 52
+    ws2.column_dimensions["D"].width = 24
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="factors_upload_template.xlsx"'},
+    )
 
 
 def _ensure_factor_lookup_schema(con) -> None:
@@ -1366,9 +1450,9 @@ def export_dataset(
             df = con.execute(
                 """
                 SELECT original_id, scope, category, level_1, level_2, level_3, level_4,
-                       column_text, report_label, uom, ghg_unit, factor, year, 
+                       column_text, report_label, uom, ghg_unit, factor, year,
                        valid_from, valid_to, source, region, method
-                FROM factor_lookup
+                FROM v_factor_lookup
                 WHERE dataset_id = %s
                 ORDER BY scope, COALESCE(category, level_1), level_2, level_3, original_id
                 """,

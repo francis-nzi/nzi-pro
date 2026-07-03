@@ -808,6 +808,13 @@ export default function DatasetsPage() {
     setValidTo(dataset.valid_to || "");
   }
 
+  function startUploadForDataset(dataset: Dataset) {
+    startEditDataset(dataset);
+    window.setTimeout(() => {
+      document.getElementById("upload-factors-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
+
   async function updateDataset() {
     if (!editingDataset) return;
     
@@ -1705,11 +1712,22 @@ export default function DatasetsPage() {
               
               {/* Upload Factors Section - Only show after dataset is created/selected */}
               {editingDataset && (
-                <div className="mt-6 pt-6 border-t space-y-3">
+                <div id="upload-factors-section" className="mt-6 pt-6 border-t space-y-3">
                   <div className="space-y-1">
                     <div className="text-sm font-semibold">Upload Conversion Factors</div>
                     <div className="text-xs text-muted-foreground">
-                      Upload a CSV file containing conversion factors for this dataset
+                      Upload a CSV file containing conversion factors for <span className="font-medium">{editingDataset.name}</span>.
+                      Columns: ID, Scope, Factor (required) + Category, Levels 1–4, UOM, GHG Unit, Report Label, Year, Source, etc.
+                    </div>
+                    <div className="text-xs">
+                      <a
+                        href={`${baseUrl}/admin/datasets/blank-upload-template`}
+                        className="font-medium text-primary underline underline-offset-2"
+                        download="factors_upload_template.xlsx"
+                      >
+                        Download blank XLSX template
+                      </a>
+                      {" "}(open in Excel, fill in data, save as CSV, then upload)
                     </div>
                   </div>
                   
@@ -1770,19 +1788,10 @@ export default function DatasetsPage() {
 
               <div className="mt-6 pt-6 border-t space-y-3">
                 <div className="space-y-1">
-                  <div className="text-sm font-semibold">Import Conversion Workbook</div>
+                  <div className="text-sm font-semibold">Import DESNZ / DEFRA Conversion Workbook</div>
                   <div className="text-xs text-muted-foreground">
-                    Upload the year-by-year DESNZ / DEFRA Excel workbook to merge UK factor data in place.
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    Expected filename:{" "}
-                    <a
-                      href="/downloads/DESNZ%20DEFRA%20Conversion%20Factors%202019-2025.xlsx"
-                      className="font-medium text-primary underline underline-offset-2"
-                      download
-                    >
-                      DESNZ DEFRA Conversion Factors 2019-2025.xlsx
-                    </a>
+                    Upload the official year-by-year DESNZ / DEFRA Excel workbook (.xlsx) to merge UK factor data in place.
+                    Download the workbook from the UK government website (search: &ldquo;DESNZ greenhouse gas reporting conversion factors&rdquo;), then upload it here.
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -1920,7 +1929,7 @@ export default function DatasetsPage() {
                                       </div>
                                     )}
                                   </div>
-                                  <div className="flex gap-2">
+                                  <div className="flex flex-wrap gap-2">
                                     <Button
                                       variant="outline"
                                       size="sm"
@@ -1931,9 +1940,9 @@ export default function DatasetsPage() {
                                     <Button
                                       variant="outline"
                                       size="sm"
-                                      onClick={() => archiveDataset(ds.dataset_id, ds.name)}
+                                      onClick={() => startUploadForDataset(ds)}
                                     >
-                                      Archive
+                                      Upload CSV
                                     </Button>
                                     <Button
                                       variant="outline"
@@ -1941,6 +1950,13 @@ export default function DatasetsPage() {
                                       onClick={() => downloadDataset(ds.dataset_id, ds.name)}
                                     >
                                       Download CSV
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => archiveDataset(ds.dataset_id, ds.name)}
+                                    >
+                                      Archive
                                     </Button>
                                   </div>
                                 </div>
