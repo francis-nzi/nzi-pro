@@ -479,184 +479,6 @@ function UpdateModal({
   );
 }
 
-// ── Add action modal ──────────────────────────────────────────────────────────
-
-function AddActionModal({
-  contacts,
-  categories,
-  onClose,
-  onSaved,
-}: {
-  contacts: Contact[];
-  categories: Category[];
-  onClose: () => void;
-  onSaved: (action: Action) => void;
-}) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("");
-  const [term, setTerm] = useState("medium");
-  const [scopeFocus, setScopeFocus] = useState("");
-  const [targetDate, setTargetDate] = useState("");
-  const [ownerContactId, setOwnerContactId] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  async function handleSave() {
-    if (!name.trim()) { setError("Action name is required"); return; }
-    setSaving(true);
-    setError("");
-    try {
-      const body: Record<string, unknown> = {
-        action_name: name.trim(),
-        action_term: term,
-      };
-      if (description.trim()) body.description = description.trim();
-      if (category) body.action_category = category;
-      if (scopeFocus) body.scope_focus = scopeFocus;
-      if (targetDate) body.target_date = targetDate;
-      if (ownerContactId) body.owner_contact_id = parseInt(ownerContactId, 10);
-
-      const res = await apiFetch("/portal/actions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t || `Error ${res.status}`);
-      }
-      const data = await res.json() as { item: Action };
-      onSaved(data.item);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl max-h-[90vh] overflow-y-auto">
-        <div className="px-6 pt-6 pb-4 border-b border-gray-100">
-          <h2 className="text-base font-semibold text-gray-900">Add new action</h2>
-          <p className="mt-0.5 text-sm text-gray-500">This will be visible to your NZI consultant.</p>
-        </div>
-        <div className="px-6 py-4 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Action name *</label>
-            <input
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="e.g. Switch to renewable electricity tariff"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-            <textarea
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              rows={2}
-              placeholder="Optional details about this action…"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-400"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-              <select
-                value={category}
-                onChange={e => setCategory(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              >
-                <option value="">Select…</option>
-                {categories.map(c => (
-                  <option key={c.category_id} value={c.name}>{c.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Timeframe</label>
-              <select
-                value={term}
-                onChange={e => setTerm(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              >
-                <option value="short">Short term (0–12 months)</option>
-                <option value="medium">Medium term (1–3 years)</option>
-                <option value="long">Long term (3+ years)</option>
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Scope focus</label>
-              <select
-                value={scopeFocus}
-                onChange={e => setScopeFocus(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              >
-                <option value="">Select…</option>
-                <option>Scope 1</option>
-                <option>Scope 2</option>
-                <option>Scope 3</option>
-                <option>Scope 1 and Scope 2</option>
-                <option>All scopes</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Target date</label>
-              <input
-                type="date"
-                value={targetDate}
-                onChange={e => setTargetDate(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              />
-            </div>
-          </div>
-          {contacts.length > 0 && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Owner</label>
-              <select
-                value={ownerContactId}
-                onChange={e => setOwnerContactId(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              >
-                <option value="">No owner assigned</option>
-                {contacts.map(c => (
-                  <option key={c.contact_id} value={String(c.contact_id)}>
-                    {c.full_name}{c.job_title ? ` (${c.job_title})` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {error && <p className="text-sm text-red-600">{error}</p>}
-        </div>
-        <div className="px-6 pb-6 flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
-            style={{ backgroundColor: "#F26624" }}
-          >
-            {saving ? "Saving…" : "Add action"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Action card ───────────────────────────────────────────────────────────────
 
 function ActionCard({
@@ -756,7 +578,6 @@ export default function PortalActions() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
-  const [showAddModal, setShowAddModal] = useState(false);
   const [showLibraryModal, setShowLibraryModal] = useState(false);
 
   const loadActions = useCallback(() => {
@@ -802,7 +623,7 @@ export default function PortalActions() {
 
   return (
     <div className="space-y-6">
-      {/* Summary + Add button */}
+      {/* Summary + library button */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex gap-4">
           <div className="text-center">
@@ -824,13 +645,6 @@ export default function PortalActions() {
             className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
           >
             Browse library
-          </button>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors"
-            style={{ backgroundColor: "#F26624" }}
-          >
-            + Add action
           </button>
         </div>
       </div>
@@ -866,15 +680,6 @@ export default function PortalActions() {
             />
           ))}
         </div>
-      )}
-
-      {showAddModal && (
-        <AddActionModal
-          contacts={contacts}
-          categories={categories}
-          onClose={() => setShowAddModal(false)}
-          onSaved={() => { setShowAddModal(false); void loadActions(); }}
-        />
       )}
 
       {showLibraryModal && (
