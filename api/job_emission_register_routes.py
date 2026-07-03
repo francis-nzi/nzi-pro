@@ -448,7 +448,7 @@ def _resolve_factor(con, scope: str, original_id: str | None, factor_db_id: int 
         row = con.execute(
             """
             SELECT db_id, dataset_id, original_id, factor, ghg_unit, category, uom
-            FROM factor_lookup
+            FROM v_factor_lookup
             WHERE db_id=%s
             LIMIT 1
             """,
@@ -487,7 +487,7 @@ def _resolve_factor(con, scope: str, original_id: str | None, factor_db_id: int 
         row = con.execute(
             """
             SELECT dataset_id, original_id, category, uom
-            FROM factor_lookup
+            FROM v_factor_lookup
             WHERE db_id=%s
             LIMIT 1
             """,
@@ -524,7 +524,7 @@ def _list_register(con, job_id: int, source_type: str | None, include_disabled: 
           g.notes, g.enabled, g.created_at, g.updated_at
         FROM job_emission_groups g
         LEFT JOIN client_sites cs ON cs.site_id = g.site_id
-        LEFT JOIN factor_lookup fl ON fl.db_id = g.factor_db_id
+        LEFT JOIN v_factor_lookup fl ON fl.db_id = g.factor_db_id
         WHERE {" AND ".join(group_where)}
         ORDER BY g.group_name
         """,

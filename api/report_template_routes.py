@@ -1288,7 +1288,7 @@ def _lookup_energy_factors_from_dataset(con, dataset_id: int) -> tuple[float | N
                    report_label,
                    uom,
                    factor
-            FROM factor_lookup
+            FROM v_factor_lookup
             WHERE dataset_id = %s
               AND scope IN ('Scope 2', 'Scope 3')
             """,
@@ -1309,7 +1309,7 @@ def _lookup_energy_factors_from_dataset(con, dataset_id: int) -> tuple[float | N
                        NULL AS report_label,
                        uom,
                        factor
-                FROM factor_lookup
+                FROM v_factor_lookup
                 WHERE dataset_id = %s
                   AND scope IN ('Scope 2', 'Scope 3')
                 """,
@@ -1681,7 +1681,7 @@ def _derive_energy_kwh_from_scope_rows(con, job_id: int) -> dict[str, float]:
             FROM job_emission_sources js
             LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
             LEFT JOIN datasets d ON d.dataset_id = COALESCE(g.dataset_id, js.dataset_id)
-            LEFT JOIN factor_lookup fl ON fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
+            LEFT JOIN v_factor_lookup fl ON fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
             WHERE js.job_id = %s
               AND COALESCE(js.enabled, TRUE) = TRUE
             """,

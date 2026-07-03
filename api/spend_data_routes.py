@@ -273,7 +273,7 @@ def _factor_by_id(con, factor_db_id: int) -> dict[str, Any] | None:
     row = con.execute(
         f"""
         SELECT db_id, dataset_id, original_id, scope, {category_expr} AS category, {label_expr} AS report_label, factor, ghg_unit
-        FROM factor_lookup
+        FROM v_factor_lookup
         WHERE db_id = %s
         LIMIT 1
         """,
@@ -301,7 +301,7 @@ def _factor_by_original_id(con, original_id: str) -> dict[str, Any] | None:
         f"""
         SELECT f.db_id, f.dataset_id, f.original_id, f.scope,
                {category_expr} AS category, {label_expr} AS report_label, f.factor, f.ghg_unit
-        FROM factor_lookup f
+        FROM v_factor_lookup f
         LEFT JOIN datasets d ON d.dataset_id = f.dataset_id
         WHERE TRIM(f.original_id) = %s
           AND (d.spend_dataset = TRUE OR d.spend_dataset IS NULL)
@@ -707,7 +707,7 @@ def list_spend_data(job_id: int, _user: dict = Depends(_current_user)):
                    e.notes, e.created_at, e.updated_at
             FROM job_spend_entries e
             LEFT JOIN client_sites s ON s.site_id = e.site_id
-            LEFT JOIN factor_lookup fl ON fl.db_id = e.factor_db_id
+            LEFT JOIN v_factor_lookup fl ON fl.db_id = e.factor_db_id
             WHERE e.job_id = %s AND COALESCE(e.is_deleted, FALSE) = FALSE
             ORDER BY e.entry_id DESC
             """,
@@ -1208,7 +1208,7 @@ def search_spend_factors(job_id: int, q: str = Query("", min_length=0), limit: i
             f"""
             SELECT f.db_id, f.dataset_id, f.original_id, f.scope, {category_expr} AS category, {label_expr} AS report_label, f.factor, f.ghg_unit,
                    d.name AS dataset_name, d.analysis_type
-            FROM factor_lookup f
+            FROM v_factor_lookup f
             LEFT JOIN datasets d ON d.dataset_id = f.dataset_id
             WHERE (d.archived IS NULL OR d.archived = FALSE)
               AND (
@@ -1315,7 +1315,7 @@ def download_spend_template(
                        e.mapped_scope, e.mapped_report_label, e.factor_db_id,
                        COALESCE(NULLIF(TRIM(f.original_id), ''), CAST(f.db_id AS VARCHAR)) AS conversion_reference
                 FROM job_spend_entries e
-                LEFT JOIN factor_lookup f ON f.db_id = e.factor_db_id
+                LEFT JOIN v_factor_lookup f ON f.db_id = e.factor_db_id
                 WHERE e.job_id = %s
                   AND COALESCE(e.is_deleted, FALSE) = FALSE
                 ORDER BY e.mapped_scope NULLS LAST, e.spend_description
@@ -1331,7 +1331,7 @@ def download_spend_template(
             SELECT f.db_id,
                    COALESCE(NULLIF(TRIM(f.original_id), ''), CAST(f.db_id AS VARCHAR)) AS conversion_reference,
                    COALESCE({label_expr}, {category_expr}, CONCAT('Factor ', CAST(f.db_id AS VARCHAR))) AS conversion_label
-            FROM factor_lookup f
+            FROM v_factor_lookup f
             LEFT JOIN datasets d ON d.dataset_id = f.dataset_id
             WHERE (d.archived IS NULL OR d.archived = FALSE)
               AND upper(COALESCE(f.original_id, '')) LIKE 'SPEND%%'

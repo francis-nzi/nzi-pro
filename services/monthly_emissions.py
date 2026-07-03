@@ -218,10 +218,10 @@ class JobMonthlyEmissionsResolver:
             row = self.con.execute(
                 """
                 SELECT db_id, dataset_id, scope, original_id, factor, ghg_unit, level_1, level_2, column_text, report_label
-                FROM factor_lookup
+                FROM v_factor_lookup
                 WHERE db_id = %s
                 LIMIT 1
-                """,
+""",
                 [int(factor_id)],
             ).fetchone()
         except Exception:
@@ -260,7 +260,7 @@ class JobMonthlyEmissionsResolver:
             row = self.con.execute(
                 """
                 SELECT db_id, dataset_id, scope, original_id, factor, ghg_unit, level_1, level_2, column_text, report_label
-                FROM factor_lookup
+                FROM v_factor_lookup
                 WHERE dataset_id = %s
                   AND original_id = %s
                   AND (%s = '' OR scope = %s)
@@ -307,7 +307,7 @@ class JobMonthlyEmissionsResolver:
                 """
                 SELECT fl.db_id, fl.dataset_id, fl.scope, fl.original_id, fl.factor, fl.ghg_unit,
                        fl.level_1, fl.level_2, fl.column_text, fl.report_label
-                FROM factor_lookup fl
+                FROM v_factor_lookup fl
                 LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
                 WHERE fl.original_id = %s
                 ORDER BY COALESCE(d.year, 0) DESC, fl.db_id DESC

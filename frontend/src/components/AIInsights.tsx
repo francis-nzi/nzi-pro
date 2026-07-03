@@ -55,6 +55,9 @@ type InsightResponse = {
   insights?: string;
   structured?: StructuredInsights;
   citations?: Array<{ label?: string; value?: string; source?: string }>;
+  prompt_warnings?: string[];
+  prompt_metadata?: Record<string, unknown>;
+  resolved_versions?: Record<string, unknown>;
 };
 
 type SavedInsight = {
@@ -137,6 +140,7 @@ type InsightState = {
   insights: string | null;
   structured: StructuredInsights | null;
   citations: Array<{ label?: string; value?: string; source?: string }>;
+  promptWarnings: string[];
   loading: boolean;
   error: string | null;
 };
@@ -147,6 +151,7 @@ const EMPTY_STATE: InsightState = {
   insights: null,
   structured: null,
   citations: [],
+  promptWarnings: [],
   loading: false,
   error: null,
 };
@@ -194,6 +199,7 @@ function InsightPanel({
   saving: boolean;
 }) {
   const structured = state.structured;
+  const promptWarnings = state.promptWarnings || [];
 
   return (
     <Card>
@@ -272,6 +278,17 @@ function InsightPanel({
                   </ul>
                 </div>
               </div>
+            </div>
+          ) : null}
+
+          {promptWarnings.length ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <div className="font-semibold">Prompt warnings</div>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {promptWarnings.map((warning, index) => (
+                  <li key={index}>{warning}</li>
+                ))}
+              </ul>
             </div>
           ) : null}
 
@@ -432,6 +449,7 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
         insights: json.insights || null,
         structured: json.structured || null,
         citations: Array.isArray(json.citations) ? json.citations : [],
+        promptWarnings: Array.isArray(json.prompt_warnings) ? json.prompt_warnings.map((warning) => String(warning)) : [],
         loading: false,
         error: null,
       });

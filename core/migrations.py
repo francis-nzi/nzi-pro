@@ -2294,3 +2294,56 @@ def run_migrations():
             )
         except Exception as exc:
             logger.warning("Ignoring job_widget_pngs migration failure: %s", exc)
+
+        # Phase 2 – emissions dataset redesign: dual-read view
+        # Creates v_factor_lookup, which prefers emission_factor_definitions /
+        # emission_factor_year_values and falls back to factor_lookup.
+        # All read paths are updated to use this view; writes still go to
+        # factor_lookup until Phase 3.
+        try:
+            con.execute(
+                """
+                CREATE OR REPLACE VIEW v_factor_lookup AS
+                SELECT DISTINCT ON (fl.db_id)
+                    fl.db_id,
+                    COALESCE(efyv.dataset_id, fl.dataset_id)                                           AS dataset_id,
+                    fl.file_name,
+                    COALESCE(efyv.year, fl.year)                                                        AS year,
+                    COALESCE(NULLIF(TRIM(efyv.original_id), ''), NULLIF(TRIM(fl.original_id), ''))     AS original_id,
+                    COALESCE(NULLIF(TRIM(efd.scope), ''),       NULLIF(TRIM(fl.scope), ''))             AS scope,
+                    COALESCE(NULLIF(TRIM(efd.level_1), ''),     NULLIF(TRIM(fl.level_1), ''))           AS level_1,
+                    COALESCE(NULLIF(TRIM(efd.level_2), ''),     NULLIF(TRIM(fl.level_2), ''))           AS level_2,
+                    COALESCE(NULLIF(TRIM(efd.level_3), ''),     NULLIF(TRIM(fl.level_3), ''))           AS level_3,
+                    COALESCE(NULLIF(TRIM(efd.level_4), ''),     NULLIF(TRIM(fl.level_4), ''))           AS level_4,
+                    fl.column_text,
+                    COALESCE(NULLIF(TRIM(efd.uom), ''),         NULLIF(TRIM(fl.uom), ''))               AS uom,
+                    COALESCE(NULLIF(TRIM(efd.ghg_unit), ''),    NULLIF(TRIM(fl.ghg_unit), ''))          AS ghg_unit,
+                    COALESCE(efyv.factor, fl.factor)                                                    AS factor,
+                    COALESCE(NULLIF(TRIM(efd.source), ''),      NULLIF(TRIM(fl.source), ''))            AS source,
+                    COALESCE(NULLIF(TRIM(efd.region), ''),      NULLIF(TRIM(fl.region), ''))            AS region,
+                    COALESCE(efyv.currency, fl.currency)                                                AS currency,
+                    COALESCE(NULLIF(TRIM(efd.category), ''),    NULLIF(TRIM(fl.category), ''))          AS category,
+                    COALESCE(NULLIF(TRIM(efd.report_label),''), NULLIF(TRIM(fl.report_label), ''))      AS report_label,
+                    COALESCE(NULLIF(TRIM(efd.method), ''),      NULLIF(TRIM(fl.method), ''))            AS method,
+                    COALESCE(efyv.valid_from, fl.valid_from)                                            AS valid_from,
+                    COALESCE(efyv.valid_to,   fl.valid_to)                                              AS valid_to,
+                    NULL::text                                                                          AS country,
+                    efa.factor_id                                                                       AS factor_definition_id,
+                    efyv.factor_year_value_id,
+                    efd.archived                                                                        AS factor_archived
+                FROM factor_lookup fl
+                LEFT JOIN emission_factor_aliases efa
+                    ON  efa.dataset_id        = fl.dataset_id
+                    AND TRIM(efa.original_id) = TRIM(fl.original_id)
+                LEFT JOIN emission_factor_definitions efd
+                    ON  efd.factor_id = efa.factor_id
+                LEFT JOIN emission_factor_year_values efyv
+                    ON  efyv.factor_id        = efa.factor_id
+                    AND efyv.dataset_id       = fl.dataset_id
+                    AND efyv.superseded_by IS NULL
+                    AND (efyv.year = fl.year OR (efyv.year IS NULL AND fl.year IS NULL))
+                ORDER BY fl.db_id, efyv.factor_year_value_id NULLS LAST
+                """
+            )
+        except Exception as exc:
+            logger.warning("Ignoring v_factor_lookup view migration failure: %s", exc)

@@ -388,7 +388,7 @@ def _find_factor_candidates(
             CASE WHEN %s <> '' AND lower(COALESCE(fl.country,'')) = lower(%s) THEN 15 ELSE 0 END +
             CASE WHEN COALESCE(fl.report_label,'') ILIKE %s OR COALESCE(fl.column_text,'') ILIKE %s THEN 25 ELSE 0 END
           ) AS score
-        FROM factor_lookup fl
+        FROM v_factor_lookup fl
         WHERE {where_clause}
         ORDER BY score DESC, fl.year DESC NULLS LAST, fl.db_id DESC
         LIMIT 10
@@ -430,7 +430,7 @@ def _estimate_gap_factor(
 
     base_sql = """
         SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY fl.factor) AS p50_factor
-        FROM factor_lookup fl
+        FROM v_factor_lookup fl
         WHERE fl.factor IS NOT NULL
           AND fl.factor > 0
     """
@@ -462,7 +462,7 @@ def _estimate_gap_factor(
 
     sql2 = """
         SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY fl.factor)
-        FROM factor_lookup fl
+        FROM v_factor_lookup fl
         WHERE fl.factor IS NOT NULL
           AND fl.factor > 0
           AND (%s = '' OR lower(COALESCE(fl.uom,'')) = lower(%s))

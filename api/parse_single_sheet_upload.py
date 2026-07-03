@@ -382,7 +382,7 @@ def _lookup_factors(dataset_id: int, scope: str, original_ids: list[str], job_id
             sql = """
                 SELECT db_id, original_id, level_1, level_2, level_3, level_4,
                        column_text, uom, ghg_unit, factor, report_label
-                FROM factor_lookup
+                FROM v_factor_lookup
                 WHERE dataset_id=%s AND scope=%s AND original_id = ANY(%s::text[])
             """
             df = con.execute(sql, [dataset_id, scope, original_ids]).df()
@@ -391,7 +391,7 @@ def _lookup_factors(dataset_id: int, scope: str, original_ids: list[str], job_id
             sql = f"""
                 SELECT db_id, original_id, level_1, level_2, level_3, level_4,
                        column_text, uom, ghg_unit, factor, report_label
-                FROM factor_lookup
+                FROM v_factor_lookup
                 WHERE dataset_id=? AND scope=? AND original_id IN ({ph})
             """
             df = con.execute(sql, [dataset_id, scope] + original_ids).df()

@@ -209,7 +209,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
             FROM job_scope_rows jsr
             JOIN job_context jc ON jc.job_id = jsr.job_id
             LEFT JOIN client_sites s ON jsr.site_id = s.site_id
-            LEFT JOIN factor_lookup fl ON fl.db_id = jsr.factor_db_id
+            LEFT JOIN v_factor_lookup fl ON fl.db_id = jsr.factor_db_id
             WHERE jsr.enabled = TRUE
         ),
         source_rows AS (
@@ -270,7 +270,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
             JOIN job_context jc ON jc.job_id = js.job_id
             LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
             LEFT JOIN client_sites cs ON cs.site_id = js.site_id
-            LEFT JOIN factor_lookup fl ON fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
+            LEFT JOIN v_factor_lookup fl ON fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
             WHERE COALESCE(js.enabled, TRUE) = TRUE
         )
         SELECT *
@@ -416,7 +416,7 @@ def load_combined_emissions_summary_rows(con, job_ids: list[int]):
                 ) AS emissions
             FROM job_scope_rows jsr
             JOIN job_context jc ON jc.job_id = jsr.job_id
-            LEFT JOIN factor_lookup fl ON fl.db_id = jsr.factor_db_id
+            LEFT JOIN v_factor_lookup fl ON fl.db_id = jsr.factor_db_id
             WHERE jsr.enabled = TRUE
             GROUP BY
                 jc.job_id,
@@ -469,7 +469,7 @@ def load_combined_emissions_summary_rows(con, job_ids: list[int]):
             FROM job_emission_sources js
             JOIN job_context jc ON jc.job_id = js.job_id
             LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
-            LEFT JOIN factor_lookup fl ON fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
+            LEFT JOIN v_factor_lookup fl ON fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
             WHERE COALESCE(js.enabled, TRUE) = TRUE
             GROUP BY
                 jc.job_id,

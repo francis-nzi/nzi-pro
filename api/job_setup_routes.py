@@ -970,7 +970,7 @@ async def job_excel_upload(
                 sql = """
                     SELECT db_id, original_id, level_1, level_2, level_3, level_4,
                            column_text, uom, ghg_unit, factor
-                    FROM factor_lookup
+                    FROM v_factor_lookup
                     WHERE dataset_id=%s AND scope=%s AND original_id = ANY(%s)
                 """
                 return con.execute(sql, [int(dataset_id), str(scope_name), original_ids]).df()
@@ -979,7 +979,7 @@ async def job_excel_upload(
             sql = f"""
                 SELECT db_id, original_id, level_1, level_2, level_3, level_4,
                        column_text, uom, ghg_unit, factor
-                FROM factor_lookup
+                FROM v_factor_lookup
                 WHERE dataset_id=? AND scope=? AND original_id IN ({ph})
             """
             return con.execute(sql, [int(dataset_id), str(scope_name)] + original_ids).df()

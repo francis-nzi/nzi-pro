@@ -29,7 +29,7 @@ class _FakeConn:
         return self
 
     def df(self):
-        if "FROM factor_lookup" in self._last_sql:
+        if "factor_lookup" in self._last_sql:
             return pd.DataFrame(
                 [
                     {

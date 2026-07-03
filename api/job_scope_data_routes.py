@@ -312,7 +312,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
             (
                 """
                 SELECT db_id, factor, ghg_unit, uom, report_label
-                FROM factor_lookup
+                FROM v_factor_lookup
                 WHERE dataset_id=%s AND scope=%s AND original_id=%s
                 ORDER BY db_id ASC
                 LIMIT 1
@@ -325,7 +325,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
             (
                 """
                 SELECT db_id, factor, ghg_unit, uom, report_label
-                FROM factor_lookup
+                FROM v_factor_lookup
                 WHERE dataset_id=%s AND original_id=%s
                 ORDER BY CASE WHEN scope=%s THEN 0 ELSE 1 END, db_id ASC
                 LIMIT 1
@@ -338,7 +338,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
             (
                 """
                 SELECT db_id, factor, ghg_unit, uom, report_label
-                FROM factor_lookup
+                FROM v_factor_lookup
                 WHERE scope=%s AND original_id=%s
                 ORDER BY dataset_id DESC, db_id ASC
                 LIMIT 1
@@ -350,7 +350,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
         (
             """
             SELECT db_id, factor, ghg_unit, uom, report_label
-            FROM factor_lookup
+            FROM v_factor_lookup
             WHERE original_id=%s
             ORDER BY CASE WHEN scope=%s THEN 0 ELSE 1 END, dataset_id DESC, db_id ASC
             LIMIT 1
@@ -421,7 +421,7 @@ def _resolve_repoint_factor(
             row = con.execute(
                 """
                 SELECT db_id, dataset_id, factor, ghg_unit, uom
-                FROM factor_lookup
+                FROM v_factor_lookup
                 WHERE db_id=%s
                 LIMIT 1
                 """,
@@ -740,7 +740,7 @@ def get_job_scope_data(
                     fl.column_text AS lookup_column_text,
                     fl.report_label AS lookup_report_label
                 FROM job_scope_rows jsr
-                LEFT JOIN factor_lookup fl ON fl.db_id = jsr.factor_db_id
+                LEFT JOIN v_factor_lookup fl ON fl.db_id = jsr.factor_db_id
                 LEFT JOIN client_sites cs ON cs.site_id = jsr.site_id
                 {where_clause}
                 ORDER BY jsr.scope, jsr.category, jsr.report_label
@@ -1460,7 +1460,7 @@ def get_previous_scope_rows(
                     jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4, jsr.month_5, jsr.month_6,
                     jsr.month_7, jsr.month_8, jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
                 FROM job_scope_rows jsr
-                LEFT JOIN factor_lookup fl ON fl.db_id = jsr.factor_db_id
+                LEFT JOIN v_factor_lookup fl ON fl.db_id = jsr.factor_db_id
                 LEFT JOIN client_sites cs ON cs.site_id = jsr.site_id
                 WHERE {" AND ".join(where_clauses)}
                 ORDER BY jsr.job_id DESC, jsr.scope, report_label, jsr.original_id
@@ -2514,7 +2514,7 @@ def get_template_factors(
                     where_sql = " AND ".join(where_clauses)
 
                     # Count dataset factors separately.
-                    count_query = f"SELECT COUNT(*) FROM factor_lookup WHERE {where_sql}"
+                    count_query = f"SELECT COUNT(*) FROM v_factor_lookup WHERE {where_sql}"
                     dataset_total = int(con.execute(count_query, params).fetchone()[0] or 0)
 
                     # Custom factors are always first in list order.
@@ -2531,7 +2531,7 @@ def get_template_factors(
                         query = f"""
                             SELECT db_id, dataset_id, scope, {fl_parts['category_expr']} AS category, {fl_parts['level_1_expr']}, {fl_parts['level_2_expr']}, level_3, {fl_parts['level_4_expr']},
                                    original_id, {fl_parts['column_text_expr']}, {fl_parts['report_label_expr']}, uom, factor, {fl_parts['ghg_unit_expr']}
-                            FROM factor_lookup
+                            FROM v_factor_lookup
                             WHERE {where_sql}
                             ORDER BY scope, level_2, level_3, report_label
                             LIMIT %s OFFSET %s
@@ -2686,7 +2686,7 @@ def get_template_factors(
                         category_df = con.execute(
                             f"""
                             SELECT DISTINCT COALESCE(NULLIF(TRIM(COALESCE({fl_parts['category_expr']}, level_2, level_1, '')), ''), '') AS category
-                            FROM factor_lookup
+                            FROM v_factor_lookup
                             WHERE {' AND '.join(category_where)}
                             ORDER BY 1
                             """,

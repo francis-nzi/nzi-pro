@@ -288,7 +288,7 @@ def _fetch_dataset_scope_map(con, dataset_ids: Sequence[int]) -> dict[int, set[s
     df = con.execute(
         f"""
         SELECT dataset_id, scope
-        FROM factor_lookup
+        FROM v_factor_lookup
         WHERE dataset_id IN ({ph})
         GROUP BY dataset_id, scope
         """,

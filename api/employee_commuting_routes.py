@@ -749,7 +749,7 @@ def _resolve_factor_record(con, job_id: int, original_id: str, scope: str) -> di
           uom,
           factor,
           {parts["ghg_unit"]} AS ghg_unit
-        FROM factor_lookup
+        FROM v_factor_lookup
         WHERE original_id = %s
         """,
         [str(original_id)],

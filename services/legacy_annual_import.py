@@ -557,7 +557,7 @@ def _factor_lookup_batch(req: dict[tuple[int, str], set[str]]) -> dict[tuple[int
                     """
                     SELECT original_id, db_id, level_1, level_2, level_3, level_4,
                            column_text, report_label, uom, ghg_unit, factor
-                    FROM factor_lookup
+                    FROM v_factor_lookup
                     WHERE dataset_id=%s AND scope=%s AND original_id = ANY(%s)
                     """,
                     [int(dataset_id), str(scope), id_list],
@@ -568,7 +568,7 @@ def _factor_lookup_batch(req: dict[tuple[int, str], set[str]]) -> dict[tuple[int
                     f"""
                     SELECT original_id, db_id, level_1, level_2, level_3, level_4,
                            column_text, report_label, uom, ghg_unit, factor
-                    FROM factor_lookup
+                    FROM v_factor_lookup
                     WHERE dataset_id=? AND scope=? AND original_id IN ({ph})
                     """,
                     [int(dataset_id), str(scope), *id_list],
@@ -626,7 +626,7 @@ def _equivalent_factor_for_scope(dataset_id: int, desired_scope: str, source_ori
                 COALESCE(level_4, '') AS level_4,
                 COALESCE(uom, '') AS uom,
                 COALESCE(ghg_unit, '') AS ghg_unit
-            FROM factor_lookup
+            FROM v_factor_lookup
             WHERE dataset_id=%s AND original_id=%s
             ORDER BY CASE WHEN scope=%s THEN 0 ELSE 1 END, db_id ASC
             LIMIT 1
@@ -641,7 +641,7 @@ def _equivalent_factor_for_scope(dataset_id: int, desired_scope: str, source_ori
             """
             SELECT original_id, db_id, level_1, level_2, level_3, level_4,
                    column_text, report_label, uom, ghg_unit, factor
-            FROM factor_lookup
+            FROM v_factor_lookup
             WHERE dataset_id=%s
               AND scope=%s
               AND COALESCE(level_2, '')=%s

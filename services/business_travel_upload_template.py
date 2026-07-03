@@ -199,7 +199,7 @@ def _load_reference_rows_from_dataset(reporting_year: int | None = None) -> list
                 fl.method,
                 fl.valid_from,
                 fl.valid_to
-            FROM factor_lookup fl
+            FROM v_factor_lookup fl
             LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
             WHERE {" AND ".join(where_parts)}
             ORDER BY COALESCE(fl.report_label, fl.column_text, fl.original_id), fl.original_id, fl.db_id
