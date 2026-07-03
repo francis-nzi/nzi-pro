@@ -504,7 +504,7 @@ def _load_factor_row(con, db_id: int) -> dict[str, Any] | None:
             fl.method,
             fl.valid_from,
             fl.valid_to
-        FROM factor_lookup fl
+        FROM v_factor_lookup fl
         LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
         WHERE fl.db_id = %s
         LIMIT 1
@@ -1198,7 +1198,7 @@ def list_datasets(_user: dict = Depends(_current_user)):
 
             if _table_exists("factor_lookup"):
                 select_parts.append("COUNT(f.db_id) AS factor_count")
-                factor_join = "LEFT JOIN factor_lookup f ON f.dataset_id = d.dataset_id"
+                factor_join = "LEFT JOIN v_factor_lookup f ON f.dataset_id = d.dataset_id"
             else:
                 select_parts.append("0 AS factor_count")
                 factor_join = ""
@@ -1630,7 +1630,7 @@ def fix_cross_country_mismatches(_user: dict = Depends(_current_user)):
                 match = con.execute(
                     """
                     SELECT fl.db_id, fl.dataset_id
-                    FROM factor_lookup fl
+                    FROM v_factor_lookup fl
                     JOIN datasets d ON d.dataset_id = fl.dataset_id
                     WHERE fl.original_id = %s
                       AND d.year = %s

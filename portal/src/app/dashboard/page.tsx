@@ -348,7 +348,6 @@ function DashboardPageInner() {
     { key: "actions", label: "Actions" },
     { key: "insights", label: "Insights" },
     { key: "files", label: "Files" },
-    { key: "governance", label: "Governance" },
   ];
 
   return (
