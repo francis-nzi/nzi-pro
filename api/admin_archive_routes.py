@@ -17,6 +17,7 @@ from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
 from services.tenancy import require_org, get_current_org_context, run_with_org_context
 from api.admin_dataset_import_helpers import _ingest_csv_report_for_dataset
+from ingest_conversion_factors import DatasetReplacementBlocked, ingest_workbook_with_report
 from pathlib import Path
 import io
 import zipfile
@@ -677,8 +678,6 @@ async def upload_dataset_factors(
     except HTTPException:
         raise
     except Exception as e:
-        from ingest_conversion_factors import DatasetReplacementBlocked
-
         if isinstance(e, DatasetReplacementBlocked):
             raise HTTPException(
                 status_code=409,

@@ -826,7 +826,7 @@ def search_factors(
                     fl.method,
                     fl.valid_from,
                     fl.valid_to
-                FROM factor_lookup fl
+                FROM v_factor_lookup fl
                 LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
                 WHERE {where_sql}
                 ORDER BY d.year DESC NULLS LAST, d.name, COALESCE(fl.category, fl.level_1), fl.column_text, fl.original_id
@@ -1066,7 +1066,7 @@ def bulk_normalize_factor_report_labels(
                     fl.method,
                     fl.valid_from,
                     fl.valid_to
-                FROM factor_lookup fl
+                FROM v_factor_lookup fl
                 LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
                 WHERE {where_sql}
                 ORDER BY d.year DESC NULLS LAST, d.name, COALESCE(fl.category, fl.level_1), COALESCE(fl.report_label, fl.column_text, fl.original_id), fl.original_id
