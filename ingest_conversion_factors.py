@@ -838,6 +838,143 @@ def _replacement_dependency_summary(con, stale_factor_ids: list[int]) -> dict[st
     return {k: v for k, v in summary.items() if v}
 
 
+def _sync_normalised_tables_pg(cur, rows: list[list[Any]]) -> None:
+    """Sync emission_factor_* tables after factor_lookup writes (Postgres only).
+
+    For each imported row:
+    - If (dataset_id, original_id) has no alias yet → insert a new
+      emission_factor_definitions row (using factor_lookup.db_id as factor_id,
+      consistent with Phase 1 backfill seeding) and the matching alias.
+    - Upsert emission_factor_year_values for all aliased rows.
+
+    Description fields on existing definitions are intentionally NOT overwritten
+    so that manual edits made via the admin UI are preserved.
+    """
+    if not rows:
+        return
+
+    # Row layout (matches _parse_conversion_factor_upload / _parse_conversion_factor_workbook):
+    # [0]=dataset_id [1]=file_name [2]=year [3]=original_id [4]=scope
+    # [5]=category   [6]=level_1   [7]=level_2 [8]=level_3 [9]=level_4
+    # [10]=column_text [11]=uom [12]=ghg_unit [13]=factor [14]=source
+    # [15]=region [16]=currency [17]=method [18]=valid_from [19]=valid_to [20]=report_label
+    sync_rows = [
+        (r[0], r[3], r[2], r[4], r[6], r[7], r[8], r[9],
+         r[11], r[12], r[14], r[5], r[20], r[17], r[13], r[16], r[18], r[19])
+        for r in rows
+    ]
+
+    cur.execute("""
+        CREATE TEMP TABLE IF NOT EXISTS tmp_nf_sync (
+            dataset_id   INTEGER,
+            original_id  VARCHAR,
+            year         INTEGER,
+            scope        VARCHAR,
+            level_1      VARCHAR,
+            level_2      VARCHAR,
+            level_3      VARCHAR,
+            level_4      VARCHAR,
+            uom          VARCHAR,
+            ghg_unit     VARCHAR,
+            source       VARCHAR,
+            category     VARCHAR,
+            report_label VARCHAR,
+            method       VARCHAR,
+            factor       NUMERIC,
+            currency     VARCHAR,
+            valid_from   DATE,
+            valid_to     DATE
+        ) ON COMMIT DROP
+    """)
+    cur.execute("TRUNCATE tmp_nf_sync")
+    cur.executemany(
+        """
+        INSERT INTO tmp_nf_sync
+            (dataset_id, original_id, year, scope, level_1, level_2, level_3, level_4,
+             uom, ghg_unit, source, category, report_label, method,
+             factor, currency, valid_from, valid_to)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """,
+        sync_rows,
+    )
+
+    # Step 1+2: Insert new definitions and aliases for pairs not yet in emission_factor_aliases.
+    # Use the lowest factor_lookup.db_id for this (dataset_id, original_id) as the factor_id —
+    # consistent with Phase 1 backfill seeding.
+    cur.execute("""
+        WITH unaliased AS (
+            SELECT DISTINCT ON (t.dataset_id, t.original_id)
+                fl.db_id        AS factor_id,
+                t.dataset_id,
+                t.original_id,
+                t.scope,
+                t.level_1,
+                t.level_2,
+                t.level_3,
+                t.level_4,
+                t.uom,
+                t.ghg_unit,
+                COALESCE(NULLIF(TRIM(t.source), ''), '') AS source,
+                t.category,
+                t.report_label,
+                t.method
+            FROM tmp_nf_sync t
+            JOIN factor_lookup fl
+                ON  fl.dataset_id  = t.dataset_id
+                AND TRIM(fl.original_id) = TRIM(t.original_id)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM emission_factor_aliases efa
+                WHERE efa.dataset_id = t.dataset_id
+                  AND TRIM(efa.original_id) = TRIM(t.original_id)
+            )
+            ORDER BY t.dataset_id, t.original_id, fl.db_id ASC
+        ),
+        ins_defs AS (
+            INSERT INTO emission_factor_definitions
+                (factor_id, scope, level_1, level_2, level_3, level_4,
+                 uom, ghg_unit, source, region, category, report_label, method, archived)
+            SELECT
+                factor_id, scope, level_1, level_2, level_3, level_4,
+                uom, ghg_unit, source, '' AS region, category, report_label, method, FALSE
+            FROM unaliased
+            ON CONFLICT (factor_id) DO NOTHING
+            RETURNING factor_id
+        )
+        INSERT INTO emission_factor_aliases (factor_id, dataset_id, original_id)
+        SELECT u.factor_id, u.dataset_id, u.original_id
+        FROM unaliased u
+        WHERE EXISTS (SELECT 1 FROM ins_defs d WHERE d.factor_id = u.factor_id)
+        ON CONFLICT (dataset_id, original_id) DO NOTHING
+    """)
+
+    # Step 3: Upsert year-values for every row that now has an alias.
+    # ON CONFLICT uses the uq_efyv_dataset_original unique index (dataset_id, original_id).
+    cur.execute("""
+        INSERT INTO emission_factor_year_values
+            (factor_id, dataset_id, original_id, year, factor, currency, valid_from, valid_to)
+        SELECT
+            efa.factor_id,
+            t.dataset_id,
+            t.original_id,
+            t.year,
+            t.factor,
+            t.currency,
+            t.valid_from,
+            t.valid_to
+        FROM tmp_nf_sync t
+        JOIN emission_factor_aliases efa
+            ON  efa.dataset_id  = t.dataset_id
+            AND TRIM(efa.original_id) = TRIM(t.original_id)
+        ON CONFLICT (dataset_id, original_id) DO UPDATE
+            SET factor_id  = EXCLUDED.factor_id,
+                year       = EXCLUDED.year,
+                factor     = EXCLUDED.factor,
+                currency   = EXCLUDED.currency,
+                valid_from = EXCLUDED.valid_from,
+                valid_to   = EXCLUDED.valid_to
+    """)
+
+
 def _apply_factor_rows(
     *,
     path: Path,
@@ -1043,6 +1180,8 @@ def _apply_factor_rows(
                         """,
                     )
                     inserted_rows = max(0, len(rows) - updated_rows)
+
+                _sync_normalised_tables_pg(cur, rows)
         else:
             # DuckDB fallback keeps the older row-by-row path.
             for params in rows:
@@ -1470,6 +1609,11 @@ def ingest_csv_with_report(path: Path, *, replace: bool, dataset_id: int | None 
                             p_report_label,
                         ],
                     )
+
+        if db_backend() == "postgres":
+            raw = con._conn  # type: ignore[attr-defined]
+            with raw.cursor() as cur:
+                _sync_normalised_tables_pg(cur, rows)
 
     parsed.update(
         {
