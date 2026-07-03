@@ -19,7 +19,7 @@ from api.job_management_helpers import (
 )
 from api.permissions import assert_client_access, assert_job_access, assert_permission
 from core.database import db_backend, get_conn
-from services.audit_log import record_audit_event
+from services.audit_log import ensure_audit_log_table, parse_json_text, record_audit_event
 from services.client_benchmark import ensure_client_benchmark_columns
 from services.tenancy import require_org
 from api.org_admin_helpers import _require_org_plan_active
@@ -1296,4 +1296,62 @@ def complete_milestone(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update milestone: {e}")
 
+
+@router.get("/jobs/{job_id}/history")
+def get_job_activity_history(
+    job_id: int,
+    entity_type: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    _user: dict = Depends(_current_user),
+):
+    """Return audit log events for a job, optionally filtered by entity_type (comma-separated)."""
+    assert_job_access(_user, int(job_id))
+    with get_conn() as con:
+        ensure_audit_log_table(con)
+        where_parts = ["a.job_id = %s"]
+        params: list = [int(job_id)]
+        if entity_type:
+            types = [t.strip() for t in entity_type.split(",") if t.strip()]
+            if len(types) == 1:
+                where_parts.append("a.entity_type = %s")
+                params.append(types[0])
+            elif len(types) > 1:
+                placeholders = ", ".join(["%s"] * len(types))
+                where_parts.append(f"a.entity_type IN ({placeholders})")
+                params.extend(types)
+        where_sql = " AND ".join(where_parts)
+
+        rows = con.execute(
+            f"""
+            SELECT a.audit_id, a.created_at, a.actor_email, a.actor_name,
+                   a.action, a.entity_type, a.entity_id, a.diff_json, a.section
+            FROM audit_log a
+            WHERE {where_sql}
+            ORDER BY a.created_at DESC
+            LIMIT %s OFFSET %s
+            """,
+            params + [limit, offset],
+        ).fetchall()
+
+        total_row = con.execute(
+            f"SELECT COUNT(*) FROM audit_log a WHERE {where_sql}", params
+        ).fetchone()
+        total = int(total_row[0]) if total_row else 0
+
+        items = []
+        for r in rows:
+            items.append({
+                "audit_id": r[0],
+                "created_at": str(r[1]) if r[1] else None,
+                "actor_email": r[2],
+                "actor_name": r[3],
+                "action": r[4],
+                "entity_type": r[5],
+                "entity_id": r[6],
+                "diff": parse_json_text(r[7]),
+                "section": r[8],
+            })
+
+        return {"items": items, "total": total}
 

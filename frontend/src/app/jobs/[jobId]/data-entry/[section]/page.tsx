@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation";
 
+import ActivityHistoryModal from "@/components/ActivityHistoryModal";
 import EmployeeCommutingData from "@/components/EmployeeCommutingData";
 import JobCustomDataset from "@/components/JobCustomDataset";
 import JobCustomFactors from "@/components/JobCustomFactors";
@@ -15,29 +16,36 @@ function apiBaseUrl(): string {
   return "/api/backend";
 }
 
-const DATA_SECTIONS = {
-  "data-entry": { label: "Data Entry" },
-  "employee-commuting": { label: "Employee Commuting" },
-  "asset-register": { label: "Asset Register" },
-  "business-travel": { label: "Business Travel" },
-  "custom-dataset": { label: "Custom Dataset" },
-  "custom-factors": { label: "Job-Only Factors" },
-  "spend-data": { label: "Spend Data" },
-  notes: { label: "Notes" },
-} as const;
-
-type DataSectionKey = keyof typeof DATA_SECTIONS;
+const DATA_SECTIONS: Record<string, { label: string; entityType?: string }> = {
+  "data-entry":         { label: "Data Entry",         entityType: "job_scope_row" },
+  "employee-commuting": { label: "Employee Commuting",  entityType: "employee_commuting_direct_entry,employee_commuting_import" },
+  "asset-register":     { label: "Asset Register",      entityType: "job_scope_row" },
+  "business-travel":    { label: "Business Travel",     entityType: "job_scope_row,job_emission_register_import" },
+  "custom-dataset":     { label: "Custom Dataset" },
+  "custom-factors":     { label: "Job-Only Factors",   entityType: "job_custom_factor" },
+  "spend-data":         { label: "Spend Data",          entityType: "spend_entry,job_scope_row" },
+  notes:                { label: "Notes" },
+};
 
 export default function JobDataSectionPage() {
   const params = useParams<{ jobId: string; section: string }>();
   const jobId = Number(params?.jobId);
   const sectionSegment = String(params?.section || "data-entry").toLowerCase();
-  const section = DATA_SECTIONS[sectionSegment as DataSectionKey] ?? null;
+  const section = DATA_SECTIONS[sectionSegment] ?? null;
   const baseUrl = apiBaseUrl();
 
   if (!section) {
     return <div className="p-6 text-sm text-muted-foreground">Unknown data section.</div>;
   }
+
+  const historyButton = section.entityType ? (
+    <ActivityHistoryModal
+      jobId={jobId}
+      baseUrl={baseUrl}
+      entityType={section.entityType}
+      label="Activity History"
+    />
+  ) : null;
 
   return (
     <JobSectionShell
@@ -47,6 +55,7 @@ export default function JobDataSectionPage() {
       sectionHref={`/jobs/${jobId}/data-entry/${sectionSegment}`}
       activeGroup="data"
       activeSubtab={sectionSegment}
+      headerSlot={historyButton}
       renderContent={(job) => {
         switch (sectionSegment) {
           case "data-entry":

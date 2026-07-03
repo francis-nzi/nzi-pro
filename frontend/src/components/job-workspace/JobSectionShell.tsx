@@ -20,6 +20,8 @@ type JobSectionShellProps = {
   activeSubtab?: string;
   children?: ReactNode;
   renderContent?: (job: JobShellJob) => ReactNode;
+  /** Optional action buttons rendered below the workspace header */
+  headerSlot?: ReactNode;
 };
 
 function apiBaseUrl(): string {
@@ -66,6 +68,7 @@ export default function JobSectionShell({
   activeSubtab: _activeSubtab,
   children,
   renderContent,
+  headerSlot,
 }: JobSectionShellProps) {
   const cachedData = getCachedJobShellData(baseUrl, jobId);
   const [job, setJob] = useState(cachedData?.job || null);
@@ -162,6 +165,7 @@ export default function JobSectionShell({
         {workspaceJob ? (
           <JobWorkspaceHeader breadcrumbs={breadcrumbs} jobId={jobId} baseUrl={baseUrl} job={workspaceJob} />
         ) : null}
+        {headerSlot ? <div className="mt-3 flex justify-end">{headerSlot}</div> : null}
         <div className="mt-6">
           {loading ? <LoadingOrbit className="py-6" label={`Loading ${sectionLabel.toLowerCase()}...`} /> : null}
           {error ? <div className="text-sm text-destructive">{error}</div> : null}
