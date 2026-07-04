@@ -2333,13 +2333,13 @@ def run_migrations():
                     efd.archived                                                                        AS factor_archived
                 FROM factor_lookup fl
                 LEFT JOIN emission_factor_aliases efa
-                    ON  efa.dataset_id        = fl.dataset_id
-                    AND TRIM(efa.original_id) = TRIM(fl.original_id)
+                    ON  efa.dataset_id  = fl.dataset_id
+                    AND efa.original_id = fl.original_id
                 LEFT JOIN emission_factor_definitions efd
                     ON  efd.factor_id = efa.factor_id
                 LEFT JOIN emission_factor_year_values efyv
-                    ON  efyv.factor_id        = efa.factor_id
-                    AND efyv.dataset_id       = fl.dataset_id
+                    ON  efyv.factor_id      = efa.factor_id
+                    AND efyv.dataset_id     = fl.dataset_id
                     AND efyv.superseded_by IS NULL
                     AND (efyv.year = fl.year OR (efyv.year IS NULL AND fl.year IS NULL))
                 ORDER BY fl.db_id, efyv.factor_year_value_id NULLS LAST
@@ -2347,3 +2347,16 @@ def run_migrations():
             )
         except Exception as exc:
             logger.warning("Ignoring v_factor_lookup view migration failure: %s", exc)
+
+        # Performance indexes for v_factor_lookup (0051)
+        # Functional indexes make the alias join indexable; composite index
+        # speeds up the emission_factor_year_values join.
+        for _idx_sql in [
+            "CREATE INDEX IF NOT EXISTS idx_fl_dataset_trim_original ON factor_lookup (dataset_id, TRIM(original_id))",
+            "CREATE INDEX IF NOT EXISTS idx_efa_dataset_trim_original ON emission_factor_aliases (dataset_id, TRIM(original_id))",
+            "CREATE INDEX IF NOT EXISTS idx_efyv_factor_dataset_active ON emission_factor_year_values (factor_id, dataset_id) WHERE superseded_by IS NULL",
+        ]:
+            try:
+                con.execute(_idx_sql)
+            except Exception as exc:
+                logger.warning("Ignoring v_factor_lookup perf index: %s", exc)
