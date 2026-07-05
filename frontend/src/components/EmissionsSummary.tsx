@@ -167,9 +167,9 @@ export default function EmissionsSummary({
               <div className="mt-1 text-[0.56rem] uppercase tracking-[0.3em] text-slate-500">Scope 3</div>
             </div>
           </div>
-        ) : (
+        ) : !loading ? (
           <div className="mt-2 text-xs text-slate-500">No data</div>
-        )}
+        ) : null}
       </div>
     );
   }
