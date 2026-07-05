@@ -209,7 +209,25 @@ def _load_data_output_rows(con, job_id: int):
             FROM job_scope_rows jsr
             LEFT JOIN client_sites s ON jsr.site_id = s.site_id
             LEFT JOIN datasets d ON d.dataset_id = jsr.dataset_id
-            LEFT JOIN v_factor_lookup fl ON fl.db_id = jsr.factor_db_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    COALESCE(_efyv.factor, _fl.factor) AS factor,
+                    COALESCE(NULLIF(TRIM(_efd.category),''), NULLIF(TRIM(_fl.category),'')) AS category,
+                    COALESCE(NULLIF(TRIM(_efd.level_1),''), NULLIF(TRIM(_fl.level_1),'')) AS level_1,
+                    COALESCE(NULLIF(TRIM(_efd.ghg_unit),''), NULLIF(TRIM(_fl.ghg_unit),'')) AS ghg_unit,
+                    COALESCE(NULLIF(TRIM(_efd.report_label),''), NULLIF(TRIM(_fl.report_label),'')) AS report_label,
+                    _fl.column_text
+                FROM factor_lookup _fl
+                LEFT JOIN emission_factor_aliases _efa ON _efa.dataset_id = _fl.dataset_id AND _efa.original_id = _fl.original_id
+                LEFT JOIN emission_factor_definitions _efd ON _efd.factor_id = _efa.factor_id
+                LEFT JOIN emission_factor_year_values _efyv
+                    ON _efyv.factor_id = _efa.factor_id AND _efyv.dataset_id = _fl.dataset_id
+                    AND _efyv.superseded_by IS NULL
+                    AND (_efyv.year = _fl.year OR (_efyv.year IS NULL AND _fl.year IS NULL))
+                WHERE _fl.db_id = jsr.factor_db_id
+                ORDER BY _efyv.factor_year_value_id NULLS LAST
+                LIMIT 1
+            ) fl ON TRUE
             WHERE jsr.job_id = %s
               AND jsr.enabled = TRUE
         ),
@@ -280,7 +298,25 @@ def _load_data_output_rows(con, job_id: int):
             LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
             LEFT JOIN client_sites cs ON cs.site_id = js.site_id
             LEFT JOIN datasets d ON d.dataset_id = COALESCE(g.dataset_id, js.dataset_id)
-            LEFT JOIN v_factor_lookup fl ON fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
+            LEFT JOIN LATERAL (
+                SELECT
+                    COALESCE(_efyv.factor, _fl.factor) AS factor,
+                    COALESCE(NULLIF(TRIM(_efd.category),''), NULLIF(TRIM(_fl.category),'')) AS category,
+                    COALESCE(NULLIF(TRIM(_efd.level_1),''), NULLIF(TRIM(_fl.level_1),'')) AS level_1,
+                    COALESCE(NULLIF(TRIM(_efd.ghg_unit),''), NULLIF(TRIM(_fl.ghg_unit),'')) AS ghg_unit,
+                    COALESCE(NULLIF(TRIM(_efd.report_label),''), NULLIF(TRIM(_fl.report_label),'')) AS report_label,
+                    _fl.column_text
+                FROM factor_lookup _fl
+                LEFT JOIN emission_factor_aliases _efa ON _efa.dataset_id = _fl.dataset_id AND _efa.original_id = _fl.original_id
+                LEFT JOIN emission_factor_definitions _efd ON _efd.factor_id = _efa.factor_id
+                LEFT JOIN emission_factor_year_values _efyv
+                    ON _efyv.factor_id = _efa.factor_id AND _efyv.dataset_id = _fl.dataset_id
+                    AND _efyv.superseded_by IS NULL
+                    AND (_efyv.year = _fl.year OR (_efyv.year IS NULL AND _fl.year IS NULL))
+                WHERE _fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
+                ORDER BY _efyv.factor_year_value_id NULLS LAST
+                LIMIT 1
+            ) fl ON TRUE
             WHERE js.job_id = %s
               AND COALESCE(js.enabled, TRUE) = TRUE
         )

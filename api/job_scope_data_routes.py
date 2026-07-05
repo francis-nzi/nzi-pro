@@ -746,7 +746,28 @@ def get_job_scope_data(
                     fl.column_text AS lookup_column_text,
                     fl.report_label AS lookup_report_label
                 FROM job_scope_rows jsr
-                LEFT JOIN v_factor_lookup fl ON fl.db_id = jsr.factor_db_id
+                LEFT JOIN LATERAL (
+                    SELECT
+                        COALESCE(_efyv.factor, _fl.factor) AS factor,
+                        COALESCE(NULLIF(TRIM(_efd.ghg_unit),''), NULLIF(TRIM(_fl.ghg_unit),'')) AS ghg_unit,
+                        COALESCE(NULLIF(TRIM(_efd.category),''), NULLIF(TRIM(_fl.category),'')) AS category,
+                        COALESCE(NULLIF(TRIM(_efd.level_1),''), NULLIF(TRIM(_fl.level_1),'')) AS level_1,
+                        COALESCE(NULLIF(TRIM(_efd.level_2),''), NULLIF(TRIM(_fl.level_2),'')) AS level_2,
+                        COALESCE(NULLIF(TRIM(_efd.level_3),''), NULLIF(TRIM(_fl.level_3),'')) AS level_3,
+                        COALESCE(NULLIF(TRIM(_efd.level_4),''), NULLIF(TRIM(_fl.level_4),'')) AS level_4,
+                        _fl.column_text,
+                        COALESCE(NULLIF(TRIM(_efd.report_label),''), NULLIF(TRIM(_fl.report_label),'')) AS report_label
+                    FROM factor_lookup _fl
+                    LEFT JOIN emission_factor_aliases _efa ON _efa.dataset_id = _fl.dataset_id AND _efa.original_id = _fl.original_id
+                    LEFT JOIN emission_factor_definitions _efd ON _efd.factor_id = _efa.factor_id
+                    LEFT JOIN emission_factor_year_values _efyv
+                        ON _efyv.factor_id = _efa.factor_id AND _efyv.dataset_id = _fl.dataset_id
+                        AND _efyv.superseded_by IS NULL
+                        AND (_efyv.year = _fl.year OR (_efyv.year IS NULL AND _fl.year IS NULL))
+                    WHERE _fl.db_id = jsr.factor_db_id
+                    ORDER BY _efyv.factor_year_value_id NULLS LAST
+                    LIMIT 1
+                ) fl ON TRUE
                 LEFT JOIN client_sites cs ON cs.site_id = jsr.site_id
                 {where_clause}
                 ORDER BY jsr.scope, jsr.category, jsr.report_label
@@ -1466,7 +1487,28 @@ def get_previous_scope_rows(
                     jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4, jsr.month_5, jsr.month_6,
                     jsr.month_7, jsr.month_8, jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
                 FROM job_scope_rows jsr
-                LEFT JOIN v_factor_lookup fl ON fl.db_id = jsr.factor_db_id
+                LEFT JOIN LATERAL (
+                    SELECT
+                        COALESCE(_efyv.factor, _fl.factor) AS factor,
+                        COALESCE(NULLIF(TRIM(_efd.ghg_unit),''), NULLIF(TRIM(_fl.ghg_unit),'')) AS ghg_unit,
+                        COALESCE(NULLIF(TRIM(_efd.category),''), NULLIF(TRIM(_fl.category),'')) AS category,
+                        COALESCE(NULLIF(TRIM(_efd.level_1),''), NULLIF(TRIM(_fl.level_1),'')) AS level_1,
+                        COALESCE(NULLIF(TRIM(_efd.level_2),''), NULLIF(TRIM(_fl.level_2),'')) AS level_2,
+                        COALESCE(NULLIF(TRIM(_efd.level_3),''), NULLIF(TRIM(_fl.level_3),'')) AS level_3,
+                        COALESCE(NULLIF(TRIM(_efd.level_4),''), NULLIF(TRIM(_fl.level_4),'')) AS level_4,
+                        _fl.column_text,
+                        COALESCE(NULLIF(TRIM(_efd.report_label),''), NULLIF(TRIM(_fl.report_label),'')) AS report_label
+                    FROM factor_lookup _fl
+                    LEFT JOIN emission_factor_aliases _efa ON _efa.dataset_id = _fl.dataset_id AND _efa.original_id = _fl.original_id
+                    LEFT JOIN emission_factor_definitions _efd ON _efd.factor_id = _efa.factor_id
+                    LEFT JOIN emission_factor_year_values _efyv
+                        ON _efyv.factor_id = _efa.factor_id AND _efyv.dataset_id = _fl.dataset_id
+                        AND _efyv.superseded_by IS NULL
+                        AND (_efyv.year = _fl.year OR (_efyv.year IS NULL AND _fl.year IS NULL))
+                    WHERE _fl.db_id = jsr.factor_db_id
+                    ORDER BY _efyv.factor_year_value_id NULLS LAST
+                    LIMIT 1
+                ) fl ON TRUE
                 LEFT JOIN client_sites cs ON cs.site_id = jsr.site_id
                 WHERE {" AND ".join(where_clauses)}
                 ORDER BY jsr.job_id DESC, jsr.scope, report_label, jsr.original_id
