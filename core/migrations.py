@@ -2361,12 +2361,15 @@ def run_migrations():
             except Exception as exc:
                 logger.warning("Ignoring v_factor_lookup perf index: %s", exc)
 
-        # 0052 — the 0051 indexes used TRIM() but the view join condition does NOT use TRIM.
-        # Add a plain (dataset_id, original_id) index so the alias lookup is actually indexable.
-        # Also index emission_factor_definitions.factor_id for the chain join.
+        # 0052 — fix missing indexes:
+        # (a) alias lookup uses original_id without TRIM so 0051 functional index is unused
+        # (b) factor_lookup lookups by (dataset_id, original_id) and original_id alone need
+        #     plain non-functional indexes to support fast fallback lookups in monthly_emissions
         for _idx_sql in [
             "CREATE INDEX IF NOT EXISTS idx_efa_dataset_original ON emission_factor_aliases (dataset_id, original_id)",
             "CREATE INDEX IF NOT EXISTS idx_efd_factor_id ON emission_factor_definitions (factor_id)",
+            "CREATE INDEX IF NOT EXISTS idx_fl_dataset_original ON factor_lookup (dataset_id, original_id)",
+            "CREATE INDEX IF NOT EXISTS idx_fl_original_id ON factor_lookup (original_id)",
         ]:
             try:
                 con.execute(_idx_sql)
