@@ -149,7 +149,7 @@ class JobMonthlyEmissionsResolver:
     def __init__(self, con, job_id: int):
         self.con = con
         self.job_id = int(job_id)
-        self.resolution = resolve_dataset_resolution(self.job_id)
+        self.resolution = resolve_dataset_resolution(self.job_id, con=con)
         self.month_scope_dataset_map: dict[int, dict[str, int | None]] = {}
         self.month_year_map: dict[int, int | None] = {}
         self.month_label_map: dict[int, str] = {}

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import os
+import threading
 from dataclasses import dataclass
 from typing import Any, Sequence
 
@@ -10,6 +12,8 @@ from dotenv import load_dotenv
 load_dotenv(override=False)
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def db_backend() -> str:
@@ -52,9 +56,10 @@ class _PgResult:
 
 
 class _PgConn:
-    def __init__(self, conn, autocommit=False):
+    def __init__(self, conn, autocommit=False, _pool_ctx=None):
         self._conn = conn
         self._autocommit = autocommit
+        self._pool_ctx = _pool_ctx  # pool connection context manager, if borrowed from pool
         self._apply_tenant_session_context()
 
     def _apply_tenant_session_context(self):
@@ -78,24 +83,29 @@ class _PgConn:
             pass
 
     def __enter__(self):
-        # For autocommit connections, just return self
-        # No need to rollback since each query is auto-committed
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        # For transactional connections, commit on success and roll back on failure.
-        if not self._autocommit:
+        if self._pool_ctx is not None:
+            # Return connection to pool instead of closing it.
             try:
-                if exc_type is None:
-                    self._conn.commit()
-                else:
-                    self._conn.rollback()
+                self._pool_ctx.__exit__(exc_type, exc, tb)
             except Exception:
                 pass
-        try:
-            self._conn.close()
-        except Exception:
-            pass
+        else:
+            # Direct connection — commit/rollback then close.
+            if not self._autocommit:
+                try:
+                    if exc_type is None:
+                        self._conn.commit()
+                    else:
+                        self._conn.rollback()
+                except Exception:
+                    pass
+            try:
+                self._conn.close()
+            except Exception:
+                pass
 
     def execute(self, sql: str, params: Sequence[Any] | None = None):
         import json
@@ -121,7 +131,58 @@ class _PgConn:
         return _PgResult(cur)
 
 
+# ── Connection pool ────────────────────────────────────────────────────────────
+# psycopg_pool maintains persistent connections so requests avoid paying the
+# Supabase TLS handshake cost (10–40 s) on every call.  Falls back to direct
+# connections if the pool cannot be initialised (e.g. missing package).
+
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _configure_pool_conn(conn) -> None:
+    conn.autocommit = True
+
+
+def _get_pool():
+    global _pool
+    if _pool is not None:
+        return _pool
+    with _pool_lock:
+        if _pool is not None:
+            return _pool
+        try:
+            from psycopg_pool import ConnectionPool  # type: ignore[import]
+            url = os.getenv("DATABASE_URL")
+            if not url:
+                return None
+            url = _ensure_sslmode(url)
+            _pool = ConnectionPool(
+                url,
+                min_size=1,
+                max_size=5,
+                configure=_configure_pool_conn,
+                open=True,
+                reconnect_timeout=30,
+            )
+            logger.info("DB connection pool initialised (min=1, max=5)")
+            return _pool
+        except Exception as exc:
+            logger.warning("DB pool init failed — using direct connections: %s", exc)
+            return None
+
+
 def get_conn(*, autocommit: bool = True):
+    pool = _get_pool()
+    if pool is not None:
+        try:
+            pool_ctx = pool.connection(timeout=10)
+            raw_conn = pool_ctx.__enter__()
+            return _PgConn(raw_conn, autocommit=autocommit, _pool_ctx=pool_ctx)
+        except Exception as exc:
+            logger.warning("Pool borrow failed, falling back to direct connection: %s", exc)
+
+    # Fallback: direct connection (no pool available or pool timed out)
     try:
         import psycopg
     except Exception as e:

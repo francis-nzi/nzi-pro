@@ -10,6 +10,7 @@ It keeps legacy scope-config mappings as fallback only.
 
 from __future__ import annotations
 
+import contextlib
 import time
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
@@ -420,11 +421,17 @@ def _select_best_dataset(
     return ranked[0] if ranked else None
 
 
-def resolve_dataset_resolution(job_id: int, scopes: Sequence[str] | None = None) -> dict[str, Any]:
-    """Resolve month-by-month datasets for each scope for a given job."""
+def resolve_dataset_resolution(job_id: int, scopes: Sequence[str] | None = None, *, con=None) -> dict[str, Any]:
+    """Resolve month-by-month datasets for each scope for a given job.
+
+    Pass ``con`` to reuse an already-open connection (avoids the cost of a
+    second Supabase TLS handshake when called from within a route handler).
+    """
     scopes = tuple(scopes or DEFAULT_SCOPES)
 
-    with get_conn() as con:
+    with contextlib.ExitStack() as stack:
+        if con is None:
+            con = stack.enter_context(get_conn())
         ctx = _get_job_context(con, int(job_id))
         period_start: date = ctx["reporting_period_start"]
         period_end: date = ctx["reporting_period_end"]
