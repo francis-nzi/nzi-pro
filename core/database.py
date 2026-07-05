@@ -133,10 +133,17 @@ class _PgConn:
 
 # ── Connection pool ────────────────────────────────────────────────────────────
 # psycopg_pool maintains persistent connections so requests avoid paying the
-# Supabase TLS handshake cost (10–40 s) on every call.  Falls back to direct
-# connections if the pool cannot be initialised (e.g. missing package).
+# Supabase TLS handshake cost on every call.
+#
+# IMPORTANT: pool init runs in a background thread so it never blocks a request
+# handler.  While the pool is still warming up, get_conn() falls back to a
+# direct connection.  Once the pool is ready all subsequent requests use it.
+# If init fails permanently the _pool_init_failed flag prevents retry loops
+# (which would block every request for ~30 s each time).
 
 _pool = None
+_pool_init_failed = False
+_pool_init_started = False
 _pool_lock = threading.Lock()
 
 
@@ -144,45 +151,62 @@ def _configure_pool_conn(conn) -> None:
     conn.autocommit = True
 
 
-def _get_pool():
-    global _pool
-    if _pool is not None:
-        return _pool
+def _init_pool() -> None:
+    """Run in a daemon thread — establishes the pool without blocking requests."""
+    global _pool, _pool_init_failed
+    try:
+        from psycopg_pool import ConnectionPool  # type: ignore[import]
+        url = os.getenv("DATABASE_URL")
+        if not url:
+            _pool_init_failed = True
+            logger.warning("DB pool skipped — DATABASE_URL not set")
+            return
+        url = _ensure_sslmode(url)
+        p = ConnectionPool(
+            url,
+            min_size=1,
+            max_size=5,
+            configure=_configure_pool_conn,
+            open=True,   # blocks inside the background thread — fine
+            reconnect_timeout=30,
+        )
+        _pool = p
+        logger.info("DB connection pool ready (min=1, max=5)")
+    except Exception as exc:
+        _pool_init_failed = True
+        logger.warning("DB pool init failed permanently — using direct connections: %s", exc)
+
+
+def _ensure_pool_started() -> None:
+    """Start pool-init background thread exactly once."""
+    global _pool_init_started
+    if _pool_init_started:
+        return
     with _pool_lock:
-        if _pool is not None:
-            return _pool
-        try:
-            from psycopg_pool import ConnectionPool  # type: ignore[import]
-            url = os.getenv("DATABASE_URL")
-            if not url:
-                return None
-            url = _ensure_sslmode(url)
-            _pool = ConnectionPool(
-                url,
-                min_size=1,
-                max_size=5,
-                configure=_configure_pool_conn,
-                open=True,
-                reconnect_timeout=30,
-            )
-            logger.info("DB connection pool initialised (min=1, max=5)")
-            return _pool
-        except Exception as exc:
-            logger.warning("DB pool init failed — using direct connections: %s", exc)
-            return None
+        if _pool_init_started:
+            return
+        _pool_init_started = True
+        threading.Thread(target=_init_pool, daemon=True, name="db-pool-init").start()
+
+
+def _get_pool():
+    _ensure_pool_started()
+    if _pool_init_failed:
+        return None
+    return _pool  # None while pool is still warming up
 
 
 def get_conn(*, autocommit: bool = True):
     pool = _get_pool()
     if pool is not None:
         try:
-            pool_ctx = pool.connection(timeout=10)
+            pool_ctx = pool.connection(timeout=5)
             raw_conn = pool_ctx.__enter__()
             return _PgConn(raw_conn, autocommit=autocommit, _pool_ctx=pool_ctx)
         except Exception as exc:
-            logger.warning("Pool borrow failed, falling back to direct connection: %s", exc)
+            logger.warning("Pool borrow failed, using direct connection: %s", exc)
 
-    # Fallback: direct connection (no pool available or pool timed out)
+    # Fallback: direct connection (pool not ready yet, or unavailable)
     try:
         import psycopg
     except Exception as e:

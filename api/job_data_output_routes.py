@@ -14,8 +14,13 @@ router = APIRouter()
 
 _SCOPE_SORT = {"Scope 1": 1, "Scope 2": 2, "Scope 3": 3}
 
+_column_exists_cache: dict[tuple[str, str], bool] = {}
+
 
 def _column_exists(con, table_name: str, column_name: str) -> bool:
+    key = (table_name, column_name)
+    if key in _column_exists_cache:
+        return _column_exists_cache[key]
     row = con.execute(
         """
         SELECT EXISTS (
@@ -28,7 +33,9 @@ def _column_exists(con, table_name: str, column_name: str) -> bool:
         """,
         [table_name, column_name],
     ).fetchone()
-    return bool(row and row[0])
+    result = bool(row and row[0])
+    _column_exists_cache[key] = result
+    return result
 
 
 def _scope_sort_key(scope_name: str | None) -> tuple[int, str]:
