@@ -10,11 +10,23 @@ It keeps legacy scope-config mappings as fallback only.
 
 from __future__ import annotations
 
+import time
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, Iterable, List, Sequence
 
 from core.database import get_conn
+
+# ── Reference-data caches ─────────────────────────────────────────────────────
+# Datasets and scope maps are queried on every scope-data / scope-totals
+# request via JobMonthlyEmissionsResolver. The data changes only when an admin
+# uploads a new dataset, so a short TTL cache dramatically reduces DB load.
+_DATASET_CACHE_TTL = 300  # seconds
+_datasets_cache: list[dict[str, Any]] | None = None
+_datasets_cache_ts: float = 0.0
+
+_SCOPE_MAP_CACHE_TTL = 300  # seconds
+_scope_map_cache: dict[frozenset[int], tuple[dict[int, set[str]], float]] = {}
 
 
 DEFAULT_SCOPES: tuple[str, str, str] = ("Scope 1", "Scope 2", "Scope 3")
@@ -206,6 +218,11 @@ def _get_legacy_scope_dataset_map(con, job_id: int, scopes: Sequence[str]) -> di
 
 
 def _fetch_datasets(con) -> list[dict[str, Any]]:
+    global _datasets_cache, _datasets_cache_ts
+    now = time.monotonic()
+    if _datasets_cache is not None and (now - _datasets_cache_ts) < _DATASET_CACHE_TTL:
+        return _datasets_cache
+
     df = con.execute(
         """
         SELECT dataset_id,
@@ -223,6 +240,8 @@ def _fetch_datasets(con) -> list[dict[str, Any]]:
 
     datasets: list[dict[str, Any]] = []
     if df is None or df.empty:
+        _datasets_cache = datasets
+        _datasets_cache_ts = now
         return datasets
 
     for _, row in df.iterrows():
@@ -256,6 +275,8 @@ def _fetch_datasets(con) -> list[dict[str, Any]]:
                 "valid_to": _coerce_date(row.get("valid_to")),
             }
         )
+    _datasets_cache = datasets
+    _datasets_cache_ts = now
     return datasets
 
 
@@ -284,11 +305,17 @@ def _fetch_dataset_scope_map(con, dataset_ids: Sequence[int]) -> dict[int, set[s
     if not dataset_ids:
         return {}
 
+    key = frozenset(int(d) for d in dataset_ids)
+    now = time.monotonic()
+    cached = _scope_map_cache.get(key)
+    if cached is not None and (now - cached[1]) < _SCOPE_MAP_CACHE_TTL:
+        return cached[0]
+
     ph = ",".join(["?"] * len(dataset_ids))
     df = con.execute(
         f"""
         SELECT dataset_id, scope
-        FROM v_factor_lookup
+        FROM factor_lookup
         WHERE dataset_id IN ({ph})
         GROUP BY dataset_id, scope
         """,
@@ -297,7 +324,9 @@ def _fetch_dataset_scope_map(con, dataset_ids: Sequence[int]) -> dict[int, set[s
 
     scope_map: dict[int, set[str]] = defaultdict(set)
     if df is None or df.empty:
-        return scope_map
+        result: dict[int, set[str]] = {}
+        _scope_map_cache[key] = (result, now)
+        return result
 
     for _, row in df.iterrows():
         dsid = row.get("dataset_id")
@@ -308,7 +337,10 @@ def _fetch_dataset_scope_map(con, dataset_ids: Sequence[int]) -> dict[int, set[s
             scope_map[int(dsid)].add(scope)
         except Exception:
             continue
-    return scope_map
+
+    result = dict(scope_map)
+    _scope_map_cache[key] = (result, now)
+    return result
 
 
 def _dataset_supports_scope(scope_map: dict[int, set[str]], dataset_id: int, scope: str) -> bool:

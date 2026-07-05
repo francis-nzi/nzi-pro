@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 _FACTOR_ORIGINAL_ID_RE = re.compile(r"(?:^|[;( ])factor_original_id=([^;)\s]+)", re.IGNORECASE)
 _STORAGE_REASON_RE = re.compile(r"(?:^|[;( ])storage_reason=([^;)\s]+)", re.IGNORECASE)
 _scope_rows_schema_seeded: bool = False
+_table_columns_cache: dict[str, set[str]] = {}
 
 
 def _ensure_job_scope_rows_schema(con) -> None:
@@ -273,6 +274,9 @@ def _json_safe(value):
 
 
 def _table_columns(con, table_name: str) -> set[str]:
+    cached = _table_columns_cache.get(table_name)
+    if cached is not None:
+        return cached
     try:
         df = con.execute(
             """
@@ -284,7 +288,9 @@ def _table_columns(con, table_name: str) -> set[str]:
         ).df()
         if df is None or df.empty:
             return set()
-        return {str(v).strip().lower() for v in df["column_name"].tolist()}
+        result = {str(v).strip().lower() for v in df["column_name"].tolist()}
+        _table_columns_cache[table_name] = result
+        return result
     except Exception:
         logger.debug("Failed to read selector columns; returning empty set", exc_info=True)
         return set()
