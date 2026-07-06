@@ -6,6 +6,7 @@ import { ArrowLeft, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/auth";
 import PortalShell from "@/components/PortalShell";
+import { BRAND } from "@/lib/brand";
 
 export default function ApprovePage() {
   const params = useParams<{ jobId: string }>();
@@ -61,7 +62,7 @@ export default function ApprovePage() {
           <Link
             href="/dashboard"
             className="mt-4 inline-flex items-center gap-2 rounded-lg px-6 py-2.5 text-sm font-semibold text-white"
-            style={{ backgroundColor: "#F26624" }}
+            style={{ backgroundColor: BRAND }}
           >
             Back to Dashboard
           </Link>
@@ -125,7 +126,7 @@ export default function ApprovePage() {
               type="submit"
               disabled={submitting || !confirmed || !approverName.trim()}
               className="w-full rounded-lg py-3 text-sm font-semibold text-white disabled:opacity-50 transition-colors"
-              style={{ backgroundColor: "#F26624" }}
+              style={{ backgroundColor: BRAND }}
             >
               {submitting ? "Submitting approval…" : "Confirm Approval"}
             </button>

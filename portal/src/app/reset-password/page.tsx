@@ -1,9 +1,10 @@
-"use client";
+﻿"use client";
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/auth";
 
+import { BRAND } from "@/lib/brand";
 function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -41,7 +42,7 @@ function ResetPasswordForm() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold" style={{ color: "#F26624" }}>NZInsights</h1>
+          <h1 className="text-3xl font-bold" style={{ color: BRAND }}>NZInsights</h1>
         </div>
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
           {done ? (
@@ -81,7 +82,7 @@ function ResetPasswordForm() {
                   type="submit"
                   disabled={loading || !token}
                   className="w-full rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-                  style={{ backgroundColor: "#F26624" }}
+                  style={{ backgroundColor: BRAND }}
                 >
                   {loading ? "Updating…" : "Set new password"}
                 </button>

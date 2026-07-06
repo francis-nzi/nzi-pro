@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -6,6 +6,7 @@ import { LogOut } from "lucide-react";
 import { apiFetch, clearAllTokens, getBestToken } from "@/lib/auth";
 import PortalStatusBar from "@/components/PortalStatusBar";
 
+import { BRAND } from "@/lib/brand";
 type PortalUser = {
   portal_user_id: number | null;
   full_name: string;
@@ -60,7 +61,7 @@ export default function PortalShell({ children }: { children: React.ReactNode })
               className="h-8 w-auto object-contain"
               onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
             />
-            <span className="text-xl font-bold" style={{ color: "#F26624" }}>NZ Insights Pro</span>
+            <span className="text-xl font-bold" style={{ color: BRAND }}>NZ Insights Pro</span>
           </div>
           {user && (
             <div className="flex items-center gap-3">

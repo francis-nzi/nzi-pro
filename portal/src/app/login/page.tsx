@@ -1,9 +1,10 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, clearPartialToken, setPartialToken, setToken } from "@/lib/auth";
 
+import { BRAND } from "@/lib/brand";
 type ClientOption = { client_db_id: number; client_name: string };
 
 function ClientPicker({
@@ -257,7 +258,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold" style={{ color: "#F26624" }}>NZInsights</h1>
+          <h1 className="text-3xl font-bold" style={{ color: BRAND }}>NZInsights</h1>
           <p className="mt-2 text-sm text-gray-500">Your carbon reporting portal</p>
         </div>
 
@@ -276,7 +277,7 @@ export default function LoginPage() {
                   type="submit"
                   disabled={issuing || !selectedClientId}
                   className="w-full rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-60 transition-colors"
-                  style={{ backgroundColor: "#F26624" }}
+                  style={{ backgroundColor: BRAND }}
                 >
                   {issuing ? "Opening portal…" : "Open portal"}
                 </button>
@@ -337,7 +338,7 @@ export default function LoginPage() {
                   type="submit"
                   disabled={loading}
                   className="w-full rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-60 transition-colors"
-                  style={{ backgroundColor: "#F26624" }}
+                  style={{ backgroundColor: BRAND }}
                 >
                   {loading ? "Verifying…" : "Verify"}
                 </button>
@@ -395,7 +396,7 @@ export default function LoginPage() {
                   type="submit"
                   disabled={loading}
                   className="w-full rounded-lg py-2.5 text-sm font-semibold text-white transition-colors disabled:opacity-60"
-                  style={{ backgroundColor: "#F26624" }}
+                  style={{ backgroundColor: BRAND }}
                 >
                   {loading ? "Signing in…" : "Sign in"}
                 </button>
@@ -426,7 +427,7 @@ export default function LoginPage() {
                   type="submit"
                   disabled={resetLoading}
                   className="w-full rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-                  style={{ backgroundColor: "#F26624" }}
+                  style={{ backgroundColor: BRAND }}
                 >
                   {resetLoading ? "Sending…" : "Send reset link"}
                 </button>

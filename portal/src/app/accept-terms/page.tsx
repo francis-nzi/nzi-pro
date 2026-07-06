@@ -1,9 +1,10 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, clearAllTokens, getPartialToken, setToken } from "@/lib/auth";
 
+import { BRAND } from "@/lib/brand";
 export default function AcceptTermsPage() {
   const router = useRouter();
   const [accepted, setAccepted] = useState(false);
@@ -45,7 +46,7 @@ export default function AcceptTermsPage() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-2xl">
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold" style={{ color: "#F26624" }}>NZInsights</h1>
+          <h1 className="text-3xl font-bold" style={{ color: BRAND }}>NZInsights</h1>
           <p className="mt-2 text-sm text-gray-500">Terms &amp; Conditions</p>
         </div>
 
@@ -134,7 +135,7 @@ export default function AcceptTermsPage() {
                 type="submit"
                 disabled={!accepted || loading}
                 className="flex-1 rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-50 transition-colors"
-                style={{ backgroundColor: "#F26624" }}
+                style={{ backgroundColor: BRAND }}
               >
                 {loading ? "Saving…" : "Accept & continue"}
               </button>

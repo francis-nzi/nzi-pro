@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
@@ -8,6 +8,7 @@ import { CheckCircle2, Clock, ExternalLink, FileText, MessageSquare } from "luci
 import { apiFetch } from "@/lib/auth";
 import { formatEmissions } from "@/lib/format";
 import PortalShell from "@/components/PortalShell";
+import { BRAND } from "@/lib/brand";
 
 const PortalReporting = dynamic(() => import("@/components/PortalReporting"), {
   ssr: false,
@@ -160,7 +161,7 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
             <Link
               href={`/jobs/${job.job_id}/view`}
               className="mt-auto flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-colors"
-              style={{ backgroundColor: "#F26624" }}
+              style={{ backgroundColor: BRAND }}
             >
               <ExternalLink className="h-4 w-4" />
               View Report

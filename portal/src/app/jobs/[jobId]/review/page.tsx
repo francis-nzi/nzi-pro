@@ -6,6 +6,7 @@ import { ArrowLeft, CheckCircle2, Send } from "lucide-react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/auth";
 import PortalShell from "@/components/PortalShell";
+import { BRAND } from "@/lib/brand";
 import PortalReportViewer from "@/components/PortalReportViewer";
 
 type Review = {
@@ -240,7 +241,7 @@ export default function ReviewPage() {
                     type="submit"
                     disabled={submitting || !newComment.trim()}
                     className="flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium text-white disabled:opacity-50 transition-opacity"
-                    style={{ backgroundColor: "#F26624" }}
+                    style={{ backgroundColor: BRAND }}
                   >
                     <Send className="h-3.5 w-3.5" />
                     {submitting ? "Submitting…" : `Submit ${commentType}`}
@@ -254,7 +255,7 @@ export default function ReviewPage() {
               <button
                 onClick={() => router.push(`/jobs/${jobId}/approve`)}
                 className="w-full rounded-xl py-3 text-sm font-semibold text-white shadow-sm"
-                style={{ backgroundColor: "#F26624" }}
+                style={{ backgroundColor: BRAND }}
               >
                 All looks good — Approve Report →
               </button>

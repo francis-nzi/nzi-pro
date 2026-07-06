@@ -1,8 +1,9 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/auth";
 
+import { BRAND } from "@/lib/brand";
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type Action = {
@@ -67,7 +68,7 @@ function ProgressBar({ value }: { value: number }) {
       <div className="flex-1 h-2 rounded-full bg-gray-200 overflow-hidden">
         <div
           className="h-full rounded-full transition-all"
-          style={{ width: `${pct}%`, backgroundColor: "#F26624" }}
+          style={{ width: `${pct}%`, backgroundColor: BRAND }}
         />
       </div>
       <span className="text-xs font-medium tabular-nums text-gray-600 w-8 text-right">{pct}%</span>
@@ -287,7 +288,7 @@ function LibraryModal({
                       onClick={() => handleAdd(action.action_option_id)}
                       disabled={adding === action.action_option_id}
                       className="rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-50"
-                      style={{ backgroundColor: "#F26624" }}
+                      style={{ backgroundColor: BRAND }}
                     >
                       {adding === action.action_option_id ? "Adding…" : "+ Add"}
                     </button>
@@ -469,7 +470,7 @@ function UpdateModal({
             onClick={handleSave}
             disabled={saving}
             className="rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
-            style={{ backgroundColor: "#F26624" }}
+            style={{ backgroundColor: BRAND }}
           >
             {saving ? "Saving…" : "Save update"}
           </button>

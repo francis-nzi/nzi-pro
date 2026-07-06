@@ -1,10 +1,11 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { apiFetch, clearAllTokens, setToken } from "@/lib/auth";
 
+import { BRAND } from "@/lib/brand";
 type SetupStep = "loading" | "qr" | "recovery" | "error";
 
 export default function SetupMfaPage() {
@@ -79,7 +80,7 @@ export default function SetupMfaPage() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold" style={{ color: "#F26624" }}>NZInsights</h1>
+          <h1 className="text-3xl font-bold" style={{ color: BRAND }}>NZInsights</h1>
           <p className="mt-2 text-sm text-gray-500">Two-factor authentication setup</p>
         </div>
 
@@ -155,7 +156,7 @@ export default function SetupMfaPage() {
                   type="submit"
                   disabled={loading || otpCode.length !== 6}
                   className="w-full rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-50 transition-colors"
-                  style={{ backgroundColor: "#F26624" }}
+                  style={{ backgroundColor: BRAND }}
                 >
                   {loading ? "Verifying…" : "Confirm and enable"}
                 </button>
@@ -222,7 +223,7 @@ export default function SetupMfaPage() {
                 type="button"
                 onClick={() => router.replace("/dashboard")}
                 className="w-full rounded-lg py-2.5 text-sm font-semibold text-white transition-colors"
-                style={{ backgroundColor: "#F26624" }}
+                style={{ backgroundColor: BRAND }}
               >
                 Continue to portal
               </button>
