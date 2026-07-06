@@ -447,9 +447,17 @@ def _resolve_factor(con, scope: str, original_id: str | None, factor_db_id: int 
     if factor_db_id is not None:
         row = con.execute(
             """
-            SELECT db_id, dataset_id, original_id, factor, ghg_unit, category, uom
-            FROM v_factor_lookup
-            WHERE db_id=%s
+            SELECT _fl.db_id, _fl.dataset_id, _fl.original_id,
+                COALESCE(_efyv.factor, _fl.factor) AS factor,
+                COALESCE(NULLIF(TRIM(_efd.ghg_unit),''), NULLIF(TRIM(_fl.ghg_unit),'')) AS ghg_unit,
+                COALESCE(NULLIF(TRIM(_efd.category),''), NULLIF(TRIM(_fl.category),'')) AS category,
+                _fl.uom
+            FROM factor_lookup _fl
+            LEFT JOIN emission_factor_aliases _efa ON _efa.dataset_id = _fl.dataset_id AND _efa.original_id = _fl.original_id
+            LEFT JOIN emission_factor_definitions _efd ON _efd.factor_id = _efa.factor_id
+            LEFT JOIN emission_factor_year_values _efyv ON _efyv.factor_id = _efa.factor_id AND _efyv.dataset_id = _fl.dataset_id AND _efyv.superseded_by IS NULL AND (_efyv.year = _fl.year OR (_efyv.year IS NULL AND _fl.year IS NULL))
+            WHERE _fl.db_id=%s
+            ORDER BY _efyv.factor_year_value_id NULLS LAST
             LIMIT 1
             """,
             [int(factor_db_id)],
@@ -486,9 +494,13 @@ def _resolve_factor(con, scope: str, original_id: str | None, factor_db_id: int 
         out["ghg_unit"] = lookup.get("ghg_unit")
         row = con.execute(
             """
-            SELECT dataset_id, original_id, category, uom
-            FROM v_factor_lookup
-            WHERE db_id=%s
+            SELECT _fl.dataset_id, _fl.original_id,
+                COALESCE(NULLIF(TRIM(_efd.category),''), NULLIF(TRIM(_fl.category),'')) AS category,
+                _fl.uom
+            FROM factor_lookup _fl
+            LEFT JOIN emission_factor_aliases _efa ON _efa.dataset_id = _fl.dataset_id AND _efa.original_id = _fl.original_id
+            LEFT JOIN emission_factor_definitions _efd ON _efd.factor_id = _efa.factor_id
+            WHERE _fl.db_id=%s
             LIMIT 1
             """,
             [int(lookup["db_id"])],
@@ -524,7 +536,15 @@ def _list_register(con, job_id: int, source_type: str | None, include_disabled: 
           g.notes, g.enabled, g.created_at, g.updated_at
         FROM job_emission_groups g
         LEFT JOIN client_sites cs ON cs.site_id = g.site_id
-        LEFT JOIN v_factor_lookup fl ON fl.db_id = g.factor_db_id
+        LEFT JOIN LATERAL (
+            SELECT
+                COALESCE(NULLIF(TRIM(_efd.report_label),''), NULLIF(TRIM(_fl.report_label),'')) AS report_label
+            FROM factor_lookup _fl
+            LEFT JOIN emission_factor_aliases _efa ON _efa.dataset_id = _fl.dataset_id AND _efa.original_id = _fl.original_id
+            LEFT JOIN emission_factor_definitions _efd ON _efd.factor_id = _efa.factor_id
+            WHERE _fl.db_id = g.factor_db_id
+            LIMIT 1
+        ) fl ON TRUE
         WHERE {" AND ".join(group_where)}
         ORDER BY g.group_name
         """,

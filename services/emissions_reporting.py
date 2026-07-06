@@ -202,14 +202,24 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                 NULL::text AS group_name,
                 NULL::text AS asset_identifier,
                 NULL::text AS employee_name,
-                COALESCE(jsr.column_text, jsr.report_label) AS activity_name,
+                COALESCE(jsr.report_label, jsr.column_text) AS activity_name,
                 jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,
                 jsr.month_5, jsr.month_6, jsr.month_7, jsr.month_8,
                 jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
             FROM job_scope_rows jsr
             JOIN job_context jc ON jc.job_id = jsr.job_id
             LEFT JOIN client_sites s ON jsr.site_id = s.site_id
-            LEFT JOIN v_factor_lookup fl ON fl.db_id = jsr.factor_db_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    COALESCE(NULLIF(TRIM(_efd.category),''), NULLIF(TRIM(_fl.category),'')) AS category,
+                    COALESCE(NULLIF(TRIM(_efd.level_1),''), NULLIF(TRIM(_fl.level_1),'')) AS level_1,
+                    COALESCE(NULLIF(TRIM(_efd.level_2),''), NULLIF(TRIM(_fl.level_2),'')) AS level_2
+                FROM factor_lookup _fl
+                LEFT JOIN emission_factor_aliases _efa ON _efa.dataset_id = _fl.dataset_id AND _efa.original_id = _fl.original_id
+                LEFT JOIN emission_factor_definitions _efd ON _efd.factor_id = _efa.factor_id
+                WHERE _fl.db_id = jsr.factor_db_id
+                LIMIT 1
+            ) fl ON TRUE
             WHERE jsr.enabled = TRUE
         ),
         source_rows AS (
@@ -270,7 +280,17 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
             JOIN job_context jc ON jc.job_id = js.job_id
             LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
             LEFT JOIN client_sites cs ON cs.site_id = js.site_id
-            LEFT JOIN v_factor_lookup fl ON fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
+            LEFT JOIN LATERAL (
+                SELECT
+                    COALESCE(NULLIF(TRIM(_efd.category),''), NULLIF(TRIM(_fl.category),'')) AS category,
+                    COALESCE(NULLIF(TRIM(_efd.level_1),''), NULLIF(TRIM(_fl.level_1),'')) AS level_1,
+                    COALESCE(NULLIF(TRIM(_efd.level_2),''), NULLIF(TRIM(_fl.level_2),'')) AS level_2
+                FROM factor_lookup _fl
+                LEFT JOIN emission_factor_aliases _efa ON _efa.dataset_id = _fl.dataset_id AND _efa.original_id = _fl.original_id
+                LEFT JOIN emission_factor_definitions _efd ON _efd.factor_id = _efa.factor_id
+                WHERE _fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
+                LIMIT 1
+            ) fl ON TRUE
             WHERE COALESCE(js.enabled, TRUE) = TRUE
         )
         SELECT *
@@ -416,7 +436,15 @@ def load_combined_emissions_summary_rows(con, job_ids: list[int]):
                 ) AS emissions
             FROM job_scope_rows jsr
             JOIN job_context jc ON jc.job_id = jsr.job_id
-            LEFT JOIN v_factor_lookup fl ON fl.db_id = jsr.factor_db_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    COALESCE(NULLIF(TRIM(_efd.category),''), NULLIF(TRIM(_fl.category),'')) AS category
+                FROM factor_lookup _fl
+                LEFT JOIN emission_factor_aliases _efa ON _efa.dataset_id = _fl.dataset_id AND _efa.original_id = _fl.original_id
+                LEFT JOIN emission_factor_definitions _efd ON _efd.factor_id = _efa.factor_id
+                WHERE _fl.db_id = jsr.factor_db_id
+                LIMIT 1
+            ) fl ON TRUE
             WHERE jsr.enabled = TRUE
             GROUP BY
                 jc.job_id,
@@ -469,7 +497,15 @@ def load_combined_emissions_summary_rows(con, job_ids: list[int]):
             FROM job_emission_sources js
             JOIN job_context jc ON jc.job_id = js.job_id
             LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
-            LEFT JOIN v_factor_lookup fl ON fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
+            LEFT JOIN LATERAL (
+                SELECT
+                    COALESCE(NULLIF(TRIM(_efd.category),''), NULLIF(TRIM(_fl.category),'')) AS category
+                FROM factor_lookup _fl
+                LEFT JOIN emission_factor_aliases _efa ON _efa.dataset_id = _fl.dataset_id AND _efa.original_id = _fl.original_id
+                LEFT JOIN emission_factor_definitions _efd ON _efd.factor_id = _efa.factor_id
+                WHERE _fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
+                LIMIT 1
+            ) fl ON TRUE
             WHERE COALESCE(js.enabled, TRUE) = TRUE
             GROUP BY
                 jc.job_id,

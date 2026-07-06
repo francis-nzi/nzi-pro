@@ -1487,7 +1487,15 @@ def _load_legacy_reporting_rows(con, job_id: int) -> list[dict[str, Any]]:
             ) AS source_name
         FROM job_scope_rows jsr
         LEFT JOIN client_sites s ON s.site_id = jsr.site_id
-        LEFT JOIN v_factor_lookup fl ON fl.db_id = jsr.factor_db_id
+        LEFT JOIN LATERAL (
+            SELECT
+                COALESCE(NULLIF(TRIM(_efd.category),''), NULLIF(TRIM(_fl.category),'')) AS category
+            FROM factor_lookup _fl
+            LEFT JOIN emission_factor_aliases _efa ON _efa.dataset_id = _fl.dataset_id AND _efa.original_id = _fl.original_id
+            LEFT JOIN emission_factor_definitions _efd ON _efd.factor_id = _efa.factor_id
+            WHERE _fl.db_id = jsr.factor_db_id
+            LIMIT 1
+        ) fl ON TRUE
         WHERE jsr.job_id = %s AND COALESCE(jsr.enabled, TRUE) = TRUE
         ORDER BY COALESCE(s.site_name, 'Unassigned'), jsr.scope, category, report_label
         """,
@@ -1569,7 +1577,15 @@ def _load_source_register_rows(con, job_id: int) -> list[dict[str, Any]]:
         FROM job_emission_sources js
         LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
         LEFT JOIN client_sites cs ON cs.site_id = js.site_id
-        LEFT JOIN v_factor_lookup fl ON fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
+        LEFT JOIN LATERAL (
+            SELECT
+                COALESCE(NULLIF(TRIM(_efd.category),''), NULLIF(TRIM(_fl.category),'')) AS category
+            FROM factor_lookup _fl
+            LEFT JOIN emission_factor_aliases _efa ON _efa.dataset_id = _fl.dataset_id AND _efa.original_id = _fl.original_id
+            LEFT JOIN emission_factor_definitions _efd ON _efd.factor_id = _efa.factor_id
+            WHERE _fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
+            LIMIT 1
+        ) fl ON TRUE
         WHERE js.job_id = %s AND COALESCE(js.enabled, TRUE) = TRUE
         ORDER BY COALESCE(cs.site_name, 'Unassigned'), js.scope, category, report_label
         """,

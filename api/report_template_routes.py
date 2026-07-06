@@ -1681,7 +1681,15 @@ def _derive_energy_kwh_from_scope_rows(con, job_id: int) -> dict[str, float]:
             FROM job_emission_sources js
             LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
             LEFT JOIN datasets d ON d.dataset_id = COALESCE(g.dataset_id, js.dataset_id)
-            LEFT JOIN v_factor_lookup fl ON fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
+            LEFT JOIN LATERAL (
+                SELECT
+                    COALESCE(NULLIF(TRIM(_efd.category),''), NULLIF(TRIM(_fl.category),'')) AS category
+                FROM factor_lookup _fl
+                LEFT JOIN emission_factor_aliases _efa ON _efa.dataset_id = _fl.dataset_id AND _efa.original_id = _fl.original_id
+                LEFT JOIN emission_factor_definitions _efd ON _efd.factor_id = _efa.factor_id
+                WHERE _fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
+                LIMIT 1
+            ) fl ON TRUE
             WHERE js.job_id = %s
               AND COALESCE(js.enabled, TRUE) = TRUE
             """,

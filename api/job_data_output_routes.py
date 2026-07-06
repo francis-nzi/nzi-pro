@@ -168,7 +168,7 @@ def _load_data_output_rows(con, job_id: int):
                 jsr.site_id AS site_id,
                 jsr.level_3,
                 jsr.level_4,
-                COALESCE(jsr.column_text, jsr.report_label) AS activity_name,
+                COALESCE(jsr.report_label, jsr.column_text) AS activity_name,
                 jsr.dataset_id,
                 jsr.factor_db_id,
                 jsr.original_id,
