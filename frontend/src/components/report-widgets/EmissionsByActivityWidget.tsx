@@ -141,7 +141,7 @@ export function EmissionsByActivityWidget({
             />
             <YAxis type="category" dataKey="name" width={180} tick={{ fontSize: 9 }} />
             <Tooltip formatter={formatTooltipValue} />
-            <Bar dataKey="value" name="tCO2e" radius={[0, 3, 3, 0]} barSize={22}>
+            <Bar isAnimationActive={false} dataKey="value" name="tCO2e" radius={[0, 3, 3, 0]} barSize={22}>
               {data.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={entry.fill || FALLBACK_COLORS[index % FALLBACK_COLORS.length]} />
               ))}
@@ -190,5 +190,6 @@ export function EmissionsByActivityWidget({
     </Card>
   );
 }
+
 
 

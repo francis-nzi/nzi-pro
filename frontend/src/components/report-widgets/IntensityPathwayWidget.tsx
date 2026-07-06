@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
@@ -213,7 +213,7 @@ export function IntensityPathwayWidget({
                 />
               )}
               {series.flatMap((entry) => [
-                <Line
+                <Line isAnimationActive={false}
                   key={`${entry.key}_actual`}
                   type="monotone"
                   dataKey={`${entry.label}_actual`}
@@ -223,7 +223,7 @@ export function IntensityPathwayWidget({
                   dot={{ r: 4 }}
                   connectNulls={false}
                 />,
-                <Line
+                <Line isAnimationActive={false}
                   key={`${entry.key}_target`}
                   type="monotone"
                   dataKey={`${entry.label}_target`}
@@ -242,3 +242,4 @@ export function IntensityPathwayWidget({
     </Card>
   );
 }
+

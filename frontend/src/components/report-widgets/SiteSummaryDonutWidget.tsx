@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
@@ -197,7 +197,7 @@ export function SiteSummaryDonutWidget({
           <div className={DONUT_CHART_WRAPPER_CLASS} ref={chartWrapRef}>
             <ResponsiveContainer width="100%" aspect={1}>
               <PieChart>
-                <Pie data={data} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2}>
+                <Pie isAnimationActive={false} data={data} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2}>
                   {data.map((_, index) => (
                     <Cell key={index} fill={SITE_COLORS[index % SITE_COLORS.length]} />
                   ))}
@@ -264,3 +264,4 @@ export function SiteSummaryDonutWidget({
     </Card>
   );
 }
+

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef } from "react";
@@ -232,7 +232,7 @@ export function EmissionsReductionPathwayWidget({
                   label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 10 }}
                 />
               )}
-              <Line
+              <Line isAnimationActive={false}
                 type="monotone"
                 dataKey="actual_total"
                 name="Total"
@@ -242,7 +242,7 @@ export function EmissionsReductionPathwayWidget({
                 activeDot={{ r: 6 }}
                 connectNulls={false}
               />
-              <Line
+              <Line isAnimationActive={false}
                 type="monotone"
                 dataKey="actual_s1"
                 name="Scope 1"
@@ -252,7 +252,7 @@ export function EmissionsReductionPathwayWidget({
                 connectNulls={false}
               />
               {showScope2 && (
-                <Line
+                <Line isAnimationActive={false}
                   type="monotone"
                   dataKey="actual_s2"
                   name="Scope 2"
@@ -262,7 +262,7 @@ export function EmissionsReductionPathwayWidget({
                   connectNulls={false}
                 />
               )}
-              <Line
+              <Line isAnimationActive={false}
                 type="monotone"
                 dataKey="actual_s3"
                 name="Scope 3"
@@ -271,7 +271,7 @@ export function EmissionsReductionPathwayWidget({
                 dot={{ r: 3 }}
                 connectNulls={false}
               />
-              <Line
+              <Line isAnimationActive={false}
                 type="monotone"
                 dataKey="target_total"
                 name="Total (target)"
@@ -281,7 +281,7 @@ export function EmissionsReductionPathwayWidget({
                 dot={false}
                 legendType="none"
               />
-              <Line
+              <Line isAnimationActive={false}
                 type="monotone"
                 dataKey="target_s1"
                 name="Scope 1 target"
@@ -292,7 +292,7 @@ export function EmissionsReductionPathwayWidget({
                 legendType="none"
               />
               {showScope2 && (
-                <Line
+                <Line isAnimationActive={false}
                   type="monotone"
                   dataKey="target_s2"
                   name="Scope 2 target"
@@ -303,7 +303,7 @@ export function EmissionsReductionPathwayWidget({
                   legendType="none"
                 />
               )}
-              <Line
+              <Line isAnimationActive={false}
                 type="monotone"
                 dataKey="target_s3"
                 name="Scope 3 target"
@@ -320,4 +320,5 @@ export function EmissionsReductionPathwayWidget({
     </Card>
   );
 }
+
 

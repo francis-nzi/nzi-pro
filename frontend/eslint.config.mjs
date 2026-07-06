@@ -14,6 +14,44 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
   ]),
 
+  // ── Chart architecture guard (see CHARTS.md at repository root) ─────────
+  // All charts must live in src/components/report-widgets (the single source
+  // of truth). Importing recharts anywhere else creates a parallel chart
+  // implementation that will drift — this was the root cause of a month of
+  // chart regressions. The files in `ignores` are GRANDFATHERED legacy
+  // importers: this list must only ever SHRINK as their charts are folded
+  // into report-widgets. Never add a file to it.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: [
+      "src/components/report-widgets/**",
+      // Grandfathered legacy chart implementations (to be migrated):
+      "src/app/insights/InsightsPageClient.tsx",
+      "src/components/ClientDashboardCharts.tsx",
+      "src/components/ClientPathwayCharts.tsx",
+      "src/components/ClientReporting.tsx",
+      "src/components/EmissionsByActivity.tsx",
+      "src/components/JobAdvancedReports.tsx",
+      "src/components/JobInsights.tsx",
+      "src/components/JobLiveReport.tsx",
+      "src/components/MainDashboardCharts.tsx",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "recharts",
+              message:
+                "Do not import recharts outside src/components/report-widgets. Add or extend a widget in report-widgets instead — parallel chart implementations drift and regress. See CHARTS.md.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // ── Emissions display formatting guard ──────────────────────────────────
   // All tCO2e values shown to users must go through fmt() or formatTco2e()
   // which apply defensive 2dp pre-rounding before display. Direct .toFixed()

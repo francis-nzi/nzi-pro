@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
@@ -223,7 +223,7 @@ export function ScopeSummaryDonutWidget({
               <>
                 <ResponsiveContainer width="100%" aspect={1}>
                   <PieChart>
-                    <Pie data={data} dataKey="value" nameKey="name" innerRadius={compact ? "58%" : "72%"} outerRadius={compact ? "80%" : "94%"} paddingAngle={2}>
+                    <Pie isAnimationActive={false} data={data} dataKey="value" nameKey="name" innerRadius={compact ? "58%" : "72%"} outerRadius={compact ? "80%" : "94%"} paddingAngle={2}>
                       {data.map((_, index) => (
                         <Cell key={index} fill={SCOPE_COLORS[index % SCOPE_COLORS.length]} />
                       ))}
@@ -293,3 +293,4 @@ export function ScopeSummaryDonutWidget({
     </Card>
   );
 }
+

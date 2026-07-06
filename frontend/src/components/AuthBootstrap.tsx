@@ -45,7 +45,8 @@ export function AuthBootstrap() {
       pathname === "/legal" ||
       pathname?.startsWith("/legal/") ||
       pathname === "/support/legal" ||
-      pathname?.startsWith("/support/legal/");
+      pathname?.startsWith("/support/legal/") ||
+      pathname?.startsWith("/dev/");
     const loggedIn = hasAuthState();
     const mustChange = mustChangePassword();
     const mustAcceptTerms = mustAcceptPortalTerms();

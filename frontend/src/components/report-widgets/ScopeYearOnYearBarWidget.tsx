@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef } from "react";
 import {
@@ -249,7 +249,7 @@ export function ScopeYearOnYearBarWidget({
                 />
                 <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="top" />
                 {showBenchmarkBar ? (
-                  <Bar dataKey="benchmark" name={benchmarkLabel} fill={BENCHMARK_COLOR} radius={[3, 3, 0, 0]}>
+                  <Bar isAnimationActive={false} dataKey="benchmark" name={benchmarkLabel} fill={BENCHMARK_COLOR} radius={[3, 3, 0, 0]}>
                     <LabelList
                       dataKey="benchmark"
                       position="top"
@@ -259,7 +259,7 @@ export function ScopeYearOnYearBarWidget({
                   </Bar>
                 ) : null}
                 {showPreviousBar ? (
-                  <Bar dataKey="previous" name={previousLabel} fill={PREVIOUS_COLOR} radius={[3, 3, 0, 0]}>
+                  <Bar isAnimationActive={false} dataKey="previous" name={previousLabel} fill={PREVIOUS_COLOR} radius={[3, 3, 0, 0]}>
                     <LabelList
                       dataKey="previous"
                       position="top"
@@ -268,7 +268,7 @@ export function ScopeYearOnYearBarWidget({
                     />
                   </Bar>
                 ) : null}
-                <Bar dataKey="current" name={currentLabel} fill={CURRENT_COLOR} radius={[3, 3, 0, 0]}>
+                <Bar isAnimationActive={false} dataKey="current" name={currentLabel} fill={CURRENT_COLOR} radius={[3, 3, 0, 0]}>
                   <LabelList
                     dataKey="current"
                     position="top"
@@ -284,3 +284,4 @@ export function ScopeYearOnYearBarWidget({
     </Card>
   );
 }
+
