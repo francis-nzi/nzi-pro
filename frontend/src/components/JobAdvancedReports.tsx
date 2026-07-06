@@ -817,15 +817,11 @@ export default function JobAdvancedReports({
       .finally(() => setLoading(false));
   }, [jobId, baseUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch stored widget PNGs (web Report Printing view only).
-  // In PDF generation mode (pdfToken present) Playwright renders live Recharts charts
-  // directly — no capture step needed — so we skip the fetch and mark ready immediately.
+  // Fetch stored widget PNGs for both web Report Printing and Playwright PDF modes.
+  // In PDF mode (pdfToken present), Playwright sets the nzi_token cookie so the
+  // auth-client.ts global fetch interceptor injects Authorization headers here too.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (pdfToken) {
-      setWidgetPngsReady(true);
-      return;
-    }
     void (async () => {
       try {
         const res = await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, { credentials: "include" });

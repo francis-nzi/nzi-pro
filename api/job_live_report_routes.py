@@ -602,8 +602,9 @@ def _render_live_report_pdf_bytes(
 ) -> bytes:
     from playwright.sync_api import sync_playwright
 
-    # Target the Advanced Reports page. Playwright renders live Recharts charts
-    # directly — no stored PNG capture step is required before generating a PDF.
+    # Target the Advanced Reports page. The page fetches stored widget PNGs via the
+    # nzi_token cookie Playwright sets below; we wait for data-widget-pngs-ready="1"
+    # before capturing so charts render as stored <img> elements, not live SVG.
     # Pass the bearer token as a query param so in-page fetch calls are authenticated.
     report_url = (
         f"{frontend_base}/jobs/{int(job_id)}/advanced-reports"
@@ -744,6 +745,15 @@ def _render_live_report_pdf_bytes(
                 print(f"[PDF] job={job_id} networkidle in {time.time()-t0:.1f}s", file=sys.stderr, flush=True)
             except Exception:
                 print(f"[PDF] job={job_id} networkidle timed out at {time.time()-t0:.1f}s — proceeding", file=sys.stderr, flush=True)
+
+            # Wait for stored widget PNGs to be fetched and rendered into the page.
+            # networkidle covers the fetch itself; this waits for the React re-render
+            # that swaps live Recharts charts for the stored <img> elements.
+            try:
+                _wait_for_widget_pngs_ready(page, timeout_ms=15000)
+                print(f"[PDF] job={job_id} widget PNGs ready in {time.time()-t0:.1f}s", file=sys.stderr, flush=True)
+            except Exception:
+                print(f"[PDF] job={job_id} widget PNGs ready timed out — proceeding", file=sys.stderr, flush=True)
 
             # Re-inject styles via add_style_tag in case init_script missed the window.
             page.add_style_tag(content=_PDF_STYLES)
