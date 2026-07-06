@@ -2,20 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 
 import JobWorkspaceHeader from "@/components/job-workspace/JobWorkspaceHeader";
+import { EmissionsByActivityWidget } from "@/components/report-widgets/EmissionsByActivityWidget";
+import { ScopeSummaryDonutWidget } from "@/components/report-widgets/ScopeSummaryDonutWidget";
 import type { JobWorkspaceJob, WorkspaceBreadcrumb, WorkspaceEmissionsSummaryData } from "@/components/job-workspace/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -93,8 +83,6 @@ type JobLiveReportProps = {
   printMode?: boolean;
 };
 type LiveActionItem = Record<string, unknown>;
-
-const SCOPE_COLORS = ["#0f766e", "#2563eb", "#8b5cf6"];
 
 function toNumber(value: unknown): number {
   const num = Number(value);
@@ -333,6 +321,11 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
       .sort((a, b) => b.emissions - a.emissions)
       .slice(0, 6);
   }, [data?.categories]);
+
+  const topCategoryActivityData = useMemo(
+    () => topCategoryData.map((row) => ({ name: row.category, value: row.emissions })),
+    [topCategoryData],
+  );
 
   const liveSummary = data?.summary ?? null;
   const currentTotal = liveSummary?.current_total ?? toNumber(scopeTotals.Total ?? scopeTotals.total ?? 0);
@@ -693,87 +686,17 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
               </CardContent>
             </Card>
 
-            <Card className="live-report-section print:break-inside-avoid" id="analysis-by-scope">
-              <CardHeader>
-                <CardTitle>5. Analysis by Scope</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm leading-6 text-slate-700">
-                  The total calculated emissions are broken down by scope below. This mirrors the HTML report logic and is intended
-                  to give a clear view of which scope is carrying the largest burden in the reporting period.
-                </p>
-                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
-                  <div className="relative mx-auto aspect-square w-full max-w-[480px]">
-                    <ResponsiveContainer width="100%" aspect={1}>
-                      <PieChart>
-                        <Pie data={scopeChartData} dataKey="value" nameKey="name" innerRadius="77%" outerRadius="96%" paddingAngle={2}>
-                          {scopeChartData.map((_, index) => (
-                            <Cell key={index} fill={SCOPE_COLORS[index % SCOPE_COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip formatter={(val: number | string | undefined) => `${formatNumber(Number(val ?? 0))} tCO₂e`} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                      <div className="text-center leading-none">
-                        <div className="whitespace-nowrap text-[clamp(1rem,3.2vw,2.2rem)] font-semibold">
-                          {formatNumber(currentTotal)}
-                        </div>
-                        <div className="mt-2 text-[11px] text-muted-foreground">tCO₂e total</div>
-                        {periodStart && periodEnd ? (
-                          <div className="mt-1 text-[10px] text-muted-foreground/70">{periodStart} – {periodEnd}</div>
-                        ) : reportYear ? (
-                          <div className="mt-1 text-[10px] text-muted-foreground/70">{reportYear}</div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="space-y-3 pt-2">
-                    {scopeChartData.map((scope, index) => {
-                      const pct = currentTotal > 0 ? (scope.value / currentTotal) * 100 : 0;
-                      return (
-                        <div key={scope.name} className="flex items-center justify-between gap-2 text-sm">
-                          <div className="flex items-center gap-2">
-                            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SCOPE_COLORS[index % SCOPE_COLORS.length] }} />
-                            <span>{scope.name}</span>
-                          </div>
-                          <span className="font-medium">{pct.toFixed(1)}%</span>
-                        </div>
-                      );
-                    })}
-                    <div className="mt-2 border-t pt-2">
-                      <div className="flex items-center justify-between gap-2 text-sm font-semibold">
-                        <span>Total</span>
-                        <span>
-                          {scopeChartData.reduce((acc, scope) => acc + (currentTotal > 0 ? (scope.value / currentTotal) * 100 : 0), 0).toFixed(1)}%
-                        </span>
-                      </div>
-                    </div>
-                    <div className="mt-4 border-t pt-3">
-                      <div className="mb-2 text-xs font-semibold text-muted-foreground">tCO₂e by Scope</div>
-                      {scopeChartData.map((scope, index) => (
-                        <div key={`${scope.name}-tco2e`} className="flex items-center justify-between gap-2 text-sm">
-                          <div className="flex items-center gap-2">
-                            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SCOPE_COLORS[index % SCOPE_COLORS.length] }} />
-                            <span>{scope.name}</span>
-                          </div>
-                          <span className="font-medium">{formatNumber(scope.value)}</span>
-                        </div>
-                      ))}
-                      <div className="mt-2 border-t pt-2">
-                        <div className="flex items-center justify-between gap-2 text-sm font-semibold">
-                          <span>Total</span>
-                          <span>{formatNumber(currentTotal)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <p className="mt-3 text-xs text-slate-500">
-                  Reported Scope 3 values may shift as further source data becomes available in future years.
-                </p>
-              </CardContent>
-            </Card>
+            <ScopeSummaryDonutWidget
+              title="5. Analysis by Scope"
+              data={scopeChartData}
+              currentTotal={currentTotal}
+              yearLabel={periodStart && periodEnd ? `${periodStart} – ${periodEnd}` : reportYear ? String(reportYear) : null}
+              benchmarkTotal={benchmarkTotal > 0 ? benchmarkTotal : null}
+              benchmarkYear={job?.benchmark_year ?? null}
+              currentYear={reportYear ?? undefined}
+              showPngButton={false}
+              className="live-report-section print:break-inside-avoid"
+            />
           </div>
 
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)] print:grid-cols-1">
@@ -785,17 +708,11 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
                 <p className="text-sm leading-6 text-slate-700">
                   {activityNarrativeIntro || "The chart below shows which operational categories are driving emissions across the reporting period."}
                 </p>
-                <div className="h-[320px] w-full">
-                  <ResponsiveContainer width="100%" height={320}>
-                    <BarChart data={topCategoryData} layout="vertical" margin={{ top: 4, right: 20, left: 24, bottom: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" />
-                      <YAxis type="category" dataKey="category" width={140} tick={{ fontSize: 12 }} />
-                      <Tooltip formatter={(value) => [`${formatNumber(Number(value))} tCO₂e`, ""]} />
-                      <Bar dataKey="emissions" radius={[0, 4, 4, 0]} fill="#0ea5e9" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                <EmissionsByActivityWidget
+                  title="Top Emissions"
+                  data={topCategoryActivityData}
+                  showHeader={false}
+                />
                 <div className="grid gap-3 sm:grid-cols-2">
                   {topCategoryData.map((entry) => (
                     <div key={entry.category} className="rounded-xl border bg-slate-50 p-3">
