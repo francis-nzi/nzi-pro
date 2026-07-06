@@ -35,14 +35,10 @@ const PortalGovernance = dynamic(() => import("@/components/PortalGovernance"), 
   loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading governance…</div>,
 });
 
-// ── Dashboard chart widgets (served as stored PNGs) ─────────────────────────
-
-const DASHBOARD_WIDGETS: { id: string; title: string }[] = [
-  { id: "emissions_scope_donut",       title: "Emissions Summary by Scope" },
-  { id: "scope_year_on_year_bar",      title: "Year-on-Year Comparison by Scope" },
-  { id: "emissions_by_activity",       title: "Emissions by Activity" },
-  { id: "historical_emissions_trend",  title: "Historical Emissions Trend" },
-];
+const PortalDashboardCharts = dynamic(() => import("@/components/PortalDashboardCharts"), {
+  ssr: false,
+  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading charts…</div>,
+});
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -216,26 +212,7 @@ function DashboardPageInner() {
   const [metricsLoading, setMetricsLoading] = useState(true);
   const [metricsError, setMetricsError] = useState("");
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
-
-  // Widget PNGs (replaces live Recharts on dashboard)
-  const [widgetPngs, setWidgetPngs] = useState<Record<string, string>>({});
-  const [pngsLoading, setPngsLoading] = useState(true);
-
-  const fetchWidgetPngs = useCallback(async (year?: number) => {
-    setPngsLoading(true);
-    try {
-      const url = year ? `/portal/insights/widget-pngs?year=${year}` : "/portal/insights/widget-pngs";
-      const r = await apiFetch(url);
-      if (r.ok) {
-        const d = await r.json() as { pngs?: Record<string, string> };
-        setWidgetPngs(d.pngs ?? {});
-      }
-    } catch {
-      // leave pngs empty — zero-data state handles it
-    } finally {
-      setPngsLoading(false);
-    }
-  }, []);
+  const [chartView, setChartView] = useState<"overview" | "trends">("overview");
 
   useEffect(() => {
     // Load jobs (for Reports tab + client name)
@@ -259,25 +236,19 @@ function DashboardPageInner() {
       .catch(e => setMetricsError((e as Error).message))
       .finally(() => setMetricsLoading(false));
 
-    // Load widget PNGs for charts
-    void fetchWidgetPngs();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadMetricsForYear = useCallback(async (year: number) => {
     setMetricsLoading(true);
     setMetricsError("");
     try {
-      const [metricsRes] = await Promise.all([
-        apiFetch(`/portal/metrics?year=${year}`),
-        fetchWidgetPngs(year),
-      ]);
-      if (!metricsRes.ok) {
-        const t = await metricsRes.text();
-        setMetricsError(`${metricsRes.status}: ${t}`);
+      const res = await apiFetch(`/portal/metrics?year=${year}`);
+      if (!res.ok) {
+        const t = await res.text();
+        setMetricsError(`${res.status}: ${t}`);
         return;
       }
-      const d = await metricsRes.json() as DashboardMetrics;
+      const d = await res.json() as DashboardMetrics;
       setMetrics(d);
       setSelectedYear(year);
     } catch (e) {
@@ -285,9 +256,31 @@ function DashboardPageInner() {
     } finally {
       setMetricsLoading(false);
     }
-  }, [fetchWidgetPngs]);
+  }, []);
 
   const yearOptions = useMemo(() => metrics?.available_years ?? [], [metrics]);
+
+  const scopeData = useMemo(() => {
+    const m = metrics?.current_metrics;
+    if (!m) return [];
+    return [
+      { name: "Scope 1", value: m.scope1 },
+      { name: "Scope 2", value: m.scope2 },
+      { name: "Scope 3", value: m.scope3 },
+    ].filter(s => s.value > 0);
+  }, [metrics]);
+
+  const trendData = useMemo(() =>
+    (metrics?.yearly_emissions ?? []).map(y => ({
+      year: String(y.year),
+      total: y.total,
+      scope1: y.scope1,
+      scope2: y.scope2,
+      scope3: y.scope3,
+    })),
+  [metrics]);
+
+  const topCategoryData = useMemo(() => metrics?.top_categories ?? [], [metrics]);
 
   const intensityMetric = useMemo(() => {
     const m = metrics?.intensity_metrics ?? [];
@@ -392,31 +385,26 @@ function DashboardPageInner() {
               </div>
             </div>
 
-            {/* Charts — stored PNGs */}
-            {pngsLoading ? (
-              <div className="rounded-xl border border-gray-200 bg-white p-12 text-center text-sm text-gray-400 shadow-sm">
-                Loading charts…
-              </div>
-            ) : DASHBOARD_WIDGETS.filter(w => widgetPngs[w.id]).length === 0 ? (
-              <div className="rounded-xl border border-dashed border-gray-300 p-12 text-center shadow-sm">
-                <p className="text-sm font-medium text-gray-500">Charts not yet available</p>
-                <p className="mt-1 text-xs text-gray-400">
-                  Charts are generated when your NZI consultant finalises the Insights section. Please contact them if you expect to see charts here.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {DASHBOARD_WIDGETS.filter(w => widgetPngs[w.id]).map(({ id, title }) => (
-                  <div key={id} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-                    <div className="border-b border-gray-100 px-5 py-3">
-                      <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-                    </div>
-                    <div className="p-4">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={widgetPngs[id]} alt={title} className="w-full rounded" style={{ maxWidth: "100%", height: "auto" }} />
-                    </div>
-                  </div>
-                ))}
+            {/* Charts */}
+            {!metricsLoading && metrics && (
+              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold text-gray-700">Emissions Overview</h3>
+                  <button
+                    onClick={() => setChartView(v => v === "overview" ? "trends" : "overview")}
+                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                  >
+                    {chartView === "overview" ? "View Trends" : "View Overview"}
+                  </button>
+                </div>
+                <PortalDashboardCharts
+                  scopeData={scopeData}
+                  total={total}
+                  trendData={trendData}
+                  topCategoryData={topCategoryData}
+                  view={chartView}
+                  year={displayYear}
+                />
               </div>
             )}
           </div>
