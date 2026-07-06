@@ -9,3 +9,9 @@
 body {
   @apply bg-gray-50 text-gray-900 antialiased;
 }
+
+/* Skip layout/paint for off-screen report sections — major scroll-perf win */
+[data-section] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 600px;
+}

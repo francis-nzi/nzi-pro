@@ -49,5 +49,10 @@ export function apiBase(): string {
 
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = { ...authHeaders(), ...(init.headers as Record<string, string> ?? {}) };
-  return fetch(`${apiBase()}${path}`, { ...init, headers });
+  const response = await fetch(`${apiBase()}${path}`, { ...init, headers });
+  if (response.status === 401 && typeof window !== "undefined") {
+    clearAllTokens();
+    window.location.href = "/login";
+  }
+  return response;
 }

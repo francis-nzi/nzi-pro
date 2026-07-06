@@ -302,14 +302,14 @@ function NetZeroTrendChart({
             <ReferenceLine x={interimYear} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: "Interim", position: "top", fill: "#f59e0b", fontSize: 9 }} />
           )}
           <ReferenceLine x={endYear} stroke="#16a34a" strokeDasharray="3 3" label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 9 }} />
-          <Line type="monotone" dataKey="actual_total" name="Total" stroke="#0f766e" strokeWidth={3} dot={{ r: 5 }} activeDot={{ r: 6 }} connectNulls={false} />
-          <Line type="monotone" dataKey="actual_s1" name="Scope 1" stroke={SCOPE_COLORS["Scope 1"]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
-          {hasScope2 && <Line type="monotone" dataKey="actual_s2" name="Scope 2" stroke={SCOPE_COLORS["Scope 2"]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />}
-          <Line type="monotone" dataKey="actual_s3" name="Scope 3" stroke={SCOPE_COLORS["Scope 3"]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
-          <Line type="monotone" dataKey="target_total" name="Total (target)" stroke="#0f766e" strokeWidth={2} strokeDasharray="5 4" dot={false} legendType="none" />
-          <Line type="monotone" dataKey="target_s1" name="Scope 1 (target)" stroke={SCOPE_COLORS["Scope 1"]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} legendType="none" />
-          {hasScope2 && <Line type="monotone" dataKey="target_s2" name="Scope 2 (target)" stroke={SCOPE_COLORS["Scope 2"]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} legendType="none" />}
-          <Line type="monotone" dataKey="target_s3" name="Scope 3 (target)" stroke={SCOPE_COLORS["Scope 3"]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} legendType="none" />
+          <Line type="monotone" dataKey="actual_total" name="Total" stroke="#0f766e" strokeWidth={3} dot={{ r: 5 }} activeDot={{ r: 6 }} connectNulls={false} isAnimationActive={false} />
+          <Line type="monotone" dataKey="actual_s1" name="Scope 1" stroke={SCOPE_COLORS["Scope 1"]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} isAnimationActive={false} />
+          {hasScope2 && <Line type="monotone" dataKey="actual_s2" name="Scope 2" stroke={SCOPE_COLORS["Scope 2"]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} isAnimationActive={false} />}
+          <Line type="monotone" dataKey="actual_s3" name="Scope 3" stroke={SCOPE_COLORS["Scope 3"]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} isAnimationActive={false} />
+          <Line type="monotone" dataKey="target_total" name="Total (target)" stroke="#0f766e" strokeWidth={2} strokeDasharray="5 4" dot={false} legendType="none" isAnimationActive={false} />
+          <Line type="monotone" dataKey="target_s1" name="Scope 1 (target)" stroke={SCOPE_COLORS["Scope 1"]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} legendType="none" isAnimationActive={false} />
+          {hasScope2 && <Line type="monotone" dataKey="target_s2" name="Scope 2 (target)" stroke={SCOPE_COLORS["Scope 2"]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} legendType="none" isAnimationActive={false} />}
+          <Line type="monotone" dataKey="target_s3" name="Scope 3 (target)" stroke={SCOPE_COLORS["Scope 3"]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} legendType="none" isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -422,9 +422,9 @@ function IntensityPathwayChart({
           <ReferenceLine x={endYear} stroke="#16a34a" strokeDasharray="3 3" label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 9 }} />
           {metricEntries.flatMap((entry, index) => [
             <Line key={`${entry.key}_actual`} type="monotone" dataKey={`${entry.label}_actual`} name={`${entry.label} (actual)`}
-              stroke={INTENSITY_COLORS[index % INTENSITY_COLORS.length]} strokeWidth={2.5} dot={{ r: 5 }} activeDot={{ r: 6 }} connectNulls={false} />,
+              stroke={INTENSITY_COLORS[index % INTENSITY_COLORS.length]} strokeWidth={2.5} dot={{ r: 5 }} activeDot={{ r: 6 }} connectNulls={false} isAnimationActive={false} />,
             <Line key={`${entry.key}_target`} type="monotone" dataKey={`${entry.label}_target`} name={`${entry.label} (target)`}
-              stroke={INTENSITY_COLORS[index % INTENSITY_COLORS.length]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />,
+              stroke={INTENSITY_COLORS[index % INTENSITY_COLORS.length]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} isAnimationActive={false} />,
           ])}
         </LineChart>
       </ResponsiveContainer>
@@ -724,7 +724,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
             <div className="relative aspect-square w-[280px] flex-shrink-0">
               <ResponsiveContainer width="100%" aspect={1}>
                 <PieChart>
-                  <Pie data={scopeDonutData} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2}>
+                  <Pie data={scopeDonutData} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2} isAnimationActive={false}>
                     {scopeDonutData.map(entry => <Cell key={entry.name} fill={SCOPE_COLORS[entry.name] ?? "#999"} />)}
                   </Pie>
                   <Tooltip formatter={((v: unknown, n: unknown) => formatTooltipValue(v, n)) as any} />
@@ -1030,7 +1030,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
               <div className="relative aspect-square w-[280px] flex-shrink-0">
                 <ResponsiveContainer width="100%" aspect={1}>
                   <PieChart>
-                    <Pie data={scopeDonutData} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2}>
+                    <Pie data={scopeDonutData} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2} isAnimationActive={false}>
                       {scopeDonutData.map(entry => <Cell key={entry.name} fill={SCOPE_COLORS[entry.name] ?? "#999"} />)}
                     </Pie>
                     <Tooltip formatter={((v: unknown, n: unknown) => formatTooltipValue(v, n)) as any} />
@@ -1138,10 +1138,10 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                     <YAxis tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} label={{ value: "tCO₂e", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "#94a3b8" } }} />
                     <Tooltip formatter={(v: unknown, name: unknown) => [typeof v === "number" ? `${fmt(v)} tCO₂e` : "—", String(name ?? "")]} />
                     <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="top" />
-                    <Bar dataKey="benchmark" name={bLabel} fill="#94a3b8" radius={[3,3,0,0]}>
+                    <Bar dataKey="benchmark" name={bLabel} fill="#94a3b8" radius={[3,3,0,0]} isAnimationActive={false}>
                       <LabelList dataKey="benchmark" position="top" formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmt(v, 1) : ""} style={{ fontSize: 9, fill: "#64748b" }} />
                     </Bar>
-                    <Bar dataKey="current" name={cLabel} fill={BRAND} radius={[3,3,0,0]}>
+                    <Bar dataKey="current" name={cLabel} fill={BRAND} radius={[3,3,0,0]} isAnimationActive={false}>
                       <LabelList dataKey="current" position="top" formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmt(v, 1) : ""} style={{ fontSize: 9, fill: BRAND }} />
                     </Bar>
                   </BarChart>
@@ -1236,7 +1236,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <XAxis type="number" tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} />
                   <YAxis type="category" dataKey="name" width={180} tick={{ fontSize: 9 }} />
                   <Tooltip formatter={((v: unknown, n: unknown, props: { payload?: { fullName?: string } }) => formatTooltipValueWithName(v, n, props?.payload?.fullName)) as any} />
-                  <Bar dataKey="value" name="tCO₂e" radius={[0, 3, 3, 0]}>
+                  <Bar dataKey="value" name="tCO₂e" radius={[0, 3, 3, 0]} isAnimationActive={false}>
                     {activityBarData.map((entry, i) => <Cell key={`cell-${i}`} fill={entry.fill} />)}
                   </Bar>
                 </BarChart>
@@ -1499,9 +1499,9 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <YAxis tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={52} />
                   <Tooltip formatter={((v: unknown, name: unknown) => formatTooltipValue(v, name)) as any} labelFormatter={(l: unknown) => `Year: ${l}`} />
                   <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="scope1" name="Scope 1" stackId="a" fill={SCOPE_COLORS["Scope 1"]} />
-                  <Bar dataKey="scope2" name="Scope 2" stackId="a" fill={SCOPE_COLORS["Scope 2"]} />
-                  <Bar dataKey="scope3" name="Scope 3" stackId="a" fill={SCOPE_COLORS["Scope 3"]} radius={[3, 3, 0, 0]}>
+                  <Bar dataKey="scope1" name="Scope 1" stackId="a" fill={SCOPE_COLORS["Scope 1"]} isAnimationActive={false} />
+                  <Bar dataKey="scope2" name="Scope 2" stackId="a" fill={SCOPE_COLORS["Scope 2"]} isAnimationActive={false} />
+                  <Bar dataKey="scope3" name="Scope 3" stackId="a" fill={SCOPE_COLORS["Scope 3"]} radius={[3, 3, 0, 0]} isAnimationActive={false}>
                     <LabelList dataKey="total" position="top" formatter={(v: unknown) => typeof v === "number" ? fmt(v, 0) : ""} style={{ fontSize: 9, fill: "#6b7280" }} />
                   </Bar>
                 </BarChart>
