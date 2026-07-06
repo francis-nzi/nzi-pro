@@ -39,3 +39,8 @@ Thumbs.db
 .claude/
 tmp_pdf_review/
 tmp_*/
+test_output/
+portal/.next/
+portal/node_modules/
+portal/tsconfig.tsbuildinfo
+portal/next-env.d.ts

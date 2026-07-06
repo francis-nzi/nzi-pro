@@ -2669,13 +2669,5 @@
                 if (icon) icon.classList.toggle('active');
             });
         });
-
-        // Tell DocRaptor that JavaScript has finished rendering
-        // This ensures charts are fully rendered before PDF generation
-        if (typeof window.docraptor !== 'undefined') {
-            window.docraptor.JavaScriptFinished();
-        } else if (typeof window.docraptorJavaScriptFinished === 'function') {
-            window.docraptorJavaScriptFinished();
-        }
     </script>
 {% endblock %}

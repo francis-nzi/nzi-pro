@@ -21,9 +21,8 @@ from typing import Optional, Any
 
 # Import heavyweight deps inside functions to avoid startup overhead and missing dep errors
 # - matplotlib: Used for chart generation (in chart_generation module)
-# - docraptor: Used for professional PDF generation
 # - python-docx: Used for DOCX export
-# - playwright: Used for Playwright-based PDF generation (legacy)
+# - playwright: Used for PDF generation (single PDF engine)
 
 from core.database import get_conn
 from api.auth import _current_user
@@ -60,11 +59,6 @@ from services.audit_log import record_audit_event
 from api.job_data_output_routes import _load_data_output_rows, _build_scope_summary
 
 logger = logging.getLogger(__name__)
-
-# DocRaptor configuration
-DOCRAPTOR_API_KEY = os.getenv('DOCRAPTOR_API_KEY', 'YOUR_TEST_API_KEY_GENERATES_WATERMARKS')
-# Production mode when a real key is configured; test mode (watermarked) otherwise
-_DOCRAPTOR_TEST_MODE = (DOCRAPTOR_API_KEY == 'YOUR_TEST_API_KEY_GENERATES_WATERMARKS')
 
 ACTIVITY_GROUP_ORDER = [
     'Energy',
@@ -1021,28 +1015,7 @@ def _render_report_snapshot_html(snapshot_payload: dict[str, Any], *, portal_vie
 
 
 def _render_html_to_pdf_bytes(html_content: str) -> bytes:
-    # Render prefers DocRaptor in production so the web process doesn't have to
-    # launch Chromium under memory pressure. Keep a local Playwright fallback for
-    # developer machines where DocRaptor may not be configured.
-    render_env = str(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID") or "").strip()
-    if render_env:
-        import docraptor
-
-        doc_api = docraptor.DocApi()
-        doc_api.api_client.configuration.username = DOCRAPTOR_API_KEY
-        return doc_api.create_doc(
-            {
-                "test": _DOCRAPTOR_TEST_MODE,
-                "document_content": html_content,
-                "document_type": "pdf",
-                "name": "job-report.pdf",
-                "prince_options": {
-                    "media": "print",
-                    "javascript": False,
-                },
-            }
-        )
-
+    """Render HTML to PDF with Playwright — the single PDF engine for all environments."""
     from playwright.sync_api import sync_playwright
 
     ensure_playwright_browser()
@@ -4566,7 +4539,7 @@ def _generate_professional_pdf_impl(
     _user: dict[str, str] = Depends(_current_user),
 ):
     """
-    Generate a professional PDF report using DocRaptor service.
+    Generate a professional PDF report using the Playwright PDF engine.
     This produces high-quality, audit-ready PDFs from HTML templates.
     """
     try:
@@ -4783,31 +4756,9 @@ def _generate_professional_pdf_impl(
         report_snapshot_json = json.dumps(report_snapshot_payload, ensure_ascii=False, sort_keys=True, default=str)
         normalized_version_status = _normalize_report_version_status(report_version_status)
 
-        # Import DocRaptor inside function to avoid startup overhead
-        import docraptor
-        
-        # Initialize DocRaptor client
-        doc_api = docraptor.DocApi()
-        doc_api.api_client.configuration.username = DOCRAPTOR_API_KEY
-        
-        # Get base URL from environment or use default
-        public_base_url = os.getenv('PUBLIC_BASE_URL', 'http://localhost:8001')
-        
-        # Create PDF using DocRaptor
+        # Render the PDF with the shared Playwright engine
         try:
-            pdf_bytes = doc_api.create_doc(
-                {
-                    "test": _DOCRAPTOR_TEST_MODE,
-                    "document_content": html_content,
-                    "document_type": "pdf",
-                    "name": f"job-{job_id}-emissions-report.pdf",
-                    "prince_options": {
-                        "media": "print",
-                        "baseurl": public_base_url,
-                        "javascript": False,
-                    },
-                }
-            )
+            pdf_bytes = _render_html_to_pdf_bytes(html_content)
 
             saved_report_version: dict[str, Any] | None = None
             if save_version:
@@ -4879,11 +4830,8 @@ def _generate_professional_pdf_impl(
                 headers=headers,
             )
 
-        except docraptor.rest.ApiException as error:
-            raise HTTPException(
-                status_code=500,
-                detail=f"DocRaptor API error: {getattr(error, 'status', 'unknown')} - {getattr(error, 'reason', 'unknown')}",
-            )
+        except HTTPException:
+            raise
 
     except HTTPException:
         raise
