@@ -524,6 +524,8 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
   const observerRef = useRef<IntersectionObserver | null>(null);
   const currentSectionRef = useRef<string>("General");
   const notesOpenRef = useRef<boolean>(false);
+  const notesTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const notesTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const setupObserver = useCallback(() => {
     if (observerRef.current) observerRef.current.disconnect();
@@ -586,8 +588,28 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
   }, [data, setupObserver]);
 
   useEffect(() => {
-    if (notesOpen) loadComments();
+    if (notesOpen) {
+      loadComments();
+      // Auto-focus textarea when panel opens
+      setTimeout(() => notesTextareaRef.current?.focus(), 50);
+    } else {
+      // Return focus to trigger on close
+      notesTriggerRef.current?.focus();
+    }
   }, [notesOpen, loadComments]);
+
+  // Close notes panel on Escape
+  useEffect(() => {
+    if (!notesOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        notesOpenRef.current = false;
+        setNotesOpen(false);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [notesOpen]);
 
   // Must be declared before early returns (Rules of Hooks)
   const effectiveYearlyEmissions: YearlyEmission[] = useMemo(() => {
@@ -1773,6 +1795,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
       {canAddNotes && (
         <div className="flex justify-center py-8">
           <button
+            ref={notesTriggerRef}
             onClick={() => {
               window.scrollTo({ top: 0, behavior: "smooth" });
               setTimeout(() => {
@@ -1792,6 +1815,9 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
       {/* ── Floating Review Notes panel ────────────────────────────────── */}
       {notesOpen && canAddNotes && (
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Review Notes"
           className="fixed top-20 right-4 z-50 flex w-80 flex-col rounded-xl border border-gray-200 bg-white shadow-2xl"
           style={{ maxHeight: "calc(100vh - 100px)" }}
         >
@@ -1800,7 +1826,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
               <div className="text-xs font-semibold uppercase tracking-wide opacity-80">Review Notes</div>
               <div className="text-xs opacity-70 truncate">Section: {currentSection}</div>
             </div>
-            <button onClick={() => { notesOpenRef.current = false; setNotesOpen(false); }} className="ml-2 rounded p-1 hover:bg-white/20 text-white">✕</button>
+            <button onClick={() => { notesOpenRef.current = false; setNotesOpen(false); }} className="ml-2 rounded p-1 hover:bg-white/20 text-white" aria-label="Close review notes">✕</button>
           </div>
 
           <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2" style={{ maxHeight: 260 }}>
@@ -1826,6 +1852,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
           <div className="border-t border-gray-100 px-3 py-3 space-y-2">
             <div className="text-xs text-gray-500">Adding note for: <span className="font-medium text-gray-700">{currentSection}</span></div>
             <textarea
+              ref={notesTextareaRef}
               className="w-full rounded-md border border-gray-200 px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
               rows={3}
               placeholder="Add a note or change request…"

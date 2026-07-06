@@ -16,6 +16,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -328,6 +329,13 @@ export default function JobPortalManagement({ jobId, baseUrl }: JobPortalManagem
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [confirmSend, setConfirmSend] = useState(false);
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [addUserName, setAddUserName] = useState("");
+  const [addUserEmail, setAddUserEmail] = useState("");
+  const [addUserPassword, setAddUserPassword] = useState("");
+  const [addingUser, setAddingUser] = useState(false);
+  const [addUserError, setAddUserError] = useState("");
 
   const loadStatus = useCallback(async () => {
     setLoading(true);
@@ -348,11 +356,12 @@ export default function JobPortalManagement({ jobId, baseUrl }: JobPortalManagem
 
   useEffect(() => { void loadStatus(); }, [loadStatus]);
 
-  async function sendToPortal() {
-    if (!confirm(
-      "Send this report to the client portal?\n\nThe client will be notified and will see the current version of the report."
-    )) return;
+  function sendToPortal() {
+    setSendResult(null);
+    setConfirmSend(true);
+  }
 
+  async function doSendToPortal() {
     setSending(true);
     setSendResult(null);
     try {
@@ -372,6 +381,30 @@ export default function JobPortalManagement({ jobId, baseUrl }: JobPortalManagem
       setSendResult({ ok: false, message: String(e) });
     } finally {
       setSending(false);
+    }
+  }
+
+  async function doAddPortalUser(e: React.FormEvent) {
+    e.preventDefault();
+    if (!status?.client_db_id) return;
+    setAddingUser(true);
+    setAddUserError("");
+    try {
+      const res = await fetch(`${baseUrl}/clients/${status.client_db_id}/portal-users`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: addUserEmail.trim(), full_name: addUserName.trim(), password: addUserPassword }),
+      });
+      const body = await res.json() as { ok?: boolean; detail?: string };
+      if (!res.ok) throw new Error(body.detail ?? `Server returned ${res.status}`);
+      setShowAddUser(false);
+      setAddUserName(""); setAddUserEmail(""); setAddUserPassword("");
+      await loadStatus();
+    } catch (e) {
+      setAddUserError((e as Error).message);
+    } finally {
+      setAddingUser(false);
     }
   }
 
@@ -415,6 +448,19 @@ export default function JobPortalManagement({ jobId, baseUrl }: JobPortalManagem
 
   return (
     <div className="space-y-6">
+
+      <ConfirmDialog
+        open={confirmSend}
+        onOpenChange={setConfirmSend}
+        title={alreadySent ? "Update portal?" : "Send to portal?"}
+        description={
+          alreadySent
+            ? "This will replace the current portal version. Active portal users will be notified by email."
+            : "This saves a snapshot of the current report and makes it visible to the client. Active portal users will be notified by email."
+        }
+        confirmLabel={alreadySent ? "Update" : "Send"}
+        onConfirm={() => void doSendToPortal()}
+      />
 
       {/* Page header */}
       <div className="flex items-start justify-between gap-4">
@@ -497,17 +543,59 @@ export default function JobPortalManagement({ jobId, baseUrl }: JobPortalManagem
             </div>
           ) : (
             <p className="text-xs text-amber-700 mt-1">
-              No active portal users. Add users from the client record before sending.
+              No active portal users. Add a user below or from the client record.
             </p>
           )}
-          {status.client_db_id && (
-            <Link
-              href={`/clients/${status.client_db_id}?section=portal`}
-              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => { setShowAddUser(v => !v); setAddUserError(""); }}
+              className="text-xs font-medium text-blue-600 hover:text-blue-700 underline"
             >
-              Manage portal users
-              <ExternalLink className="h-3 w-3" />
-            </Link>
+              {showAddUser ? "Cancel" : "+ Add portal user"}
+            </button>
+            {status.client_db_id && (
+              <Link
+                href={`/clients/${status.client_db_id}?section=portal`}
+                className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
+              >
+                Manage all users
+                <ExternalLink className="h-3 w-3" />
+              </Link>
+            )}
+          </div>
+          {showAddUser && (
+            <form onSubmit={(e) => void doAddPortalUser(e)} className="mt-3 space-y-2 rounded-lg border border-gray-200 bg-white p-3">
+              <p className="text-xs font-semibold text-gray-700">New portal user</p>
+              {addUserError && <p className="text-xs text-red-600">{addUserError}</p>}
+              <input
+                required
+                type="text"
+                placeholder="Full name"
+                value={addUserName}
+                onChange={e => setAddUserName(e.target.value)}
+                className="w-full rounded border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300"
+              />
+              <input
+                required
+                type="email"
+                placeholder="Email address"
+                value={addUserEmail}
+                onChange={e => setAddUserEmail(e.target.value)}
+                className="w-full rounded border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300"
+              />
+              <input
+                required
+                type="password"
+                placeholder="Temporary password (min 8 chars)"
+                minLength={8}
+                value={addUserPassword}
+                onChange={e => setAddUserPassword(e.target.value)}
+                className="w-full rounded border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300"
+              />
+              <Button type="submit" size="sm" disabled={addingUser} className="w-full text-xs">
+                {addingUser ? "Adding…" : "Add user & send welcome email"}
+              </Button>
+            </form>
           )}
         </ReadinessCard>
 
