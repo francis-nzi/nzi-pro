@@ -318,7 +318,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
             (
                 """
                 SELECT db_id, factor, ghg_unit, uom, report_label
-                FROM v_factor_lookup
+                FROM factor_lookup
                 WHERE dataset_id=%s AND scope=%s AND original_id=%s
                 ORDER BY db_id ASC
                 LIMIT 1
@@ -331,7 +331,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
             (
                 """
                 SELECT db_id, factor, ghg_unit, uom, report_label
-                FROM v_factor_lookup
+                FROM factor_lookup
                 WHERE dataset_id=%s AND original_id=%s
                 ORDER BY CASE WHEN scope=%s THEN 0 ELSE 1 END, db_id ASC
                 LIMIT 1
@@ -344,7 +344,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
             (
                 """
                 SELECT db_id, factor, ghg_unit, uom, report_label
-                FROM v_factor_lookup
+                FROM factor_lookup
                 WHERE scope=%s AND original_id=%s
                 ORDER BY dataset_id DESC, db_id ASC
                 LIMIT 1
@@ -356,7 +356,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
         (
             """
             SELECT db_id, factor, ghg_unit, uom, report_label
-            FROM v_factor_lookup
+            FROM factor_lookup
             WHERE original_id=%s
             ORDER BY CASE WHEN scope=%s THEN 0 ELSE 1 END, dataset_id DESC, db_id ASC
             LIMIT 1
@@ -427,7 +427,7 @@ def _resolve_repoint_factor(
             row = con.execute(
                 """
                 SELECT db_id, dataset_id, factor, ghg_unit, uom
-                FROM v_factor_lookup
+                FROM factor_lookup
                 WHERE db_id=%s
                 LIMIT 1
                 """,
@@ -2042,8 +2042,8 @@ def repoint_scope_data_row(
                 "report_label": (
                     payload["report_label"]
                     if "report_label" in payload
-                    else resolved.get("report_label")
-                    or before.get("report_label")
+                    else before.get("report_label")       # keep existing label; avoids silent overwrite from view COALESCE
+                    or resolved.get("report_label")       # only fall back to view-derived label if nothing is stored
                 ),
                 "uom": resolved.get("uom"),
                 "factor": resolved.get("factor"),
