@@ -56,7 +56,7 @@ export function SiteSummaryDonutWidget({
   benchmarkTotal,
   currentTotal,
   widgetKey = REPORT_WIDGET_IDS.emissionsSiteDonut,
-  showWidgetRef = true,
+  showWidgetRef = false,
   className,
   presentation = "card",
   storedPngUrl,

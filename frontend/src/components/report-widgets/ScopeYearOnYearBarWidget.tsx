@@ -70,7 +70,7 @@ export function ScopeYearOnYearBarWidget({
   showPreviousBar = true,
   showComparisonPct = true,
   widgetKey = REPORT_WIDGET_IDS.scopeYearOnYearBar,
-  showWidgetRef = true,
+  showWidgetRef = false,
   presentation = "card",
   storedPngUrl,
   className,

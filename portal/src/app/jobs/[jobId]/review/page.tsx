@@ -130,13 +130,9 @@ export default function ReviewPage() {
             )}
           </div>
           {canApprove && !isApproved && (
-            <button
-              onClick={() => router.push(`/jobs/${jobId}/approve`)}
-              className="rounded-lg px-5 py-2 text-sm font-semibold text-white shrink-0"
-              style={{ backgroundColor: "#F26624" }}
-            >
-              Approve Report
-            </button>
+            <span className="text-sm font-medium text-green-700">
+              All comments resolved — ready to approve.
+            </span>
           )}
         </div>
 

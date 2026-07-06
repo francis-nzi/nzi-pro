@@ -40,7 +40,7 @@ export function EmissionsByActivityWidget({
   clientName,
   data,
   widgetKey = REPORT_WIDGET_IDS.emissionsByActivity,
-  showWidgetRef = true,
+  showWidgetRef = false,
   showHeader = true,
   showPng = true,
   presentation = "card",

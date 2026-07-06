@@ -62,7 +62,7 @@ export function ScopeSummaryDonutWidget({
   benchmarkTotal,
   currentTotal,
   widgetKey = REPORT_WIDGET_IDS.emissionsScopeDonut,
-  showWidgetRef = true,
+  showWidgetRef = false,
   showPngButton = true,
   compact = false,
   presentation = "card",

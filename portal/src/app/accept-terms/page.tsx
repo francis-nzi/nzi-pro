@@ -136,7 +136,7 @@ export default function AcceptTermsPage() {
                 className="flex-1 rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-50 transition-colors"
                 style={{ backgroundColor: "#F26624" }}
               >
-                {loading ? "Saving…" : "Accept &amp; continue"}
+                {loading ? "Saving…" : "Accept & continue"}
               </button>
               <button
                 type="button"

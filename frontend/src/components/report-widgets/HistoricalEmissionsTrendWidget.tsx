@@ -38,7 +38,7 @@ export function HistoricalEmissionsTrendWidget({
   clientName,
   data,
   widgetKey = REPORT_WIDGET_IDS.historicalEmissionsTrend,
-  showWidgetRef = true,
+  showWidgetRef = false,
   showPng = true,
   presentation = "card",
   storedPngUrl,
