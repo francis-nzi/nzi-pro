@@ -110,16 +110,18 @@ function measureLegendRows(ctx: CanvasRenderingContext2D, width: number, items: 
 /**
  * Capture an SVG chart element as a base64 PNG data URL (no download triggered).
  * Returns a full data URL: "data:image/png;base64,..."
+ * Renders at 2× physical pixels so the PNG stays sharp in PDF output.
  */
 export async function captureSvgToPngDataUrl(svg: SVGSVGElement): Promise<string> {
+  const SCALE = 2;
   const clone = svg.cloneNode(true) as SVGSVGElement;
   const rect = svg.getBoundingClientRect();
   const w = Math.max(1, Math.ceil(rect.width || Number(svg.getAttribute("width") || 800)));
   const h = Math.max(1, Math.ceil(rect.height || Number(svg.getAttribute("height") || 600)));
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
-  clone.setAttribute("width", String(w));
-  clone.setAttribute("height", String(h));
+  clone.setAttribute("width", String(w * SCALE));
+  clone.setAttribute("height", String(h * SCALE));
 
   const svgText = new XMLSerializer().serializeToString(clone);
   const blob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
@@ -131,12 +133,12 @@ export async function captureSvgToPngDataUrl(svg: SVGSVGElement): Promise<string
     img.onload = () => {
       try {
         const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
+        canvas.width = w * SCALE;
+        canvas.height = h * SCALE;
         const ctx = canvas.getContext("2d")!;
         ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, w, h);
-        ctx.drawImage(img, 0, 0, w, h);
+        ctx.fillRect(0, 0, w * SCALE, h * SCALE);
+        ctx.drawImage(img, 0, 0, w * SCALE, h * SCALE);
         resolve(canvas.toDataURL("image/png"));
       } catch (e) {
         reject(e);
@@ -160,6 +162,7 @@ async function composeChartAsPngDataUrl({
   centerChart = true,
   tableLayout = {},
 }: Omit<DownloadChartAsPngOptions, "filename">): Promise<string> {
+  const SCALE = 2;
   const clone = svg.cloneNode(true) as SVGSVGElement;
   const rect = svg.getBoundingClientRect();
   const width = Math.max(1, Math.ceil(rect.width || Number(svg.getAttribute("width") || 1200)));
@@ -168,8 +171,8 @@ async function composeChartAsPngDataUrl({
 
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
-  clone.setAttribute("width", String(width));
-  clone.setAttribute("height", String(height));
+  clone.setAttribute("width", String(width * SCALE));
+  clone.setAttribute("height", String(height * SCALE));
 
   const svgText = new XMLSerializer().serializeToString(clone);
   const blob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
@@ -217,11 +220,12 @@ async function composeChartAsPngDataUrl({
           : 0;
         const finalChartX = chartLeft + chartX;
 
-        canvas.width = outputWidth;
-        canvas.height = headerHeight + contentHeight + 24;
+        canvas.width = outputWidth * SCALE;
+        canvas.height = (headerHeight + contentHeight + 24) * SCALE;
+        ctx.scale(SCALE, SCALE);
 
         ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillRect(0, 0, outputWidth, headerHeight + contentHeight + 24);
 
         ctx.fillStyle = "#6b7280";
         ctx.font = "600 18px Arial, sans-serif";
@@ -343,9 +347,10 @@ async function composeChartAsPngDataUrl({
           const chartSpacer = callout?.text ? 44 : 0;
           const scaleRatio = outputWidth / width;
           const scaledChartHeight = Math.round(height * scaleRatio);
-          canvas.height = headerHeight + chartSpacer + scaledChartHeight + 24;
+          canvas.height = (headerHeight + chartSpacer + scaledChartHeight + 24) * SCALE;
+          ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
           ctx.fillStyle = "#ffffff";
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillRect(0, 0, outputWidth, headerHeight + chartSpacer + scaledChartHeight + 24);
 
           ctx.fillStyle = "#6b7280";
           ctx.font = "600 18px Arial, sans-serif";
