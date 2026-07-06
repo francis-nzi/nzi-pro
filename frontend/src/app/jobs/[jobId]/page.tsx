@@ -724,12 +724,16 @@ export default function JobDetailPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-7xl px-6 py-10">
-        <JobWorkspaceHeader
-          breadcrumbs={workspaceBreadcrumbs}
-          jobId={jobId}
-          baseUrl={baseUrl}
-          job={workspaceJob}
-        />
+        {job === null ? (
+          <div className="h-40 rounded-3xl border bg-white shadow-sm animate-pulse" />
+        ) : (
+          <JobWorkspaceHeader
+            breadcrumbs={workspaceBreadcrumbs}
+            jobId={jobId}
+            baseUrl={baseUrl}
+            job={workspaceJob}
+          />
+        )}
 
         {error ? <div className="mb-4 text-sm text-destructive">{error}</div> : null}
         {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading...</div> : null}

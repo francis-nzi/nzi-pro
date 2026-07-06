@@ -517,8 +517,13 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
   const [noteSuccess, setNoteSuccess] = useState(false);
   const [existingComments, setExistingComments] = useState<Comment[]>([]);
 
-  // Intersection Observer to detect current section as user scrolls
+  // Refs to track scroll position without triggering re-renders on every scroll event.
+  // Calling setCurrentSection from IntersectionObserver would re-render this entire
+  // component (and all its Recharts instances) on every section boundary — causing
+  // the scroll freeze reported in the UX review.
   const observerRef = useRef<IntersectionObserver | null>(null);
+  const currentSectionRef = useRef<string>("General");
+  const notesOpenRef = useRef<boolean>(false);
 
   const setupObserver = useCallback(() => {
     if (observerRef.current) observerRef.current.disconnect();
@@ -529,7 +534,11 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
         const visible = entries.filter(e => e.isIntersecting);
         if (visible.length > 0) {
           const section = (visible[0].target as HTMLElement).dataset.section;
-          if (section) setCurrentSection(section);
+          if (section) {
+            currentSectionRef.current = section;
+            // Only commit to state (re-render) when the notes panel is open.
+            if (notesOpenRef.current) setCurrentSection(section);
+          }
         }
       },
       { threshold: 0.2 }
@@ -1754,7 +1763,11 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
           <button
             onClick={() => {
               window.scrollTo({ top: 0, behavior: "smooth" });
-              setTimeout(() => setNotesOpen(true), 400);
+              setTimeout(() => {
+                setCurrentSection(currentSectionRef.current);
+                notesOpenRef.current = true;
+                setNotesOpen(true);
+              }, 400);
             }}
             className="rounded-lg px-6 py-3 text-sm font-semibold text-white shadow-md transition hover:opacity-90"
             style={{ backgroundColor: BRAND }}
@@ -1775,7 +1788,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
               <div className="text-xs font-semibold uppercase tracking-wide opacity-80">Review Notes</div>
               <div className="text-xs opacity-70 truncate">Section: {currentSection}</div>
             </div>
-            <button onClick={() => setNotesOpen(false)} className="ml-2 rounded p-1 hover:bg-white/20 text-white">✕</button>
+            <button onClick={() => { notesOpenRef.current = false; setNotesOpen(false); }} className="ml-2 rounded p-1 hover:bg-white/20 text-white">✕</button>
           </div>
 
           <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2" style={{ maxHeight: 260 }}>
