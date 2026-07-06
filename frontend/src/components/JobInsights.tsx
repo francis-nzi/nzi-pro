@@ -171,32 +171,43 @@ export default function JobInsights({
       setLoading(true);
       setError("");
 
-      try {
-        const [scopeTotalsRes, scopeDataRes, intensityRes, yearlyEmissionsRes, clientRes] = await Promise.all([
-          fetch(`${baseUrl}/jobs/${jobId}/scope-totals`, { credentials: "include" }),
-          fetch(`${baseUrl}/jobs/${jobId}/scope-data?include_disabled=true`, { credentials: "include" }),
-          fetch(`${baseUrl}/jobs/${jobId}/intensity-metrics`, { credentials: "include" }),
-          fetch(`${baseUrl}/jobs/${jobId}/yearly-emissions`, { credentials: "include" }),
-          clientId != null && Number.isFinite(Number(clientId)) && Number(clientId) > 0
-            ? fetch(`${baseUrl}/clients/${clientId}`, { credentials: "include" })
-            : Promise.resolve(null),
-        ]);
+      // Fire all fetches simultaneously so none waits for another
+      const scopeTotalsP = fetch(`${baseUrl}/jobs/${jobId}/scope-totals`, { credentials: "include" });
+      const scopeDataP = fetch(`${baseUrl}/jobs/${jobId}/scope-data?include_disabled=true`, { credentials: "include" });
+      const intensityP = fetch(`${baseUrl}/jobs/${jobId}/intensity-metrics`, { credentials: "include" });
+      const yearlyEmissionsP = fetch(`${baseUrl}/jobs/${jobId}/yearly-emissions`, { credentials: "include" });
+      const clientP =
+        clientId != null && Number.isFinite(Number(clientId)) && Number(clientId) > 0
+          ? fetch(`${baseUrl}/clients/${clientId}`, { credentials: "include" })
+          : Promise.resolve(null);
 
-        if (!scopeTotalsRes.ok) {
-          throw new Error(`Scope totals failed (${scopeTotalsRes.status})`);
-        }
-        if (!scopeDataRes.ok) {
-          throw new Error(`Scope data failed (${scopeDataRes.status})`);
-        }
+      try {
+        // Phase 1: await only the two critical responses — render as soon as these arrive
+        const [scopeTotalsRes, scopeDataRes] = await Promise.all([scopeTotalsP, scopeDataP]);
+
+        if (!scopeTotalsRes.ok) throw new Error(`Scope totals failed (${scopeTotalsRes.status})`);
+        if (!scopeDataRes.ok) throw new Error(`Scope data failed (${scopeDataRes.status})`);
+
         const totalsJson = (await scopeTotalsRes.json()) as ScopeTotals;
         const scopeDataJson = (await scopeDataRes.json()) as ScopeDataResponse;
+
+        if (cancelled) return;
+        setScopeTotals(totalsJson);
+        setRows(Array.isArray(scopeDataJson.rows) ? scopeDataJson.rows : []);
+        // Benchmark year from scope-totals baseline_year; refined below once yearly-emissions arrives
+        const scopeBaseline = Number(totalsJson?.baseline_year);
+        if (Number.isFinite(scopeBaseline) && scopeBaseline > 1900) setBenchmarkYear(scopeBaseline);
+        setLoading(false);
+
+        // Phase 2: secondary data already in-flight — await and fill in charts/client fields
+        const [intensityRes, yearlyEmissionsRes, clientRes] = await Promise.all([intensityP, yearlyEmissionsP, clientP]);
+        if (cancelled) return;
+
         const intensityJson = intensityRes.ok ? ((await intensityRes.json()) as IntensityMetricsResponse) : { metrics: {} };
         const clientJson = clientRes && clientRes.ok ? ((await clientRes.json()) as ClientInfo) : null;
         const yearlyEmissionsJson = yearlyEmissionsRes.ok ? ((await yearlyEmissionsRes.json()) as YearlyEmission[]) : [];
 
         if (cancelled) return;
-        setScopeTotals(totalsJson);
-        setRows(Array.isArray(scopeDataJson.rows) ? scopeDataJson.rows : []);
         setTargetYear(Number.isFinite(Number(clientJson?.net_zero_year)) ? Number(clientJson?.net_zero_year) : 2050);
         setInterimYear(Number.isFinite(Number(clientJson?.interim_year)) ? Number(clientJson?.interim_year) : null);
         setInterimTargets({
@@ -204,16 +215,17 @@ export default function JobInsights({
           scope_2: Number.isFinite(Number(clientJson?.interim_s2_pct)) ? Number(clientJson?.interim_s2_pct) : null,
           scope_3: Number.isFinite(Number(clientJson?.interim_s3_pct)) ? Number(clientJson?.interim_s3_pct) : null,
         });
-        // Benchmark year = EXTRACT(YEAR FROM clients.benchmark_period_end), returned
-        // from scope-totals. Falls back to first year in yearly_emissions.
-        const scopeBaseline = Number(totalsJson?.baseline_year);
-        const firstHistYear = Array.isArray(yearlyEmissionsJson) && yearlyEmissionsJson.length > 0
-          ? Number((yearlyEmissionsJson as YearlyEmission[])[0].year)
-          : NaN;
+        // Refine benchmark year: fall back to first year in yearly-emissions if baseline_year was absent
+        const firstHistYear =
+          Array.isArray(yearlyEmissionsJson) && yearlyEmissionsJson.length > 0
+            ? Number((yearlyEmissionsJson as YearlyEmission[])[0].year)
+            : NaN;
         const effectiveBy =
-          (Number.isFinite(scopeBaseline) && scopeBaseline > 1900) ? scopeBaseline :
-          (Number.isFinite(firstHistYear) && firstHistYear > 1900) ? firstHistYear :
-          null;
+          Number.isFinite(scopeBaseline) && scopeBaseline > 1900
+            ? scopeBaseline
+            : Number.isFinite(firstHistYear) && firstHistYear > 1900
+            ? firstHistYear
+            : null;
         setBenchmarkYear(effectiveBy);
         const trp = Number(clientJson?.net_zero_target_reduction_pct);
         setTargetReductionPct(Number.isFinite(trp) && trp > 0 ? trp : 90);
@@ -233,8 +245,7 @@ export default function JobInsights({
         setYearlyEmissions([]);
         setTargetReductionPct(90);
         setIntensityMetrics({});
-      } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       }
     }
 
