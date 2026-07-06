@@ -14,3 +14,4 @@ export * from "./SiteSummaryDonutWidget";
 export * from "./ScopeCategoryComparisonTable";
 export * from "./ScopeYearOnYearBarWidget";
 export * from "./ScopeSummaryDonutWidget";
+export * from "./MonthlyTrendLineWidget";

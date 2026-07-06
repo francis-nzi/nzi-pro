@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 
-import InsightsPageClient from "./InsightsPageClient";
+import InsightsPageClient from "@/components/report-widgets/InsightsPageClient";
 
 export default function InsightsPage() {
   return (

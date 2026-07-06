@@ -2,16 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +12,7 @@ import {
   EmissionsReductionPathwayWidget,
   HistoricalEmissionsTrendWidget,
   IntensityPathwayWidget,
+  MonthlyTrendLineWidget,
   buildActivityBarData,
   getWidgetPngExporter,
   SiteSummaryDonutWidget,
@@ -111,11 +102,6 @@ function formatTco2e(value: number): string {
 function bucketKey(value?: string | null): string {
   const raw = String(value ?? "").trim();
   return raw.length > 0 ? raw : "Unknown";
-}
-
-function formatTooltipValue(value: unknown): [string, string] {
-  const amount = Array.isArray(value) ? Number(value[0] ?? 0) : Number(value ?? 0);
-  return [`${formatTco2e(amount)} tCO₂e`, ""];
 }
 
 function pct(value: number, total: number): string {
@@ -772,24 +758,7 @@ export default function JobInsights({
         />
       )}
 
-      <Card>
-        <CardHeader className="space-y-1">
-          <CardTitle>Monthly Emissions Trend</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={monthlyTrend} margin={{ top: 5, right: 20, left: 6, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip formatter={formatTooltipValue} />
-                <Line type="monotone" dataKey="actual" stroke="#0f766e" strokeWidth={3} dot={{ r: 3 }} name="Actual" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
+      <MonthlyTrendLineWidget data={monthlyTrend} />
 
       <Card>
         <CardHeader className="space-y-1">

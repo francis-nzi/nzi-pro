@@ -5,16 +5,7 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from "recharts";
+import { HistoricalEmissionsTrendWidget } from "@/components/report-widgets";
 import JobIntensityYearOverYear from "@/components/JobIntensityYearOverYear";
 
 type ScopeCategoryData = {
@@ -57,7 +48,6 @@ type ClientReportingProps = {
   baseUrl: string;
 };
 
-const SCOPE_COLORS = ["#15803d", "#22c55e", "#4ade80", "#86efac", "#bbf7d0"];
 
 export default function ClientReporting({ clientId, baseUrl }: ClientReportingProps) {
   const [loading, setLoading] = useState(true);
@@ -191,28 +181,14 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
     );
   }
 
-  // Stacked bar chart data (all years)
-  const chartData = years.map((year) => {
-    const row: Record<string, number | string> = { year: String(year) };
-    if (sortedScopes.length > 0) {
-      for (const s of sortedScopes) row[s] = getValueForYear(by_scope, year, s);
-    } else {
-      row["Total"] = getValueForYear(by_scope, year, "total");
-    }
-    return row;
-  });
-
-  const chartBars =
-    sortedScopes.length > 0
-      ? sortedScopes.map((scope, i) => (
-          <Bar
-            key={scope}
-            dataKey={scope}
-            stackId="a"
-            fill={SCOPE_COLORS[i % SCOPE_COLORS.length]}
-          />
-        ))
-      : [<Bar key="total" dataKey="Total" fill={SCOPE_COLORS[0]} />];
+  // Chart data for HistoricalEmissionsTrendWidget (scope1/2/3 keys in sorted scope order)
+  const historicalChartData = years.map((year) => ({
+    year,
+    scope1: getValueForYear(by_scope, year, sortedScopes[0] ?? ""),
+    scope2: sortedScopes.length > 1 ? getValueForYear(by_scope, year, sortedScopes[1]) : 0,
+    scope3: sortedScopes.length > 2 ? getValueForYear(by_scope, year, sortedScopes[2]) : 0,
+    total: getValueForYear(by_scope, year, "total"),
+  }));
 
   // Shared year header cells (benchmark + last 4 + Change)
   function yearHeaders() {
@@ -341,32 +317,11 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
         </div>
 
         {/* Overview Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Total Emissions by Year</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="year" tick={{ fontSize: 12 }} />
-                <YAxis
-                  tick={{ fontSize: 12 }}
-                  tickFormatter={(v: number) =>
-                    v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)
-                  }
-                />
-                <Tooltip
-                  formatter={(value: string | number | undefined) => [
-                    `${formatNumber(Number(value ?? 0))} tCO₂e`,
-                  ]}
-                />
-                <Legend />
-                {chartBars}
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+        <HistoricalEmissionsTrendWidget
+          title="Total Emissions by Year"
+          data={historicalChartData}
+          showPng={false}
+        />
 
         {/* Detail Tabs */}
         <Tabs defaultValue="by-scope" className="w-full">

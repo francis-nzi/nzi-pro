@@ -25,10 +25,6 @@ const eslintConfig = defineConfig([
     files: ["src/**/*.{ts,tsx}"],
     ignores: [
       "src/components/report-widgets/**",
-      // Grandfathered legacy chart implementations (to be migrated):
-      "src/app/insights/InsightsPageClient.tsx",
-      "src/components/ClientReporting.tsx",
-      "src/components/JobInsights.tsx",
     ],
     rules: {
       "no-restricted-imports": [
