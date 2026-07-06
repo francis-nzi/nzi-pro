@@ -27,14 +27,8 @@ const eslintConfig = defineConfig([
       "src/components/report-widgets/**",
       // Grandfathered legacy chart implementations (to be migrated):
       "src/app/insights/InsightsPageClient.tsx",
-      "src/components/ClientDashboardCharts.tsx",
-      "src/components/ClientPathwayCharts.tsx",
       "src/components/ClientReporting.tsx",
-      "src/components/EmissionsByActivity.tsx",
-      "src/components/JobAdvancedReports.tsx",
       "src/components/JobInsights.tsx",
-      "src/components/JobLiveReport.tsx",
-      "src/components/MainDashboardCharts.tsx",
     ],
     rules: {
       "no-restricted-imports": [

@@ -21,7 +21,7 @@ import StatusBadge from "@/components/StatusBadge";
 import { MCKINSEY_DATA_COLORS } from "@/lib/chart-colors";
 import { formatCurrency, formatDate, formatHours, formatMonth, formatNumber, formatPercent } from "@/lib/format";
 import { milestoneDotClass } from "@/lib/status-utils";
-const MainDashboardCharts = dynamic(() => import("@/components/MainDashboardCharts"), {
+const MainDashboardCharts = dynamic(() => import("@/components/report-widgets/MainDashboardCharts"), {
   ssr: false,
   loading: () => <div className="py-16 text-center text-sm text-muted-foreground">Loading charts...</div>,
 });

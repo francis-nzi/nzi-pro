@@ -1,18 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmissionsReductionPathwayWidget } from "@/components/report-widgets/EmissionsReductionPathwayWidget";
+import { IntensityPathwayWidget, type IntensityPathwayPoint } from "@/components/report-widgets/IntensityPathwayWidget";
+import { MCKINSEY_ACTIVITY_COLORS } from "@/lib/chart-colors";
 import LoadingOrbit from "@/components/LoadingOrbit";
 import { getToken } from "@/lib/auth-client";
 
@@ -66,13 +57,6 @@ export type ClientPathwayChartsProps = {
   benchmarkMetrics: BenchmarkMetrics;
   currentMetrics: CurrentMetrics | null;
 };
-
-const SCOPE_COLORS = ["#0f766e", "#0891b2", "#38bdf8"];
-const ACTIVITY_COLORS = ["#0ea5e9", "#14b8a6", "#f97316", "#8b5cf6", "#22c55e", "#ef4444", "#64748b", "#eab308"];
-
-function fmt(v: number) {
-  return v.toLocaleString("en-GB", { maximumFractionDigits: 1 });
-}
 
 export default function ClientPathwayCharts({
   clientId,
@@ -135,7 +119,6 @@ export default function ClientPathwayCharts({
 
   const pathwayLabel = `Reporting years ${benchmarkYear ?? currentYear} to ${targetYear}`;
 
-  // ─── shared forecastScope helper ─────────────────────────────────────────
   function makeForecastScope(baselineYear: number, endYear: number) {
     const iYear = interimYear && interimYear > baselineYear && interimYear < endYear ? interimYear : null;
     const finalFactor = (100 - targetReductionPct) / 100;
@@ -156,7 +139,6 @@ export default function ClientPathwayCharts({
     };
   }
 
-  // ─── scopePathwayData ────────────────────────────────────────────────────
   const scopePathwayData = useMemo(() => {
     if (!scopeTotals) return [];
     const firstHist = normalEmissions.length > 0 ? normalEmissions[0].year : null;
@@ -191,14 +173,15 @@ export default function ClientPathwayCharts({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeTotals, benchmarkYear, currentYear, targetYear, normalEmissions, targetReductionPct, interimYear, interimTargets.scope_1, interimTargets.scope_2, interimTargets.scope_3]);
 
-  // ─── intensityPathwayData ────────────────────────────────────────────────
-  const intensityPathwayData = useMemo(() => {
-    if (!scopeTotals || Object.keys(intensityRecord).length === 0) return [];
-    const metricEntries = Object.entries(intensityRecord)
+  const intensityEntries = useMemo(
+    () => Object.entries(intensityRecord)
       .map(([key, m]) => ({ key, label: m.label, value: Number(m.value ?? 0), divider: Number(m.divider ?? 1) || 1 }))
-      .filter(e => e.value > 0).slice(0, 4);
-    if (metricEntries.length === 0) return [];
+      .filter(e => e.value > 0).slice(0, 4),
+    [intensityRecord],
+  );
 
+  const intensityPathwayData = useMemo(() => {
+    if (!scopeTotals || intensityEntries.length === 0) return [];
     const firstHist = normalEmissions.length > 0 ? normalEmissions[0].year : null;
     const baselineYear = benchmarkYear ?? firstHist ?? currentYear;
     const endYear = targetYear > baselineYear ? targetYear : Math.max(baselineYear + 1, 2050);
@@ -218,17 +201,16 @@ export default function ClientPathwayCharts({
     return Array.from(yearSet).sort((a, b) => a - b).map(year => {
       const actual = normalEmissions.find(r => r.year === year);
       const forecast = forecastTotal(year);
-      const row: Record<string, number | string | null> = { year };
-      metricEntries.forEach(e => {
-        row[`${e.label}_actual`] = actual ? Number(((actual.total * e.divider) / e.value).toFixed(3)) : null;
-        row[`${e.label}_target`] = Number(((forecast * e.divider) / e.value).toFixed(3));
+      const row: IntensityPathwayPoint = { year };
+      intensityEntries.forEach(e => {
+        row[`${e.label}_actual`] = actual ? Math.round((actual.total * e.divider) / e.value * 1000) / 1000 : null;
+        row[`${e.label}_target`] = Math.round((forecast * e.divider) / e.value * 1000) / 1000;
       });
       return row;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeTotals, benchmarkYear, currentYear, targetYear, normalEmissions, targetReductionPct, interimYear, interimTargets.scope_1, interimTargets.scope_2, interimTargets.scope_3, intensityRecord]);
+  }, [scopeTotals, benchmarkYear, currentYear, targetYear, normalEmissions, targetReductionPct, interimYear, interimTargets.scope_1, interimTargets.scope_2, interimTargets.scope_3, intensityEntries]);
 
-  // ─── targetPath (for intensityTrend) ────────────────────────────────────
   const targetPath = useMemo(() => {
     if (!scopeTotals) return [];
     const startYear = benchmarkYear ?? currentYear;
@@ -259,43 +241,47 @@ export default function ClientPathwayCharts({
       .map(year => ({ year, forecast: valueForYear(year) }));
   }, [benchmarkYear, currentYear, targetYear, scopeTotals, interimYear, interimTargets.scope_1, interimTargets.scope_2, interimTargets.scope_3]);
 
-  // ─── intensityTrend ──────────────────────────────────────────────────────
-  const intensityTrend = useMemo(() => {
-    if (!scopeTotals || Object.keys(intensityRecord).length === 0) return [];
-    const metricEntries = Object.entries(intensityRecord)
-      .map(([key, m]) => ({
-        key,
-        label: m.label,
-        baseIntensity: Number(m.value ?? 0) > 0 ? (scopeTotals.total / Number(m.value)) * Number(m.divider ?? 1) : 0,
-      }))
-      .filter(e => e.baseIntensity > 0).slice(0, 4);
-    if (metricEntries.length === 0) return [];
-
+  const intensityTrendData = useMemo(() => {
+    if (!scopeTotals || intensityEntries.length === 0) return [];
     const endYear = targetYear >= currentYear ? targetYear : Math.max(currentYear + 1, 2050);
     const currentTotal = scopeTotals.total;
+
+    const baseIntensities = intensityEntries.map(e => ({
+      key: e.key,
+      label: e.label,
+      baseIntensity: Number(e.value ?? 0) > 0 ? (currentTotal / Number(e.value)) * Number(e.divider ?? 1) : 0,
+    })).filter(e => e.baseIntensity > 0);
+
+    if (baseIntensities.length === 0) return [];
 
     return Array.from({ length: Math.max(1, endYear - currentYear + 1) }, (_, i) => currentYear + i)
       .map(year => {
         const emissionRatio = currentTotal > 0
           ? (targetPath.find(p => p.year === year)?.forecast ?? currentTotal) / currentTotal
           : 0;
-        const row: Record<string, number | string> = { year };
-        metricEntries.forEach(e => { row[e.label] = Number((e.baseIntensity * emissionRatio).toFixed(2)); });
+        const row: IntensityPathwayPoint = { year };
+        baseIntensities.forEach(e => { row[`${e.label}_actual`] = Math.round(e.baseIntensity * emissionRatio * 100) / 100; });
         return row;
       });
-  }, [currentYear, intensityRecord, scopeTotals, targetPath, targetYear]);
+  }, [currentYear, intensityEntries, scopeTotals, targetPath, targetYear]);
+
+  const intensitySeries = useMemo(
+    () => intensityEntries.map((e, idx) => ({
+      key: e.key,
+      label: e.label,
+      color: MCKINSEY_ACTIVITY_COLORS[idx % MCKINSEY_ACTIVITY_COLORS.length],
+    })),
+    [intensityEntries],
+  );
 
   if (loading) {
     return <LoadingOrbit className="py-12" label="Loading pathway data..." />;
   }
 
   const hasScope2 = (scopeTotals?.scope_2 ?? 0) > 0;
-  const intensityEntries = Object.entries(intensityRecord)
-    .map(([key, m]) => ({ key, label: m.label, value: Number(m.value ?? 0) }))
-    .filter(e => e.value > 0).slice(0, 4);
   const iYear = interimYear && interimYear > (benchmarkYear ?? currentYear) ? interimYear : null;
 
-  const isEmpty = scopePathwayData.length === 0 && intensityPathwayData.length === 0 && intensityTrend.length === 0;
+  const isEmpty = scopePathwayData.length === 0 && intensityPathwayData.length === 0 && intensityTrendData.length === 0;
 
   if (isEmpty) {
     return (
@@ -308,88 +294,38 @@ export default function ClientPathwayCharts({
   return (
     <div className="space-y-6">
       {scopePathwayData.length > 0 && (
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle>Emissions Reduction Pathway to {targetYear}</CardTitle>
-            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{pathwayLabel}</div>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[360px]">
-              <ResponsiveContainer width="100%" height={360}>
-                <LineChart data={scopePathwayData} margin={{ top: 5, right: 24, left: 6, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toLocaleString("en-GB", { maximumFractionDigits: 0 })} />
-                  <Tooltip formatter={(v: unknown) => [`${fmt(Number(v || 0))} tCO₂e`, ""]} labelFormatter={v => `Year: ${v}`} />
-                  <Legend iconType="circle" />
-                  {iYear && <ReferenceLine x={iYear} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: "Interim", position: "top", fill: "#f59e0b", fontSize: 10 }} />}
-                  <ReferenceLine x={targetYear} stroke="#16a34a" strokeDasharray="3 3" label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 10 }} />
-                  <Line type="monotone" dataKey="actual_total" name="Total (actual)" stroke="#0f766e" strokeWidth={3} dot={{ r: 5 }} connectNulls={false} />
-                  <Line type="monotone" dataKey="actual_s1" name="Scope 1 (actual)" stroke={SCOPE_COLORS[0]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
-                  {hasScope2 && <Line type="monotone" dataKey="actual_s2" name="Scope 2 (actual)" stroke={SCOPE_COLORS[1]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />}
-                  <Line type="monotone" dataKey="actual_s3" name="Scope 3 (actual)" stroke={SCOPE_COLORS[2]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
-                  <Line type="monotone" dataKey="target_total" name="Total (target)" stroke="#0f766e" strokeWidth={2} strokeDasharray="5 4" dot={false} />
-                  <Line type="monotone" dataKey="target_s1" name="Scope 1 (target)" stroke={SCOPE_COLORS[0]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
-                  {hasScope2 && <Line type="monotone" dataKey="target_s2" name="Scope 2 (target)" stroke={SCOPE_COLORS[1]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />}
-                  <Line type="monotone" dataKey="target_s3" name="Scope 3 (target)" stroke={SCOPE_COLORS[2]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+        <EmissionsReductionPathwayWidget
+          title={`Emissions Reduction Pathway to ${targetYear}`}
+          subtitle={pathwayLabel}
+          data={scopePathwayData}
+          benchmarkYear={benchmarkYear}
+          targetYear={targetYear}
+          interimYear={iYear}
+          showScope2={hasScope2}
+        />
       )}
 
-      {intensityPathwayData.length > 0 && (
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle>Emissions Reduction Pathway to {targetYear} for Intensity Metrics</CardTitle>
-            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{pathwayLabel}</div>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[360px]">
-              <ResponsiveContainer width="100%" height={360}>
-                <LineChart data={intensityPathwayData} margin={{ top: 5, right: 24, left: 6, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toFixed(2)} />
-                  <Tooltip formatter={(v: unknown) => [`${Number(v || 0).toFixed(3)}`, ""]} labelFormatter={v => `Year: ${v}`} />
-                  <Legend iconType="circle" />
-                  {iYear && <ReferenceLine x={iYear} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: "Interim", position: "top", fill: "#f59e0b", fontSize: 10 }} />}
-                  <ReferenceLine x={targetYear} stroke="#16a34a" strokeDasharray="3 3" label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 10 }} />
-                  {intensityEntries.flatMap((e, idx) => [
-                    <Line key={`${e.key}_actual`} type="monotone" dataKey={`${e.label}_actual`} name={`${e.label} (actual)`} stroke={ACTIVITY_COLORS[idx % ACTIVITY_COLORS.length]} strokeWidth={2.5} dot={{ r: 4 }} connectNulls={false} />,
-                    <Line key={`${e.key}_target`} type="monotone" dataKey={`${e.label}_target`} name={`${e.label} (target)`} stroke={ACTIVITY_COLORS[idx % ACTIVITY_COLORS.length]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />,
-                  ])}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+      {intensityPathwayData.length > 0 && intensitySeries.length > 0 && (
+        <IntensityPathwayWidget
+          title={`Emissions Reduction Pathway to ${targetYear} for Intensity Metrics`}
+          subtitle={pathwayLabel}
+          data={intensityPathwayData}
+          series={intensitySeries}
+          benchmarkYear={benchmarkYear}
+          targetYear={targetYear}
+          interimYear={iYear}
+        />
       )}
 
-      {intensityTrend.length > 0 && (
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle>Intensity Actuals vs Forecast</CardTitle>
-            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">Reporting year {currentYear}</div>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={intensityTrend} margin={{ top: 5, right: 20, left: 6, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="year" />
-                  <YAxis />
-                  <Tooltip formatter={(v: unknown) => [`${Number(v || 0).toFixed(2)}`, ""]} />
-                  <Legend />
-                  {intensityEntries.map((e, idx) => (
-                    <Line key={e.key} type="monotone" dataKey={e.label} stroke={ACTIVITY_COLORS[idx % ACTIVITY_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} name={e.label} />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+      {intensityTrendData.length > 0 && intensitySeries.length > 0 && (
+        <IntensityPathwayWidget
+          title="Intensity Actuals vs Forecast"
+          subtitle={`Reporting year ${currentYear}`}
+          data={intensityTrendData}
+          series={intensitySeries}
+          targetYear={targetYear}
+          interimYear={iYear}
+        />
       )}
     </div>
   );
