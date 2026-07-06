@@ -9,6 +9,7 @@ import { AuthBootstrap } from "@/components/AuthBootstrap";
 import { SiteFooter } from "@/components/SiteFooter";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ConfirmDialogProvider } from "@/components/ConfirmDialogProvider";
+import { QueryProvider } from "@/components/QueryProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,6 +35,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <AuthProvider>
+          <QueryProvider>
           <ThemeProvider>
             <ConfirmDialogProvider>
               <Toaster position="top-right" richColors closeButton />
@@ -51,6 +53,7 @@ export default function RootLayout({
               </div>
             </ConfirmDialogProvider>
           </ThemeProvider>
+          </QueryProvider>
         </AuthProvider>
       </body>
     </html>

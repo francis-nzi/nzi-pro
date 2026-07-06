@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
@@ -56,79 +57,69 @@ export default function JobsPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
 
   const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
   const [crmFilter, setCrmFilter] = useState("");
   const [familyFilter, setFamilyFilter] = useState("");
-  const [items, setItems] = useState<JobListItem[]>([]);
   const [limit, setLimit] = useState(50);
   const [offset, setOffset] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [crmList, setCrmList] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<SortBy>("risk");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
-    async function loadTeamMembers() {
-      try {
-        const res = await fetch(`${baseUrl}/admin/users`, {
-          credentials: "include",
-        });
-        if (res.ok) {
-          const json = await res.json();
-          const activeUsers = ((json.items ?? []) as TeamUser[])
-            .filter((user) => user.status === "Active")
-            .map((user) => user.full_name)
-            .sort();
-          setCrmList(activeUsers);
-        }
-      } catch {
-        setCrmList([]);
-      }
-    }
-    loadTeamMembers();
-  }, [baseUrl]);
+    const t = setTimeout(() => setDebouncedQ(q), 300);
+    return () => clearTimeout(t);
+  }, [q]);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      setError("");
-      try {
-        const params = new URLSearchParams();
-        if (q.trim()) params.set("q", q.trim());
-        if (crmFilter.trim()) params.set("crm", crmFilter.trim());
-        if (familyFilter.trim()) params.set("job_family", familyFilter.trim());
-        params.set("limit", String(limit));
-        params.set("offset", String(offset));
+  const { data: teamData } = useQuery({
+    queryKey: ["team-users", baseUrl],
+    queryFn: async () => {
+      const res = await fetch(`${baseUrl}/admin/users`, { credentials: "include" });
+      if (!res.ok) return { items: [] };
+      return res.json() as Promise<{ items: TeamUser[] }>;
+    },
+    staleTime: 5 * 60_000,
+  });
 
-        const res = await fetch(`${baseUrl}/jobs?${params.toString()}`, {
-          credentials: "include",
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => null);
-          const detail = body?.detail ?? res.statusText;
-          throw new Error(`${res.status}: ${detail}`);
-        }
-        const json = await res.json();
-        if (cancelled) return;
-        setItems(json.items ?? []);
-        setTotal(Number(json.total ?? 0));
-      } catch (e) {
-        if (cancelled) return;
-        setItems([]);
-        setTotal(0);
-        setError((e as Error).message);
-      } finally {
-        if (!cancelled) setLoading(false);
+  const crmList = useMemo(
+    () =>
+      ((teamData?.items ?? []) as TeamUser[])
+        .filter((u) => u.status === "Active")
+        .map((u) => u.full_name)
+        .sort(),
+    [teamData]
+  );
+
+  const jobsParams = useMemo(() => {
+    const p = new URLSearchParams();
+    if (debouncedQ.trim()) p.set("q", debouncedQ.trim());
+    if (crmFilter.trim()) p.set("crm", crmFilter.trim());
+    if (familyFilter.trim()) p.set("job_family", familyFilter.trim());
+    p.set("limit", String(limit));
+    p.set("offset", String(offset));
+    return p.toString();
+  }, [debouncedQ, crmFilter, familyFilter, limit, offset]);
+
+  const {
+    data: jobsData,
+    isLoading: loading,
+    error: jobsError,
+  } = useQuery({
+    queryKey: ["jobs", jobsParams],
+    queryFn: async () => {
+      const res = await fetch(`${baseUrl}/jobs?${jobsParams}`, { credentials: "include" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        const detail = (body as { detail?: string } | null)?.detail ?? res.statusText;
+        throw new Error(`${res.status}: ${detail}`);
       }
-    }
-    const t = setTimeout(load, 300);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [baseUrl, q, crmFilter, familyFilter, limit, offset]);
+      return res.json() as Promise<{ items: JobListItem[]; total: number }>;
+    },
+    placeholderData: (prev) => prev,
+  });
+
+  const items = jobsData?.items ?? [];
+  const total = Number(jobsData?.total ?? 0);
+  const error = jobsError ? (jobsError as Error).message : "";
 
   const page = Math.floor(offset / limit) + 1;
   const totalPages = Math.max(1, Math.ceil(total / limit));

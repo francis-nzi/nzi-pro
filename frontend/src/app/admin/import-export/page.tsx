@@ -986,6 +986,8 @@ export default function AdminImportExportPage() {
   }
 
   async function doLegacyClear() {
+    const targetRef = legacyPreview?.job_number || legacyJobId.trim();
+    const targetJobId = legacyPreview?.job_number || legacyJobId.trim();
     setPendingLegacyClear(null);
     setBusy(true);
     setError("");

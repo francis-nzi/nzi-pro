@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-import { primeJobShellData } from "@/lib/job-shell-data";
+import { primeJobShellData, getCachedJobShellData } from "@/lib/job-shell-data";
 import { type EnergyEmissionFactorDetails } from "@/lib/report-metadata";
 import { withAuditHeaders } from "@/lib/auth-client";
 import {
@@ -231,7 +231,23 @@ export default function useJobWorkspaceData({
         return;
       }
 
-      setters.setLoading(true);
+      // Seed from module-level cache so navigating back shows data immediately
+      const cached = getCachedJobShellData(baseUrl, jobId);
+      if (cached) {
+        setters.setJob(cached.job as WorkspaceJob);
+        setters.setJobTitle(cached.job.title || "");
+        setters.setJobStatus(cached.job.status || "Draft");
+        setters.setJobType((cached.job as WorkspaceJob).job_type || "");
+        setters.setOriginalPortfolio((cached.job as WorkspaceJob).original_portfolio || "NZI");
+        setters.setCrmName(cached.job.crm_name || "");
+        setters.setJobStartDate((cached.job as WorkspaceJob).start_date || "");
+        setters.setJobEndDate((cached.job as WorkspaceJob).due_date || "");
+        setters.setClientOwnerLabel(cached.clientOwnerLabel);
+        setters.setClientBenchmarkPeriodLabel(cached.clientBenchmarkPeriodLabel);
+        // Skip loading spinner — fresh data arrives shortly
+      } else {
+        setters.setLoading(true);
+      }
       setters.setError("");
 
       try {
