@@ -172,16 +172,15 @@ export default function JobInsights({
       setError("");
 
       try {
-        const scopeTotalsRes = await fetch(`${baseUrl}/jobs/${jobId}/scope-totals`, { credentials: "include" });
-        const scopeDataRes = await fetch(`${baseUrl}/jobs/${jobId}/scope-data?include_disabled=true`, {
-          credentials: "include",
-        });
-        const intensityRes = await fetch(`${baseUrl}/jobs/${jobId}/intensity-metrics`, { credentials: "include" });
-        const yearlyEmissionsRes = await fetch(`${baseUrl}/jobs/${jobId}/yearly-emissions`, { credentials: "include" });
-        const clientRes =
+        const [scopeTotalsRes, scopeDataRes, intensityRes, yearlyEmissionsRes, clientRes] = await Promise.all([
+          fetch(`${baseUrl}/jobs/${jobId}/scope-totals`, { credentials: "include" }),
+          fetch(`${baseUrl}/jobs/${jobId}/scope-data?include_disabled=true`, { credentials: "include" }),
+          fetch(`${baseUrl}/jobs/${jobId}/intensity-metrics`, { credentials: "include" }),
+          fetch(`${baseUrl}/jobs/${jobId}/yearly-emissions`, { credentials: "include" }),
           clientId != null && Number.isFinite(Number(clientId)) && Number(clientId) > 0
-            ? await fetch(`${baseUrl}/clients/${clientId}`, { credentials: "include" })
-            : null;
+            ? fetch(`${baseUrl}/clients/${clientId}`, { credentials: "include" })
+            : Promise.resolve(null),
+        ]);
 
         if (!scopeTotalsRes.ok) {
           throw new Error(`Scope totals failed (${scopeTotalsRes.status})`);
