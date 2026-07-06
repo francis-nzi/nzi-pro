@@ -623,10 +623,20 @@ def _attendance_payload(row) -> dict[str, Any]:
         "participant_type": row[11],
         "booking_attendance_status": row[12],
         "entitlement_id": int(row[13]) if row[13] is not None else None,
-        "created_at": str(row[14]) if row[14] else None,
-        "created_by": row[15],
-        "updated_at": str(row[16]) if row[16] else None,
-        "updated_by": row[17],
+        "client_db_id": int(row[14]) if row[14] is not None else None,
+        "contact_id": int(row[15]) if row[15] is not None else None,
+        "person_phone": row[16],
+        "billing_status": row[17],
+        "special_requirements": row[18],
+        "consent_status": row[19],
+        "booking_notes": row[20],
+        "client_addr_city": row[21],
+        "client_addr_country": row[22],
+        "source_job_number": row[23],
+        "created_at": str(row[24]) if row[24] else None,
+        "created_by": row[25],
+        "updated_at": str(row[26]) if row[26] else None,
+        "updated_by": row[27],
     }
 
 
@@ -821,10 +831,13 @@ def _get_training_session_attendance(con, org_id: str, session_id: int) -> list[
         SELECT a.training_session_attendance_id, a.org_id, a.training_course_session_id, a.training_booking_id,
                a.attendance_status, a.attendance_minutes, a.notes, b.person_name, b.person_email,
                c.client_name, b.booking_source, b.participant_type, b.attendance_status,
-               b.entitlement_id, a.created_at, a.created_by, a.updated_at, a.updated_by
+               b.entitlement_id, b.client_db_id, b.contact_id, b.person_phone, b.billing_status,
+               b.special_requirements, b.consent_status, b.notes, c.addr_city, c.addr_country,
+               e.source_job_number, a.created_at, a.created_by, a.updated_at, a.updated_by
         FROM training_session_attendance a
         JOIN training_bookings b ON b.training_booking_id = a.training_booking_id
         LEFT JOIN clients c ON c.db_id = b.client_db_id
+        LEFT JOIN training_entitlements e ON e.training_entitlement_id = b.entitlement_id
         WHERE a.org_id = ?::text AND a.training_course_session_id = ?
         ORDER BY b.person_name, a.training_session_attendance_id
         """,
@@ -1934,11 +1947,14 @@ def _get_sessions_for_run(con, org_id: str, training_course_run_id: int) -> list
             """
             SELECT a.training_session_attendance_id, a.org_id, a.training_course_session_id, a.training_booking_id,
                    a.attendance_status, a.attendance_minutes, a.notes, b.person_name, b.person_email, c.client_name,
-                   b.booking_source, b.participant_type, b.attendance_status, b.entitlement_id,
+                   b.booking_source, b.participant_type, b.attendance_status, b.entitlement_id, b.client_db_id,
+                   b.contact_id, b.person_phone, b.billing_status, b.special_requirements, b.consent_status,
+                   b.notes, c.addr_city, c.addr_country, e.source_job_number,
                    a.created_at, a.created_by, a.updated_at, a.updated_by
             FROM training_session_attendance a
             JOIN training_bookings b ON b.training_booking_id = a.training_booking_id
             LEFT JOIN clients c ON c.db_id = b.client_db_id
+            LEFT JOIN training_entitlements e ON e.training_entitlement_id = b.entitlement_id
             WHERE a.org_id = ?::text AND a.training_course_session_id = ?
             ORDER BY b.person_name, a.training_session_attendance_id
             """,

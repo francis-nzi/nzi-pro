@@ -67,6 +67,16 @@ export type TrainingAttendance = {
   participant_type: string;
   booking_attendance_status: string;
   entitlement_id: number | null;
+  client_db_id: number | null;
+  contact_id: number | null;
+  person_phone: string | null;
+  billing_status: string;
+  special_requirements: string | null;
+  consent_status: string;
+  booking_notes: string | null;
+  client_addr_city: string | null;
+  client_addr_country: string | null;
+  source_job_number: string | null;
   created_at: string | null;
   created_by: string | null;
   updated_at: string | null;

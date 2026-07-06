@@ -485,20 +485,6 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
     }
   }
 
-  async function quickUpdateStatus(b: BookingWithRun, field: "attendance_status" | "billing_status", value: string) {
-    try {
-      const res = await fetch(`${baseUrl}/training-bookings/${b.training_booking_id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...b, [field]: value }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      onRefresh();
-    } catch (e: unknown) {
-      toast.error(String(e));
-    }
-  }
-
   return (
     <div className="space-y-4">
       {/* Controls */}
@@ -545,6 +531,9 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
       {/* Table */}
       <Card>
         <CardContent className="p-0">
+          <div className="border-b px-4 py-3 text-xs text-slate-500">
+            Cohort booking statuses are now managed from the Schedule tab. This view is for browsing participant bookings and learning history.
+          </div>
           {filtered.length === 0 ? (
             <p className="py-10 text-center text-sm text-slate-400">
               {allBookings.length === 0 ? "No attendees booked yet." : "No attendees match your filters."}
@@ -573,38 +562,14 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
                       <TableCell className="text-xs text-slate-600">{b.person_email ?? "—"}</TableCell>
                       <TableCell className="text-xs text-slate-600 max-w-[130px] truncate">{b.run_name}</TableCell>
                       <TableCell>
-                        <Select
-                          value={b.attendance_status}
-                          onValueChange={(v) => quickUpdateStatus(b, "attendance_status", v)}
-                        >
-                          <SelectTrigger className="h-6 w-[110px] border-0 p-0 text-xs focus:ring-0">
-                            <Badge className={`text-xs ${attendanceColor(b.attendance_status)}`} variant="outline">
-                              {formatTrainingBookingStatus(b.attendance_status)}
-                            </Badge>
-                          </SelectTrigger>
-                          <SelectContent>
-                            {TRAINING_BOOKING_STATUS_OPTIONS.map((o) => (
-                              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <Badge className={`text-xs ${attendanceColor(b.attendance_status)}`} variant="outline">
+                          {formatTrainingBookingStatus(b.attendance_status)}
+                        </Badge>
                       </TableCell>
                       <TableCell>
-                        <Select
-                          value={b.billing_status}
-                          onValueChange={(v) => quickUpdateStatus(b, "billing_status", v)}
-                        >
-                          <SelectTrigger className="h-6 w-[90px] border-0 p-0 text-xs focus:ring-0">
-                            <Badge className={`text-xs ${billingColor(b.billing_status)}`} variant="outline">
-                              {formatTrainingBillingStatus(b.billing_status)}
-                            </Badge>
-                          </SelectTrigger>
-                          <SelectContent>
-                            {TRAINING_BILLING_STATUS_OPTIONS.map((o) => (
-                              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <Badge className={`text-xs ${billingColor(b.billing_status)}`} variant="outline">
+                          {formatTrainingBillingStatus(b.billing_status)}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-xs text-slate-500">
                         {formatTrainingParticipantType(b.participant_type)}

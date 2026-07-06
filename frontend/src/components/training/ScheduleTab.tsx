@@ -20,6 +20,7 @@ import {
   TRAINING_DELIVERY_MODE_OPTIONS,
   TRAINING_SESSION_STATUS_OPTIONS,
   TRAINING_BOOKING_STATUS_OPTIONS,
+  TRAINING_BILLING_STATUS_OPTIONS,
   formatTrainingCourseRunStatus,
   formatTrainingDeliveryMode,
   formatTrainingBillingStatus,
@@ -98,6 +99,8 @@ type AssignTarget = {
   session: TrainingSession;
 };
 
+type SessionAttendanceRow = NonNullable<TrainingSession["attendance"]>[number];
+
 function runStatusColor(s: string) {
   switch (s) {
     case "open": return "bg-green-100 text-green-800";
@@ -118,6 +121,16 @@ function attendanceColor(status: string) {
     case "no_show": return "bg-orange-100 text-orange-700";
     case "waitlist": return "bg-purple-100 text-purple-700";
     default: return "bg-slate-100 text-slate-600";
+  }
+}
+
+function billingColor(status: string) {
+  switch (status) {
+    case "paid": return "bg-green-100 text-green-800";
+    case "invoiced": return "bg-blue-100 text-blue-800";
+    case "included": return "bg-teal-100 text-teal-800";
+    case "waived": return "bg-slate-100 text-slate-500";
+    default: return "bg-amber-100 text-amber-700";
   }
 }
 
@@ -312,6 +325,37 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
         return aDate.localeCompare(bDate) || (a.start_time ?? "").localeCompare(b.start_time ?? "") || a.training_course_session_id - b.training_course_session_id;
       });
   }, [assignSelectedBooking, assignSession, sessions]);
+
+  async function quickUpdateBookingStatus(attendance: SessionAttendanceRow, field: "attendance_status" | "billing_status", value: string) {
+    try {
+      const res = await fetch(`${baseUrl}/training-bookings/${attendance.training_booking_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          training_booking_id: attendance.training_booking_id,
+          org_id: attendance.org_id,
+          training_course_run_id: assignSession?.training_course_run_id ?? attendance.training_course_session_id,
+          client_db_id: attendance.client_db_id,
+          contact_id: attendance.contact_id,
+          participant_type: attendance.participant_type,
+          booking_source: attendance.booking_source,
+          person_name: attendance.person_name,
+          person_email: attendance.person_email,
+          person_phone: attendance.person_phone,
+          billing_status: field === "billing_status" ? value : attendance.billing_status,
+          attendance_status: field === "attendance_status" ? value : attendance.booking_attendance_status,
+          special_requirements: attendance.special_requirements,
+          consent_status: attendance.consent_status,
+          notes: attendance.booking_notes,
+          entitlement_id: attendance.entitlement_id,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      onRefresh();
+    } catch (e: unknown) {
+      toast.error(String(e));
+    }
+  }
 
   async function loadStaff(sessionId: number) {
     try {
@@ -754,26 +798,70 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                                   {participants.map((p) => (
                                     <div
                                       key={p.training_session_attendance_id}
-                                      className="flex flex-wrap items-center gap-2 rounded bg-white px-2 py-1 text-xs shadow-sm ring-1 ring-slate-100"
+                                      className="grid gap-2 rounded bg-white px-2 py-1 text-xs shadow-sm ring-1 ring-slate-100 md:grid-cols-[1.4fr_1fr_1fr_1fr_auto]"
                                     >
-                                      <span className="font-medium text-slate-800">{p.person_name}</span>
-                                      {p.client_name && <span className="text-slate-400">({p.client_name})</span>}
-                                      <Badge className={`text-[10px] ${attendanceColor(p.attendance_status)}`} variant="outline">
-                                        {p.attendance_status.replace(/_/g, " ")}
-                                      </Badge>
-                                      {p.participant_type && (
-                                        <span className="text-slate-400">{p.participant_type.replace(/_/g, " ")}</span>
-                                      )}
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="ghost"
-                                        className="ml-auto h-6 px-2 text-blue-600 hover:text-blue-700"
-                                        onClick={() => openReassignParticipant(s, p)}
-                                      >
-                                        <ArrowLeftRight className="mr-1 h-3 w-3" />
-                                        Move
-                                      </Button>
+                                      <div className="min-w-0">
+                                        <div className="font-medium text-slate-800">{p.person_name}</div>
+                                        <div className="text-[11px] text-slate-400">
+                                          {p.client_name || "No company"}
+                                          {p.client_addr_city ? ` · ${p.client_addr_city}` : ""}
+                                          {p.client_addr_country ? ` · ${p.client_addr_country}` : ""}
+                                        </div>
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className="text-[10px] uppercase tracking-wide text-slate-400">Session</span>
+                                        <Badge className={`text-[10px] ${attendanceColor(p.attendance_status)}`} variant="outline">
+                                          {p.attendance_status.replace(/_/g, " ")}
+                                        </Badge>
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className="text-[10px] uppercase tracking-wide text-slate-400">Booking</span>
+                                        <Select
+                                          value={p.booking_attendance_status}
+                                          onValueChange={(v) => void quickUpdateBookingStatus(p, "attendance_status", v)}
+                                        >
+                                          <SelectTrigger className="h-6 w-[110px] border-0 p-0 text-[10px] focus:ring-0">
+                                            <Badge className={`text-[10px] ${attendanceColor(p.booking_attendance_status)}`} variant="outline">
+                                              {p.booking_attendance_status.replace(/_/g, " ")}
+                                            </Badge>
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {TRAINING_BOOKING_STATUS_OPTIONS.map((o) => (
+                                              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className="text-[10px] uppercase tracking-wide text-slate-400">Billing</span>
+                                        <Select
+                                          value={p.billing_status}
+                                          onValueChange={(v) => void quickUpdateBookingStatus(p, "billing_status", v)}
+                                        >
+                                          <SelectTrigger className="h-6 w-[110px] border-0 p-0 text-[10px] focus:ring-0">
+                                            <Badge className={`text-[10px] ${billingColor(p.billing_status)}`} variant="outline">
+                                              {formatTrainingBillingStatus(p.billing_status)}
+                                            </Badge>
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {TRAINING_BILLING_STATUS_OPTIONS.map((o) => (
+                                              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                      <div className="flex items-center gap-2 justify-self-end">
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-6 px-2 text-blue-600 hover:text-blue-700"
+                                          onClick={() => openReassignParticipant(s, p)}
+                                        >
+                                          <ArrowLeftRight className="mr-1 h-3 w-3" />
+                                          Move
+                                        </Button>
+                                      </div>
                                     </div>
                                   ))}
                                 </div>
