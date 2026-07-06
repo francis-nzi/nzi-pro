@@ -9,11 +9,6 @@ import { apiFetch } from "@/lib/auth";
 import { formatEmissions } from "@/lib/format";
 import PortalShell from "@/components/PortalShell";
 
-const PortalDashboardCharts = dynamic(() => import("@/components/PortalDashboardCharts"), {
-  ssr: false,
-  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading charts…</div>,
-});
-
 const PortalReporting = dynamic(() => import("@/components/PortalReporting"), {
   ssr: false,
   loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading reporting data…</div>,
@@ -38,6 +33,15 @@ const PortalGovernance = dynamic(() => import("@/components/PortalGovernance"), 
   ssr: false,
   loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading governance…</div>,
 });
+
+// ── Dashboard chart widgets (served as stored PNGs) ─────────────────────────
+
+const DASHBOARD_WIDGETS: { id: string; title: string }[] = [
+  { id: "emissions_scope_donut",       title: "Emissions Summary by Scope" },
+  { id: "scope_year_on_year_bar",      title: "Year-on-Year Comparison by Scope" },
+  { id: "emissions_by_activity",       title: "Emissions by Activity" },
+  { id: "historical_emissions_trend",  title: "Historical Emissions Trend" },
+];
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -109,47 +113,6 @@ function formatTimestamp(raw: string | null | undefined): string {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-// ── Chart sub-tabs (Overview / Trends) ──────────────────────────────────────
-
-type ScopeDatum = { name: string; value: number };
-type TrendDatum = { year: string; total: number; scope1: number; scope2: number; scope3: number };
-type TopCatDatum = { category: string; emissions: number; percentage: number };
-
-function ChartSection({ scopeData, total, trendData, topCategoryData, year }: {
-  scopeData: ScopeDatum[];
-  total: number;
-  trendData: TrendDatum[];
-  topCategoryData: TopCatDatum[];
-  year: number | string | null;
-}) {
-  const [view, setView] = useState<"overview" | "trends">("overview");
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-      <div className="flex border-b border-gray-200">
-        {(["overview", "trends"] as const).map(v => (
-          <button
-            key={v}
-            onClick={() => setView(v)}
-            className={`px-5 py-2.5 text-sm font-medium transition-colors ${view === v ? "border-b-2 border-orange-500 text-orange-600" : "text-gray-500 hover:text-gray-700"}`}
-          >
-            {v === "overview" ? "Overview" : "Trends"}
-          </button>
-        ))}
-      </div>
-      <div className="p-5">
-        <PortalDashboardCharts
-          scopeData={scopeData}
-          total={total}
-          trendData={trendData}
-          topCategoryData={topCategoryData}
-          view={view}
-          year={year}
-        />
-      </div>
-    </div>
-  );
 }
 
 // ── Year-based report cards ───────────────────────────────────────────────────
@@ -253,6 +216,26 @@ function DashboardPageInner() {
   const [metricsError, setMetricsError] = useState("");
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
 
+  // Widget PNGs (replaces live Recharts on dashboard)
+  const [widgetPngs, setWidgetPngs] = useState<Record<string, string>>({});
+  const [pngsLoading, setPngsLoading] = useState(true);
+
+  const fetchWidgetPngs = useCallback(async (year?: number) => {
+    setPngsLoading(true);
+    try {
+      const url = year ? `/portal/insights/widget-pngs?year=${year}` : "/portal/insights/widget-pngs";
+      const r = await apiFetch(url);
+      if (r.ok) {
+        const d = await r.json() as { pngs?: Record<string, string> };
+        setWidgetPngs(d.pngs ?? {});
+      }
+    } catch {
+      // leave pngs empty — zero-data state handles it
+    } finally {
+      setPngsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     // Load jobs (for Reports tab + client name)
     apiFetch("/portal/dashboard")
@@ -261,7 +244,7 @@ function DashboardPageInner() {
       .catch(() => {})
       .finally(() => setJobsLoading(false));
 
-    // Load metrics (for Dashboard tab)
+    // Load metrics (for Dashboard KPI cards)
     apiFetch("/portal/metrics")
       .then(r => {
         if (!r.ok) return r.text().then(t => Promise.reject(new Error(`${r.status}: ${t}`)));
@@ -274,6 +257,9 @@ function DashboardPageInner() {
       })
       .catch(e => setMetricsError((e as Error).message))
       .finally(() => setMetricsLoading(false));
+
+    // Load widget PNGs for charts
+    void fetchWidgetPngs();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -281,13 +267,16 @@ function DashboardPageInner() {
     setMetricsLoading(true);
     setMetricsError("");
     try {
-      const res = await apiFetch(`/portal/metrics?year=${year}`);
-      if (!res.ok) {
-        const t = await res.text();
-        setMetricsError(`${res.status}: ${t}`);
+      const [metricsRes] = await Promise.all([
+        apiFetch(`/portal/metrics?year=${year}`),
+        fetchWidgetPngs(year),
+      ]);
+      if (!metricsRes.ok) {
+        const t = await metricsRes.text();
+        setMetricsError(`${metricsRes.status}: ${t}`);
         return;
       }
-      const d = await res.json() as DashboardMetrics;
+      const d = await metricsRes.json() as DashboardMetrics;
       setMetrics(d);
       setSelectedYear(year);
     } catch (e) {
@@ -295,42 +284,9 @@ function DashboardPageInner() {
     } finally {
       setMetricsLoading(false);
     }
-  }, []);
+  }, [fetchWidgetPngs]);
 
   const yearOptions = useMemo(() => metrics?.available_years ?? [], [metrics]);
-
-  const scopeData = useMemo((): ScopeDatum[] => {
-    if (!metrics) return [];
-    const cm = metrics.current_metrics;
-    return [
-      { name: "Scope 1", value: Number(cm.scope1 || 0) },
-      { name: "Scope 2", value: Number(cm.scope2 || 0) },
-      { name: "Scope 3", value: Number(cm.scope3 || 0) },
-    ];
-  }, [metrics]);
-
-  const trendData = useMemo((): TrendDatum[] => {
-    if (!metrics) return [];
-    return [...metrics.yearly_emissions]
-      .filter(x => x.year != null)
-      .sort((a, b) => Number(a.year) - Number(b.year))
-      .map(x => ({
-        year: String(x.year),
-        total: Number(x.total || 0),
-        scope1: Number(x.scope1 || 0),
-        scope2: Number(x.scope2 || 0),
-        scope3: Number(x.scope3 || 0),
-      }));
-  }, [metrics]);
-
-  const topCategoryData = useMemo((): TopCatDatum[] => {
-    if (!metrics) return [];
-    if (selectedYear && metrics.yearly_top_categories) {
-      const yd = metrics.yearly_top_categories.find(y => y.year === selectedYear);
-      if (yd) return yd.categories;
-    }
-    return metrics.top_categories ?? [];
-  }, [metrics, selectedYear]);
 
   const intensityMetric = useMemo(() => {
     const m = metrics?.intensity_metrics ?? [];
@@ -435,19 +391,32 @@ function DashboardPageInner() {
               </div>
             </div>
 
-            {/* Charts */}
-            {metricsLoading ? (
+            {/* Charts — stored PNGs */}
+            {pngsLoading ? (
               <div className="rounded-xl border border-gray-200 bg-white p-12 text-center text-sm text-gray-400 shadow-sm">
-                Loading…
+                Loading charts…
+              </div>
+            ) : DASHBOARD_WIDGETS.filter(w => widgetPngs[w.id]).length === 0 ? (
+              <div className="rounded-xl border border-dashed border-gray-300 p-12 text-center shadow-sm">
+                <p className="text-sm font-medium text-gray-500">Charts not yet available</p>
+                <p className="mt-1 text-xs text-gray-400">
+                  Charts are generated when your NZI consultant finalises the Insights section. Please contact them if you expect to see charts here.
+                </p>
               </div>
             ) : (
-              <ChartSection
-                scopeData={scopeData}
-                total={total}
-                trendData={trendData}
-                topCategoryData={topCategoryData}
-                year={displayYear}
-              />
+              <div className="space-y-4">
+                {DASHBOARD_WIDGETS.filter(w => widgetPngs[w.id]).map(({ id, title }) => (
+                  <div key={id} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                    <div className="border-b border-gray-100 px-5 py-3">
+                      <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+                    </div>
+                    <div className="p-4">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={widgetPngs[id]} alt={title} className="w-full rounded" style={{ maxWidth: "100%", height: "auto" }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}

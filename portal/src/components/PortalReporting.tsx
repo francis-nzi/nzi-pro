@@ -165,7 +165,7 @@ export default function PortalReporting() {
             <Tooltip formatter={(v) => `${fmt(Number(v ?? 0))} tCO₂e`} />
             <Legend />
             {sortedScopes.map((s, i) => (
-              <Bar key={s} dataKey={s} stackId="a" fill={SCOPE_COLORS[i % SCOPE_COLORS.length]} />
+              <Bar key={s} dataKey={s} stackId="a" fill={SCOPE_COLORS[i % SCOPE_COLORS.length]} isAnimationActive={false} />
             ))}
           </BarChart>
         </ResponsiveContainer>
