@@ -21,6 +21,7 @@ import StatusBadge from "@/components/StatusBadge";
 import { MCKINSEY_ACTIVITY_COLORS, MCKINSEY_DATA_COLORS, MCKINSEY_SCOPE_COLORS } from "@/lib/chart-colors";
 import { formatJobFamilyLabel, jobFamilyBadgeClassName } from "@/lib/job-family";
 import { milestoneDotClass } from "@/lib/status-utils";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -656,6 +657,7 @@ export default function InsightsPageClient() {
   const [savedReportName, setSavedReportName] = useState("");
   const [selectedSavedReportId, setSelectedSavedReportId] = useState<number | null>(null);
   const [savingReport, setSavingReport] = useState(false);
+  const [pendingDeleteReport, setPendingDeleteReport] = useState<SavedReport | null>(null);
   const [reportDrill, setReportDrill] = useState<ReportDrillState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1199,8 +1201,14 @@ export default function InsightsPageClient() {
     }
   }
 
-  async function deleteSavedReport(savedReport: SavedReport) {
-    if (!window.confirm(`Delete saved report "${savedReport.name}"?`)) return;
+  function deleteSavedReport(savedReport: SavedReport) {
+    setPendingDeleteReport(savedReport);
+  }
+
+  async function doDeleteSavedReport() {
+    const savedReport = pendingDeleteReport;
+    setPendingDeleteReport(null);
+    if (!savedReport) return;
     setSavingReport(true);
     setSavedReportsError("");
     try {
@@ -1281,6 +1289,15 @@ export default function InsightsPageClient() {
 
   return (
     <div className="mx-auto w-full max-w-7xl px-6 py-8 pb-14 space-y-5">
+      <ConfirmDialog
+        open={pendingDeleteReport !== null}
+        onOpenChange={(open) => { if (!open) setPendingDeleteReport(null); }}
+        title="Delete saved report"
+        description={pendingDeleteReport ? `Delete saved report "${pendingDeleteReport.name}"? This cannot be undone.` : ""}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => void doDeleteSavedReport()}
+      />
 
       {/* â”€â”€ Header â”€â”€ */}
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">

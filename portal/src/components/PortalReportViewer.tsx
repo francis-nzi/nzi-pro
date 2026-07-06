@@ -720,8 +720,8 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
             <p className="text-sm text-gray-400 italic">Executive summary not yet available.</p>
           )}
 
-          <div className="mx-auto grid w-fit grid-cols-[280px_minmax(0,1fr)] gap-6 items-center">
-            <div className="relative aspect-square w-[280px] flex-shrink-0">
+          <div className="mx-auto grid grid-cols-1 gap-6 items-center sm:w-fit sm:grid-cols-[280px_minmax(0,1fr)]">
+            <div className="relative aspect-square w-full max-w-[280px] mx-auto flex-shrink-0 sm:w-[280px]">
               <ResponsiveContainer width="100%" aspect={1}>
                 <PieChart>
                   <Pie data={scopeDonutData} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2} isAnimationActive={false}>
@@ -809,7 +809,8 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
           {(interimYear || netZeroYear) && (
             <div>
               <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Reduction Targets</p>
-              <div className="overflow-hidden rounded-lg border border-gray-200">
+              <div className="overflow-x-auto">
+              <div className="overflow-hidden rounded-lg border border-gray-200 min-w-[380px]">
                 <div className="grid grid-cols-[1fr_80px_100px_120px] border-b border-gray-200 bg-gray-100 px-3 py-1.5">
                   <span className="text-xs font-semibold text-gray-500">Target Type</span>
                   <span className="text-center text-xs font-semibold text-gray-500">Year</span>
@@ -844,6 +845,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <span className="text-center text-xs font-semibold text-gray-700">{targetPct}%</span>
                   <span className="text-xs font-semibold text-gray-700">Scope 1, 2 &amp; 3</span>
                 </div>
+              </div>
               </div>
             </div>
           )}
@@ -908,7 +910,8 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
             <p className="text-sm text-gray-700 leading-relaxed mb-3">
               The organisational boundary defines the operations over which the organisation has control or financial responsibility for GHG emissions.
             </p>
-            <div className="overflow-hidden rounded-lg border border-gray-200">
+            <div className="overflow-x-auto">
+            <div className="overflow-hidden rounded-lg border border-gray-200 min-w-[420px]">
               <div className="grid grid-cols-[160px_1fr_110px] px-3 py-2" style={{ backgroundColor: BRAND }}>
                 <span className="text-xs font-semibold uppercase tracking-wide text-white">Approach</span>
                 <span className="text-xs font-semibold uppercase tracking-wide text-white">Description</span>
@@ -925,6 +928,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <span className="text-xs font-medium text-gray-700">{boolLabel(row.value)}</span>
                 </div>
               ))}
+            </div>
             </div>
           </div>
           {(data.job_data.benchmark_period_start || data.job_data.benchmark_period_end) && (
@@ -1153,7 +1157,8 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
           {/* Scope Descriptions */}
           <div>
             <p className="text-sm font-semibold text-gray-700 mb-2">Scope Descriptions</p>
-            <div className="overflow-hidden rounded-lg border border-gray-200">
+            <div className="overflow-x-auto">
+            <div className="overflow-hidden rounded-lg border border-gray-200 min-w-[360px]">
               <div className="grid grid-cols-[52px_1fr_90px_58px] px-3 py-2" style={{ backgroundColor: BRAND }}>
                 <span className="text-xs font-semibold uppercase tracking-wide text-white">Scope</span>
                 <span className="text-xs font-semibold uppercase tracking-wide text-white">Description</span>
@@ -1182,13 +1187,15 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                 <span className="text-xs font-semibold text-gray-700 text-right">100.0%</span>
               </div>
             </div>
+            </div>
           </div>
 
           {/* Site Breakdown by Scope */}
           {(site_breakdowns?.scope?.length ?? 0) > 0 && (
             <div>
               <p className="text-sm font-semibold text-gray-700 mb-2">Site Breakdown by Scope</p>
-              <div className="overflow-hidden rounded-lg border border-gray-200">
+              <div className="overflow-x-auto">
+              <div className="overflow-hidden rounded-lg border border-gray-200 min-w-[420px]">
                 <div className="grid grid-cols-[1fr_80px_80px_80px_80px] px-3 py-2" style={{ backgroundColor: BRAND }}>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white">Site</span>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Scope 1</span>
@@ -1212,6 +1219,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scope3)}</span>
                   <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totalEmissions)}</span>
                 </div>
+              </div>
               </div>
             </div>
           )}
@@ -1316,7 +1324,8 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
           <Card data-section="Emissions by Scope and Category">
             <CardHeader className="pb-3"><SectionHeader title="Emissions by Scope and Category" /></CardHeader>
             <CardContent className="space-y-4">
-              <div className="overflow-hidden rounded-lg border border-gray-200">
+              <div className="overflow-x-auto">
+              <div className="overflow-hidden rounded-lg border border-gray-200 min-w-[480px]">
                 <div className="grid grid-cols-[80px_1fr_120px_120px_60px] px-3 py-2" style={{ backgroundColor: BRAND }}>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white">Scope</span>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white">Category</span>
@@ -1333,6 +1342,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandCurrentTotal)}</span>
                   <span className="text-xs font-bold text-gray-700 text-right">100.0%</span>
                 </div>
+              </div>
               </div>
               <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3">
                 <p className="text-xs text-gray-700"><span className="font-semibold">Note:</span> Emissions figures are rounded to the nearest 1 decimal place. As a consequence, small differences in totals may occur due to rounding.</p>
@@ -1429,7 +1439,8 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
               </p>
               <div>
                 <p className="text-sm font-semibold text-center text-gray-700 mb-2">Intensity Metrics (tonnes CO₂e)</p>
-                <div className="overflow-hidden rounded-lg border border-gray-200">
+                <div className="overflow-x-auto">
+                <div className="overflow-hidden rounded-lg border border-gray-200 min-w-[480px]">
                   <div className="grid grid-cols-[56px_1fr_110px_110px_90px] border-b border-gray-200 bg-gray-50 px-3 py-1.5">
                     <span /><span />
                     <div className="text-right">
@@ -1459,6 +1470,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                       </div>
                     );
                   })}
+                </div>
                 </div>
               </div>
               {summaryParts.length > 0 && (

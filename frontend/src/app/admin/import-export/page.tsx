@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import UploadProgressBar from "@/components/UploadProgressBar";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -354,6 +355,7 @@ export default function AdminImportExportPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [pendingLegacyClear, setPendingLegacyClear] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [summary, setSummary] = useState<WfmSummary | null>(null);
@@ -970,7 +972,7 @@ export default function AdminImportExportPage() {
     }
   }
 
-  async function clearLegacyAnnualRows() {
+  function clearLegacyAnnualRows() {
     const targetRef = legacyPreview?.job_number || legacyJobId.trim();
     const targetJobId = legacyPreview?.job_number || legacyJobId.trim();
     if (!targetJobId) {
@@ -978,11 +980,13 @@ export default function AdminImportExportPage() {
       return;
     }
     const siteLabel = legacySiteId.trim() ? `site ${legacySiteId.trim()}` : "all sites for this job";
-    const confirmed = window.confirm(
-      `Disable active Legacy Annual Upload rows for ${targetRef || `job ${targetJobId}`} on ${siteLabel}?\n\nThis will only affect rows imported via Legacy Annual Upload.`
+    setPendingLegacyClear(
+      `Disable active Legacy Annual Upload rows for ${targetRef || `job ${targetJobId}`} on ${siteLabel}? This will only affect rows imported via Legacy Annual Upload.`
     );
-    if (!confirmed) return;
+  }
 
+  async function doLegacyClear() {
+    setPendingLegacyClear(null);
     setBusy(true);
     setError("");
     setStatus("Clearing legacy annual rows...");
@@ -1307,6 +1311,15 @@ export default function AdminImportExportPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <ConfirmDialog
+        open={pendingLegacyClear !== null}
+        onOpenChange={(open) => { if (!open) setPendingLegacyClear(null); }}
+        title="Disable legacy rows"
+        description={pendingLegacyClear ?? ""}
+        confirmLabel="Disable"
+        destructive
+        onConfirm={() => void doLegacyClear()}
+      />
       <div className="mx-auto w-full max-w-6xl px-6 py-10 space-y-6">
         <Card className="border-primary/20 bg-primary/5">
           <CardHeader className="space-y-2">

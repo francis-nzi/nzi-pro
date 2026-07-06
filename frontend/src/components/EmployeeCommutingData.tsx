@@ -18,6 +18,7 @@ import { withAuditHeaders } from "@/lib/auth-client";
 import UploadProgressBar from "@/components/UploadProgressBar";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 import { dispatchJobScopeRefresh } from "@/lib/job-scope-refresh";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatDate, formatNumber } from "@/lib/format";
 import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
 
@@ -140,6 +141,7 @@ export default function EmployeeCommutingData({
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<{ sourceId: number; label: string } | null>(null);
   const [status, setStatus] = useState("");
   const [summary, setSummary] = useState<CommutingSummary | null>(null);
   const [sites, setSites] = useState<SiteOption[]>([]);
@@ -705,9 +707,15 @@ export default function EmployeeCommutingData({
     }
   }
 
-  async function removeDirectEntry(sourceId: number, label: string) {
-    const confirmed = window.confirm(`Delete direct entry "${label}"? It will be hidden from the active register.`);
-    if (!confirmed) return;
+  function removeDirectEntry(sourceId: number, label: string) {
+    setPendingDelete({ sourceId, label });
+  }
+
+  async function doRemoveDirectEntry() {
+    const pending = pendingDelete;
+    setPendingDelete(null);
+    if (!pending) return;
+    const { sourceId } = pending;
     setLoading(true);
     setError("");
     try {
@@ -740,6 +748,15 @@ export default function EmployeeCommutingData({
 
   return (
     <div className="space-y-5">
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => { if (!open) setPendingDelete(null); }}
+        title="Delete entry"
+        description={pendingDelete ? `Delete direct entry "${pendingDelete.label}"? It will be hidden from the active register.` : ""}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => void doRemoveDirectEntry()}
+      />
       {/* Prototype shells can hide this duplicate summary so the header stays compact. */}
       {showEmissionsSummary ? <EmissionsSummary jobId={jobId} baseUrl={baseUrl} /> : null}
 

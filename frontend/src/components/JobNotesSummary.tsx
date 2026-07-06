@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 type JobNote = {
   note_id: string;
@@ -108,6 +109,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
     "job-row": true,
   });
   const [addNoteOpen, setAddNoteOpen] = useState(false);
+  const [pendingArchiveNote, setPendingArchiveNote] = useState<JobNote | null>(null);
   const [noteSubject, setNoteSubject] = useState("");
   const [noteScope, setNoteScope] = useState("__none__");
   const [noteCategory, setNoteCategory] = useState("__none__");
@@ -336,25 +338,31 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
   ]);
 
   const handleArchiveNote = useCallback(
-    async (note: JobNote) => {
+    (note: JobNote) => {
       if (!note.communication_id) return;
-      if (typeof window !== "undefined" && !window.confirm("Archive this note?")) return;
-      try {
-        const res = await fetch(`${baseUrl}/jobs/${jobId}/communications/${note.communication_id}/archive`, {
-          method: "PATCH",
-          credentials: "include",
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error((body as { detail?: string }).detail || `Error ${res.status}`);
-        }
-        void loadNotes();
-      } catch (err) {
-        setAddNoteError((err as Error).message);
-      }
+      setPendingArchiveNote(note);
     },
-    [baseUrl, jobId, loadNotes],
+    [],
   );
+
+  const doArchiveNote = useCallback(async () => {
+    const note = pendingArchiveNote;
+    setPendingArchiveNote(null);
+    if (!note || !note.communication_id) return;
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/communications/${note.communication_id}/archive`, {
+        method: "PATCH",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { detail?: string }).detail || `Error ${res.status}`);
+      }
+      void loadNotes();
+    } catch (err) {
+      setAddNoteError((err as Error).message);
+    }
+  }, [baseUrl, jobId, loadNotes, pendingArchiveNote]);
 
   const filteredNotes = useMemo(() => {
     return (summary?.items || []).filter((item) => {
@@ -508,6 +516,14 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
 
   return (
     <div className="space-y-6">
+      <ConfirmDialog
+        open={pendingArchiveNote !== null}
+        onOpenChange={(open) => { if (!open) setPendingArchiveNote(null); }}
+        title="Archive note"
+        description="Archive this note? It will be removed from the active notes list."
+        confirmLabel="Archive"
+        onConfirm={() => void doArchiveNote()}
+      />
       <Dialog
         open={addNoteOpen}
         onOpenChange={(open) => {

@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 type ClientJobRef = {
   job_id: number;
@@ -124,6 +125,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
   });
 
   const [addClientNoteOpen, setAddClientNoteOpen] = useState(false);
+  const [pendingArchive, setPendingArchive] = useState<ClientNote | null>(null);
   const [addSubject, setAddSubject] = useState("");
   const [addText, setAddText] = useState("");
   const [addHighImportance, setAddHighImportance] = useState(false);
@@ -252,8 +254,14 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
     }
   }, [baseUrl, editHighImportance, editJobId, editSubject, editText, editingNote, loadNotes]);
 
-  const archiveNote = useCallback(async (note: ClientNote) => {
-    if (!window.confirm("Archive this note? It will no longer appear in the notes list.")) return;
+  const archiveNote = useCallback((note: ClientNote) => {
+    setPendingArchive(note);
+  }, []);
+
+  const doArchiveNote = useCallback(async () => {
+    const note = pendingArchive;
+    setPendingArchive(null);
+    if (!note) return;
     try {
       let url: string;
       if (note.note_backend === "client_notes") {
@@ -272,7 +280,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
     } catch (err) {
       toast.error(`Archive failed: ${(err as Error).message}`);
     }
-  }, [baseUrl, loadNotes]);
+  }, [baseUrl, loadNotes, pendingArchive]);
 
   const availableSources = useMemo(() => {
     const seen = new Set<string>();
@@ -444,7 +452,15 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
   }, [openEdit, archiveNote]);
 
   return (
-      <div className="space-y-6">
+    <div className="space-y-6">
+      <ConfirmDialog
+        open={pendingArchive !== null}
+        onOpenChange={(open) => { if (!open) setPendingArchive(null); }}
+        title="Archive note"
+        description="Archive this note? It will no longer appear in the notes list."
+        confirmLabel="Archive"
+        onConfirm={() => void doArchiveNote()}
+      />
       <Dialog open={addClientNoteOpen} onOpenChange={setAddClientNoteOpen}>
         <DialogContent className="!w-[98vw] !max-w-[1800px]">
           <DialogHeader>

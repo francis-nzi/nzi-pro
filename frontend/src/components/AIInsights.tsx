@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface AIInsightsProps {
   clientId: number;
@@ -316,6 +317,7 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
   const [savedInsights, setSavedInsights] = useState<SavedInsight[]>([]);
   const [savedLoading, setSavedLoading] = useState(false);
   const [savedError, setSavedError] = useState("");
+  const [pendingDeleteInsight, setPendingDeleteInsight] = useState<SavedInsight | null>(null);
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
   const [editingInsight, setEditingInsight] = useState<SavedInsightDraft | null>(null);
   const [editingSaving, setEditingSaving] = useState(false);
@@ -571,9 +573,13 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
     }
   }
 
-  async function deleteSavedInsight(item: SavedInsight) {
-    const confirmed = window.confirm("Delete this saved insight?");
-    if (!confirmed) return;
+  function deleteSavedInsight(item: SavedInsight) {
+    setPendingDeleteInsight(item);
+  }
+
+  async function doDeleteInsight() {
+    const item = pendingDeleteInsight;
+    if (!item) return;
     try {
       const res = await fetch(`${baseUrl}/clients/${clientId}/saved-insights/${item.saved_client_insight_id}`, {
         method: "DELETE",
@@ -621,6 +627,15 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
 
   return (
     <div className="space-y-4">
+      <ConfirmDialog
+        open={pendingDeleteInsight !== null}
+        onOpenChange={(open) => { if (!open) setPendingDeleteInsight(null); }}
+        title="Delete insight"
+        description="Delete this saved insight? This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => void doDeleteInsight()}
+      />
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-3">
