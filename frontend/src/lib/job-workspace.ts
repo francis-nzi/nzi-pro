@@ -107,6 +107,7 @@ export const JOB_WORKSPACE_GROUPS: JobWorkspaceGroup[] = [
     subtabs: [
       { key: "data-output", label: "Data Output" },
       { key: "actions", label: "Actions" },
+      { key: "lca", label: "Life Cycle Analysis" },
     ],
   },
   {
@@ -117,12 +118,6 @@ export const JOB_WORKSPACE_GROUPS: JobWorkspaceGroup[] = [
       { key: "report-new", label: "Report Preparation" },
       { key: "advanced-reports", label: "Report Printing" },
     ],
-  },
-  {
-    key: "analysis",
-    label: "Analysis",
-    defaultTab: "lca",
-    subtabs: [{ key: "lca", label: "Life Cycle Analysis" }],
   },
   {
     key: "insights",
@@ -146,6 +141,7 @@ export const JOB_WORKSPACE_GROUPS: JobWorkspaceGroup[] = [
       { key: "communications-email", label: "Email" },
       { key: "communications-automation", label: "Automation" },
       { key: "communications-crm", label: "CRM Timeline" },
+      { key: "communications-notes", label: "Notes" },
     ],
   },
   {
@@ -158,12 +154,6 @@ export const JOB_WORKSPACE_GROUPS: JobWorkspaceGroup[] = [
       { key: "financial-other-costs", label: "Other Costs" },
       { key: "financial-profit-loss", label: "Profit & Loss" },
     ],
-  },
-  {
-    key: "job-notes",
-    label: "Notes",
-    defaultTab: "communications-notes",
-    subtabs: [],
   },
   {
     key: "admin",
@@ -192,11 +182,11 @@ export const JOB_TAB_TO_GROUP: Record<string, WorkspaceTab["key"]> = {
   "report-new": "report",
   "advanced-reports": "report",
   reporting: "report",
-  lca: "analysis",
+  lca: "outputs",
   insights: "insights",
   "communications-timeline": "communications",
   "communications-inbox": "communications",
-  "communications-notes": "job-notes",
+  "communications-notes": "communications",
   "communications-email": "communications",
   "job-tasks": "job-tasks",
   "communications-automation": "communications",

@@ -8,12 +8,10 @@ export type WorkspaceGroupKey =
   | "data"
   | "outputs"
   | "report"
-  | "analysis"
   | "insights"
   | "job-tasks"
   | "communications"
   | "financial"
-  | "job-notes"
   | "admin"
   | "portal";
 

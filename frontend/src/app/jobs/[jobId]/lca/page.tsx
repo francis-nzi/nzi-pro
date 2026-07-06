@@ -19,7 +19,7 @@ export default function JobLcaPage() {
       baseUrl={apiBaseUrl()}
       sectionLabel="Life Cycle Analysis"
       sectionHref={`/jobs/${jobId}/lca`}
-      activeGroup="analysis"
+      activeGroup="outputs"
       activeSubtab="lca"
     >
       <JobLca jobId={jobId} baseUrl={apiBaseUrl()} />

@@ -148,8 +148,9 @@ const JOB_NAV_GROUPS: JobNavGroup[] = [
   },
   { key: "outputs", label: "Outputs", icon: BarChart2, href: (j) => `/jobs/${j}/outputs`,
     subtabs: [
-      { key: "data-output", label: "Data Output", href: (j) => `/jobs/${j}/outputs` },
-      { key: "actions",     label: "Actions",     href: (j) => `/jobs/${j}?tab=actions` },
+      { key: "data-output", label: "Data Output",        href: (j) => `/jobs/${j}/outputs` },
+      { key: "actions",     label: "Actions",            href: (j) => `/jobs/${j}?tab=actions` },
+      { key: "lca",         label: "Life Cycle Analysis", href: (j) => `/jobs/${j}/lca` },
     ],
   },
   { key: "report", label: "Report", icon: FileText, href: (j) => `/jobs/${j}/report-new`,
@@ -158,9 +159,6 @@ const JOB_NAV_GROUPS: JobNavGroup[] = [
       { key: "advanced-reports", label: "Report Printing",    href: (j) => `/jobs/${j}/advanced-reports` },
       { key: "client-review",    label: "Client Review",      href: (j) => `/jobs/${j}/client-review` },
     ],
-  },
-  { key: "analysis", label: "Analysis", icon: TrendingUp, href: (j) => `/jobs/${j}/lca`,
-    subtabs: [{ key: "lca", label: "Life Cycle Analysis", href: (j) => `/jobs/${j}/lca` }],
   },
   { key: "insights", label: "Insights", icon: Lightbulb, href: (j) => `/jobs/${j}/insights`, subtabs: [] },
   { key: "job-tasks", label: "Tasks", icon: ClipboardList, href: (j) => `/jobs/${j}/tasks`, subtabs: [] },
@@ -172,6 +170,7 @@ const JOB_NAV_GROUPS: JobNavGroup[] = [
       { key: "communications-email",      label: "Email",        href: (j) => `/jobs/${j}/communications/email` },
       { key: "communications-automation", label: "Automation",   href: (j) => `/jobs/${j}/communications/automation` },
       { key: "communications-crm",        label: "CRM Timeline", href: (j) => `/jobs/${j}/communications/crm` },
+      { key: "communications-notes",      label: "Notes",        href: (j) => `/jobs/${j}/communications/notes` },
     ],
   },
   { key: "financial", label: "Financial", icon: CreditCard, href: (j) => `/jobs/${j}/financial/quotes`,
@@ -196,7 +195,7 @@ function getJobActiveGroup(pathname: string, jobId: number): string {
   if (pathname?.startsWith(`${b}/data-entry`)) return "data";
   if (pathname?.startsWith(`${b}/outputs`)) return "outputs";
   if (pathname?.startsWith(`${b}/report-new`) || pathname?.startsWith(`${b}/advanced-reports`) || pathname?.startsWith(`${b}/client-review`)) return "report";
-  if (pathname?.startsWith(`${b}/lca`)) return "analysis";
+  if (pathname?.startsWith(`${b}/lca`)) return "outputs";
   if (pathname?.startsWith(`${b}/insights`)) return "insights";
   if (pathname?.startsWith(`${b}/tasks`)) return "job-tasks";
   if (pathname?.startsWith(`${b}/portal-management`)) return "portal";
@@ -224,6 +223,7 @@ function getJobActiveSubtab(pathname: string): string {
   if (pathname?.includes("/tasks")) return "job-tasks";
   if (pathname?.includes("/communications/automation")) return "communications-automation";
   if (pathname?.includes("/communications/crm")) return "communications-crm";
+  if (pathname?.includes("/communications/notes")) return "communications-notes";
   if (pathname?.includes("/financial/quotes")) return "financial-quotes";
   if (pathname?.includes("/financial/invoices")) return "financial-invoices";
   if (pathname?.includes("/financial/other-costs")) return "financial-other-costs";

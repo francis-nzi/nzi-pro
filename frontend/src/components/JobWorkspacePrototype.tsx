@@ -370,11 +370,11 @@ function WorkspacePanels({
       <div className="space-y-6">
         {activeSubtab === "data-output" ? <DataOutput jobId={job.jobId} baseUrl={baseUrl} showEmissionsSummary={false} /> : null}
         {activeSubtab === "actions" ? <JobActions jobId={job.jobId} baseUrl={baseUrl} /> : null}
-        {activeSubtab === "report" ? (
+        {activeSubtab === "lca" ? (
           <PlaceholderCard
-            title="Report handoff"
-            text="The report builder lives in the dedicated Report tab in this prototype."
-            body="This Outputs slot is here to keep the navigation path visible without duplicating the full drafting experience."
+            title="Life Cycle Analysis"
+            text="LCA and other analytical views will sit here."
+            body="For now, this section is a placeholder so we can test the shell and tab density before wiring more content."
           />
         ) : null}
       </div>
@@ -394,16 +394,6 @@ function WorkspacePanels({
           }}
         />
       </div>
-    );
-  }
-
-  if (activeTab === "analysis") {
-    return (
-      <PlaceholderCard
-        title="Life Cycle Analysis"
-        text="LCA and other analytical views will sit here."
-        body="For now, this section is a placeholder so we can test the shell and tab density before wiring more content."
-      />
     );
   }
 

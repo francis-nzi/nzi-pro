@@ -42,7 +42,7 @@ export default function JobCommunicationsSectionPage() {
 
   const section = COMMUNICATIONS_SECTIONS[sectionSegment as CommunicationsSectionKey] ?? COMMUNICATIONS_SECTIONS.timeline;
 
-  const activeGroup: WorkspaceGroupKey = sectionSegment === "notes" ? "job-notes" : "communications";
+  const activeGroup: WorkspaceGroupKey = "communications";
 
   return (
     <JobSectionShell

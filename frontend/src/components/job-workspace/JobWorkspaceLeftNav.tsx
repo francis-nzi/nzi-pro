@@ -12,7 +12,6 @@ import {
   MonitorSmartphone,
   Settings2,
   ShieldCheck,
-  TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { WorkspaceGroupKey } from "./types";
@@ -62,8 +61,9 @@ function buildGroups(jobId: number): GroupDef[] {
       icon: BarChart2,
       href: `/jobs/${j}/outputs`,
       subtabs: [
-        { key: "data-output", label: "Data Output", href: `/jobs/${j}/outputs` },
-        { key: "actions",     label: "Actions",     href: `/jobs/${j}?tab=actions` },
+        { key: "data-output", label: "Data Output",        href: `/jobs/${j}/outputs` },
+        { key: "actions",     label: "Actions",            href: `/jobs/${j}?tab=actions` },
+        { key: "lca",         label: "Life Cycle Analysis", href: `/jobs/${j}/lca` },
       ],
     },
     {
@@ -75,15 +75,6 @@ function buildGroups(jobId: number): GroupDef[] {
         { key: "report-new",       label: "Report Preparation", href: `/jobs/${j}/report-new` },
         { key: "advanced-reports", label: "Report Printing",   href: `/jobs/${j}/advanced-reports` },
         { key: "client-review",    label: "Client Review",     href: `/jobs/${j}/client-review` },
-      ],
-    },
-    {
-      key: "analysis",
-      label: "Analysis",
-      icon: TrendingUp,
-      href: `/jobs/${j}/lca`,
-      subtabs: [
-        { key: "lca", label: "Life Cycle Analysis", href: `/jobs/${j}/lca` },
       ],
     },
     {
@@ -118,6 +109,7 @@ function buildGroups(jobId: number): GroupDef[] {
         { key: "communications-email",      label: "Email",        href: `/jobs/${j}/communications/email` },
         { key: "communications-automation", label: "Automation",   href: `/jobs/${j}/communications/automation` },
         { key: "communications-crm",        label: "CRM Timeline", href: `/jobs/${j}/communications/crm` },
+        { key: "communications-notes",      label: "Notes",        href: `/jobs/${j}/communications/notes` },
       ],
     },
     {

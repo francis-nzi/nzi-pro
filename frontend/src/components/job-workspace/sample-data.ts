@@ -26,7 +26,6 @@ export const workspaceTabs: Array<{ key: WorkspaceTabKey; label: string; countBa
   { key: "data", label: "Data" },
   { key: "outputs", label: "Outputs" },
   { key: "report", label: "Report" },
-  { key: "analysis", label: "Analysis" },
   { key: "insights", label: "Insights" },
   { key: "communications", label: "Communications" },
   { key: "financial", label: "Financial" },
@@ -53,22 +52,20 @@ export const workspaceSubtabs: Record<WorkspaceTabKey, WorkspaceSubtab[]> = {
   outputs: [
     { key: "data-output", label: "Data Output" },
     { key: "actions", label: "Actions" },
-    { key: "report", label: "Report" },
+    { key: "lca", label: "Life Cycle Analysis" },
   ],
   report: [
     { key: "draft", label: "Draft" },
     { key: "preview", label: "Preview" },
     { key: "export", label: "Export" },
   ],
-  analysis: [{ key: "lca", label: "Life Cycle Analysis" }],
   insights: [{ key: "dashboard", label: "Dashboard" }],
   communications: [
     { key: "timeline", label: "Timeline" },
     { key: "inbox", label: "Inbox" },
-    { key: "notes", label: "Notes" },
     { key: "email", label: "Email" },
-    { key: "tasks", label: "Tasks" },
     { key: "automation", label: "Automation" },
+    { key: "notes", label: "Notes" },
   ],
   financial: [
     { key: "quotes", label: "Quotes" },
@@ -81,7 +78,6 @@ export const workspaceSubtabs: Record<WorkspaceTabKey, WorkspaceSubtab[]> = {
     { key: "portal-assets", label: "Assets" },
   ],
   "job-tasks": [],
-  "job-notes": [],
   admin: [
     { key: "files", label: "Files" },
     { key: "time", label: "Time Entries" },
