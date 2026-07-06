@@ -29,6 +29,7 @@ export default function TrainingParticipantsPage() {
         <div className="py-10 text-center text-sm text-slate-400">Loading training data…</div>
       ) : overview ? (
         <AttendeesTab
+          jobId={jobId}
           runs={overview.course_runs}
           sessions={overview.sessions}
           baseUrl={baseUrl}

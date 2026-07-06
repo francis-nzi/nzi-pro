@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef, useCallback, useDeferredValue } from "react";
-import { Plus, Pencil, Trash2, Search, Filter, Building2, ChevronDown, ArrowLeftRight, BookOpen, UserPlus } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Filter, Building2, ChevronDown, ArrowLeftRight, BookOpen, UserPlus, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ import {
 import type { TrainingBooking, TrainingCourseRun, TrainingSession } from "./types";
 
 type Props = {
+  jobId: number;
   runs: TrainingCourseRun[];
   sessions: TrainingSession[];
   baseUrl: string;
@@ -149,7 +150,7 @@ function sessionsClash(a: TrainingSession, b: TrainingSession) {
   return rangeA.start < rangeB.end && rangeB.start < rangeA.end;
 }
 
-export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Props) {
+export default function AttendeesTab({ jobId, runs, sessions, baseUrl, onRefresh }: Props) {
   const [search, setSearch] = useState("");
   const [filterRun, setFilterRun] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
@@ -173,6 +174,10 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
   const [assignSearchCity, setAssignSearchCity] = useState("");
   const [assignSearchCountry, setAssignSearchCountry] = useState("");
   const [historyTarget, setHistoryTarget] = useState<LearningHistoryTarget | null>(null);
+  const [emailTarget, setEmailTarget] = useState<BookingWithRun | null>(null);
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [emailSending, setEmailSending] = useState(false);
 
   function openReassign(b: BookingWithRun) {
     setReassignBooking(b);
@@ -182,6 +187,18 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
 
   function openLearningHistory(b: BookingWithRun) {
     setHistoryTarget(b);
+  }
+
+  function openParticipantEmail(b: BookingWithRun) {
+    setEmailTarget(b);
+    setEmailSubject(b.run_name ? `Re: ${b.run_name}` : "Training participant update");
+    setEmailBody("Hi,\n\n");
+  }
+
+  function closeParticipantEmail() {
+    setEmailTarget(null);
+    setEmailSubject("");
+    setEmailBody("");
   }
 
   const reassignTargetRun = useMemo(
@@ -249,6 +266,45 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
       toast.error(String(e));
     } finally {
       setAssigning(false);
+    }
+  }
+
+  async function sendParticipantEmail() {
+    if (!emailTarget) return;
+    const recipient = String(emailTarget.person_email ?? "").trim();
+    if (!recipient) {
+      toast.error("This participant does not have an email address.");
+      return;
+    }
+    if (!emailSubject.trim()) {
+      toast.error("Please add a subject.");
+      return;
+    }
+    if (!emailBody.trim()) {
+      toast.error("Please add a message.");
+      return;
+    }
+    setEmailSending(true);
+    try {
+      const fd = new FormData();
+      fd.append("to_email", recipient);
+      fd.append("subject", emailSubject.trim());
+      fd.append("message_text", emailBody.trim());
+      fd.append("cc", JSON.stringify([]));
+      fd.append("bcc", JSON.stringify([]));
+      fd.append("job_file_ids", JSON.stringify([]));
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/communications/email`, {
+        method: "POST",
+        credentials: "include",
+        body: fd,
+      });
+      if (!res.ok) throw new Error(await res.text());
+      toast.success(`Email sent to ${emailTarget.person_name}.`);
+      closeParticipantEmail();
+    } catch (e: unknown) {
+      toast.error(String(e));
+    } finally {
+      setEmailSending(false);
     }
   }
 
@@ -545,9 +601,8 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Email</TableHead>
-                    <TableHead>Cohort</TableHead>
-                    <TableHead>Attendance</TableHead>
-                    <TableHead>Billing</TableHead>
+                    <TableHead>Company</TableHead>
+                    <TableHead>Location</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead className="w-16"></TableHead>
                   </TableRow>
@@ -560,16 +615,10 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
                         {b.client_name && <div className="text-xs text-slate-400">{b.client_name}</div>}
                       </TableCell>
                       <TableCell className="text-xs text-slate-600">{b.person_email ?? "—"}</TableCell>
-                      <TableCell className="text-xs text-slate-600 max-w-[130px] truncate">{b.run_name}</TableCell>
-                      <TableCell>
-                        <Badge className={`text-xs ${attendanceColor(b.attendance_status)}`} variant="outline">
-                          {formatTrainingBookingStatus(b.attendance_status)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={`text-xs ${billingColor(b.billing_status)}`} variant="outline">
-                          {formatTrainingBillingStatus(b.billing_status)}
-                        </Badge>
+                      <TableCell className="text-xs text-slate-600">{b.client_name ?? "—"}</TableCell>
+                      <TableCell className="text-xs text-slate-600">
+                        <div>{b.client_addr_city ?? "—"}</div>
+                        <div className="text-[11px] text-slate-400">{b.client_addr_country ?? "—"}</div>
                       </TableCell>
                       <TableCell className="text-xs text-slate-500">
                         {formatTrainingParticipantType(b.participant_type)}
@@ -586,6 +635,9 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
                           )}
                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-emerald-600" title="Learning history" onClick={() => openLearningHistory(b)}>
                             <BookOpen className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-emerald-600" title="Email participant" onClick={() => openParticipantEmail(b)} disabled={!b.person_email}>
+                            <Mail className="h-3.5 w-3.5" />
                           </Button>
                           {runs.length > 1 && (
                             <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-blue-500" title="Reassign to different cohort" onClick={() => openReassign(b)}>
@@ -878,6 +930,50 @@ export default function AttendeesTab({ runs, sessions, baseUrl, onRefresh }: Pro
           )}
           <div className="flex justify-end border-t pt-3">
             <Button variant="outline" onClick={() => setHistoryTarget(null)}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!emailTarget} onOpenChange={(o) => !o && closeParticipantEmail()}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-4 w-4 text-emerald-600" />
+              Email Participant
+            </DialogTitle>
+          </DialogHeader>
+          {emailTarget && (
+            <div className="space-y-4 py-1">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                <div className="font-medium text-slate-900">{emailTarget.person_name}</div>
+                <div className="text-xs text-slate-500">
+                  {emailTarget.person_email || "No email"}
+                  {emailTarget.client_name ? ` · ${emailTarget.client_name}` : ""}
+                </div>
+                <div className="text-xs text-slate-400">{emailTarget.run_name}</div>
+              </div>
+
+              <div className="grid gap-3">
+                <div>
+                  <Label>Subject</Label>
+                  <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} placeholder="Participant update" />
+                </div>
+                <div>
+                  <Label>Message</Label>
+                  <Textarea rows={8} value={emailBody} onChange={(e) => setEmailBody(e.target.value)} placeholder="Write your email..." />
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-400">
+                This sends a tracked email into the job communications history for the selected participant.
+              </p>
+            </div>
+          )}
+          <div className="flex justify-end gap-2 border-t pt-3">
+            <Button variant="outline" onClick={closeParticipantEmail} disabled={emailSending}>Cancel</Button>
+            <Button onClick={() => void sendParticipantEmail()} disabled={emailSending || !emailTarget?.person_email}>
+              {emailSending ? "Sending..." : "Send email"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

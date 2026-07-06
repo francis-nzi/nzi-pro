@@ -2,7 +2,7 @@
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
-  Plus, ChevronDown, ChevronRight, Pencil, Trash2, UserPlus, ArrowLeftRight, X, Search,
+  Plus, ChevronDown, ChevronRight, Pencil, Trash2, UserPlus, ArrowLeftRight, X, Search, Mail,
   MapPin, Video, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -229,6 +229,12 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
   const [reassignSessionIds, setReassignSessionIds] = useState<Set<number>>(new Set());
   const [reassigning, setReassigning] = useState(false);
   const [participantsOpen, setParticipantsOpen] = useState<Set<number>>(new Set());
+  const [participantSelection, setParticipantSelection] = useState<Set<number>>(new Set());
+  const [emailTargetSession, setEmailTargetSession] = useState<TrainingSession | null>(null);
+  const [emailTargetMode, setEmailTargetMode] = useState<"selected" | "all">("selected");
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [emailSending, setEmailSending] = useState(false);
   const [assignTarget, setAssignTarget] = useState<AssignTarget | null>(null);
   const [assignBookingId, setAssignBookingId] = useState<string>("");
   const [assignAttendanceStatus, setAssignAttendanceStatus] = useState<string>("booked");
@@ -325,6 +331,85 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
         return aDate.localeCompare(bDate) || (a.start_time ?? "").localeCompare(b.start_time ?? "") || a.training_course_session_id - b.training_course_session_id;
       });
   }, [assignSelectedBooking, assignSession, sessions]);
+
+  const emailRecipients = useMemo(() => {
+    if (!emailTargetSession) return [];
+    const allRecipients = (emailTargetSession.attendance ?? []).filter((attendance) => strim(attendance.person_email));
+    if (emailTargetMode === "all") return allRecipients;
+    return allRecipients.filter((attendance) => participantSelection.has(attendance.training_session_attendance_id));
+  }, [emailTargetMode, emailTargetSession, participantSelection]);
+
+  function strim(value: string | null | undefined) {
+    return String(value ?? "").trim();
+  }
+
+  function clearParticipantSelection() {
+    setParticipantSelection(new Set());
+  }
+
+  function openParticipantEmail(session: TrainingSession, mode: "selected" | "all") {
+    setEmailTargetSession(session);
+    setEmailTargetMode(mode);
+    setEmailSubject(session.session_title ? `Re: ${session.session_title}` : `Training session update`);
+    setEmailBody(`Hi,\n\n`);
+  }
+
+  function closeParticipantEmail() {
+    setEmailTargetSession(null);
+    setEmailSubject("");
+    setEmailBody("");
+    setEmailTargetMode("selected");
+  }
+
+  async function sendParticipantEmail() {
+    if (!emailTargetSession) return;
+    const recipients = emailRecipients.filter((attendance) => strim(attendance.person_email));
+    if (recipients.length === 0) {
+      toast.error("No participant email addresses selected.");
+      return;
+    }
+    if (!emailSubject.trim()) {
+      toast.error("Please add a subject.");
+      return;
+    }
+    if (!emailBody.trim()) {
+      toast.error("Please add a message.");
+      return;
+    }
+    setEmailSending(true);
+    try {
+      const uniqueRecipients = Array.from(
+        new Map(recipients.map((attendance) => [strim(attendance.person_email).toLowerCase(), attendance])).values(),
+      );
+      for (const attendance of uniqueRecipients) {
+        const toEmail = strim(attendance.person_email);
+        if (!toEmail) continue;
+        const fd = new FormData();
+        fd.append("to_email", toEmail);
+        fd.append("subject", emailSubject.trim());
+        fd.append("message_text", emailBody.trim());
+        fd.append("cc", JSON.stringify([]));
+        fd.append("bcc", JSON.stringify([]));
+        fd.append("job_file_ids", JSON.stringify([]));
+        const res = await fetch(`${baseUrl}/jobs/${jobId}/communications/email`, {
+          method: "POST",
+          credentials: "include",
+          body: fd,
+        });
+        if (!res.ok) {
+          const detail = await res.text().catch(() => "");
+          throw new Error(detail || `Failed to send email to ${toEmail}`);
+        }
+      }
+      toast.success(`Email sent to ${uniqueRecipients.length} participant${uniqueRecipients.length === 1 ? "" : "s"}.`);
+      closeParticipantEmail();
+      clearParticipantSelection();
+    } catch (e: unknown) {
+      toast.error(String(e));
+    } finally {
+      setEmailSending(false);
+    }
+  }
 
   async function quickUpdateBookingStatus(attendance: SessionAttendanceRow, field: "attendance_status" | "billing_status", value: string) {
     try {
@@ -651,6 +736,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
   }
 
   function toggleParticipants(sessionId: number) {
+    clearParticipantSelection();
     setParticipantsOpen((prev) => {
       const next = new Set(prev);
       if (next.has(sessionId)) next.delete(sessionId);
@@ -763,6 +849,18 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                     const staff = staffBySession[s.training_course_session_id] ?? [];
                     const participants = s.attendance ?? [];
                     const participantsExpanded = participantsOpen.has(s.training_course_session_id);
+                    const selectedIds = new Set(
+                      participants
+                        .filter((p) => participantSelection.has(p.training_session_attendance_id))
+                        .map((p) => p.training_session_attendance_id),
+                    );
+                    const allParticipantIds = participants.map((p) => p.training_session_attendance_id);
+                    const selectedCount = selectedIds.size;
+                    const unpaidCount = participants.filter((p) => {
+                      const billing = String(p.billing_status || "").toLowerCase();
+                      return billing && !["paid", "included", "waived"].includes(billing);
+                    }).length;
+                    const allSelected = allParticipantIds.length > 0 && selectedCount === allParticipantIds.length;
                     return (
                       <div key={s.training_course_session_id} className="rounded-lg border border-slate-200 bg-white">
                         <div className="flex items-start gap-3 p-3">
@@ -784,22 +882,88 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                               {s.session_hours ? ` · ${s.session_hours}h` : ""}
                               {s.venue_name ? ` · ${s.venue_name}` : ""}
                             </p>
-                            <div className={`mt-2 rounded-md border border-slate-100 bg-slate-50 p-2 ${participantsExpanded ? "" : "hidden"}`}>
-                              <div className="mb-2 flex items-center justify-between gap-2">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Participants</p>
-                                <span className="text-xs text-slate-400">
-                                  {participants.length} record{participants.length === 1 ? "" : "s"}
-                                </span>
+                            <div className={`mt-2 w-full rounded-md border border-slate-100 bg-slate-50 p-3 ${participantsExpanded ? "" : "hidden"}`}>
+                              <div className="mb-3 flex w-full flex-wrap items-center justify-between gap-3">
+                                <div className="flex items-center gap-3">
+                                  <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    <input
+                                      type="checkbox"
+                                      checked={allSelected}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setParticipantSelection((prev) => {
+                                            const next = new Set(prev);
+                                            participants.forEach((p) => next.add(p.training_session_attendance_id));
+                                            return next;
+                                          });
+                                        } else {
+                                          setParticipantSelection((prev) => {
+                                            const next = new Set(prev);
+                                            participants.forEach((p) => next.delete(p.training_session_attendance_id));
+                                            return next;
+                                          });
+                                        }
+                                      }}
+                                      className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+                                    />
+                                    Select all
+                                  </label>
+                                  <span className="text-xs text-slate-400">
+                                    {selectedCount} selected · {participants.length} record{participants.length === 1 ? "" : "s"}
+                                    {unpaidCount > 0 ? ` · ${unpaidCount} unpaid` : ""}
+                                  </span>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs"
+                                    disabled={selectedCount === 0}
+                                    onClick={() => openParticipantEmail(s, "selected")}
+                                  >
+                                    <Mail className="mr-1 h-3.5 w-3.5" />
+                                    Email selected
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs"
+                                    disabled={participants.length === 0}
+                                    onClick={() => openParticipantEmail(s, "all")}
+                                  >
+                                    <Mail className="mr-1 h-3.5 w-3.5" />
+                                    Email all
+                                  </Button>
+                                </div>
                               </div>
                               {participants.length === 0 ? (
                                 <p className="text-xs text-slate-400">No participants assigned to this session yet.</p>
                               ) : (
-                                <div className="max-h-32 space-y-1 overflow-y-auto pr-1">
+                                <div className="max-h-96 overflow-y-auto pr-1">
                                   {participants.map((p) => (
                                     <div
                                       key={p.training_session_attendance_id}
-                                      className="grid gap-2 rounded bg-white px-2 py-1 text-xs shadow-sm ring-1 ring-slate-100 md:grid-cols-[1.4fr_1fr_1fr_1fr_auto]"
+                                      className={`grid gap-2 rounded px-2 py-2 text-xs shadow-sm ring-1 ring-slate-100 md:grid-cols-[28px_minmax(0,1.7fr)_120px_120px_120px_auto] ${
+                                        String(p.billing_status || "").toLowerCase() === "paid" || String(p.billing_status || "").toLowerCase() === "included" || String(p.billing_status || "").toLowerCase() === "waived"
+                                          ? "bg-white"
+                                          : "bg-amber-50/80 ring-amber-200"
+                                      }`}
                                     >
+                                      <label className="flex items-start justify-center pt-0.5">
+                                        <input
+                                          type="checkbox"
+                                          checked={participantSelection.has(p.training_session_attendance_id)}
+                                          onChange={(e) => {
+                                            setParticipantSelection((prev) => {
+                                              const next = new Set(prev);
+                                              if (e.target.checked) next.add(p.training_session_attendance_id);
+                                              else next.delete(p.training_session_attendance_id);
+                                              return next;
+                                            });
+                                          }}
+                                          className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+                                        />
+                                      </label>
                                       <div className="min-w-0">
                                         <div className="font-medium text-slate-800">{p.person_name}</div>
                                         <div className="text-[11px] text-slate-400">
@@ -851,6 +1015,19 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                                         </Select>
                                       </div>
                                       <div className="flex items-center gap-2 justify-self-end">
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-6 px-2 text-emerald-600 hover:text-emerald-700"
+                                          onClick={() => {
+                                            setParticipantSelection(new Set([p.training_session_attendance_id]));
+                                            openParticipantEmail(s, "selected");
+                                          }}
+                                          title="Email participant"
+                                        >
+                                          <Mail className="h-3 w-3" />
+                                        </Button>
                                         <Button
                                           type="button"
                                           size="sm"
@@ -1344,6 +1521,59 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
             <Button variant="outline" onClick={() => setAssignTarget(null)}>Cancel</Button>
             <Button onClick={() => void submitAssignToSession()} disabled={assigning || !assignBookingId || !assignSession}>
               {assigning ? "Assigning..." : "Assign"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!emailTargetSession} onOpenChange={(o) => !o && closeParticipantEmail()}>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-4 w-4 text-emerald-600" />
+              Email Participants
+            </DialogTitle>
+          </DialogHeader>
+          {emailTargetSession && (
+            <div className="space-y-4 py-1">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                <div className="font-medium text-slate-900">{emailTargetSession.session_title || `Session #${emailTargetSession.training_course_session_id}`}</div>
+                <div className="text-xs text-slate-500">
+                  {emailTargetMode === "all" ? "All participants in this session" : `${emailRecipients.length} selected participant${emailRecipients.length === 1 ? "" : "s"}`}
+                </div>
+              </div>
+
+              <div className="grid gap-3">
+                <div>
+                  <Label>Subject</Label>
+                  <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} placeholder="Session update" />
+                </div>
+                <div>
+                  <Label>Message</Label>
+                  <Textarea rows={8} value={emailBody} onChange={(e) => setEmailBody(e.target.value)} placeholder="Write your email..." />
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 p-3 text-sm">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Recipients</div>
+                <div className="flex flex-wrap gap-2">
+                  {emailRecipients.length === 0 ? (
+                    <span className="text-xs text-slate-400">No selected participants with email addresses.</span>
+                  ) : (
+                    emailRecipients.map((attendance) => (
+                      <Badge key={attendance.training_session_attendance_id} variant="outline" className="text-xs">
+                        {attendance.person_name}
+                      </Badge>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="flex justify-end gap-2 border-t pt-3">
+            <Button variant="outline" onClick={closeParticipantEmail} disabled={emailSending}>Cancel</Button>
+            <Button onClick={() => void sendParticipantEmail()} disabled={emailSending || emailRecipients.length === 0}>
+              {emailSending ? "Sending..." : "Send email"}
             </Button>
           </div>
         </DialogContent>

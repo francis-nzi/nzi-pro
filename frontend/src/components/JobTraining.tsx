@@ -148,6 +148,7 @@ export default function JobTraining({ jobId, clientId, baseUrl, jobFamily }: Job
             )}
             {activeTab === "attendees" && (
               <AttendeesTab
+                jobId={jobId}
                 runs={overview.course_runs}
                 sessions={overview.sessions}
                 baseUrl={baseUrl}
