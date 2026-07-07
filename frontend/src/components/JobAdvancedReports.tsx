@@ -938,6 +938,7 @@ export default function JobAdvancedReports({
       toNum(jobData?.benchmark_year) ||
       firstHistoricalYear ||
       currentReportYear;
+    const displayStartYear = firstHistoricalYear ?? baseline;
     const endYear = netZeroYear > baseline ? netZeroYear : Math.max(baseline + 1, 2050);
     const benchmarkRow = yearly.find((row) => row.year === baseline);
     const benchS1 = benchmarkRow ? benchmarkRow.scope1 : scope1;
@@ -968,9 +969,9 @@ export default function JobAdvancedReports({
       forecastScope(benchS3, interimS3Pct, year);
 
     const yearSet = new Set<number>();
-    for (let y = baseline; y <= endYear; y++) yearSet.add(y);
+    for (let y = displayStartYear; y <= endYear; y++) yearSet.add(y);
     yearly.forEach((row) => {
-      if (row.year >= baseline && row.year <= endYear) yearSet.add(row.year);
+      if (row.year >= displayStartYear && row.year <= endYear) yearSet.add(row.year);
     });
     const years = Array.from(yearSet).sort((a, b) => a - b);
 

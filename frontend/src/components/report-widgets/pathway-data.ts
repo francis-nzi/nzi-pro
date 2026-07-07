@@ -53,6 +53,7 @@ export function buildEmissionsReductionPathwayData({
     benchmarkYear != null && benchmarkYear > 1900
       ? benchmarkYear
       : firstHistoricalYear ?? fallbackYear;
+  const displayStartYear = firstHistoricalYear ?? baselineYear;
   const endYear = targetYear != null && targetYear > baselineYear ? targetYear : Math.max(baselineYear + 1, 2050);
 
   const benchmarkRow = yearlyEmissions.find((row) => row.year === baselineYear) ?? null;
@@ -80,9 +81,9 @@ export function buildEmissionsReductionPathwayData({
   };
 
   const yearSet = new Set<number>();
-  for (let y = baselineYear; y <= endYear; y += 1) yearSet.add(y);
+  for (let y = displayStartYear; y <= endYear; y += 1) yearSet.add(y);
   yearlyEmissions.forEach((row) => {
-    if (row.year >= baselineYear && row.year <= endYear) yearSet.add(row.year);
+    if (row.year >= displayStartYear && row.year <= endYear) yearSet.add(row.year);
   });
   const years = Array.from(yearSet).sort((a, b) => a - b);
 

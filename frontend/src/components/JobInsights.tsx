@@ -406,6 +406,7 @@ export default function JobInsights({
 
     const firstHistoricalYear = yearlyEmissions.length > 0 ? yearlyEmissions[0].year : null;
     const baselineYear = benchmarkYear ?? firstHistoricalYear ?? currentYear;
+    const displayStartYear = firstHistoricalYear ?? baselineYear;
     const endYear = targetYear && targetYear > baselineYear ? targetYear : Math.max(baselineYear + 1, 2050);
 
     const benchmarkRow = yearlyEmissions.find((r) => r.year === baselineYear);
@@ -438,8 +439,8 @@ export default function JobInsights({
       forecastScope(benchS3, interimTargets.scope_3, year);
 
     const yearSet = new Set<number>();
-    for (let y = baselineYear; y <= endYear; y++) yearSet.add(y);
-    yearlyEmissions.forEach((r) => { if (r.year >= baselineYear && r.year <= endYear) yearSet.add(r.year); });
+    for (let y = displayStartYear; y <= endYear; y++) yearSet.add(y);
+    yearlyEmissions.forEach((r) => { if (r.year >= displayStartYear && r.year <= endYear) yearSet.add(r.year); });
     const years = Array.from(yearSet).sort((a, b) => a - b);
 
     // Benchmark absolute total for proportional scaling of target line.

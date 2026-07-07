@@ -184,6 +184,7 @@ export default function ClientPathwayCharts({
     if (!scopeTotals || intensityEntries.length === 0) return [];
     const firstHist = normalEmissions.length > 0 ? normalEmissions[0].year : null;
     const baselineYear = benchmarkYear ?? firstHist ?? currentYear;
+    const displayStartYear = firstHist ?? baselineYear;
     const endYear = targetYear > baselineYear ? targetYear : Math.max(baselineYear + 1, 2050);
 
     const benchRow = normalEmissions.find(r => r.year === baselineYear);
@@ -195,8 +196,8 @@ export default function ClientPathwayCharts({
     const forecastTotal = (year: number) => fs(benchS1, interimTargets.scope_1, year) + fs(benchS2, interimTargets.scope_2, year) + fs(benchS3, interimTargets.scope_3, year);
 
     const yearSet = new Set<number>();
-    for (let y = baselineYear; y <= endYear; y++) yearSet.add(y);
-    normalEmissions.forEach(r => { if (r.year <= endYear) yearSet.add(r.year); });
+    for (let y = displayStartYear; y <= endYear; y++) yearSet.add(y);
+    normalEmissions.forEach(r => { if (r.year >= displayStartYear && r.year <= endYear) yearSet.add(r.year); });
 
     return Array.from(yearSet).sort((a, b) => a - b).map(year => {
       const actual = normalEmissions.find(r => r.year === year);
