@@ -85,6 +85,8 @@ type Factor = {
   method?: string | null;
   valid_from?: string | null;
   valid_to?: string | null;
+  factor_definition_id?: number | null;
+  factor_year_value_id?: number | null;
 };
 
 type UploadRejectedRow = {
@@ -1403,6 +1405,16 @@ export default function DatasetsPage() {
               </div>
             )}
 
+            {editingFactor?.factor_definition_id && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                <span className="font-semibold">Linked to factor definition #{editingFactor.factor_definition_id}.</span>{" "}
+                Fields marked <span className="font-semibold text-blue-700">★ All years</span> will update every dataset year that shares this factor — not just this one row.
+                {editingFactor.factor_year_value_id && (
+                  <> Year-specific values (factor, valid dates, currency) update only this year (year value #{editingFactor.factor_year_value_id}).</>
+                )}
+              </div>
+            )}
+
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <div className="space-y-2 xl:col-span-2">
                 <Label htmlFor="factorDatasetRef">Dataset</Label>
@@ -1448,11 +1460,15 @@ export default function DatasetsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="factorUom">UoM</Label>
+                <Label htmlFor="factorUom">
+                  UoM{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
                 <Input id="factorUom" value={factorUom} onChange={(e) => setFactorUom(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="factorGhgUnit">GHG Unit</Label>
+                <Label htmlFor="factorGhgUnit">
+                  GHG Unit{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
                 <Input id="factorGhgUnit" value={factorGhgUnit} onChange={(e) => setFactorGhgUnit(e.target.value)} />
               </div>
             </div>
@@ -1463,31 +1479,45 @@ export default function DatasetsPage() {
                 <Input id="factorOriginalId" value={factorOriginalId} onChange={(e) => setFactorOriginalId(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="factorScope">Scope</Label>
+                <Label htmlFor="factorScope">
+                  Scope{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
                 <Input id="factorScope" value={factorScope} onChange={(e) => setFactorScope(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="factorReportLabel">Report Label</Label>
+                <Label htmlFor="factorReportLabel">
+                  Report Label{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
                 <Input id="factorReportLabel" value={factorReportLabel} onChange={(e) => setFactorReportLabel(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="factorCategory">Category</Label>
+                <Label htmlFor="factorCategory">
+                  Category{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
                 <Input id="factorCategory" value={factorCategory} onChange={(e) => setFactorCategory(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="factorLevel1">Level 1</Label>
+                <Label htmlFor="factorLevel1">
+                  Level 1{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
                 <Input id="factorLevel1" value={factorLevel1} onChange={(e) => setFactorLevel1(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="factorLevel2">Level 2</Label>
+                <Label htmlFor="factorLevel2">
+                  Level 2{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
                 <Input id="factorLevel2" value={factorLevel2} onChange={(e) => setFactorLevel2(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="factorLevel3">Level 3</Label>
+                <Label htmlFor="factorLevel3">
+                  Level 3{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
                 <Input id="factorLevel3" value={factorLevel3} onChange={(e) => setFactorLevel3(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="factorLevel4">Level 4</Label>
+                <Label htmlFor="factorLevel4">
+                  Level 4{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
                 <Input id="factorLevel4" value={factorLevel4} onChange={(e) => setFactorLevel4(e.target.value)} />
               </div>
               <div className="space-y-2">
@@ -1495,11 +1525,15 @@ export default function DatasetsPage() {
                 <Input id="factorColumnText" value={factorColumnText} onChange={(e) => setFactorColumnText(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="factorSource">Source</Label>
+                <Label htmlFor="factorSource">
+                  Source{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
                 <Input id="factorSource" value={factorSource} onChange={(e) => setFactorSource(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="factorRegion">Region</Label>
+                <Label htmlFor="factorRegion">
+                  Region{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
                 <Input id="factorRegion" value={factorRegion} onChange={(e) => setFactorRegion(e.target.value)} />
               </div>
               <div className="space-y-2">
@@ -1507,7 +1541,9 @@ export default function DatasetsPage() {
                 <Input id="factorCurrency" value={factorCurrency} onChange={(e) => setFactorCurrency(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="factorMethod">Method</Label>
+                <Label htmlFor="factorMethod">
+                  Method{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
                 <Input id="factorMethod" value={factorMethod} onChange={(e) => setFactorMethod(e.target.value)} />
               </div>
               <div className="space-y-2">

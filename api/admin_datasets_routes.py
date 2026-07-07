@@ -472,6 +472,8 @@ def _serialize_factor_row(row: dict[str, Any]) -> dict[str, Any]:
         "method": _s("method"),
         "valid_from": _dt("valid_from"),
         "valid_to": _dt("valid_to"),
+        "factor_definition_id": _int("factor_definition_id"),
+        "factor_year_value_id": _int("factor_year_value_id"),
     }
 
 
@@ -503,7 +505,9 @@ def _load_factor_row(con, db_id: int) -> dict[str, Any] | None:
             fl.currency,
             fl.method,
             fl.valid_from,
-            fl.valid_to
+            fl.valid_to,
+            fl.factor_definition_id,
+            fl.factor_year_value_id
         FROM v_factor_lookup fl
         LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
         WHERE fl.db_id = %s
@@ -923,6 +927,17 @@ def create_factor_row(
         raise HTTPException(status_code=500, detail=f"Failed to create factor row: {e}")
 
 
+# Fields stored in emission_factor_definitions (shared across all years for this factor)
+_DEFINITION_FIELDS = frozenset({
+    "scope", "category", "level_1", "level_2", "level_3", "level_4",
+    "report_label", "uom", "ghg_unit", "source", "region", "method",
+})
+# Fields stored in emission_factor_year_values (one value per dataset/year)
+_YEAR_VALUE_FIELDS = frozenset({"factor", "year", "original_id", "currency", "valid_from", "valid_to"})
+# Fields that always live only in factor_lookup
+_LEGACY_ONLY_FIELDS = frozenset({"dataset_id", "file_name", "column_text"})
+
+
 @router.patch("/factors/{db_id}")
 def update_factor_row(
     db_id: int,
@@ -932,38 +947,36 @@ def update_factor_row(
     try:
         with get_conn() as con:
             _ensure_factor_lookup_schema(con)
-            exists = con.execute("SELECT db_id, dataset_id FROM factor_lookup WHERE db_id = %s", [int(db_id)]).fetchone()
-            if not exists:
+            # Fetch the row with its canonical definition and year-value IDs
+            existing = con.execute(
+                """
+                SELECT fl.db_id, efa.factor_id AS factor_definition_id, efyv.factor_year_value_id
+                FROM factor_lookup fl
+                LEFT JOIN emission_factor_aliases efa
+                    ON efa.dataset_id = fl.dataset_id
+                    AND TRIM(efa.original_id) = TRIM(fl.original_id)
+                LEFT JOIN emission_factor_year_values efyv
+                    ON efyv.factor_id = efa.factor_id
+                    AND efyv.dataset_id = fl.dataset_id
+                    AND efyv.superseded_by IS NULL
+                    AND (efyv.year = fl.year OR (efyv.year IS NULL AND fl.year IS NULL))
+                WHERE fl.db_id = %s
+                """,
+                [int(db_id)],
+            ).fetchone()
+            if not existing:
                 raise HTTPException(status_code=404, detail=f"Factor row {db_id} not found")
 
-            updates: list[str] = []
-            params: list[Any] = []
-            for key in [
-                "dataset_id",
-                "file_name",
-                "year",
-                "original_id",
-                "scope",
-                "category",
-                "level_1",
-                "level_2",
-                "level_3",
-                "level_4",
-                "column_text",
-                "report_label",
-                "uom",
-                "ghg_unit",
-                "factor",
-                "source",
-                "region",
-                "currency",
-                "method",
-                "valid_from",
-                "valid_to",
-            ]:
+            factor_definition_id: int | None = existing[1]
+            factor_year_value_id: int | None = existing[2]
+
+            # Parse and coerce all submitted fields
+            all_keys = list(_DEFINITION_FIELDS) + list(_YEAR_VALUE_FIELDS) + list(_LEGACY_ONLY_FIELDS)
+            parsed: dict[str, Any] = {}
+            for key in all_keys:
                 if key not in body:
                     continue
-                value = body.get(key)
+                value = body[key]
                 if key in ("dataset_id", "year") and value is not None and str(value).strip() != "":
                     value = int(value)
                 elif key == "factor" and value is not None and str(value).strip() != "":
@@ -972,14 +985,45 @@ def update_factor_row(
                     value = str(value).strip() if value is not None else None
                     if value == "":
                         value = None
-                updates.append(f"{key} = %s")
-                params.append(value)
+                parsed[key] = value
 
-            if not updates:
+            if not parsed:
                 return {"ok": True, "message": "No fields to update"}
 
-            params.append(int(db_id))
-            con.execute(f"UPDATE factor_lookup SET {', '.join(updates)} WHERE db_id = %s", params)
+            # 1. Write definition-layer fields to emission_factor_definitions (affects ALL years)
+            if factor_definition_id:
+                def_payload = {k: v for k, v in parsed.items() if k in _DEFINITION_FIELDS}
+                if def_payload:
+                    set_clause = ", ".join(f"{k} = %s" for k in def_payload)
+                    con.execute(
+                        f"UPDATE emission_factor_definitions SET {set_clause} WHERE factor_id = %s",
+                        list(def_payload.values()) + [factor_definition_id],
+                    )
+
+            # 2. Write year-specific numeric fields to emission_factor_year_values
+            if factor_year_value_id:
+                yv_payload = {k: v for k, v in parsed.items() if k in _YEAR_VALUE_FIELDS}
+                if yv_payload:
+                    set_clause = ", ".join(f"{k} = %s" for k in yv_payload)
+                    con.execute(
+                        f"UPDATE emission_factor_year_values SET {set_clause} WHERE factor_year_value_id = %s",
+                        list(yv_payload.values()) + [factor_year_value_id],
+                    )
+
+            # 3. Write to factor_lookup: always for legacy-only fields; also for any
+            #    field whose canonical table doesn't exist yet for this row (unlinked).
+            fl_payload: dict[str, Any] = {k: v for k, v in parsed.items() if k in _LEGACY_ONLY_FIELDS}
+            if not factor_definition_id:
+                fl_payload.update({k: v for k, v in parsed.items() if k in _DEFINITION_FIELDS})
+            if not factor_year_value_id:
+                fl_payload.update({k: v for k, v in parsed.items() if k in _YEAR_VALUE_FIELDS})
+            if fl_payload:
+                set_clause = ", ".join(f"{k} = %s" for k in fl_payload)
+                con.execute(
+                    f"UPDATE factor_lookup SET {set_clause} WHERE db_id = %s",
+                    list(fl_payload.values()) + [int(db_id)],
+                )
+
             factor_row = _load_factor_row(con, int(db_id))
             if not factor_row:
                 raise HTTPException(status_code=500, detail="Failed to reload updated factor row")
