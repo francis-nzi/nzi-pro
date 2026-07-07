@@ -144,7 +144,162 @@ def ensure_portal_schema(con) -> None:
         except Exception:
             pass
 
+    # client_portal_access — client-level portal access control
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS client_portal_access (
+          client_db_id       INTEGER PRIMARY KEY REFERENCES clients(db_id) ON DELETE CASCADE,
+          is_enabled         BOOLEAN NOT NULL DEFAULT FALSE,
+          access_expires_at  TIMESTAMPTZ,
+          payment_status     VARCHAR(16) NOT NULL DEFAULT 'unpaid',
+          payment_reference  VARCHAR,
+          nav_config         JSONB NOT NULL DEFAULT '{}',
+          notes              TEXT,
+          created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+
     _schema_seeded = True
+
+
+# ---------------------------------------------------------------------------
+# client_portal_access helpers
+# ---------------------------------------------------------------------------
+
+_DEFAULT_NAV_CONFIG = {
+    "dashboard": True,
+    "data": True,
+    "reports": True,
+    "actions": True,
+    "insights": True,
+    "files": True,
+    "governance": False,
+}
+
+
+def get_client_portal_access(client_db_id: int, *, con=None) -> dict[str, Any]:
+    """Return portal access record for a client, inserting defaults if absent."""
+    if con is None:
+        with get_conn() as managed:
+            return get_client_portal_access(client_db_id, con=managed)
+    ensure_portal_schema(con)
+    row = con.execute(
+        """
+        SELECT is_enabled, access_expires_at, payment_status, payment_reference,
+               nav_config, notes, created_at, updated_at
+        FROM client_portal_access
+        WHERE client_db_id = %s
+        """,
+        [int(client_db_id)],
+    ).fetchone()
+    if not row:
+        return {
+            "client_db_id": int(client_db_id),
+            "is_enabled": False,
+            "access_expires_at": None,
+            "payment_status": "unpaid",
+            "payment_reference": None,
+            "nav_config": dict(_DEFAULT_NAV_CONFIG),
+            "notes": None,
+        }
+    import json as _json
+    nav = row[4]
+    if isinstance(nav, str):
+        try:
+            nav = _json.loads(nav)
+        except Exception:
+            nav = {}
+    merged_nav = {**_DEFAULT_NAV_CONFIG, **(nav or {})}
+    return {
+        "client_db_id": int(client_db_id),
+        "is_enabled": bool(row[0]),
+        "access_expires_at": str(row[1]) if row[1] else None,
+        "payment_status": str(row[2] or "unpaid"),
+        "payment_reference": str(row[3] or "") or None,
+        "nav_config": merged_nav,
+        "notes": str(row[5] or "") or None,
+    }
+
+
+def upsert_client_portal_access(
+    client_db_id: int,
+    *,
+    is_enabled: bool | None = None,
+    access_expires_at=None,
+    payment_status: str | None = None,
+    payment_reference: str | None = None,
+    nav_config: dict | None = None,
+    notes: str | None = None,
+    con=None,
+) -> dict[str, Any]:
+    if con is None:
+        with get_conn(autocommit=False) as managed:
+            result = upsert_client_portal_access(
+                client_db_id,
+                is_enabled=is_enabled,
+                access_expires_at=access_expires_at,
+                payment_status=payment_status,
+                payment_reference=payment_reference,
+                nav_config=nav_config,
+                notes=notes,
+                con=managed,
+            )
+            return result
+    import json as _json
+    ensure_portal_schema(con)
+    existing = get_client_portal_access(client_db_id, con=con)
+
+    new_enabled = is_enabled if is_enabled is not None else existing["is_enabled"]
+    new_expires = access_expires_at if access_expires_at is not None else existing["access_expires_at"]
+    new_status = payment_status if payment_status is not None else existing["payment_status"]
+    new_ref = payment_reference if payment_reference is not None else existing["payment_reference"]
+    new_nav = nav_config if nav_config is not None else existing["nav_config"]
+    new_notes = notes if notes is not None else existing["notes"]
+
+    con.execute(
+        """
+        INSERT INTO client_portal_access
+          (client_db_id, is_enabled, access_expires_at, payment_status,
+           payment_reference, nav_config, notes, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, NOW())
+        ON CONFLICT (client_db_id) DO UPDATE SET
+          is_enabled        = EXCLUDED.is_enabled,
+          access_expires_at = EXCLUDED.access_expires_at,
+          payment_status    = EXCLUDED.payment_status,
+          payment_reference = EXCLUDED.payment_reference,
+          nav_config        = EXCLUDED.nav_config,
+          notes             = EXCLUDED.notes,
+          updated_at        = NOW()
+        """,
+        [
+            int(client_db_id),
+            new_enabled,
+            new_expires,
+            new_status,
+            new_ref,
+            _json.dumps(new_nav),
+            new_notes,
+        ],
+    )
+    return get_client_portal_access(client_db_id, con=con)
+
+
+def check_client_portal_access(client_db_id: int, *, con=None) -> tuple[bool, str]:
+    """Return (allowed, reason). Used by login to enforce access."""
+    record = get_client_portal_access(client_db_id, con=con)
+    if not record["is_enabled"]:
+        return False, "Portal access has not been enabled for your organisation"
+    if record["access_expires_at"]:
+        from datetime import datetime, timezone
+        try:
+            exp_str = str(record["access_expires_at"])
+            # Parse ISO timestamp
+            exp = datetime.fromisoformat(exp_str.replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > exp:
+                return False, "Your portal access has expired. Please contact your NZI advisor to renew."
+        except Exception:
+            pass
+    return True, ""
 
 
 # ---------------------------------------------------------------------------

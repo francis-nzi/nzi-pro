@@ -12,35 +12,33 @@ import { BRAND } from "@/lib/brand";
 
 const PortalReporting = dynamic(() => import("@/components/PortalReporting"), {
   ssr: false,
-  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading reporting data…</div>,
+  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading reporting data...</div>,
 });
 
 const PortalActions = dynamic(() => import("@/components/PortalActions"), {
   ssr: false,
-  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading actions…</div>,
+  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading actions...</div>,
 });
 
 const PortalInsights = dynamic(() => import("@/components/PortalInsights"), {
   ssr: false,
-  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading insights…</div>,
+  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading insights...</div>,
 });
 
 const PortalFiles = dynamic(() => import("@/components/PortalFiles"), {
   ssr: false,
-  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading files…</div>,
+  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading files...</div>,
 });
 
 const PortalGovernance = dynamic(() => import("@/components/PortalGovernance"), {
   ssr: false,
-  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading governance…</div>,
+  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading governance...</div>,
 });
 
 const PortalDashboardCharts = dynamic(() => import("@/components/PortalDashboardCharts"), {
   ssr: false,
-  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading charts…</div>,
+  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading charts...</div>,
 });
-
-// ── Types ────────────────────────────────────────────────────────────────────
 
 type Job = {
   job_id: number;
@@ -74,8 +72,6 @@ type DashboardMetrics = {
   net_zero_progress?: { net_zero_year: number; years_to_target: number } | null;
 };
 
-// ── Review status helpers ────────────────────────────────────────────────────
-
 const REVIEW_LABELS: Record<string, string> = {
   not_sent: "",
   draft: "",
@@ -103,16 +99,8 @@ function formatTimestamp(raw: string | null | undefined): string {
   if (!raw) return "";
   const dt = new Date(raw);
   if (Number.isNaN(dt.getTime())) return raw;
-  return dt.toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return dt.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
-
-// ── Year-based report cards ───────────────────────────────────────────────────
 
 const REVIEW_STATUS_RANK: Record<string, number> = {
   approved: 4, sent_for_review: 3, changes_requested: 2, draft: 1, not_sent: 0,
@@ -124,18 +112,14 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
     const yr = job.reporting_year ?? 0;
     const existing = byYear.get(yr);
     const rank = REVIEW_STATUS_RANK[job.review_status] ?? 0;
-    if (!existing || rank > (REVIEW_STATUS_RANK[existing.review_status] ?? 0)) {
-      byYear.set(yr, job);
-    }
+    if (!existing || rank > (REVIEW_STATUS_RANK[existing.review_status] ?? 0)) byYear.set(yr, job);
   }
   const sorted = Array.from(byYear.entries()).sort((a, b) => b[0] - a[0]);
-  const statusLabel = (s: string) => REVIEW_LABELS[s] ?? "";
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {sorted.map(([year, job]) => {
-        const label = statusLabel(job.review_status);
-        const snapshotTime = job.snapshot_at ? formatTimestamp(job.snapshot_at) : "";
+        const label = REVIEW_LABELS[job.review_status] ?? "";
         return (
           <div key={year} className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-4">
             <div className="flex items-start justify-between gap-2">
@@ -143,7 +127,7 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
                 <div className="text-3xl font-bold text-gray-900 tabular-nums">{year || "—"}</div>
                 <div className="mt-1 text-sm text-gray-500 leading-tight">{job.title || "Carbon Report"}</div>
                 <div className="mt-1 text-xs text-gray-400">Job No: {job.job_number || "—"}</div>
-                <div className="mt-1 text-xs text-gray-400" title={snapshotTime ? `Last refreshed ${snapshotTime}` : undefined}>
+                <div className="mt-1 text-xs text-gray-400">
                   {job.snapshot_at ? `Last refreshed ${formatTimestamp(job.snapshot_at)}` : "No refresh recorded yet"}
                 </div>
               </div>
@@ -162,9 +146,7 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
               <ExternalLink className="h-4 w-4" />
               View Report
             </Link>
-            <div className="text-center text-xs text-gray-400">
-              Opens the current report
-            </div>
+            <div className="text-center text-xs text-gray-400">Opens the current report</div>
           </div>
         );
       })}
@@ -172,10 +154,7 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
   );
 }
 
-// ── Main page ────────────────────────────────────────────────────────────────
-
 type TabKey = "dashboard" | "data" | "reports" | "actions" | "insights" | "files" | "governance";
-
 const VALID_TABS: TabKey[] = ["dashboard", "data", "reports", "actions", "insights", "files", "governance"];
 
 export default function DashboardPage() {
@@ -191,23 +170,19 @@ function DashboardPageInner() {
   const searchParams = useSearchParams();
 
   const tabFromUrl = searchParams.get("tab");
-  const resolvedTab = tabFromUrl === "reporting" ? "data"
-    : tabFromUrl === "governance" ? "files"
-    : (tabFromUrl as TabKey | null);
+  const resolvedTab = tabFromUrl === "reporting" ? "data" : tabFromUrl === "governance" ? "files" : (tabFromUrl as TabKey | null);
   const initialTab: TabKey = resolvedTab && VALID_TABS.includes(resolvedTab) ? resolvedTab : "dashboard";
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
 
-  function handleTabChange(tab: TabKey) {
-    setActiveTab(tab);
-    router.replace(`/dashboard?tab=${tab}`, { scroll: false });
+  function handleTabChange(tab: string) {
+    const t = (VALID_TABS.includes(tab as TabKey) ? tab : "dashboard") as TabKey;
+    setActiveTab(t);
+    router.replace(`/dashboard?tab=${t}`, { scroll: false });
   }
 
-  // Jobs (Reports tab)
   const [jobs, setJobs] = useState<Job[]>([]);
   const [clientName, setClientName] = useState("");
   const [jobsLoading, setJobsLoading] = useState(true);
-
-  // Dashboard metrics
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(true);
   const [metricsError, setMetricsError] = useState("");
@@ -215,39 +190,25 @@ function DashboardPageInner() {
   const [chartView, setChartView] = useState<"overview" | "trends">("overview");
 
   useEffect(() => {
-    // Load jobs (for Reports tab + client name)
     apiFetch("/portal/dashboard")
       .then(r => r.json() as Promise<{ jobs: Job[]; client_name: string }>)
       .then(d => { setJobs(d.jobs ?? []); setClientName(d.client_name ?? ""); })
       .catch(() => {})
       .finally(() => setJobsLoading(false));
 
-    // Load metrics (for Dashboard KPI cards)
     apiFetch("/portal/metrics")
-      .then(r => {
-        if (!r.ok) return r.text().then(t => Promise.reject(new Error(`${r.status}: ${t}`)));
-        return r.json() as Promise<DashboardMetrics>;
-      })
-      .then(d => {
-        setMetrics(d);
-        if (d.selected_year) setSelectedYear(d.selected_year);
-        if (!clientName && d.client_name) setClientName(d.client_name);
-      })
+      .then(r => { if (!r.ok) return r.text().then(t => Promise.reject(new Error(`${r.status}: ${t}`))); return r.json() as Promise<DashboardMetrics>; })
+      .then(d => { setMetrics(d); if (d.selected_year) setSelectedYear(d.selected_year); if (!clientName && d.client_name) setClientName(d.client_name); })
       .catch(e => setMetricsError((e as Error).message))
       .finally(() => setMetricsLoading(false));
-
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadMetricsForYear = useCallback(async (year: number) => {
     setMetricsLoading(true);
     setMetricsError("");
     try {
       const res = await apiFetch(`/portal/metrics?year=${year}`);
-      if (!res.ok) {
-        const t = await res.text();
-        setMetricsError(`${res.status}: ${t}`);
-        return;
-      }
+      if (!res.ok) { const t = await res.text(); setMetricsError(`${res.status}: ${t}`); return; }
       const d = await res.json() as DashboardMetrics;
       setMetrics(d);
       setSelectedYear(year);
@@ -259,77 +220,34 @@ function DashboardPageInner() {
   }, []);
 
   const yearOptions = useMemo(() => metrics?.available_years ?? [], [metrics]);
-
   const scopeData = useMemo(() => {
     const m = metrics?.current_metrics;
     if (!m) return [];
-    return [
-      { name: "Scope 1", value: m.scope1 },
-      { name: "Scope 2", value: m.scope2 },
-      { name: "Scope 3", value: m.scope3 },
-    ].filter(s => s.value > 0);
+    return [{ name: "Scope 1", value: m.scope1 }, { name: "Scope 2", value: m.scope2 }, { name: "Scope 3", value: m.scope3 }].filter(s => s.value > 0);
   }, [metrics]);
-
-  const trendData = useMemo(() =>
-    (metrics?.yearly_emissions ?? []).map(y => ({
-      year: String(y.year),
-      total: y.total,
-      scope1: y.scope1,
-      scope2: y.scope2,
-      scope3: y.scope3,
-    })),
-  [metrics]);
-
+  const trendData = useMemo(() => (metrics?.yearly_emissions ?? []).map(y => ({ year: String(y.year), total: y.total, scope1: y.scope1, scope2: y.scope2, scope3: y.scope3 })), [metrics]);
   const topCategoryData = useMemo(() => metrics?.top_categories ?? [], [metrics]);
-
-  const intensityMetric = useMemo(() => {
-    const m = metrics?.intensity_metrics ?? [];
-    return m.find(x => String(x.label ?? x.key).toLowerCase().includes("employee")) ?? m[0] ?? null;
-  }, [metrics]);
+  const intensityMetric = useMemo(() => { const m = metrics?.intensity_metrics ?? []; return m.find(x => String(x.label ?? x.key).toLowerCase().includes("employee")) ?? m[0] ?? null; }, [metrics]);
 
   const total = Number(metrics?.current_metrics?.total_emissions || 0);
   const displayYear = selectedYear ?? metrics?.current_metrics?.year ?? null;
   const displayName = clientName || "Your Dashboard";
 
-  const tabs: { key: TabKey; label: string }[] = [
-    { key: "dashboard", label: "Dashboard" },
-    { key: "data", label: "Data" },
-    { key: "reports", label: "Reports" },
-    { key: "actions", label: "Actions" },
-    { key: "insights", label: "Insights" },
-    { key: "files", label: "Files" },
-  ];
-
   return (
-    <PortalShell>
+    <PortalShell activeTab={activeTab} onTabChange={handleTabChange}>
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">{displayName}</h1>
           <p className="mt-1 text-sm text-gray-500">Carbon emissions data and report history.</p>
         </div>
 
-        {/* Tab bar */}
-        <div className="flex border-b border-gray-200 -mb-2">
-          {tabs.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => handleTabChange(tab.key)}
-              className={`px-5 py-2.5 text-sm font-medium transition-colors ${activeTab === tab.key ? "border-b-2 border-orange-500 text-orange-600" : "text-gray-500 hover:text-gray-700"}`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* ── Dashboard tab ─────────────────────────────────────────────── */}
         {activeTab === "dashboard" && (
-          <div className="space-y-6 pt-2">
+          <div className="space-y-6">
             {metricsError && (
               <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                 Failed to load dashboard data: {metricsError}
               </div>
             )}
-            {/* Year selector */}
             {yearOptions.length > 0 && (
               <div className="flex items-center justify-end gap-2">
                 <span className="text-sm text-gray-500">Reporting Year:</span>
@@ -337,55 +255,36 @@ function DashboardPageInner() {
                   value={selectedYear ?? ""}
                   disabled={metricsLoading}
                   onChange={e => void loadMetricsForYear(Number(e.target.value))}
-                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
                 >
                   {yearOptions.map(yr => <option key={yr} value={yr}>{yr}</option>)}
                 </select>
               </div>
             )}
 
-            {/* KPI cards */}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm text-right">
-                <div className="text-xs text-gray-500 leading-tight">
-                  Benchmark Emissions{metrics?.benchmark_metrics?.benchmark_year ? ` (${metrics.benchmark_metrics.benchmark_year})` : ""}
-                </div>
-                <div className="mt-2 text-2xl font-semibold tabular-nums leading-none">
-                  {metrics?.benchmark_metrics?.total != null ? formatEmissions(metrics.benchmark_metrics.total) : "—"}
-                </div>
-                <div className="mt-1 text-xs text-gray-400">tCO₂e</div>
+                <div className="text-xs text-gray-500 leading-tight">Benchmark Emissions{metrics?.benchmark_metrics?.benchmark_year ? ` (${metrics.benchmark_metrics.benchmark_year})` : ""}</div>
+                <div className="mt-2 text-2xl font-semibold tabular-nums leading-none">{metrics?.benchmark_metrics?.total != null ? formatEmissions(metrics.benchmark_metrics.total) : "—"}</div>
+                <div className="mt-1 text-xs text-gray-400">tCO&#8322;e</div>
               </div>
-
               <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm text-right">
-                <div className="text-xs text-gray-500 leading-tight">
-                  Current Year Emissions{displayYear ? ` (${displayYear})` : ""}
-                </div>
-                <div className="mt-2 text-2xl font-semibold tabular-nums leading-none">
-                  {metricsLoading ? "…" : formatEmissions(total)}
-                </div>
-                <div className="mt-1 text-xs text-gray-400">tCO₂e</div>
+                <div className="text-xs text-gray-500 leading-tight">Current Year Emissions{displayYear ? ` (${displayYear})` : ""}</div>
+                <div className="mt-2 text-2xl font-semibold tabular-nums leading-none">{metricsLoading ? "..." : formatEmissions(total)}</div>
+                <div className="mt-1 text-xs text-gray-400">tCO&#8322;e</div>
               </div>
-
               <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm text-right">
                 <div className="text-xs text-gray-500 leading-tight">Intensity Metric</div>
-                <div className="mt-2 text-2xl font-semibold tabular-nums leading-none">
-                  {intensityMetric ? Number(intensityMetric.intensity || 0).toFixed(1) : "—"}
-                </div>
+                <div className="mt-2 text-2xl font-semibold tabular-nums leading-none">{intensityMetric ? Number(intensityMetric.intensity || 0).toFixed(1) : "—"}</div>
                 <div className="mt-1 text-xs text-gray-400">{intensityMetric?.label ?? "Not available"}</div>
               </div>
-
               <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm text-right">
                 <div className="text-xs text-gray-500 leading-tight">Net Zero Target</div>
-                <div className="mt-2 text-2xl font-semibold tabular-nums leading-none">
-                  {metrics?.net_zero_progress?.net_zero_year ?? "—"}
-                </div>
-                <div className="mt-1 text-xs text-gray-400">
-                  {metrics?.net_zero_progress ? `${metrics.net_zero_progress.years_to_target} years to target` : "Target not set"}
-                </div>
+                <div className="mt-2 text-2xl font-semibold tabular-nums leading-none">{metrics?.net_zero_progress?.net_zero_year ?? "—"}</div>
+                <div className="mt-1 text-xs text-gray-400">{metrics?.net_zero_progress ? `${metrics.net_zero_progress.years_to_target} years to target` : "Target not set"}</div>
               </div>
             </div>
 
-            {/* Charts */}
             {!metricsLoading && metrics && (
               <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between mb-4">
@@ -397,59 +296,21 @@ function DashboardPageInner() {
                     {chartView === "overview" ? "View Trends" : "View Overview"}
                   </button>
                 </div>
-                <PortalDashboardCharts
-                  scopeData={scopeData}
-                  total={total}
-                  trendData={trendData}
-                  topCategoryData={topCategoryData}
-                  view={chartView}
-                  year={displayYear}
-                />
+                <PortalDashboardCharts scopeData={scopeData} total={total} trendData={trendData} topCategoryData={topCategoryData} view={chartView} year={displayYear} />
               </div>
             )}
           </div>
         )}
 
-        {/* ── Data tab ──────────────────────────────────────────────────── */}
-        {activeTab === "data" && (
-          <div className="pt-2">
-            <PortalReporting />
-          </div>
-        )}
-
-        {/* ── Actions tab ───────────────────────────────────────────────── */}
-        {activeTab === "actions" && (
-          <div className="pt-2">
-            <PortalActions />
-          </div>
-        )}
-
-        {/* ── Insights tab ──────────────────────────────────────────────── */}
-        {activeTab === "insights" && (
-          <div className="pt-2">
-            <PortalInsights />
-          </div>
-        )}
-
-        {/* ── Files tab ─────────────────────────────────────────────────── */}
-        {activeTab === "files" && (
-          <div className="pt-2">
-            <PortalFiles />
-          </div>
-        )}
-
-        {/* ── Governance tab ────────────────────────────────────────────── */}
-        {activeTab === "governance" && (
-          <div className="pt-2">
-            <PortalGovernance />
-          </div>
-        )}
-
-        {/* ── Reports tab ───────────────────────────────────────────────── */}
+        {activeTab === "data" && <div><PortalReporting /></div>}
+        {activeTab === "actions" && <div><PortalActions /></div>}
+        {activeTab === "insights" && <div><PortalInsights /></div>}
+        {activeTab === "files" && <div><PortalFiles /></div>}
+        {activeTab === "governance" && <div><PortalGovernance /></div>}
         {activeTab === "reports" && (
-          <div className="pt-2">
+          <div>
             {jobsLoading ? (
-              <div className="text-sm text-gray-400">Loading…</div>
+              <div className="text-sm text-gray-400">Loading...</div>
             ) : jobs.length === 0 ? (
               <div className="rounded-xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-400">
                 No reports available yet. Your NZI contact will send your report for review when it is ready.

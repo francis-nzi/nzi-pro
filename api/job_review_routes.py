@@ -21,6 +21,7 @@ from services.portal import (
     add_comment,
     create_portal_user,
     ensure_portal_schema,
+    get_client_portal_access,
     get_or_create_review,
     list_comments,
     list_portal_users,
@@ -29,6 +30,7 @@ from services.portal import (
     send_review_to_client,
     send_to_portal,
     update_portal_user,
+    upsert_client_portal_access,
     set_portal_user_password,
 )
 from services.outbound_email import send_tracked_email
@@ -856,3 +858,53 @@ def publish_pdf_for_client(
 
     logger.info("publish_pdf_for_client: job %s published version %s by %s", job_id, pdf_version_id, actor)
     return {"ok": True, "published_at": review["published_at"], "pdf_version_id": pdf_version_id}
+
+
+# ---------------------------------------------------------------------------
+# Client portal access management (CRM-side)
+# ---------------------------------------------------------------------------
+
+class UpsertPortalAccessPayload(BaseModel):
+    is_enabled: bool | None = None
+    access_expires_at: str | None = None
+    payment_status: str | None = None
+    payment_reference: str | None = None
+    nav_config: dict | None = None
+    notes: str | None = None
+
+
+@router.get("/clients/{client_db_id}/portal-access")
+def get_portal_access(
+    client_db_id: int,
+    _user: dict = Depends(_current_user),
+):
+    """Return client-level portal access settings (ON/OFF, expiry, payment, nav)."""
+    assert_client_access(_user, int(client_db_id))
+    with get_conn() as con:
+        ensure_portal_schema(con)
+        record = get_client_portal_access(int(client_db_id), con=con)
+    return {"ok": True, "access": record}
+
+
+@router.put("/clients/{client_db_id}/portal-access")
+def update_portal_access(
+    client_db_id: int,
+    payload: UpsertPortalAccessPayload = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    """Create or update client-level portal access settings."""
+    assert_client_access(_user, int(client_db_id))
+    valid_payment = {"unpaid", "invoiced", "paid"}
+    if payload.payment_status and payload.payment_status not in valid_payment:
+        raise HTTPException(status_code=400, detail=f"payment_status must be one of {sorted(valid_payment)}")
+
+    record = upsert_client_portal_access(
+        int(client_db_id),
+        is_enabled=payload.is_enabled,
+        access_expires_at=payload.access_expires_at,
+        payment_status=payload.payment_status,
+        payment_reference=payload.payment_reference,
+        nav_config=payload.nav_config,
+        notes=payload.notes,
+    )
+    return {"ok": True, "access": record}

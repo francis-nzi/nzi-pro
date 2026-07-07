@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -330,12 +330,8 @@ export default function JobPortalManagement({ jobId, baseUrl }: JobPortalManagem
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [confirmSend, setConfirmSend] = useState(false);
-  const [showAddUser, setShowAddUser] = useState(false);
-  const [addUserName, setAddUserName] = useState("");
-  const [addUserEmail, setAddUserEmail] = useState("");
-  const [addUserPassword, setAddUserPassword] = useState("");
-  const [addingUser, setAddingUser] = useState(false);
-  const [addUserError, setAddUserError] = useState("");
+  const [clientAccessEnabled, setClientAccessEnabled] = useState<boolean | null>(null);
+  const [clientAccessExpiry, setClientAccessExpiry] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
     setLoading(true);
@@ -384,29 +380,19 @@ export default function JobPortalManagement({ jobId, baseUrl }: JobPortalManagem
     }
   }
 
-  async function doAddPortalUser(e: React.FormEvent) {
-    e.preventDefault();
+  useEffect(() => {
     if (!status?.client_db_id) return;
-    setAddingUser(true);
-    setAddUserError("");
-    try {
-      const res = await fetch(`${baseUrl}/clients/${status.client_db_id}/portal-users`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: addUserEmail.trim(), full_name: addUserName.trim(), password: addUserPassword }),
-      });
-      const body = await res.json() as { ok?: boolean; detail?: string };
-      if (!res.ok) throw new Error(body.detail ?? `Server returned ${res.status}`);
-      setShowAddUser(false);
-      setAddUserName(""); setAddUserEmail(""); setAddUserPassword("");
-      await loadStatus();
-    } catch (e) {
-      setAddUserError((e as Error).message);
-    } finally {
-      setAddingUser(false);
-    }
-  }
+    void (async () => {
+      try {
+        const res = await fetch(`${baseUrl}/clients/${status.client_db_id}/portal-access`, { credentials: "include" });
+        if (res.ok) {
+          const d = await res.json() as { access: { is_enabled: boolean; access_expires_at: string | null } };
+          setClientAccessEnabled(d.access.is_enabled);
+          setClientAccessExpiry(d.access.access_expires_at);
+        }
+      } catch { /* non-fatal */ }
+    })();
+  }, [baseUrl, status?.client_db_id]);
 
   // ── Derived readiness ─────────────────────────────────────────────────────
 
@@ -496,6 +482,25 @@ export default function JobPortalManagement({ jobId, baseUrl }: JobPortalManagem
         </div>
       )}
 
+      {/* Client access status banner */}
+      {clientAccessEnabled === false && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm flex items-center gap-2 text-red-700">
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          Client portal access is currently <strong>disabled</strong> for this client. Enable it in Client &rarr; Portal &rarr; Access.
+          {status.client_db_id && (
+            <Link href={`/clients/${status.client_db_id}?section=portal`} className="ml-auto text-xs underline font-medium flex-shrink-0">
+              Go to Client Portal
+            </Link>
+          )}
+        </div>
+      )}
+      {clientAccessEnabled === true && clientAccessExpiry && new Date(clientAccessExpiry) <= new Date() && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm flex items-center gap-2 text-amber-700">
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          Client portal access has <strong>expired</strong>. Clients cannot log in. Renew in Client &rarr; Portal &rarr; Access.
+        </div>
+      )}
+
       {/* Current portal status */}
       {alreadySent && (
         <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
@@ -543,59 +548,17 @@ export default function JobPortalManagement({ jobId, baseUrl }: JobPortalManagem
             </div>
           ) : (
             <p className="text-xs text-amber-700 mt-1">
-              No active portal users. Add a user below or from the client record.
+              No active portal users. Manage users in Client &rarr; Portal.
             </p>
           )}
-          <div className="mt-2 flex flex-wrap items-center gap-3">
-            <button
-              onClick={() => { setShowAddUser(v => !v); setAddUserError(""); }}
-              className="text-xs font-medium text-blue-600 hover:text-blue-700 underline"
+          {status.client_db_id && (
+            <Link
+              href={`/clients/${status.client_db_id}?section=portal`}
+              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"
             >
-              {showAddUser ? "Cancel" : "+ Add portal user"}
-            </button>
-            {status.client_db_id && (
-              <Link
-                href={`/clients/${status.client_db_id}?section=portal`}
-                className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
-              >
-                Manage all users
-                <ExternalLink className="h-3 w-3" />
-              </Link>
-            )}
-          </div>
-          {showAddUser && (
-            <form onSubmit={(e) => void doAddPortalUser(e)} className="mt-3 space-y-2 rounded-lg border border-gray-200 bg-white p-3">
-              <p className="text-xs font-semibold text-gray-700">New portal user</p>
-              {addUserError && <p className="text-xs text-red-600">{addUserError}</p>}
-              <input
-                required
-                type="text"
-                placeholder="Full name"
-                value={addUserName}
-                onChange={e => setAddUserName(e.target.value)}
-                className="w-full rounded border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300"
-              />
-              <input
-                required
-                type="email"
-                placeholder="Email address"
-                value={addUserEmail}
-                onChange={e => setAddUserEmail(e.target.value)}
-                className="w-full rounded border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300"
-              />
-              <input
-                required
-                type="password"
-                placeholder="Temporary password (min 8 chars)"
-                minLength={8}
-                value={addUserPassword}
-                onChange={e => setAddUserPassword(e.target.value)}
-                className="w-full rounded border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300"
-              />
-              <Button type="submit" size="sm" disabled={addingUser} className="w-full text-xs">
-                {addingUser ? "Adding…" : "Add user & send welcome email"}
-              </Button>
-            </form>
+              Manage users in Client &rarr; Portal
+              <ExternalLink className="h-3 w-3" />
+            </Link>
           )}
         </ReadinessCard>
 
@@ -675,42 +638,8 @@ export default function JobPortalManagement({ jobId, baseUrl }: JobPortalManagem
         </div>
       </div>
 
-      {/* Portal users section */}
-      {portal_users.length > 0 && (
-        <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-gray-100">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Portal Users</p>
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50">
-                <th className="text-left px-5 py-2.5 text-xs font-medium text-gray-500">Name</th>
-                <th className="text-left px-5 py-2.5 text-xs font-medium text-gray-500">Email</th>
-                <th className="text-left px-5 py-2.5 text-xs font-medium text-gray-500">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {portal_users.map(u => (
-                <tr key={u.portal_user_id} className="border-b border-gray-50 last:border-0">
-                  <td className="px-5 py-3 text-sm text-gray-900">{u.full_name}</td>
-                  <td className="px-5 py-3 text-sm text-gray-500">{u.email}</td>
-                  <td className="px-5 py-3">
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                      u.is_active
-                        ? "bg-green-100 text-green-700"
-                        : "bg-gray-100 text-gray-500"
-                    }`}>
-                      {u.is_active ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
       {/* Portal files management */}
+
       <PortalFilesSection jobId={jobId} baseUrl={baseUrl} />
 
     </div>

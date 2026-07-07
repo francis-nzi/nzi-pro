@@ -1,13 +1,17 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  AlertCircle,
   CheckCircle2,
   ChevronDown,
   ExternalLink,
   FileText,
+  Globe,
   History,
+  Lock,
+  Power,
   RefreshCw,
   Search,
   UserPlus,
@@ -73,6 +77,18 @@ type Props = {
   clientId: number;
   baseUrl: string;
 };
+
+type PortalAccess = {
+  client_db_id: number;
+  is_enabled: boolean;
+  access_expires_at: string | null;
+  payment_status: "unpaid" | "invoiced" | "paid";
+  payment_reference: string | null;
+  nav_config: Record<string, boolean>;
+  notes: string | null;
+};
+
+type PortalTab = "access" | "users" | "navigation" | "files" | "history";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -498,11 +514,23 @@ function ClientPortalFilesSection({ clientId, baseUrl }: { clientId: number; bas
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
+  const [activeTab, setActiveTab] = useState<PortalTab>("access");
   const [portalUsers, setPortalUsers] = useState<PortalUser[]>([]);
   const [history, setHistory] = useState<PortalHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [statusMsg, setStatusMsg] = useState("");
+
+  // Portal access state
+  const [portalAccess, setPortalAccess] = useState<PortalAccess | null>(null);
+  const [accessSaving, setAccessSaving] = useState(false);
+  const [editEnabled, setEditEnabled] = useState(false);
+  const [editExpiry, setEditExpiry] = useState("");
+  const [editPaymentStatus, setEditPaymentStatus] = useState<PortalAccess["payment_status"]>("unpaid");
+  const [editPaymentRef, setEditPaymentRef] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editNavConfig, setEditNavConfig] = useState<Record<string, boolean>>({});
+  const [navSaving, setNavSaving] = useState(false);
 
   // Add user form
   const [showAddUser, setShowAddUser] = useState(false);
@@ -518,6 +546,21 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
   const [resettingFor, setResettingFor] = useState<number | null>(null);
   const [resetPassword, setResetPassword] = useState("");
   const [resetting, setResetting] = useState(false);
+
+  const loadAccess = useCallback(async () => {
+    const res = await fetch(`${baseUrl}/clients/${clientId}/portal-access`, { credentials: "include" });
+    if (res.ok) {
+      const data = await res.json() as { access: PortalAccess };
+      const a = data.access;
+      setPortalAccess(a);
+      setEditEnabled(a.is_enabled);
+      setEditExpiry(a.access_expires_at ? a.access_expires_at.slice(0, 16) : "");
+      setEditPaymentStatus(a.payment_status);
+      setEditPaymentRef(a.payment_reference ?? "");
+      setEditNotes(a.notes ?? "");
+      setEditNavConfig({ ...a.nav_config });
+    }
+  }, [baseUrl, clientId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -562,7 +605,7 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
     }
   }, [baseUrl, clientId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); void loadAccess(); }, [load, loadAccess]);
 
   async function safeJson<T>(res: Response): Promise<T> {
     try { return await res.json() as T; }
@@ -638,11 +681,85 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
     }
   }
 
+  async function handleSaveAccess() {
+    setAccessSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/portal-access`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          is_enabled: editEnabled,
+          access_expires_at: editExpiry || null,
+          payment_status: editPaymentStatus,
+          payment_reference: editPaymentRef || null,
+          nav_config: editNavConfig,
+          notes: editNotes || null,
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json() as { detail?: string };
+        throw new Error(d.detail ?? "Failed to save access settings");
+      }
+      setStatusMsg("Portal access settings saved.");
+      await loadAccess();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setAccessSaving(false);
+    }
+  }
+
+  async function handleSaveNavConfig() {
+    setNavSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/portal-access`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          is_enabled: portalAccess?.is_enabled ?? false,
+          access_expires_at: portalAccess?.access_expires_at ?? null,
+          payment_status: portalAccess?.payment_status ?? "unpaid",
+          payment_reference: portalAccess?.payment_reference ?? null,
+          nav_config: editNavConfig,
+          notes: portalAccess?.notes ?? null,
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json() as { detail?: string };
+        throw new Error(d.detail ?? "Failed to save navigation settings");
+      }
+      setStatusMsg("Navigation settings saved.");
+      await loadAccess();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setNavSaving(false);
+    }
+  }
+
   if (loading) {
     return <div className="py-12 text-center text-sm text-muted-foreground">Loading portal data…</div>;
   }
 
   const activeCount = portalUsers.filter(u => u.is_active).length;
+
+  const daysRemaining = portalAccess?.access_expires_at
+    ? Math.ceil((new Date(portalAccess.access_expires_at).getTime() - Date.now()) / 86_400_000)
+    : null;
+
+  const NAV_ITEMS: { key: string; label: string }[] = [
+    { key: "dashboard", label: "Dashboard" },
+    { key: "data",      label: "Data" },
+    { key: "reports",   label: "Reports" },
+    { key: "actions",   label: "Actions" },
+    { key: "insights",  label: "Insights" },
+    { key: "files",     label: "Files" },
+    { key: "governance",label: "Governance" },
+  ];
 
   return (
     <div className="space-y-6">
@@ -652,10 +769,10 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Client Portal</h2>
           <p className="mt-0.5 text-sm text-gray-500">
-            Manage portal access and view which reporting years have been published.
+            Manage portal access, users, navigation and published reports.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => void load()} className="flex items-center gap-1.5 text-xs">
+        <Button variant="outline" size="sm" onClick={() => { void load(); void loadAccess(); }} className="flex items-center gap-1.5 text-xs">
           <RefreshCw className="h-3.5 w-3.5" />
           Refresh
         </Button>
@@ -669,7 +786,147 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
         </div>
       )}
 
-      {/* Portal Users */}
+      {/* Tab bar */}
+      <div className="flex border-b border-gray-200 gap-0">
+        {(["access", "users", "navigation", "files", "history"] as PortalTab[]).map(tab => (
+          <button
+            key={tab}
+            onClick={() => { setActiveTab(tab); setStatusMsg(""); }}
+            className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition-colors ${
+              activeTab === tab
+                ? "border-green-700 text-green-800"
+                : "border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300"
+            }`}
+          >
+            {tab === "navigation" ? "Navigation" : tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {/* Access tab */}
+      {activeTab === "access" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Power className="h-4 w-4" />
+              Portal Access Control
+            </CardTitle>
+            <CardDescription>
+              Master switch for this client{"'"}s portal access. Payment and expiry tracking.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+
+            {/* Status banner */}
+            {portalAccess && (
+              <>
+                {!portalAccess.is_enabled && (
+                  <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    <Lock className="h-4 w-4 flex-shrink-0" />
+                    Portal access is currently <strong>disabled</strong> for this client.
+                  </div>
+                )}
+                {portalAccess.is_enabled && daysRemaining !== null && daysRemaining <= 0 && (
+                  <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                    Access has <strong>expired</strong>. The client can no longer log in.
+                  </div>
+                )}
+                {portalAccess.is_enabled && daysRemaining !== null && daysRemaining > 0 && daysRemaining <= 30 && (
+                  <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                    <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                    Access expires in <strong>{daysRemaining} day{daysRemaining !== 1 ? "s" : ""}</strong>.
+                  </div>
+                )}
+                {portalAccess.is_enabled && (daysRemaining === null || daysRemaining > 30) && (
+                  <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+                    <Globe className="h-4 w-4 flex-shrink-0" />
+                    Portal access is <strong>active</strong>
+                    {daysRemaining !== null ? ` · ${daysRemaining} days remaining` : " · No expiry set"}.
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Enable/Disable toggle */}
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <div>
+                <div className="text-sm font-medium">Enable portal access</div>
+                <div className="text-xs text-muted-foreground">Master switch. When off, all users for this client are blocked at login.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditEnabled(v => !v)}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${editEnabled ? "bg-green-600" : "bg-gray-200"}`}
+                role="switch"
+                aria-checked={editEnabled}
+              >
+                <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${editEnabled ? "translate-x-5" : "translate-x-0"}`} />
+              </button>
+            </div>
+
+            {/* Expiry */}
+            <div className="space-y-1">
+              <Label htmlFor="access-expiry">Access Expires At</Label>
+              <Input
+                id="access-expiry"
+                type="datetime-local"
+                value={editExpiry}
+                onChange={e => setEditExpiry(e.target.value)}
+                className="max-w-xs"
+              />
+              <p className="text-xs text-muted-foreground">Leave blank for no expiry. Default is 12 months from job start date.</p>
+            </div>
+
+            {/* Payment status */}
+            <div className="space-y-1">
+              <Label htmlFor="payment-status">Payment Status</Label>
+              <select
+                id="payment-status"
+                value={editPaymentStatus}
+                onChange={e => setEditPaymentStatus(e.target.value as PortalAccess["payment_status"])}
+                className="block h-9 rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="unpaid">Unpaid</option>
+                <option value="invoiced">Invoiced</option>
+                <option value="paid">Paid</option>
+              </select>
+            </div>
+
+            {/* Payment reference */}
+            <div className="space-y-1">
+              <Label htmlFor="payment-ref">Payment / Invoice Reference</Label>
+              <Input
+                id="payment-ref"
+                value={editPaymentRef}
+                onChange={e => setEditPaymentRef(e.target.value)}
+                placeholder="e.g. INV-2024-0042"
+                className="max-w-xs"
+              />
+            </div>
+
+            {/* Notes */}
+            <div className="space-y-1">
+              <Label htmlFor="access-notes">Notes</Label>
+              <textarea
+                id="access-notes"
+                value={editNotes}
+                onChange={e => setEditNotes(e.target.value)}
+                rows={3}
+                placeholder="Internal notes about this client's access…"
+                className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+              />
+            </div>
+
+            <Button onClick={() => void handleSaveAccess()} disabled={accessSaving} size="sm">
+              {accessSaving ? "Saving…" : "Save Access Settings"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Users tab */}
+      {activeTab === "users" && (
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="space-y-1">
@@ -838,11 +1095,51 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
           )}
         </CardContent>
       </Card>
+      )}
 
-      {/* Portal Files */}
-      <ClientPortalFilesSection clientId={clientId} baseUrl={baseUrl} />
+      {/* Navigation tab */}
+      {activeTab === "navigation" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Globe className="h-4 w-4" />
+              Portal Navigation
+            </CardTitle>
+            <CardDescription>
+              Control which sections are visible in the client portal sidebar. Changes take effect on next login.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="space-y-3">
+              {NAV_ITEMS.map(item => (
+                <div key={item.key} className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="text-sm font-medium">{item.label}</div>
+                  <button
+                    type="button"
+                    onClick={() => setEditNavConfig(cfg => ({ ...cfg, [item.key]: !(cfg[item.key] ?? true) }))}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${(editNavConfig[item.key] ?? true) ? "bg-green-600" : "bg-gray-200"}`}
+                    role="switch"
+                    aria-checked={editNavConfig[item.key] ?? true}
+                  >
+                    <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${(editNavConfig[item.key] ?? true) ? "translate-x-5" : "translate-x-0"}`} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <Button onClick={() => void handleSaveNavConfig()} disabled={navSaving} size="sm">
+              {navSaving ? "Saving…" : "Save Navigation Settings"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Publication History */}
+      {/* Files tab */}
+      {activeTab === "files" && (
+        <ClientPortalFilesSection clientId={clientId} baseUrl={baseUrl} />
+      )}
+
+      {/* History tab */}
+      {activeTab === "history" && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -908,6 +1205,7 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
         </CardContent>
       </Card>
 
+      )}
     </div>
   );
 }

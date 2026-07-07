@@ -22,9 +22,11 @@ from pydantic import BaseModel, Field
 from core.database import get_conn
 from services.portal import (
     authenticate_portal_user,
+    check_client_portal_access,
     consume_reset_token,
     create_reset_token,
     ensure_portal_schema,
+    get_client_portal_access,
     get_portal_user_auth_data,
     get_portal_user_by_email,
     get_portal_user_by_id,
@@ -376,6 +378,13 @@ def portal_login(payload: LoginPayload = Body(...)):
         portal_user_id = int(user["portal_user_id"])
         client_db_id = int(user["client_db_id"])
 
+        # Check client-level portal access before proceeding
+        with get_conn() as con:
+            ensure_portal_schema(con)
+            access_ok, access_reason = check_client_portal_access(client_db_id, con=con)
+        if not access_ok:
+            raise HTTPException(status_code=403, detail=access_reason)
+
         with get_conn() as con:
             auth_data = get_portal_user_auth_data(portal_user_id, con=con)
 
@@ -674,18 +683,25 @@ def portal_me(current_user: dict = Depends(_portal_onboarding_user)):
 
     must_accept = _must_accept_tac(current_user)
     mfa_setup_required = not bool(current_user.get("mfa_enabled"))
+    client_db_id = int(current_user["client_db_id"])
+
+    with get_conn() as con:
+        ensure_portal_schema(con)
+        access_record = get_client_portal_access(client_db_id, con=con)
+    nav_config = access_record.get("nav_config", {})
 
     return {
         "ok": True,
         "user": {
             "portal_user_id": current_user["portal_user_id"],
-            "client_db_id": current_user["client_db_id"],
+            "client_db_id": client_db_id,
             "email": current_user["email"],
             "full_name": current_user["full_name"],
             "is_staff": False,
         },
         "must_accept_tac": must_accept,
         "mfa_setup_required": mfa_setup_required,
+        "nav_config": nav_config,
     }
 
 
