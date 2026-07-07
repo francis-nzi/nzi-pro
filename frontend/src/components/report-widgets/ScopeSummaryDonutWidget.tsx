@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { Cell, Label, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -220,43 +220,43 @@ export function ScopeSummaryDonutWidget({
                 style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
               />
             ) : (
-              <>
-                <ResponsiveContainer width="100%" aspect={1}>
-                  <PieChart>
-                    <Pie isAnimationActive={false} data={data} dataKey="value" nameKey="name" innerRadius={compact ? "58%" : "72%"} outerRadius={compact ? "80%" : "94%"} paddingAngle={2}>
-                      {data.map((_, index) => (
-                        <Cell key={index} fill={SCOPE_COLORS[index % SCOPE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value: unknown) => [`${formatNumber(Number(value || 0), 1)} tCO₂e`, ""]} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div
-                  aria-hidden="true"
-                  data-donut-center="true"
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    pointerEvents: "none",
-                  }}
-                >
-                  <span style={{ fontSize: compact ? "22px" : "36px", fontWeight: 700, color: "#111827", lineHeight: 1, fontFamily: "Arial, sans-serif" }}>
-                    {formatNumber(total, 1)}
-                  </span>
-                  <span style={{ fontSize: compact ? "10px" : "13px", color: "#6b7280", lineHeight: 2, fontFamily: "Arial, sans-serif" }}>
-                    tCO₂e total
-                  </span>
-                  {displayYear ? (
-                    <span style={{ fontSize: compact ? "9px" : "12px", color: "#9ca3af", lineHeight: 1.5, fontFamily: "Arial, sans-serif" }}>
-                      {displayYear}
-                    </span>
-                  ) : null}
-                </div>
-              </>
+              <ResponsiveContainer width="100%" aspect={1}>
+                <PieChart>
+                  <Pie isAnimationActive={false} data={data} dataKey="value" nameKey="name" innerRadius={compact ? "58%" : "72%"} outerRadius={compact ? "80%" : "94%"} paddingAngle={2}>
+                    {data.map((_, index) => (
+                      <Cell key={index} fill={SCOPE_COLORS[index % SCOPE_COLORS.length]} />
+                    ))}
+                    <Label
+                      content={({ viewBox }) => {
+                        if (!viewBox || !("cx" in viewBox) || !("cy" in viewBox)) return null;
+                        const { cx, cy } = viewBox as { cx: number; cy: number };
+                        const mainSize = compact ? 22 : 36;
+                        const subSize = compact ? 10 : 13;
+                        const yearSize = compact ? 9 : 12;
+                        const y1 = displayYear ? cy - (compact ? 15 : 20) : cy - (compact ? 7 : 10);
+                        const y2 = y1 + mainSize / 2 + (compact ? 6 : 8) + subSize / 2;
+                        const y3 = y2 + subSize / 2 + 4 + yearSize / 2;
+                        return (
+                          <g>
+                            <text x={cx} y={y1} textAnchor="middle" dominantBaseline="middle" fill="#111827" fontWeight={700} fontSize={mainSize} fontFamily="Arial, sans-serif">
+                              {formatNumber(total, 1)}
+                            </text>
+                            <text x={cx} y={y2} textAnchor="middle" dominantBaseline="middle" fill="#6b7280" fontSize={subSize} fontFamily="Arial, sans-serif">
+                              tCO₂e total
+                            </text>
+                            {displayYear ? (
+                              <text x={cx} y={y3} textAnchor="middle" dominantBaseline="middle" fill="#9ca3af" fontSize={yearSize} fontFamily="Arial, sans-serif">
+                                {displayYear}
+                              </text>
+                            ) : null}
+                          </g>
+                        );
+                      }}
+                    />
+                  </Pie>
+                  <Tooltip formatter={(value: unknown) => [`${formatNumber(Number(value || 0), 1)} tCO₂e`, ""]} />
+                </PieChart>
+              </ResponsiveContainer>
             )}
           </div>
 

@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { Cell, Label, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -201,35 +201,34 @@ export function SiteSummaryDonutWidget({
                   {data.map((_, index) => (
                     <Cell key={index} fill={SITE_COLORS[index % SITE_COLORS.length]} />
                   ))}
+                  <Label
+                    content={({ viewBox }) => {
+                      if (!viewBox || !("cx" in viewBox) || !("cy" in viewBox)) return null;
+                      const { cx, cy } = viewBox as { cx: number; cy: number };
+                      const y1 = displayYear ? cy - 20 : cy - 10;
+                      const y2 = y1 + 18 + 8 + 6;
+                      const y3 = y2 + 6 + 4 + 6;
+                      return (
+                        <g>
+                          <text x={cx} y={y1} textAnchor="middle" dominantBaseline="middle" fill="#111827" fontWeight={700} fontSize={36} fontFamily="Arial, sans-serif">
+                            {formatNumber(total, 1)}
+                          </text>
+                          <text x={cx} y={y2} textAnchor="middle" dominantBaseline="middle" fill="#6b7280" fontSize={13} fontFamily="Arial, sans-serif">
+                            tCO₂e total
+                          </text>
+                          {displayYear ? (
+                            <text x={cx} y={y3} textAnchor="middle" dominantBaseline="middle" fill="#9ca3af" fontSize={12} fontFamily="Arial, sans-serif">
+                              {displayYear}
+                            </text>
+                          ) : null}
+                        </g>
+                      );
+                    }}
+                  />
                 </Pie>
                 <Tooltip formatter={(value: unknown) => [`${formatNumber(Number(value || 0), 1)} tCO₂e`, ""]} />
               </PieChart>
             </ResponsiveContainer>
-            <div
-              aria-hidden="true"
-              data-donut-center="true"
-              style={{
-                position: "absolute",
-                inset: 0,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                pointerEvents: "none",
-              }}
-            >
-              <span style={{ fontSize: "36px", fontWeight: 700, color: "#111827", lineHeight: 1, fontFamily: "Arial, sans-serif" }}>
-                {formatNumber(total, 1)}
-              </span>
-              <span style={{ fontSize: "13px", color: "#6b7280", lineHeight: 2, fontFamily: "Arial, sans-serif" }}>
-                tCO₂e total
-              </span>
-              {displayYear ? (
-                <span style={{ fontSize: "12px", color: "#9ca3af", lineHeight: 1.5, fontFamily: "Arial, sans-serif" }}>
-                  {displayYear}
-                </span>
-              ) : null}
-            </div>
           </div>
           <div className={DONUT_TABLE_CLASS}>
             {data.map((site, index) => (
