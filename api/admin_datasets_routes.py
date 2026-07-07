@@ -829,7 +829,9 @@ def search_factors(
                     fl.currency,
                     fl.method,
                     fl.valid_from,
-                    fl.valid_to
+                    fl.valid_to,
+                    fl.factor_definition_id,
+                    fl.factor_year_value_id
                 FROM v_factor_lookup fl
                 LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
                 WHERE {where_sql}
