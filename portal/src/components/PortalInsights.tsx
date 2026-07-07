@@ -161,7 +161,7 @@ export default function PortalInsights() {
               </p>
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {visibleWidgets.map(({ id, title }) => {
                 const pngData = pngs[id];
                 const safeTitle = title.toLowerCase().replace(/\s+/g, "-");
@@ -180,13 +180,13 @@ export default function PortalInsights() {
                         ↓ PNG
                       </button>
                     </div>
-                    <div className="p-4">
+                    <div className="flex min-h-[18rem] items-center justify-center bg-gray-50 p-4">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={pngData}
                         alt={title}
-                        className="w-full rounded"
-                        style={{ maxWidth: "100%", height: "auto" }}
+                        className="h-full max-h-72 w-auto max-w-full rounded object-contain"
+                        style={{ maxWidth: "100%" }}
                       />
                     </div>
                   </div>

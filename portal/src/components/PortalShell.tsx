@@ -114,15 +114,17 @@ export default function PortalShell({
 
   const SidebarContent = (
     <aside className="flex h-full flex-col" style={{ backgroundColor: sidebarBg }}>
-      <div className="flex items-center gap-2.5 px-5 py-5 border-b border-white/10">
+      <div className="flex items-center gap-3 border-b border-white/10 bg-white px-5 py-5">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/api/backend/system-settings/logo/file"
-          alt="Net Zero International"
-          className="h-7 w-auto object-contain brightness-0 invert"
-          onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-        />
-        <span className="text-sm font-bold text-white leading-tight">NZ Insights Pro</span>
+        <div className="flex h-11 items-center rounded-md border border-gray-200 bg-white px-2.5 shadow-sm">
+          <img
+            src="/api/backend/system-settings/logo/file"
+            alt="Net Zero International"
+            className="h-7 w-auto object-contain"
+            onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+          />
+        </div>
+        <span className="text-sm font-bold text-gray-900 leading-tight">NZ Insights Pro</span>
       </div>
 
       <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-0.5">
@@ -204,6 +206,15 @@ export default function PortalShell({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
+          <div className="flex h-10 items-center rounded-md border border-gray-200 bg-white px-2.5 shadow-sm">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/api/backend/system-settings/logo/file"
+              alt="Net Zero International"
+              className="h-6 w-auto object-contain"
+              onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+            />
+          </div>
           <span className="text-sm font-bold">NZ Insights Pro</span>
         </div>
 
