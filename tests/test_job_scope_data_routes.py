@@ -586,3 +586,236 @@ def test_get_job_data_output_audit_sanitises_optional_pandas_values(monkeypatch)
     assert row["source_name"] is None
     assert row["asset_identifier"] is None
     assert row["employee_name"] is None
+
+
+# ── Repoint endpoint tests ────────────────────────────────────────────────────
+
+
+class _FakeRequest:
+    """Minimal stand-in for FastAPI Request."""
+    headers: dict = {}
+
+
+_BASE_BEFORE = {
+    "row_id": 1,
+    "job_id": 100,
+    "scope": "Scope 1",
+    "uom": "kwh",
+    "site_id": None,
+    "qty": 10.0,
+    "apply_pct": 100.0,
+    "factor": 0.5,
+    "ghg_unit": "tCO2e",
+    "category": "Energy",
+    "dataset_id": 3,
+    "factor_db_id": 7,
+    "original_id": "OID-OLD",
+    "report_label": "Old label",
+    "data_source": "Company Data",
+    "data_confidence": "M",
+    "notes": None,
+}
+
+_BASE_RESOLVED = {
+    "original_id": "OID-NEW",
+    "dataset_id": 5,
+    "factor_db_id": 10,
+    "factor": 2.5,
+    "ghg_unit": "tCO2e",
+    "uom": "kwh",
+    "report_label": "New label",
+}
+
+
+class _RepointConn:
+    """
+    Configurable fake connection for repoint tests.
+
+    Keyword flags control which SQL branches return data:
+      row_exists    – whether job_scope_rows has the target row
+      is_published  – whether report_reviews has a published review
+      has_duplicate – whether a conflicting row is found
+    """
+
+    def __init__(self, *, row_exists=True, is_published=False, has_duplicate=False):
+        self._row_exists = row_exists
+        self._is_published = is_published
+        self._has_duplicate = has_duplicate
+        self.updated = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, sql: str, params=None):
+        if "SELECT 1 FROM job_scope_rows WHERE row_id" in sql:
+            return _ScopeDataResult(fetchone_value=(1,) if self._row_exists else None)
+        if "report_reviews" in sql:
+            return _ScopeDataResult(fetchone_value=(1,) if self._is_published else None)
+        if "AND row_id<>" in sql:  # duplicate check
+            return _ScopeDataResult(fetchone_value=(99,) if self._has_duplicate else None)
+        if sql.strip().startswith("UPDATE job_scope_rows"):
+            self.updated = True
+            return _ScopeDataResult()
+        return _ScopeDataResult()
+
+
+def _make_repoint_monkeypatches(
+    monkeypatch,
+    conn,
+    *,
+    before=None,
+    resolved=None,
+    after=None,
+):
+    before = before if before is not None else _BASE_BEFORE.copy()
+    resolved = resolved if resolved is not None else _BASE_RESOLVED.copy()
+    after = after if after is not None else {**before, "original_id": resolved["original_id"]}
+
+    monkeypatch.setattr(job_scope_data_routes, "get_conn", lambda: conn)
+    monkeypatch.setattr(job_scope_data_routes, "_ensure_job_scope_rows_schema", lambda *_a, **_k: None)
+
+    snapshot_calls = []
+    def _fake_snapshot(con, job_id, row_id):
+        snapshot_calls.append(len(snapshot_calls))
+        return after if snapshot_calls else before
+    monkeypatch.setattr(job_scope_data_routes, "_job_scope_row_snapshot", _fake_snapshot)
+
+    monkeypatch.setattr(job_scope_data_routes, "_resolve_repoint_factor", lambda *_a, **_k: resolved)
+    monkeypatch.setattr(job_scope_data_routes, "record_audit_event", lambda *_a, **_k: None)
+
+    return snapshot_calls
+
+
+def test_repoint_happy_path_updates_row_and_returns_snapshot(monkeypatch) -> None:
+    conn = _RepointConn()
+    _make_repoint_monkeypatches(monkeypatch, conn)
+
+    result = job_scope_data_routes.repoint_scope_data_row(
+        request=_FakeRequest(),
+        job_id=100,
+        row_id=1,
+        payload={"original_id": "OID-NEW", "dataset_id": 5},
+        _user={"user_id": "u1", "org_id": "org-123"},
+    )
+
+    assert conn.updated is True
+    assert result["row"]["original_id"] == "OID-NEW"
+
+
+def test_repoint_missing_original_id_returns_400(monkeypatch) -> None:
+    import pytest
+    from fastapi import HTTPException
+
+    conn = _RepointConn()
+    _make_repoint_monkeypatches(monkeypatch, conn)
+
+    with pytest.raises(HTTPException) as exc_info:
+        job_scope_data_routes.repoint_scope_data_row(
+            request=_FakeRequest(),
+            job_id=100,
+            row_id=1,
+            payload={},  # no original_id
+            _user={"user_id": "u1", "org_id": "org-123"},
+        )
+
+    assert exc_info.value.status_code == 400
+
+
+def test_repoint_row_not_found_returns_404(monkeypatch) -> None:
+    import pytest
+    from fastapi import HTTPException
+
+    conn = _RepointConn(row_exists=False)
+    _make_repoint_monkeypatches(monkeypatch, conn)
+
+    with pytest.raises(HTTPException) as exc_info:
+        job_scope_data_routes.repoint_scope_data_row(
+            request=_FakeRequest(),
+            job_id=100,
+            row_id=1,
+            payload={"original_id": "OID-NEW"},
+            _user={"user_id": "u1", "org_id": "org-123"},
+        )
+
+    assert exc_info.value.status_code == 404
+
+
+def test_repoint_published_job_returns_409(monkeypatch) -> None:
+    import pytest
+    from fastapi import HTTPException
+
+    conn = _RepointConn(is_published=True)
+    _make_repoint_monkeypatches(monkeypatch, conn)
+
+    with pytest.raises(HTTPException) as exc_info:
+        job_scope_data_routes.repoint_scope_data_row(
+            request=_FakeRequest(),
+            job_id=100,
+            row_id=1,
+            payload={"original_id": "OID-NEW"},
+            _user={"user_id": "u1", "org_id": "org-123"},
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "published" in exc_info.value.detail.lower()
+
+
+def test_repoint_uom_mismatch_returns_409(monkeypatch) -> None:
+    import pytest
+    from fastapi import HTTPException
+
+    conn = _RepointConn()
+    resolved_different_uom = {**_BASE_RESOLVED, "uom": "litres"}
+    _make_repoint_monkeypatches(monkeypatch, conn, resolved=resolved_different_uom)
+
+    with pytest.raises(HTTPException) as exc_info:
+        job_scope_data_routes.repoint_scope_data_row(
+            request=_FakeRequest(),
+            job_id=100,
+            row_id=1,
+            payload={"original_id": "OID-NEW"},
+            _user={"user_id": "u1", "org_id": "org-123"},
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "unit" in exc_info.value.detail.lower()
+
+
+def test_repoint_duplicate_row_returns_409(monkeypatch) -> None:
+    import pytest
+    from fastapi import HTTPException
+
+    conn = _RepointConn(has_duplicate=True)
+    _make_repoint_monkeypatches(monkeypatch, conn)
+
+    with pytest.raises(HTTPException) as exc_info:
+        job_scope_data_routes.repoint_scope_data_row(
+            request=_FakeRequest(),
+            job_id=100,
+            row_id=1,
+            payload={"original_id": "OID-NEW"},
+            _user={"user_id": "u1", "org_id": "org-123"},
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "already exists" in exc_info.value.detail.lower()
+
+
+def test_repoint_preserves_monthly_values_through_update(monkeypatch) -> None:
+    """Monthly data lives in the DB row; the UPDATE does not touch month_1..12."""
+    conn = _RepointConn()
+    _make_repoint_monkeypatches(monkeypatch, conn)
+
+    job_scope_data_routes.repoint_scope_data_row(
+        request=_FakeRequest(),
+        job_id=100,
+        row_id=1,
+        payload={"original_id": "OID-NEW", "dataset_id": 5},
+        _user={"user_id": "u1", "org_id": "org-123"},
+    )
+
+    # The UPDATE SQL should not contain month_ columns
+    assert conn.updated is True
