@@ -698,13 +698,6 @@ def _render_live_report_pdf_bytes(
             ".space-y-4 > :not([hidden]) ~ :not([hidden]) {"
             "  margin-top: 8px !important;"
             "}"
-            # Force donut centre number to large size regardless of whatever
-            # print-media CSS Chromium applies that silently caps inline font-size.
-            "[data-donut-center] > span:first-child {"
-            "  font-size: 36px !important;"
-            "  font-weight: 700 !important;"
-            "  line-height: 1 !important;"
-            "}"
             # Keep Declaration and Sign Off on the same page as Standards & Methodology.
             # Tailwind's break-before-avoid alone is overridden by Chromium's layout engine;
             # both legacy and modern properties with !important are needed.
