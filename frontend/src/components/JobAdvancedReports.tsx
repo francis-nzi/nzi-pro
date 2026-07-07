@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PoundSterling } from "lucide-react";
 
@@ -373,7 +373,7 @@ function ChartCapturePlaceholder({ className }: { className?: string }) {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
       </svg>
       <p className="text-xs font-medium text-gray-500">Chart not yet captured</p>
-      <p className="text-xs text-gray-400">Go to <strong>Insights → Capture Charts</strong> to generate this chart</p>
+      <p className="text-xs text-gray-400">Click <strong>Refresh Charts</strong> in the toolbar to generate this chart</p>
     </div>
   );
 }
@@ -444,6 +444,8 @@ export default function JobAdvancedReports({
   const [manifestValidationError, setManifestValidationError] = useState<string | null>(null);
   const [storedWidgetPngs, setStoredWidgetPngs] = useState<Record<string, string>>({});
   const [widgetPngsReady, setWidgetPngsReady] = useState(false);
+  const [autoCapturing, setAutoCapturing] = useState(false);
+  const hasAutoCapture = useRef(false);
 
   function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
     const headers: Record<string, string> = {
@@ -505,6 +507,28 @@ export default function JobAdvancedReports({
       }
     })();
   }, [jobId, baseUrl, pdfToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-capture charts on first load when no stored PNGs exist, so users don't
+  // have to navigate to Insights and click "Capture Charts" manually.
+  useEffect(() => {
+    if (!widgetPngsReady || !data || pdfToken || hasAutoCapture.current) return;
+    if (Object.keys(storedWidgetPngs).length > 0) return;
+    hasAutoCapture.current = true;
+    void (async () => {
+      setAutoCapturing(true);
+      try {
+        // Wait for live charts to mount and register their PNG exporters.
+        await new Promise<void>((resolve) => setTimeout(resolve, 800));
+        await Promise.allSettled(Object.values(REPORT_WIDGET_IDS).map((id) => refreshWidgetPngForPdf(id)));
+        const res = await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, { credentials: "include" });
+        if (res.ok) {
+          const d = await res.json() as { pngs?: Record<string, string> };
+          if (d.pngs && Object.keys(d.pngs).length > 0) setStoredWidgetPngs(d.pngs);
+        }
+      } catch { /* silently ignore */ }
+      finally { setAutoCapturing(false); }
+    })();
+  }, [widgetPngsReady, data, pdfToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function downloadPdf() {
     setDownloading(true);
@@ -679,6 +703,22 @@ export default function JobAdvancedReports({
       // Continue to PDF generation even if a single widget refresh fails.
       return false;
     }
+  }
+
+  async function refreshCharts() {
+    setAutoCapturing(true);
+    // Clear stored PNGs so live recharts widgets mount and register their exporters.
+    setStoredWidgetPngs({});
+    try {
+      await new Promise<void>((resolve) => setTimeout(resolve, 800));
+      await Promise.allSettled(Object.values(REPORT_WIDGET_IDS).map((id) => refreshWidgetPngForPdf(id)));
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, { credentials: "include" });
+      if (res.ok) {
+        const d = await res.json() as { pngs?: Record<string, string> };
+        if (d.pngs && Object.keys(d.pngs).length > 0) setStoredWidgetPngs(d.pngs);
+      }
+    } catch { /* silently ignore */ }
+    finally { setAutoCapturing(false); }
   }
 
   function savePdfToDisk() {
@@ -1296,6 +1336,23 @@ export default function JobAdvancedReports({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {autoCapturing ? (
+              <span className="flex items-center gap-1.5 text-xs text-gray-500">
+                <span className="h-3 w-3 animate-spin rounded-full border border-gray-400 border-t-transparent" />
+                Capturing charts…
+              </span>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void refreshCharts()}
+                disabled={generating || downloading}
+                className="text-xs"
+                title="Re-capture all charts for PDF output"
+              >
+                Refresh Charts
+              </Button>
+            )}
             <Badge
               variant="outline"
               className="border-amber-300 bg-amber-50 text-xs text-amber-600"
@@ -1306,7 +1363,7 @@ export default function JobAdvancedReports({
               size="sm"
               variant="outline"
               onClick={() => saveVersion("draft")}
-              disabled={generating || downloading}
+              disabled={generating || downloading || autoCapturing}
               className="text-xs"
             >
               Save Draft
@@ -1315,7 +1372,7 @@ export default function JobAdvancedReports({
               size="sm"
               variant="outline"
               onClick={() => saveVersion("review")}
-              disabled={generating || downloading}
+              disabled={generating || downloading || autoCapturing}
               className="text-xs"
             >
               {generating ? (
@@ -1330,7 +1387,7 @@ export default function JobAdvancedReports({
             <Button
               size="sm"
               onClick={() => void sendToPortal()}
-              disabled={sendingToPortal || generating || downloading}
+              disabled={sendingToPortal || generating || downloading || autoCapturing}
               className="bg-green-700 text-xs text-white hover:bg-green-800"
             >
               {sendingToPortal ? (
@@ -1345,7 +1402,7 @@ export default function JobAdvancedReports({
             <Button
               size="sm"
               onClick={() => void downloadPdf()}
-              disabled={downloading || generating}
+              disabled={downloading || generating || autoCapturing}
               className="bg-gray-700 text-xs text-white hover:bg-gray-800"
             >
               {downloading ? (
