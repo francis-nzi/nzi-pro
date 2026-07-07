@@ -133,7 +133,7 @@ def test_audit_log_filter_and_export_include_org_id(monkeypatch):
     )
     assert result["items"][0]["org_id"] == "org-123"
     assert result["total"] == 1
-    assert any("LOWER(COALESCE(org_id, ''))" in sql for sql, _ in fake.executed)
+    assert any("LOWER(COALESCE(a.org_id, ''))" in sql for sql, _ in fake.executed)
 
     export_response = admin_audit_routes.export_audit_log(
         org_id="org-123",

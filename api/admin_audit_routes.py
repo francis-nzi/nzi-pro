@@ -76,7 +76,7 @@ def get_audit_log(
             _apply_event_group_filter(where_parts, params, event_group)
 
             if org_id:
-                where_parts.append("LOWER(COALESCE(org_id, '')) = LOWER(%s)")
+                where_parts.append("LOWER(COALESCE(a.org_id, '')) = LOWER(%s)")
                 params.append(str(org_id).strip())
             if actor_email:
                 where_parts.append("LOWER(COALESCE(actor_email, '')) LIKE LOWER(%s)")
@@ -202,7 +202,7 @@ def export_audit_log(
             _apply_event_group_filter(where_parts, params, event_group)
 
             if org_id:
-                where_parts.append("LOWER(COALESCE(org_id, '')) = LOWER(%s)")
+                where_parts.append("LOWER(COALESCE(a.org_id, '')) = LOWER(%s)")
                 params.append(str(org_id).strip())
             if actor_email:
                 where_parts.append("LOWER(COALESCE(actor_email, '')) LIKE LOWER(%s)")
