@@ -141,7 +141,8 @@ export default function LoginPage() {
       if (data.needs_client_selection) {
         setStaffName(data.staff_name ?? email);
         setStaffClients(data.accessible_clients ?? []);
-        setSelectedClientId(data.accessible_clients?.[0]?.client_db_id ?? null);
+        setSelectedClientId(null);
+        setError("");
         setStep("staff_client_picker");
         return;
       }
