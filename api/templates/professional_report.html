@@ -192,6 +192,13 @@
 
     /* ── TABLES ───────────────────────────────────────── */
     table { width: 100%; border-collapse: collapse; font-size: 8.6pt; margin-top: 2mm; }
+    .action-plan-table {
+      table-layout: fixed;
+    }
+    .action-plan-table col.term-col { width: 14%; }
+    .action-plan-table col.action-col { width: 24%; }
+    .action-plan-table col.category-col { width: 14%; }
+    .action-plan-table col.description-col { width: 48%; }
     th {
       background: var(--navy);
       color: #fff;
@@ -209,6 +216,22 @@
     .num  { text-align: right; white-space: nowrap; }
     .ctr  { text-align: center; }
     .two-col td:first-child { width: 42mm; font-weight: 700; color: var(--muted); }
+    .action-plan-table td {
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    .action-plan-table td:nth-child(1),
+    .action-plan-table td:nth-child(3) {
+      white-space: normal;
+    }
+    .action-plan-table td:nth-child(2) strong {
+      display: inline-block;
+      line-height: 1.25;
+    }
+    .action-plan-table td:nth-child(4) {
+      font-size: 8pt;
+      line-height: 1.35;
+    }
 
     /* ── BADGES ───────────────────────────────────────── */
     .badge {
@@ -863,7 +886,13 @@
 
     {% set action_items = ja.get("items", []) %}
     {% if action_items %}
-    <table>
+    <table class="action-plan-table">
+      <colgroup>
+        <col class="term-col">
+        <col class="action-col">
+        <col class="category-col">
+        <col class="description-col">
+      </colgroup>
       <thead>
         <tr><th>Term</th><th>Action</th><th>Category</th><th>Description</th></tr>
       </thead>
