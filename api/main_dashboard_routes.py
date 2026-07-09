@@ -3363,3 +3363,112 @@ def get_review_notifications(
     except Exception:
         logger.exception("Failed to fetch dashboard review notifications; returning empty fallback")
         return {"ok": True, "items": [], "total": 0}
+
+
+@router.get("/dashboard/emissions-table")
+def get_dashboard_emissions_table(
+    year: int = Query(None, description="Reporting year filter"),
+    industry: str | None = Query(None),
+    crm_owner: str | None = Query(None),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Per-job scope 1/2/3 emissions breakdown for data-completeness review."""
+    try:
+        year_filter = int(year) if isinstance(year, int) else None
+        industry = industry if isinstance(industry, str) else None
+        crm_owner = crm_owner if isinstance(crm_owner, str) else None
+        with get_conn() as con:
+            jobs_df = _load_dashboard_emissions_jobs(
+                con,
+                year=year_filter,
+                industry=industry,
+                crm_owner=crm_owner,
+            )
+            if jobs_df is None or jobs_df.empty:
+                return {"ok": True, "rows": []}
+
+            job_ids = [int(j) for j in jobs_df["job_id"].tolist() if j is not None]
+            if not job_ids:
+                return {"ok": True, "rows": []}
+
+            # Job metadata — job_number, title, status
+            placeholders = ",".join(["%s"] * len(job_ids))
+            meta_rows = con.execute(
+                f"""
+                SELECT
+                    j.job_id,
+                    COALESCE(j.job_number, '') AS job_number,
+                    COALESCE(j.title, '')      AS title,
+                    j.reporting_year,
+                    COALESCE(j.status, 'Unknown') AS status
+                FROM jobs j
+                WHERE j.job_id IN ({placeholders})
+                """,
+                job_ids,
+            ).fetchall()
+            meta_by_id: dict[int, dict] = {}
+            for r in meta_rows:
+                jid = int(r[0])
+                meta_by_id[jid] = {
+                    "job_id": jid,
+                    "job_number": str(r[1] or ""),
+                    "title": str(r[2] or ""),
+                    "reporting_year": int(r[3]) if r[3] is not None else None,
+                    "status": str(r[4] or ""),
+                    "client_name": "",
+                    "client_id": None,
+                }
+
+            # Merge client info from jobs_df
+            for _, row in jobs_df.iterrows():
+                jid = _normalize_int_value(row.get("job_id"))
+                if jid and jid in meta_by_id:
+                    meta_by_id[jid]["client_name"] = str(row.get("client_name") or "")
+                    cid = _normalize_int_value(row.get("client_id"))
+                    meta_by_id[jid]["client_id"] = cid
+
+            # Load scope emissions and pivot by job_id
+            scope_df = load_combined_emissions_summary_rows(con, job_ids)
+            scope_totals: dict[int, dict[str, float]] = {}
+            if scope_df is not None and not scope_df.empty:
+                for _, row in scope_df.iterrows():
+                    jid = _normalize_int_value(row.get("job_id"))
+                    if jid is None:
+                        continue
+                    scope = str(row.get("scope") or "").strip()
+                    val = float(row.get("emissions") or 0.0)
+                    if jid not in scope_totals:
+                        scope_totals[jid] = {"scope_1": 0.0, "scope_2": 0.0, "scope_3": 0.0}
+                    if scope == "Scope 1":
+                        scope_totals[jid]["scope_1"] += val
+                    elif scope == "Scope 2":
+                        scope_totals[jid]["scope_2"] += val
+                    elif scope == "Scope 3":
+                        scope_totals[jid]["scope_3"] += val
+
+            rows = []
+            for jid, meta in meta_by_id.items():
+                sc = scope_totals.get(jid, {"scope_1": 0.0, "scope_2": 0.0, "scope_3": 0.0})
+                s1 = round(sc["scope_1"], 2)
+                s2 = round(sc["scope_2"], 2)
+                s3 = round(sc["scope_3"], 2)
+                total = round(s1 + s2 + s3, 2)
+                rows.append({
+                    "job_id": jid,
+                    "job_number": meta["job_number"],
+                    "title": meta["title"],
+                    "client_name": meta["client_name"],
+                    "client_id": meta["client_id"],
+                    "reporting_year": meta["reporting_year"],
+                    "status": meta["status"],
+                    "scope_1": s1,
+                    "scope_2": s2,
+                    "scope_3": s3,
+                    "total": total,
+                })
+
+            rows.sort(key=lambda r: (-(r["reporting_year"] or 0), r["client_name"] or ""))
+            return {"ok": True, "rows": rows}
+    except Exception:
+        logger.exception("Failed to load dashboard emissions table")
+        return {"ok": True, "rows": []}

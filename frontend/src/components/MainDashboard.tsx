@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ClientReviewNotifications from "@/components/ClientReviewNotifications";
+import EmissionsTable from "@/components/EmissionsTable";
 import IntelligenceDashboard from "@/components/IntelligenceDashboard";
 import TaskCalendar from "@/components/TaskCalendar";
 import StatusBadge from "@/components/StatusBadge";
@@ -391,6 +392,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
           {/* Emissions */}
           <TabsContent value="emissions" className="space-y-5 pt-3">
             <MainDashboardCharts section="emissions" overview={ov} financial={fin} operations={ops} />
+            <EmissionsTable baseUrl={api} year={year} industry={ind} crmOwner={crm} />
           </TabsContent>
 
           {/* Tasks */}
