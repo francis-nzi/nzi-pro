@@ -944,7 +944,7 @@ def portal_metrics(
                         try:
                             r = con.execute("SELECT intensity_metrics FROM jobs WHERE job_id = %s", [latest_job_id]).fetchone()
                             if r and r[0]:
-                                for key, metric in list(r[0].items())[:3]:
+                                for key, metric in r[0].items():
                                     if metric.get("value", 0) > 0:
                                         intensity = (yr_total / metric["value"]) * metric.get("divider", 1)
                                         yr_metrics.append({"key": key, "label": metric.get("label", key), "value": metric.get("value"), "divider": metric.get("divider", 1), "intensity": round(intensity, 2)})

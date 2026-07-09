@@ -581,7 +581,7 @@ def get_client_dashboard(
                         ).fetchone()
                         if metrics_result and metrics_result[0]:
                             job_metrics = metrics_result[0]
-                            for key, metric in list(job_metrics.items())[:3]:
+                            for key, metric in job_metrics.items():
                                 if metric.get('value', 0) > 0:
                                     intensity = (year_total / metric['value']) * metric.get('divider', 1)
                                     year_intensity_metrics.append({
