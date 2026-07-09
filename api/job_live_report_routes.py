@@ -705,6 +705,11 @@ def _render_live_report_pdf_bytes(
             "  break-before: avoid !important;"
             "  page-break-before: avoid !important;"
             "}"
+            # Prevent the Approved by / client sign-off block from splitting across pages.
+            "[data-section='Carbon Reduction Actions'] .max-w-sm {"
+            "  break-inside: avoid !important;"
+            "  page-break-inside: avoid !important;"
+            "}"
         )
 
         try:

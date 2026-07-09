@@ -2682,7 +2682,7 @@ export default function JobAdvancedReports({
             )}
 
             {/* Client sign-off */}
-            <div className="pt-4 space-y-4 max-w-sm">
+            <div className="pt-4 space-y-4 max-w-sm" style={{ breakInside: "avoid", pageBreakInside: "avoid" }}>
               <p className="text-sm font-semibold text-gray-800">Approved by:</p>
               <div className="space-y-5">
                 <div>
