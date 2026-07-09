@@ -17,7 +17,7 @@ type HistoryItem = {
   action: string;
   entity_type: string;
   entity_id: string | null;
-  diff: Record<string, { before: unknown; after: unknown }> | null;
+  diff: Record<string, unknown> | null;
   section: string | null;
 };
 
@@ -71,8 +71,10 @@ function actionLabel(action: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function DiffTable({ diff }: { diff: Record<string, { before: unknown; after: unknown }> }) {
-  const entries = Object.entries(diff).filter(([key]) => !["updated_at", "created_at"].includes(key));
+function DiffTable({ diff }: { diff: Record<string, unknown> }) {
+  const entries = Object.entries(diff).filter(
+    ([key, val]) => !["updated_at", "created_at"].includes(key) && val != null && typeof val === "object"
+  ) as [string, { before: unknown; after: unknown }][];
   if (entries.length === 0) return null;
   return (
     <table className="mt-1 w-full text-[11px] border rounded overflow-hidden">
@@ -84,13 +86,17 @@ function DiffTable({ diff }: { diff: Record<string, { before: unknown; after: un
         </tr>
       </thead>
       <tbody>
-        {entries.map(([key, { before, after }]) => (
-          <tr key={key} className="border-t">
-            <td className="p-1 text-muted-foreground">{key.replace(/_/g, " ")}</td>
-            <td className="p-1 text-red-700 line-through">{before != null ? String(before) : "—"}</td>
-            <td className="p-1 text-emerald-700">{after != null ? String(after) : "—"}</td>
-          </tr>
-        ))}
+        {entries.map(([key, val]) => {
+          const before = val?.before;
+          const after = val?.after;
+          return (
+            <tr key={key} className="border-t">
+              <td className="p-1 text-muted-foreground">{key.replace(/_/g, " ")}</td>
+              <td className="p-1 text-red-700 line-through">{before != null ? String(before) : "—"}</td>
+              <td className="p-1 text-emerald-700">{after != null ? String(after) : "—"}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
