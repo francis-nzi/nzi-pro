@@ -882,169 +882,6 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                               {s.session_hours ? ` · ${s.session_hours}h` : ""}
                               {s.venue_name ? ` · ${s.venue_name}` : ""}
                             </p>
-                            <div className={`mt-2 w-full rounded-md border border-slate-100 bg-slate-50 p-3 ${participantsExpanded ? "" : "hidden"}`}>
-                              <div className="mb-3 flex w-full flex-wrap items-center justify-between gap-3">
-                                <div className="flex items-center gap-3">
-                                  <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    <input
-                                      type="checkbox"
-                                      checked={allSelected}
-                                      onChange={(e) => {
-                                        if (e.target.checked) {
-                                          setParticipantSelection((prev) => {
-                                            const next = new Set(prev);
-                                            participants.forEach((p) => next.add(p.training_session_attendance_id));
-                                            return next;
-                                          });
-                                        } else {
-                                          setParticipantSelection((prev) => {
-                                            const next = new Set(prev);
-                                            participants.forEach((p) => next.delete(p.training_session_attendance_id));
-                                            return next;
-                                          });
-                                        }
-                                      }}
-                                      className="h-4 w-4 rounded border-slate-300 text-emerald-600"
-                                    />
-                                    Select all
-                                  </label>
-                                  <span className="text-xs text-slate-400">
-                                    {selectedCount} selected · {participants.length} record{participants.length === 1 ? "" : "s"}
-                                    {unpaidCount > 0 ? ` · ${unpaidCount} unpaid` : ""}
-                                  </span>
-                                </div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 text-xs"
-                                    disabled={selectedCount === 0}
-                                    onClick={() => openParticipantEmail(s, "selected")}
-                                  >
-                                    <Mail className="mr-1 h-3.5 w-3.5" />
-                                    Email selected
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 text-xs"
-                                    disabled={participants.length === 0}
-                                    onClick={() => openParticipantEmail(s, "all")}
-                                  >
-                                    <Mail className="mr-1 h-3.5 w-3.5" />
-                                    Email all
-                                  </Button>
-                                </div>
-                              </div>
-                              {participants.length === 0 ? (
-                                <p className="text-xs text-slate-400">No participants assigned to this session yet.</p>
-                              ) : (
-                                <div className="max-h-96 overflow-y-auto pr-1">
-                                  {participants.map((p) => (
-                                    <div
-                                      key={p.training_session_attendance_id}
-                                      className={`grid gap-2 rounded px-2 py-2 text-xs shadow-sm ring-1 ring-slate-100 md:grid-cols-[28px_minmax(0,1.7fr)_120px_120px_120px_auto] ${
-                                        String(p.billing_status || "").toLowerCase() === "paid" || String(p.billing_status || "").toLowerCase() === "included" || String(p.billing_status || "").toLowerCase() === "waived"
-                                          ? "bg-white"
-                                          : "bg-amber-50/80 ring-amber-200"
-                                      }`}
-                                    >
-                                      <label className="flex items-start justify-center pt-0.5">
-                                        <input
-                                          type="checkbox"
-                                          checked={participantSelection.has(p.training_session_attendance_id)}
-                                          onChange={(e) => {
-                                            setParticipantSelection((prev) => {
-                                              const next = new Set(prev);
-                                              if (e.target.checked) next.add(p.training_session_attendance_id);
-                                              else next.delete(p.training_session_attendance_id);
-                                              return next;
-                                            });
-                                          }}
-                                          className="h-4 w-4 rounded border-slate-300 text-emerald-600"
-                                        />
-                                      </label>
-                                      <div className="min-w-0">
-                                        <div className="font-medium text-slate-800">{p.person_name}</div>
-                                        <div className="text-[11px] text-slate-400">
-                                          {p.client_name || "No company"}
-                                          {p.client_addr_city ? ` · ${p.client_addr_city}` : ""}
-                                          {p.client_addr_country ? ` · ${p.client_addr_country}` : ""}
-                                        </div>
-                                      </div>
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <span className="text-[10px] uppercase tracking-wide text-slate-400">Session</span>
-                                        <Badge className={`text-[10px] ${attendanceColor(p.attendance_status)}`} variant="outline">
-                                          {p.attendance_status.replace(/_/g, " ")}
-                                        </Badge>
-                                      </div>
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <span className="text-[10px] uppercase tracking-wide text-slate-400">Booking</span>
-                                        <Select
-                                          value={p.booking_attendance_status}
-                                          onValueChange={(v) => void quickUpdateBookingStatus(p, "attendance_status", v)}
-                                        >
-                                          <SelectTrigger className="h-6 w-[110px] border-0 p-0 text-[10px] focus:ring-0">
-                                            <Badge className={`text-[10px] ${attendanceColor(p.booking_attendance_status)}`} variant="outline">
-                                              {p.booking_attendance_status.replace(/_/g, " ")}
-                                            </Badge>
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {TRAINING_BOOKING_STATUS_OPTIONS.map((o) => (
-                                              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
-                                      </div>
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <span className="text-[10px] uppercase tracking-wide text-slate-400">Billing</span>
-                                        <Select
-                                          value={p.billing_status}
-                                          onValueChange={(v) => void quickUpdateBookingStatus(p, "billing_status", v)}
-                                        >
-                                          <SelectTrigger className="h-6 w-[110px] border-0 p-0 text-[10px] focus:ring-0">
-                                            <Badge className={`text-[10px] ${billingColor(p.billing_status)}`} variant="outline">
-                                              {formatTrainingBillingStatus(p.billing_status)}
-                                            </Badge>
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {TRAINING_BILLING_STATUS_OPTIONS.map((o) => (
-                                              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
-                                      </div>
-                                      <div className="flex items-center gap-2 justify-self-end">
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="ghost"
-                                          className="h-6 px-2 text-emerald-600 hover:text-emerald-700"
-                                          onClick={() => {
-                                            setParticipantSelection(new Set([p.training_session_attendance_id]));
-                                            openParticipantEmail(s, "selected");
-                                          }}
-                                          title="Email participant"
-                                        >
-                                          <Mail className="h-3 w-3" />
-                                        </Button>
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="ghost"
-                                          className="h-6 px-2 text-blue-600 hover:text-blue-700"
-                                          onClick={() => openReassignParticipant(s, p)}
-                                        >
-                                          <ArrowLeftRight className="mr-1 h-3 w-3" />
-                                          Move
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-
                             {/* Staff pills */}
                             {staff.length > 0 && (
                               <div className="mt-1.5 flex flex-wrap gap-1">
@@ -1120,6 +957,171 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                             </Button>
                           </div>
                         </div>
+                        {/* Participant panel — full width below session header */}
+                        {participantsExpanded && (
+                          <div className="border-t border-slate-100 bg-slate-50 p-3 rounded-b-lg">
+                            <div className="mb-3 flex w-full flex-wrap items-center justify-between gap-3">
+                              <div className="flex items-center gap-3">
+                                <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                  <input
+                                    type="checkbox"
+                                    checked={allSelected}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setParticipantSelection((prev) => {
+                                          const next = new Set(prev);
+                                          participants.forEach((p) => next.add(p.training_session_attendance_id));
+                                          return next;
+                                        });
+                                      } else {
+                                        setParticipantSelection((prev) => {
+                                          const next = new Set(prev);
+                                          participants.forEach((p) => next.delete(p.training_session_attendance_id));
+                                          return next;
+                                        });
+                                      }
+                                    }}
+                                    className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+                                  />
+                                  Select all
+                                </label>
+                                <span className="text-xs text-slate-400">
+                                  {selectedCount} selected · {participants.length} record{participants.length === 1 ? "" : "s"}
+                                  {unpaidCount > 0 ? ` · ${unpaidCount} unpaid` : ""}
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs"
+                                  disabled={selectedCount === 0}
+                                  onClick={() => openParticipantEmail(s, "selected")}
+                                >
+                                  <Mail className="mr-1 h-3.5 w-3.5" />
+                                  Email selected
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs"
+                                  disabled={participants.length === 0}
+                                  onClick={() => openParticipantEmail(s, "all")}
+                                >
+                                  <Mail className="mr-1 h-3.5 w-3.5" />
+                                  Email all
+                                </Button>
+                              </div>
+                            </div>
+                            {participants.length === 0 ? (
+                              <p className="text-xs text-slate-400">No participants assigned to this session yet.</p>
+                            ) : (
+                              <div className="max-h-96 overflow-y-auto pr-1">
+                                {participants.map((p) => (
+                                  <div
+                                    key={p.training_session_attendance_id}
+                                    className={`grid gap-2 rounded px-2 py-2 text-xs shadow-sm ring-1 ring-slate-100 md:grid-cols-[28px_minmax(0,1.7fr)_120px_120px_120px_auto] ${
+                                      String(p.billing_status || "").toLowerCase() === "paid" || String(p.billing_status || "").toLowerCase() === "included" || String(p.billing_status || "").toLowerCase() === "waived"
+                                        ? "bg-white"
+                                        : "bg-amber-50/80 ring-amber-200"
+                                    }`}
+                                  >
+                                    <label className="flex items-start justify-center pt-0.5">
+                                      <input
+                                        type="checkbox"
+                                        checked={participantSelection.has(p.training_session_attendance_id)}
+                                        onChange={(e) => {
+                                          setParticipantSelection((prev) => {
+                                            const next = new Set(prev);
+                                            if (e.target.checked) next.add(p.training_session_attendance_id);
+                                            else next.delete(p.training_session_attendance_id);
+                                            return next;
+                                          });
+                                        }}
+                                        className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+                                      />
+                                    </label>
+                                    <div className="min-w-0">
+                                      <div className="font-medium text-slate-800">{p.person_name}</div>
+                                      <div className="text-[11px] text-slate-400">
+                                        {p.client_name || "No company"}
+                                        {p.client_addr_city ? ` · ${p.client_addr_city}` : ""}
+                                        {p.client_addr_country ? ` · ${p.client_addr_country}` : ""}
+                                      </div>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="text-[10px] uppercase tracking-wide text-slate-400">Session</span>
+                                      <Badge className={`text-[10px] ${attendanceColor(p.attendance_status)}`} variant="outline">
+                                        {p.attendance_status.replace(/_/g, " ")}
+                                      </Badge>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="text-[10px] uppercase tracking-wide text-slate-400">Booking</span>
+                                      <Select
+                                        value={p.booking_attendance_status}
+                                        onValueChange={(v) => void quickUpdateBookingStatus(p, "attendance_status", v)}
+                                      >
+                                        <SelectTrigger className="h-6 w-[110px] border-0 p-0 text-[10px] focus:ring-0">
+                                          <Badge className={`text-[10px] ${attendanceColor(p.booking_attendance_status)}`} variant="outline">
+                                            {p.booking_attendance_status.replace(/_/g, " ")}
+                                          </Badge>
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {TRAINING_BOOKING_STATUS_OPTIONS.map((o) => (
+                                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="text-[10px] uppercase tracking-wide text-slate-400">Billing</span>
+                                      <Select
+                                        value={p.billing_status}
+                                        onValueChange={(v) => void quickUpdateBookingStatus(p, "billing_status", v)}
+                                      >
+                                        <SelectTrigger className="h-6 w-[110px] border-0 p-0 text-[10px] focus:ring-0">
+                                          <Badge className={`text-[10px] ${billingColor(p.billing_status)}`} variant="outline">
+                                            {formatTrainingBillingStatus(p.billing_status)}
+                                          </Badge>
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {TRAINING_BILLING_STATUS_OPTIONS.map((o) => (
+                                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="flex items-center gap-2 justify-self-end">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-6 px-2 text-emerald-600 hover:text-emerald-700"
+                                        onClick={() => {
+                                          setParticipantSelection(new Set([p.training_session_attendance_id]));
+                                          openParticipantEmail(s, "selected");
+                                        }}
+                                        title="Email participant"
+                                      >
+                                        <Mail className="h-3 w-3" />
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-6 px-2 text-blue-600 hover:text-blue-700"
+                                        onClick={() => openReassignParticipant(s, p)}
+                                      >
+                                        <ArrowLeftRight className="mr-1 h-3 w-3" />
+                                        Move
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
