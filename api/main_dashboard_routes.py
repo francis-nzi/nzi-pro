@@ -3367,67 +3367,50 @@ def get_review_notifications(
 
 @router.get("/dashboard/emissions-table")
 def get_dashboard_emissions_table(
-    year: int = Query(None, description="Reporting year filter"),
     industry: str | None = Query(None),
     crm_owner: str | None = Query(None),
     _user: dict[str, str] = Depends(_current_user),
 ):
-    """Per-job scope 1/2/3 emissions breakdown for data-completeness review."""
+    """Per-job scope 1/2/3 emissions across ALL jobs and ALL years for data-completeness review.
+    Year filtering is handled client-side; industry/crm_owner apply server-side."""
     try:
-        year_filter = int(year) if isinstance(year, int) else None
-        industry = industry if isinstance(industry, str) else None
-        crm_owner = crm_owner if isinstance(crm_owner, str) else None
         with get_conn() as con:
-            jobs_df = _load_dashboard_emissions_jobs(
-                con,
-                year=year_filter,
-                industry=industry,
-                crm_owner=crm_owner,
-            )
-            if jobs_df is None or jobs_df.empty:
-                return {"ok": True, "rows": []}
+            where_parts: list[str] = []
+            params: list[object] = []
+            if industry:
+                where_parts.append("c.industry = %s")
+                params.append(industry)
+            if crm_owner:
+                crm_value = str(crm_owner).strip()
+                if crm_value.lower() == "unassigned":
+                    where_parts.append("(c.crm_owner IS NULL OR TRIM(c.crm_owner) = '')")
+                else:
+                    where_parts.append("COALESCE(c.crm_owner, '') = %s")
+                    params.append(crm_value)
+            where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
-            job_ids = [int(j) for j in jobs_df["job_id"].tolist() if j is not None]
-            if not job_ids:
-                return {"ok": True, "rows": []}
-
-            # Job metadata — job_number, title, status
-            placeholders = ",".join(["%s"] * len(job_ids))
             meta_rows = con.execute(
                 f"""
                 SELECT
                     j.job_id,
-                    COALESCE(j.job_number, '') AS job_number,
-                    COALESCE(j.title, '')      AS title,
+                    COALESCE(j.job_number, '')    AS job_number,
+                    COALESCE(j.title, '')          AS title,
                     j.reporting_year,
-                    COALESCE(j.status, 'Unknown') AS status
+                    COALESCE(j.status, 'Unknown') AS status,
+                    COALESCE(c.client_name, '')    AS client_name,
+                    c.db_id                        AS client_id
                 FROM jobs j
-                WHERE j.job_id IN ({placeholders})
+                LEFT JOIN clients c ON c.db_id = j.client_db_id
+                {where_sql}
+                ORDER BY j.reporting_year DESC NULLS LAST, c.client_name ASC NULLS LAST, j.job_id DESC
                 """,
-                job_ids,
+                params,
             ).fetchall()
-            meta_by_id: dict[int, dict] = {}
-            for r in meta_rows:
-                jid = int(r[0])
-                meta_by_id[jid] = {
-                    "job_id": jid,
-                    "job_number": str(r[1] or ""),
-                    "title": str(r[2] or ""),
-                    "reporting_year": int(r[3]) if r[3] is not None else None,
-                    "status": str(r[4] or ""),
-                    "client_name": "",
-                    "client_id": None,
-                }
 
-            # Merge client info from jobs_df
-            for _, row in jobs_df.iterrows():
-                jid = _normalize_int_value(row.get("job_id"))
-                if jid and jid in meta_by_id:
-                    meta_by_id[jid]["client_name"] = str(row.get("client_name") or "")
-                    cid = _normalize_int_value(row.get("client_id"))
-                    meta_by_id[jid]["client_id"] = cid
+            if not meta_rows:
+                return {"ok": True, "rows": []}
 
-            # Load scope emissions and pivot by job_id
+            job_ids = [int(r[0]) for r in meta_rows]
             scope_df = load_combined_emissions_summary_rows(con, job_ids)
             scope_totals: dict[int, dict[str, float]] = {}
             if scope_df is not None and not scope_df.empty:
@@ -3447,7 +3430,8 @@ def get_dashboard_emissions_table(
                         scope_totals[jid]["scope_3"] += val
 
             rows = []
-            for jid, meta in meta_by_id.items():
+            for r in meta_rows:
+                jid = int(r[0])
                 sc = scope_totals.get(jid, {"scope_1": 0.0, "scope_2": 0.0, "scope_3": 0.0})
                 s1 = round(sc["scope_1"], 2)
                 s2 = round(sc["scope_2"], 2)
@@ -3455,19 +3439,18 @@ def get_dashboard_emissions_table(
                 total = round(s1 + s2 + s3, 2)
                 rows.append({
                     "job_id": jid,
-                    "job_number": meta["job_number"],
-                    "title": meta["title"],
-                    "client_name": meta["client_name"],
-                    "client_id": meta["client_id"],
-                    "reporting_year": meta["reporting_year"],
-                    "status": meta["status"],
+                    "job_number": str(r[1] or ""),
+                    "title": str(r[2] or ""),
+                    "reporting_year": int(r[3]) if r[3] is not None else None,
+                    "status": str(r[4] or ""),
+                    "client_name": str(r[5] or ""),
+                    "client_id": int(r[6]) if r[6] is not None else None,
                     "scope_1": s1,
                     "scope_2": s2,
                     "scope_3": s3,
                     "total": total,
                 })
 
-            rows.sort(key=lambda r: (-(r["reporting_year"] or 0), r["client_name"] or ""))
             return {"ok": True, "rows": rows}
     except Exception:
         logger.exception("Failed to load dashboard emissions table")
