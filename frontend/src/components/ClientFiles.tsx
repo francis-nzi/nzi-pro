@@ -272,7 +272,7 @@ export default function ClientFiles({
                 placeholder="Internal notes (not visible to clients)..."
               />
             </div>
-            {uploading && <UploadProgressBar progress={uploadProgress} />}
+            {uploading && <UploadProgressBar value={uploadProgress} />}
             <div className="flex items-center gap-3">
               <Button type="submit" disabled={uploading || !uploadFile}>
                 <Upload className="h-4 w-4 mr-2" />
