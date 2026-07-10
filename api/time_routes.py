@@ -88,8 +88,15 @@ def list_time_logs(
                 where_clauses.append("tl.job_id = ?")
                 params.append(int(job_id))
             if user_id is not None:
-                where_clauses.append("tl.user_id = ?")
-                params.append(user_id)
+                # tl.user_id may store email or user_id; match either, case-insensitively,
+                # and also match via the email of the user with the given user_id.
+                where_clauses.append(
+                    "(LOWER(tl.user_id) = LOWER(?)"
+                    " OR EXISTS (SELECT 1 FROM users _u"
+                    "            WHERE LOWER(COALESCE(_u.user_id,'')) = LOWER(?)"
+                    "            AND LOWER(COALESCE(_u.email,'')) = LOWER(tl.user_id)))"
+                )
+                params.extend([user_id, user_id])
             where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
 
             try:
