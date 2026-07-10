@@ -710,6 +710,12 @@ def _render_live_report_pdf_bytes(
             "  break-inside: avoid !important;"
             "  page-break-inside: avoid !important;"
             "}"
+            # Normalise widget card titles so they don't inherit Chromium print
+            # defaults and render far larger than they do on screen.
+            "[data-slot='card-title'] {"
+            "  font-size: 13px !important;"
+            "  line-height: 1.4 !important;"
+            "}"
         )
 
         try:
