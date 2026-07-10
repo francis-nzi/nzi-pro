@@ -46,6 +46,10 @@ const ClientPortalManagement = dynamic(() => import("@/components/ClientPortalMa
   ssr: false,
   loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading portal data...</div>,
 });
+const ClientFiles = dynamic(() => import("@/components/ClientFiles"), {
+  ssr: false,
+  loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading files...</div>,
+});
 const ClientAiProfile = dynamic(() => import("@/components/ClientAiProfile"), {
   ssr: false,
   loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading AI profile...</div>,
@@ -226,6 +230,7 @@ type ClientSection =
   | "timeline"
   | "notes"
   | "tasks"
+  | "files"
   | "details"
   | "sites"
   | "contacts"
@@ -246,6 +251,7 @@ const SECTIONS: Array<{ id: ClientSection; label: string }> = [
   { id: "portal", label: "Portal" },
   { id: "tasks", label: "Tasks" },
   { id: "notes", label: "Notes" },
+  { id: "files", label: "Files" },
   { id: "timeline", label: "Communications" },
   { id: "profile", label: "Company Profile" },
   { id: "financial", label: "Financials" },
@@ -2139,6 +2145,9 @@ function ClientDetailPageContent() {
     }
     if (activeSection === "tasks") {
       return <TasksTable clientId={clientId} baseUrl={baseUrl} title="Client Tasks" />;
+    }
+    if (activeSection === "files") {
+      return <ClientFiles clientId={clientId} baseUrl={baseUrl} />;
     }
     if (activeSection === "details") return renderDetailsSection();
     if (activeSection === "sites") return renderSitesSection();

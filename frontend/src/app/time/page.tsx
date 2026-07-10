@@ -23,9 +23,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Download, Edit, Printer, Trash2, X } from "lucide-react";
+import { Download, Edit, FolderUp, Printer, Trash2, X } from "lucide-react";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import TaskAssigneePicker, { type TaskAssigneeOption } from "@/components/TaskAssigneePicker";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 
 function apiBaseUrl() {
   return "/api/backend";
@@ -297,6 +305,23 @@ function TimePageContent() {
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [, setSelectedJobClientId] = useState<number | null>(null);
+
+  // Save-to-files modal state
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saveTarget, setSaveTarget] = useState<"job" | "client">("job");
+  const [saveFormat, setSaveFormat] = useState<"csv" | "html">("csv");
+  const [saveJobQuery, setSaveJobQuery] = useState("");
+  const [saveJobId, setSaveJobId] = useState<number | null>(null);
+  const [saveJobLabel, setSaveJobLabel] = useState("");
+  const [saveJobResults, setSaveJobResults] = useState<Array<{ job_id: number; job_number: string; title: string; client_name: string }>>([]);
+  const [saveJobSearching, setSaveJobSearching] = useState(false);
+  const [saveClientQuery, setSaveClientQuery] = useState("");
+  const [saveClientId, setSaveClientId] = useState<number | null>(null);
+  const [saveClientLabel, setSaveClientLabel] = useState("");
+  const [saveClientResults, setSaveClientResults] = useState<Array<{ client_db_id: number; client_name: string }>>([]);
+  const [saveClientSearching, setSaveClientSearching] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("");
 
   // Applied filters drive the API call; draft filters are what the user is typing
   const [appliedFilters, setAppliedFilters] = useState<ReportFilters>({
@@ -631,6 +656,95 @@ function TimePageContent() {
     setTimeout(() => {
       win.print();
     }, 400);
+  }
+
+  useEffect(() => {
+    const q = saveJobQuery.trim();
+    if (!q || saveJobId) { setSaveJobResults([]); return; }
+    setSaveJobSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`${apiBaseUrl()}/jobs?q=${encodeURIComponent(q)}&limit=20`, { credentials: "include" });
+        if (res.ok) { const d = await res.json(); setSaveJobResults(d.items || []); }
+      } finally { setSaveJobSearching(false); }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [saveJobQuery, saveJobId]);
+
+  useEffect(() => {
+    const q = saveClientQuery.trim();
+    if (!q || saveClientId) { setSaveClientResults([]); return; }
+    setSaveClientSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`${apiBaseUrl()}/clients?q=${encodeURIComponent(q)}&limit=20`, { credentials: "include" });
+        if (res.ok) { const d = await res.json(); setSaveClientResults(d.items || []); }
+      } finally { setSaveClientSearching(false); }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [saveClientQuery, saveClientId]);
+
+  async function handleSaveToFiles() {
+    const targetId = saveTarget === "job" ? saveJobId : saveClientId;
+    if (!targetId) { setSaveStatus("Please select a target"); return; }
+    if (timeLogs.length === 0) { setSaveStatus("No entries to save"); return; }
+
+    setSaving(true);
+    setSaveStatus("");
+    try {
+      const dateStr = new Date().toISOString().split("T")[0];
+      let content: Blob;
+      let fileName: string;
+      let mimeType: string;
+
+      if (saveFormat === "csv") {
+        const headers = ["Date", "Job Number", "Job Title", "Client", "Subject", "Hours", "Staff", "Notes"];
+        const rows = timeLogs.map((log) => [
+          log.work_date || "",
+          log.job_number || "",
+          log.job_title || "",
+          log.client_name || "",
+          log.subject || "",
+          String(log.hours),
+          log.user_name || log.user_id || "",
+          log.notes || "",
+        ]);
+        const csv = [headers, ...rows]
+          .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+          .join("\r\n");
+        content = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+        fileName = `time-report-${dateStr}.csv`;
+        mimeType = "text/csv";
+      } else {
+        const html = generateReportHtml(timeLogs, appliedFilters, teamMembers);
+        content = new Blob([html], { type: "text/html;charset=utf-8;" });
+        fileName = `time-report-${dateStr}.html`;
+        mimeType = "text/html";
+      }
+
+      const label = saveTarget === "job" ? saveJobLabel : saveClientLabel;
+      const description = `Time report exported ${dateStr}${label ? ` — ${label}` : ""}`;
+      const fd = new FormData();
+      fd.append("file", new File([content], fileName, { type: mimeType }));
+      fd.append("file_type", "time_report");
+      fd.append("description", description);
+
+      const url = saveTarget === "job"
+        ? `${apiBaseUrl()}/jobs/${saveJobId}/files`
+        : `${apiBaseUrl()}/clients/${saveClientId}/files`;
+
+      const res = await uploadFormDataWithProgress(url, { method: "POST", body: fd });
+      if (!res.ok) {
+        const err = await res.json<{ detail?: string }>();
+        throw new Error(err.detail || "Save failed");
+      }
+      setSaveStatus(`Saved to ${saveTarget === "job" ? "job" : "client"} files!`);
+      setTimeout(() => { setSaveModalOpen(false); setSaveStatus(""); }, 1500);
+    } catch (err) {
+      setSaveStatus(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -1105,6 +1219,21 @@ function TimePageContent() {
                       <Printer className="h-4 w-4 mr-1" />
                       Print Report
                     </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSaveJobQuery(""); setSaveJobId(null); setSaveJobLabel("");
+                        setSaveClientQuery(""); setSaveClientId(null); setSaveClientLabel("");
+                        setSaveJobResults([]); setSaveClientResults([]);
+                        setSaveStatus(""); setSaveFormat("csv"); setSaveTarget("job");
+                        setSaveModalOpen(true);
+                      }}
+                      disabled={timeLogs.length === 0}
+                    >
+                      <FolderUp className="h-4 w-4 mr-1" />
+                      Save to Files
+                    </Button>
                   </div>
                 </div>
 
@@ -1265,6 +1394,168 @@ function TimePageContent() {
           </Card>
         </div>
       </div>
+
+      {/* Save to Files modal */}
+      <Dialog open={saveModalOpen} onOpenChange={setSaveModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Save Report to Files</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {/* Format */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Format</Label>
+              <div className="flex gap-3">
+                {(["csv", "html"] as const).map((f) => (
+                  <label key={f} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="saveFormat"
+                      value={f}
+                      checked={saveFormat === f}
+                      onChange={() => setSaveFormat(f)}
+                      className="accent-green-600"
+                    />
+                    <span className="text-sm">{f === "csv" ? "CSV spreadsheet" : "HTML report"}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Target type */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Save to</Label>
+              <div className="flex gap-3">
+                {(["job", "client"] as const).map((t) => (
+                  <label key={t} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="saveTarget"
+                      value={t}
+                      checked={saveTarget === t}
+                      onChange={() => setSaveTarget(t)}
+                      className="accent-green-600"
+                    />
+                    <span className="text-sm capitalize">{t} files</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Job picker */}
+            {saveTarget === "job" && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Select Job</Label>
+                {saveJobId ? (
+                  <div className="flex items-center gap-2 rounded-md border bg-slate-50 px-3 py-2 text-sm">
+                    <span className="flex-1">{saveJobLabel}</span>
+                    <button
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() => { setSaveJobId(null); setSaveJobLabel(""); setSaveJobQuery(""); }}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <Input
+                      placeholder="Search by job number or title..."
+                      value={saveJobQuery}
+                      onChange={(e) => setSaveJobQuery(e.target.value)}
+                      className="h-8 text-sm"
+                    />
+                    {(saveJobSearching || saveJobResults.length > 0) && (
+                      <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-48 overflow-auto">
+                        {saveJobSearching && (
+                          <div className="p-3 text-sm text-muted-foreground">Searching&hellip;</div>
+                        )}
+                        {saveJobResults.map((j) => (
+                          <div
+                            key={j.job_id}
+                            className="px-3 py-2 cursor-pointer hover:bg-accent text-sm"
+                            onClick={() => {
+                              setSaveJobId(j.job_id);
+                              setSaveJobLabel(`${j.job_number} — ${j.title}`);
+                              setSaveJobQuery("");
+                              setSaveJobResults([]);
+                            }}
+                          >
+                            <div className="font-medium">{j.job_number} — {j.title}</div>
+                            <div className="text-xs text-muted-foreground">{j.client_name}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Client picker */}
+            {saveTarget === "client" && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Select Client</Label>
+                {saveClientId ? (
+                  <div className="flex items-center gap-2 rounded-md border bg-slate-50 px-3 py-2 text-sm">
+                    <span className="flex-1">{saveClientLabel}</span>
+                    <button
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() => { setSaveClientId(null); setSaveClientLabel(""); setSaveClientQuery(""); }}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <Input
+                      placeholder="Search client name..."
+                      value={saveClientQuery}
+                      onChange={(e) => setSaveClientQuery(e.target.value)}
+                      className="h-8 text-sm"
+                    />
+                    {(saveClientSearching || saveClientResults.length > 0) && (
+                      <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-48 overflow-auto">
+                        {saveClientSearching && (
+                          <div className="p-3 text-sm text-muted-foreground">Searching&hellip;</div>
+                        )}
+                        {saveClientResults.map((c) => (
+                          <div
+                            key={c.client_db_id}
+                            className="px-3 py-2 cursor-pointer hover:bg-accent text-sm"
+                            onClick={() => {
+                              setSaveClientId(c.client_db_id);
+                              setSaveClientLabel(c.client_name || String(c.client_db_id));
+                              setSaveClientQuery("");
+                              setSaveClientResults([]);
+                            }}
+                          >
+                            {c.client_name}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {saveStatus && (
+              <p className="text-sm text-muted-foreground">{saveStatus}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSaveModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveToFiles}
+              disabled={saving || (saveTarget === "job" ? !saveJobId : !saveClientId)}
+            >
+              {saving ? "Saving..." : "Save File"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
