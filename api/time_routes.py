@@ -71,9 +71,13 @@ def _ensure_time_tracking_schema(con) -> None:
 def list_time_logs(
     job_id: int | None = None,
     user_id: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    job_search: str | None = None,
+    client_search: str | None = None,
     _user: dict[str, str] = Depends(_current_user)
 ):
-    """Get all time logs, optionally filtered by job_id or user_id"""
+    """Get all time logs, optionally filtered by job_id, user_id, date range, job/client search"""
     try:
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
@@ -97,6 +101,21 @@ def list_time_logs(
                     "            AND LOWER(COALESCE(_u.email,'')) = LOWER(tl.user_id)))"
                 )
                 params.extend([user_id, user_id])
+            if date_from:
+                where_clauses.append("tl.work_date >= ?")
+                params.append(date_from)
+            if date_to:
+                where_clauses.append("tl.work_date <= ?")
+                params.append(date_to)
+            if job_search:
+                where_clauses.append(
+                    "(LOWER(COALESCE(j.job_number,'')) LIKE LOWER(?)"
+                    " OR LOWER(COALESCE(j.title,'')) LIKE LOWER(?))"
+                )
+                params.extend([f"%{job_search}%", f"%{job_search}%"])
+            if client_search:
+                where_clauses.append("LOWER(COALESCE(c.client_name,'')) LIKE LOWER(?)")
+                params.append(f"%{client_search}%")
             where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
 
             try:
