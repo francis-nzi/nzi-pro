@@ -2213,11 +2213,16 @@ export default function JobAdvancedReports({
           const hasBenchmark = grandBenchmarkTotal > 0 || (benchmark_categories?.length ?? 0) > 0;
           const hasPrevYear = (previous_year_categories?.length ?? 0) > 0;
 
-          // Column grid: Scope | Category | Benchmark | [PrevYear] | Current | % vs benchmark
-          const cols = hasPrevYear
-            ? "grid-cols-[72px_1fr_110px_110px_110px_60px]"
-            : "grid-cols-[80px_1fr_120px_120px_60px]";
-          const numCols = hasPrevYear ? 6 : 5;
+          // Column grid: Scope | Category | [Benchmark] | [PrevYear] | Current | [% vs BM]
+          // BM and % vs BM columns are omitted when there is no benchmark data (e.g. first year of reporting)
+          const cols = !hasBenchmark
+            ? hasPrevYear
+              ? "grid-cols-[72px_1fr_110px_110px]"
+              : "grid-cols-[80px_1fr_120px]"
+            : hasPrevYear
+              ? "grid-cols-[72px_1fr_110px_110px_110px_60px]"
+              : "grid-cols-[80px_1fr_120px_120px_60px]";
+          const numCols = hasPrevYear ? (hasBenchmark ? 6 : 4) : (hasBenchmark ? 5 : 3);
 
           const bmYearLabel = toYearLabel(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end) || "BM";
           const currentYearLabel = toYearLabel(data.job_data.reporting_period_start, data.job_data.reporting_period_end) || "Current";
@@ -2247,10 +2252,10 @@ export default function JobAdvancedReports({
                 <div key={`${r.scope}-${r.label}`} className={`grid ${cols} border-b border-gray-100 px-3 py-2 ${bg}`}>
                   <span className="text-xs text-gray-500">{r.scope}</span>
                   <span className="text-xs text-gray-700 pr-2">{r.label}</span>
-                  {hasBenchmark ? <span className="text-xs text-gray-600 text-right">{fmt(r.benchmark)}</span> : <span className="text-xs text-gray-400 text-right">-</span>}
+                  {hasBenchmark && <span className="text-xs text-gray-600 text-right">{fmt(r.benchmark)}</span>}
                   {hasPrevYear && <span className="text-xs text-gray-600 text-right">{r.prevYear > 0 ? fmt(r.prevYear) : "-"}</span>}
                   <span className="text-xs text-gray-700 text-right">{fmt(r.current)}</span>
-                  <span className="text-xs text-right" style={{ color: pct < 0 ? "#16a34a" : pct > 0 ? "#dc2626" : "#6b7280" }}>{pct >= 0 ? "+" : ""}{fmt(pct, 1)}%</span>
+                  {hasBenchmark && <span className="text-xs text-right" style={{ color: pct < 0 ? "#16a34a" : pct > 0 ? "#dc2626" : "#6b7280" }}>{pct >= 0 ? "+" : ""}{fmt(pct, 1)}%</span>}
                 </div>
               );
               rowIdx++;
@@ -2260,10 +2265,10 @@ export default function JobAdvancedReports({
               <div key={`subtotal-${scope}`} className={`grid ${cols} border-b border-gray-200 px-3 py-2`} style={{ backgroundColor: `${BRAND}12` }}>
                 <span className="text-xs font-semibold text-gray-700">{scope}</span>
                 <span className="text-xs font-semibold text-gray-700">Sub-total</span>
-                {hasBenchmark ? <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeBenchmark)}</span> : <span className="text-xs text-gray-400 text-right">-</span>}
+                {hasBenchmark && <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeBenchmark)}</span>}
                 {hasPrevYear && <span className="text-xs font-semibold text-gray-700 text-right">{scopePrevYear > 0 ? fmt(scopePrevYear) : "-"}</span>}
                 <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeCurrent)}</span>
-                <span className="text-xs font-semibold text-right" style={{ color: subPct < 0 ? "#16a34a" : subPct > 0 ? "#dc2626" : "#6b7280" }}>{subPct >= 0 ? "+" : ""}{fmt(subPct, 1)}%</span>
+                {hasBenchmark && <span className="text-xs font-semibold text-right" style={{ color: subPct < 0 ? "#16a34a" : subPct > 0 ? "#dc2626" : "#6b7280" }}>{subPct >= 0 ? "+" : ""}{fmt(subPct, 1)}%</span>}
               </div>
             );
           }
@@ -2281,21 +2286,23 @@ export default function JobAdvancedReports({
                   <div className={`grid ${cols} px-3 py-2`} style={{ backgroundColor: BRAND }}>
                     <span className="text-xs font-semibold uppercase tracking-wide text-white">Scope</span>
                     <span className="text-xs font-semibold uppercase tracking-wide text-white">Category</span>
-                    {benchmarkColHeader}
+                    {hasBenchmark && benchmarkColHeader}
                     {hasPrevYear && colHdr(previous_year_label || "Prev")}
                     {colHdr(currentYearLabel)}
-                    <span className="text-xs font-semibold text-white text-right leading-snug" style={{ textTransform: 'none' }}>
-                      <span className="block">% vs</span>
-                      <span className="block">BM</span>
-                    </span>
+                    {hasBenchmark && (
+                      <span className="text-xs font-semibold text-white text-right leading-snug" style={{ textTransform: 'none' }}>
+                        <span className="block">% vs</span>
+                        <span className="block">BM</span>
+                      </span>
+                    )}
                   </div>
                   {tableRows}
                   <div className={`grid ${cols} border-t-2 border-gray-300 px-3 py-2 bg-gray-50`}>
                     <span className={`text-xs font-bold text-gray-700 uppercase col-span-2`}>Total Emissions</span>
-                    {hasBenchmark ? <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandBenchmarkTotal)}</span> : <span className="text-xs text-gray-400 text-right">-</span>}
+                    {hasBenchmark && <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandBenchmarkTotal)}</span>}
                     {hasPrevYear && <span className="text-xs font-bold text-gray-700 text-right">{grandPrevYearTotal > 0 ? fmt(grandPrevYearTotal) : "-"}</span>}
                     <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandCurrentTotal)}</span>
-                    <span className="text-xs font-bold text-right" style={{ color: grandPct < 0 ? "#16a34a" : grandPct > 0 ? "#dc2626" : "#6b7280" }}>{grandPct >= 0 ? "+" : ""}{fmt(grandPct, 1)}%</span>
+                    {hasBenchmark && <span className="text-xs font-bold text-right" style={{ color: grandPct < 0 ? "#16a34a" : grandPct > 0 ? "#dc2626" : "#6b7280" }}>{grandPct >= 0 ? "+" : ""}{fmt(grandPct, 1)}%</span>}
                   </div>
                 </div>
                 <p className="text-xs text-gray-600">A detailed breakdown of emissions is set out in Appendix 1.</p>
