@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PoundSterling } from "lucide-react";
 
@@ -16,17 +16,13 @@ import {
   HistoricalEmissionsTrendWidget,
   IntensityPathwayWidget,
   buildActivityBarData,
-  captureSvgToPngDataUrl,
-  findLargestSvg,
   ScopeSummaryDonutWidget,
   ScopeYearOnYearBarWidget,
   SiteSummaryDonutWidget,
   buildEmissionsReductionPathwayData,
   buildScopeDonutItems,
-  getWidgetPngExporter,
   resolveScopeDonutBenchmarkTotal,
   resolveScopeDonutBenchmarkYear,
-  REPORT_WIDGET_IDS,
   type IntensityPathwayPoint,
   type IntensityPathwaySeries,
 } from "@/components/report-widgets";
@@ -366,17 +362,6 @@ function MetaRow({ label, value }: { label: string; value: string | number | nul
   );
 }
 
-function ChartCapturePlaceholder({ className }: { className?: string }) {
-  return (
-    <div className={`flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 py-10 text-center ${className ?? ""}`}>
-      <svg className="h-8 w-8 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-      </svg>
-      <p className="text-xs font-medium text-gray-500">Chart not yet captured</p>
-      <p className="text-xs text-gray-400">Click <strong>Refresh Charts</strong> in the toolbar to generate this chart</p>
-    </div>
-  );
-}
 
 // Main component
 
@@ -442,10 +427,7 @@ export default function JobAdvancedReports({
     message: string;
   } | null>(null);
   const [manifestValidationError, setManifestValidationError] = useState<string | null>(null);
-  const [storedWidgetPngs, setStoredWidgetPngs] = useState<Record<string, string>>({});
   const [widgetPngsReady, setWidgetPngsReady] = useState(false);
-  const [autoCapturing, setAutoCapturing] = useState(false);
-  const hasAutoCapture = useRef(false);
 
   function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
     const headers: Record<string, string> = {
@@ -490,45 +472,13 @@ export default function JobAdvancedReports({
       .finally(() => setLoading(false));
   }, [jobId, baseUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch stored widget PNGs for both web Report Printing and Playwright PDF modes.
-  // In PDF mode (pdfToken present), Playwright sets the nzi_token cookie so the
-  // auth-client.ts global fetch interceptor injects Authorization headers here too.
+  // Signal Playwright when data has loaded and Recharts has had time to paint.
+  // 1500 ms covers ResponsiveContainer measurement + one rAF repaint cycle.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    void (async () => {
-      try {
-        const res = await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, { credentials: "include" });
-        if (!res.ok) return;
-        const d = await res.json() as { pngs?: Record<string, string> };
-        if (d.pngs && Object.keys(d.pngs).length > 0) setStoredWidgetPngs(d.pngs);
-      } catch { /* silently ignore */ }
-      finally {
-        setWidgetPngsReady(true);
-      }
-    })();
-  }, [jobId, baseUrl, pdfToken]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Auto-capture charts on first load when no stored PNGs exist, so users don't
-  // have to navigate to Insights and click "Capture Charts" manually.
-  useEffect(() => {
-    if (!widgetPngsReady || !data || pdfToken || hasAutoCapture.current) return;
-    if (Object.keys(storedWidgetPngs).length > 0) return;
-    hasAutoCapture.current = true;
-    void (async () => {
-      setAutoCapturing(true);
-      try {
-        // Wait for live charts to mount and register their PNG exporters.
-        await new Promise<void>((resolve) => setTimeout(resolve, 800));
-        await Promise.allSettled(Object.values(REPORT_WIDGET_IDS).map((id) => refreshWidgetPngForPdf(id)));
-        const res = await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, { credentials: "include" });
-        if (res.ok) {
-          const d = await res.json() as { pngs?: Record<string, string> };
-          if (d.pngs && Object.keys(d.pngs).length > 0) setStoredWidgetPngs(d.pngs);
-        }
-      } catch { /* silently ignore */ }
-      finally { setAutoCapturing(false); }
-    })();
-  }, [widgetPngsReady, data, pdfToken]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!data) return;
+    const timer = setTimeout(() => setWidgetPngsReady(true), 1500);
+    return () => clearTimeout(timer);
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function downloadPdf() {
     setDownloading(true);
@@ -636,90 +586,6 @@ export default function JobAdvancedReports({
     setPdfBlobUrl(null);
   }
 
-  async function waitForWidgetPngExporter(widgetId: string, timeoutMs = 3000) {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const exporter = getWidgetPngExporter(widgetId);
-      if (exporter) return exporter;
-      await new Promise<void>((resolve) => setTimeout(resolve, 50));
-    }
-    return getWidgetPngExporter(widgetId);
-  }
-
-  async function refreshWidgetPngForPdf(widgetId: string) {
-    const exporter = await waitForWidgetPngExporter(widgetId);
-    if (!exporter) {
-      const container = document.querySelector(`[data-widget-key="${CSS.escape(widgetId)}"]`) as HTMLElement | null;
-      const svg = findLargestSvg(container);
-      if (!svg) return false;
-
-      try {
-        const pngData = await captureSvgToPngDataUrl(svg);
-        if (!pngData) return false;
-
-        const res = await authFetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            widget_id: widgetId,
-            png_data: pngData,
-          }),
-        });
-        return res.ok;
-      } catch {
-        return false;
-      }
-    }
-
-    try {
-      const pngData = await exporter();
-      if (!pngData) {
-        const container = document.querySelector(`[data-widget-key="${CSS.escape(widgetId)}"]`) as HTMLElement | null;
-        const svg = findLargestSvg(container);
-        if (!svg) return false;
-        const fallbackPng = await captureSvgToPngDataUrl(svg);
-        if (!fallbackPng) return false;
-        const res = await authFetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            widget_id: widgetId,
-            png_data: fallbackPng,
-          }),
-        });
-        return res.ok;
-      }
-
-      const res = await authFetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          widget_id: widgetId,
-          png_data: pngData,
-        }),
-      });
-      return res.ok;
-    } catch {
-      // Continue to PDF generation even if a single widget refresh fails.
-      return false;
-    }
-  }
-
-  async function refreshCharts() {
-    setAutoCapturing(true);
-    // Clear stored PNGs so live recharts widgets mount and register their exporters.
-    setStoredWidgetPngs({});
-    try {
-      await new Promise<void>((resolve) => setTimeout(resolve, 800));
-      await Promise.allSettled(Object.values(REPORT_WIDGET_IDS).map((id) => refreshWidgetPngForPdf(id)));
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/widget-pngs`, { credentials: "include" });
-      if (res.ok) {
-        const d = await res.json() as { pngs?: Record<string, string> };
-        if (d.pngs && Object.keys(d.pngs).length > 0) setStoredWidgetPngs(d.pngs);
-      }
-    } catch { /* silently ignore */ }
-    finally { setAutoCapturing(false); }
-  }
 
   function savePdfToDisk() {
     if (!pdfBlobUrl) return;
@@ -763,10 +629,6 @@ export default function JobAdvancedReports({
     setGenerating(true);
     setGenerateError(null);
     try {
-      // Auto-capture widget PNGs before saving so the PDF matches what's on screen.
-      const widgetIds = Object.values(REPORT_WIDGET_IDS);
-      await Promise.allSettled(widgetIds.map((id) => refreshWidgetPngForPdf(id)));
-
       const res = await authFetch(
         `${baseUrl}/jobs/${jobId}/generate-report-react?save_version=true&report_version_status=${status}`,
         { method: "POST" },
@@ -1087,15 +949,6 @@ export default function JobAdvancedReports({
     scope_totals?.["Scope 3"],
   );
   const widgetPngsReadyState = widgetPngsReady ? "1" : "0";
-  const widgetPngs = {
-    emissionsScopeDonut: storedWidgetPngs["emissions_scope_donut"] ?? null,
-    scopeYearOnYearBar: storedWidgetPngs["scope_year_on_year_bar"] ?? null,
-    emissionsSiteDonut: storedWidgetPngs["emissions_site_donut"] ?? null,
-    emissionsReductionPathway: storedWidgetPngs["emissions_reduction_pathway"] ?? null,
-    emissionsByActivity: storedWidgetPngs["emissions_by_activity"] ?? null,
-    intensityPathway: storedWidgetPngs["intensity_pathway"] ?? null,
-    historicalEmissionsTrend: storedWidgetPngs["historical_emissions_trend"] ?? null,
-  };
   const normalizedSiteData = (() => {
     const siteData = (site_breakdowns?.scope ?? [])
       .map((row) => ({
@@ -1337,23 +1190,6 @@ export default function JobAdvancedReports({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {autoCapturing ? (
-              <span className="flex items-center gap-1.5 text-xs text-gray-500">
-                <span className="h-3 w-3 animate-spin rounded-full border border-gray-400 border-t-transparent" />
-                Capturing charts…
-              </span>
-            ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void refreshCharts()}
-                disabled={generating || downloading}
-                className="text-xs"
-                title="Re-capture all charts for PDF output"
-              >
-                Refresh Charts
-              </Button>
-            )}
             <Badge
               variant="outline"
               className="border-amber-300 bg-amber-50 text-xs text-amber-600"
@@ -1364,7 +1200,7 @@ export default function JobAdvancedReports({
               size="sm"
               variant="outline"
               onClick={() => saveVersion("draft")}
-              disabled={generating || downloading || autoCapturing}
+              disabled={generating || downloading }
               className="text-xs"
             >
               Save Draft
@@ -1373,7 +1209,7 @@ export default function JobAdvancedReports({
               size="sm"
               variant="outline"
               onClick={() => saveVersion("review")}
-              disabled={generating || downloading || autoCapturing}
+              disabled={generating || downloading }
               className="text-xs"
             >
               {generating ? (
@@ -1388,7 +1224,7 @@ export default function JobAdvancedReports({
             <Button
               size="sm"
               onClick={() => void sendToPortal()}
-              disabled={sendingToPortal || generating || downloading || autoCapturing}
+              disabled={sendingToPortal || generating || downloading }
               className="bg-green-700 text-xs text-white hover:bg-green-800"
             >
               {sendingToPortal ? (
@@ -1403,7 +1239,7 @@ export default function JobAdvancedReports({
             <Button
               size="sm"
               onClick={() => void downloadPdf()}
-              disabled={downloading || generating || autoCapturing}
+              disabled={downloading || generating }
               className="bg-gray-700 text-xs text-white hover:bg-gray-800"
             >
               {downloading ? (
