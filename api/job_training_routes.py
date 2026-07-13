@@ -31,7 +31,9 @@ router = APIRouter(tags=["job-training"])
 _TRAINING_DOCUMENTS_DIR = Path(
     os.getenv("NZI_TRAINING_DOCUMENTS_DIR") or "/var/data/nzi-pro-api/training_documents"
 )
-_LEGACY_TRAINING_DOCUMENTS_DIR = Path(__file__).resolve().parents[1] / "frontend" / "public" / "uploads" / "training_documents"
+# Legacy files were historically stored under frontend/public/uploads/training_documents.
+# __file__.resolve().parents[2] is the repo root, while parents[1] is only the api/ dir.
+_LEGACY_TRAINING_DOCUMENTS_DIR = Path(__file__).resolve().parents[2] / "frontend" / "public" / "uploads" / "training_documents"
 
 
 def _training_document_download_url(file_name: str) -> str:
