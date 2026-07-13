@@ -1007,6 +1007,21 @@ def update_job(
             if "status" in body:
                 updates.append("status = ?")
                 params.append(body["status"])
+
+            if "client_db_id" in body:
+                client_db_id_raw = body.get("client_db_id")
+                if client_db_id_raw in ("", "null", "NULL"):
+                    resolved_client_db_id = None
+                elif client_db_id_raw is None:
+                    resolved_client_db_id = None
+                else:
+                    try:
+                        resolved_client_db_id = int(client_db_id_raw)
+                    except Exception:
+                        raise HTTPException(status_code=400, detail="client_db_id must be an integer")
+                    assert_client_access(_user, resolved_client_db_id)
+                updates.append("client_db_id = ?")
+                params.append(resolved_client_db_id)
             
             if "crm_name" in body:
                 updates.append("crm_name = ?")
