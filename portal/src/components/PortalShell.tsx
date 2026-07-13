@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   BarChart3,
@@ -65,6 +65,7 @@ export default function PortalShell({
   const searchParams = useSearchParams();
   const [user, setUser] = useState<PortalUser | null>(null);
   const [navConfig, setNavConfig] = useState<NavConfig>({});
+  const [navLoaded, setNavLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -84,6 +85,7 @@ export default function PortalShell({
         if (d.mfa_setup_required) { router.replace("/setup-mfa"); return; }
         setUser(d.user);
         setNavConfig(d.nav_config ?? {});
+        setNavLoaded(true);
       })
       .catch(() => { clearAllTokens(); router.replace("/login"); });
   }, [router]);
@@ -97,11 +99,21 @@ export default function PortalShell({
   const isDashboard = pathname === "/dashboard" || pathname === "/";
   const sidebarBg = "#1a3a2a";
 
-  const visibleNav = ALL_NAV_ITEMS.filter(item => {
+  const visibleNav = useMemo(() => ALL_NAV_ITEMS.filter((item) => {
     const cfg = navConfig as Record<string, boolean>;
+    if (!navLoaded) return true;
     if (Object.keys(navConfig).length === 0) return true;
     return cfg[item.key] !== false;
-  });
+  }), [navConfig, navLoaded]);
+  const visibleNavTabs = useMemo(() => visibleNav.map((item) => item.tab), [visibleNav]);
+
+  useEffect(() => {
+    if (!navLoaded || !isDashboard) return;
+    if (visibleNavTabs.length === 0) return;
+    if (!visibleNavTabs.includes(currentTab)) {
+      router.replace(`/dashboard?tab=${visibleNavTabs[0]}`, { scroll: false });
+    }
+  }, [currentTab, isDashboard, navLoaded, router, visibleNavTabs]);
 
   function handleNavClick(tab: string) {
     setSidebarOpen(false);
