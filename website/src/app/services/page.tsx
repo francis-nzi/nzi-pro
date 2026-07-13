@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { SectionHeading } from "@/components/SectionHeading";
-import { serviceCards } from "@/content/site";
+import { serviceCards, servicePages } from "@/content/site";
 
 export const metadata = {
   title: "Services",
@@ -21,8 +22,26 @@ export default function ServicesPage() {
       <section className="content-section">
         <SectionHeading
           eyebrow="Service map"
-          title="Initial page set"
-          description="These are the pages I would launch first so the site feels complete and commercially useful."
+          title="Launch the services as proper pages, not just bullets"
+          description="The main offers should have dedicated landing pages so search, AI, and people can all understand the business clearly."
+        />
+
+        <div className="card-grid">
+          {servicePages.map((page) => (
+            <Link key={page.slug} href={`/${page.slug}`} className="page-card">
+              <p className="eyebrow">{page.eyebrow}</p>
+              <h3>{page.title}</h3>
+              <p>{page.description}</p>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section className="content-section">
+        <SectionHeading
+          eyebrow="Service blocks"
+          title="Supporting commercial entries"
+          description="These are the reusable blocks the site can use across the homepage, cards, and future campaign pages."
         />
 
         <div className="card-grid">

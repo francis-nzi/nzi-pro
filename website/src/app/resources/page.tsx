@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { SectionHeading } from "@/components/SectionHeading";
-import { faqs } from "@/content/site";
+import { faqs, resourcePages } from "@/content/site";
 
 export const metadata = {
   title: "Resources",
@@ -16,6 +17,24 @@ export default function ResourcesPage() {
           Resource pages are where AI-era visibility compounds. They answer common questions,
           support search intent, and create more entry points into the business.
         </p>
+      </section>
+
+      <section className="content-section">
+        <SectionHeading
+          eyebrow="Resource hub"
+          title="Start here for knowledge pages"
+          description="These pages support search, AI discovery, and internal linking."
+        />
+
+        <div className="card-grid">
+          {resourcePages.map((page) => (
+            <Link key={page.slug} href={`/${page.slug}`} className="page-card">
+              <p className="eyebrow">{page.eyebrow}</p>
+              <h3>{page.title}</h3>
+              <p>{page.description}</p>
+            </Link>
+          ))}
+        </div>
       </section>
 
       <section className="content-section">

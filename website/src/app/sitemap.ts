@@ -1,6 +1,19 @@
 export default function sitemap() {
   const baseUrl = "https://netzero.international";
-  const paths = ["", "/services", "/ai-era", "/resources", "/about", "/contact"];
+  const paths = [
+    "",
+    "/services",
+    "/scope-3",
+    "/workshops",
+    "/training",
+    "/regulations",
+    "/glossary",
+    "/faq",
+    "/ai-era",
+    "/resources",
+    "/about",
+    "/contact",
+  ];
 
   return paths.map((path) => ({
     url: `${baseUrl}${path}`,

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Mail, MessageSquare } from "lucide-react";
+import { ArrowRight, Mail, MessageSquare } from "lucide-react";
 import { SectionHeading } from "@/components/SectionHeading";
 
 export const metadata = {
@@ -43,6 +43,10 @@ export default function ContactPage() {
             <p>
               <MessageSquare size={16} style={{ display: "inline", verticalAlign: "-0.15em", marginRight: 8 }} />
               Render-hosted marketing service in the NZI Insights Pro Live project
+            </p>
+            <p>
+              <ArrowRight size={16} style={{ display: "inline", verticalAlign: "-0.15em", marginRight: 8 }} />
+              Next step: connect the domain only after the site content and navigation are signed off.
             </p>
           </article>
         </div>

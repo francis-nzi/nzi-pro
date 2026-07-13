@@ -16,11 +16,11 @@ export function SiteHeader() {
   return (
     <header className="site-header">
       <div className="site-wrap site-header-inner">
-        <Link href="/" className="brand" aria-label="NZ Insights Pro home">
+        <Link href="/" className="brand" aria-label="Net Zero International home">
           <span className="brand-mark">NZI</span>
           <span className="brand-text">
-            <strong>NZ Insights Pro</strong>
-            <span>Net Zero International</span>
+            <strong>Net Zero International</strong>
+            <span>NZ Insights Pro</span>
           </span>
         </Link>
 

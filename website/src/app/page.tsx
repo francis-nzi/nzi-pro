@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpenText, Sparkles } from "lucide-react";
 import { SectionHeading } from "@/components/SectionHeading";
-import { aiPrinciples, buildPhases, homeStats, serviceCards } from "@/content/site";
+import { aiPrinciples, buildPhases, homeStats, serviceCards, servicePages } from "@/content/site";
 
 export default function HomePage() {
   return (
@@ -54,6 +54,12 @@ export default function HomePage() {
 
       <section className="content-section">
         <div className="site-wrap">
+          <SectionHeading
+            eyebrow="Site map"
+            title="The public site now has a proper content backbone"
+            description="These pages are the foundation of the real launch, not just a one-page shell."
+          />
+
           <div className="stats-grid">
             {[
               "Same Render environment, separate web service",
@@ -92,16 +98,44 @@ export default function HomePage() {
       <section className="content-section">
         <div className="site-wrap">
           <SectionHeading
-            eyebrow="Services"
-            title="A site structure that can grow with the business"
-            description="Start with the core offers, then add the supporting pages that make those offers discoverable and explain them properly."
+            eyebrow="Featured pages"
+            title="Core offers and supporting pages"
+            description="The launch should make the main offers obvious, then route visitors into the deeper pages that answer real questions."
           />
 
           <div className="card-grid">
-            {serviceCards.slice(0, 6).map((item) => (
+            {servicePages.map((page) => (
+              <Link key={page.slug} href={`/${page.slug}`} className="page-card">
+                <p className="eyebrow">{page.eyebrow}</p>
+                <h3>{page.title}</h3>
+                <p>{page.description}</p>
+                <span className="inline-cta">
+                  Read the page <BookOpenText size={15} />
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="content-section">
+        <div className="site-wrap">
+          <SectionHeading
+            eyebrow="Services"
+            title="Primary services at a glance"
+            description="These are the commercial entry points the site should make very easy to find."
+          />
+
+          <div className="card-grid">
+            {serviceCards.map((item) => (
               <article key={item.title} className="page-card">
                 <h3>{item.title}</h3>
                 <p>{item.summary}</p>
+                {item.href ? (
+                  <Link href={item.href} className="inline-cta">
+                    Learn more <ArrowRight size={15} />
+                  </Link>
+                ) : null}
               </article>
             ))}
           </div>

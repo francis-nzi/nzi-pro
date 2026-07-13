@@ -17,17 +17,17 @@ const displayFont = Fraunces({
 export const metadata: Metadata = {
   metadataBase: new URL("https://netzero.international"),
   title: {
-    default: "NZ Insights Pro | Net Zero International",
-    template: "%s | NZ Insights Pro",
+    default: "Net Zero International",
+    template: "%s | Net Zero International",
   },
   description:
     "A future-proof marketing site for Net Zero International, designed for AI search, structured content, and dynamic data.",
   openGraph: {
-    title: "NZ Insights Pro",
+    title: "Net Zero International",
     description:
       "A future-proof marketing site for Net Zero International, designed for AI search, structured content, and dynamic data.",
     url: "https://netzero.international",
-    siteName: "NZ Insights Pro",
+    siteName: "Net Zero International",
     type: "website",
   },
   twitter: {

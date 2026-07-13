@@ -24,20 +24,34 @@ export default function AboutPage() {
           description="A future-proof rebuild separates brand, content, and application concerns so each part can evolve without breaking the rest."
         />
 
+        <div className="card-grid">
+          <article className="info-card">
+            <h3>Sales surface</h3>
+            <p>Clear offers, obvious next steps, and pages that make it easy to enquire or book a call.</p>
+          </article>
+          <article className="info-card">
+            <h3>Knowledge surface</h3>
+            <p>Resources, glossary pages, and answer-first content that help people and AI systems understand the business.</p>
+          </article>
+          <article className="info-card">
+            <h3>Trust surface</h3>
+            <p>Consistent design, proof points, and a structure that says who you are before asking for action.</p>
+          </article>
+        </div>
+      </section>
+
+      <section className="content-section">
+        <SectionHeading
+          eyebrow="Working model"
+          title="What this means in practice"
+          description="The public site should be content-driven, but ready to connect to live data and product surfaces when needed."
+        />
+
         <div className="page-layout">
           <article className="quote-card">
             <blockquote>
-              The website should be a knowledge surface, a sales surface, and a trust surface.
-              It should not force visitors to decode the business from generic page builders.
+              Strong copy, specific pages, clean architecture, and an operating model that allows us to plug in live data, lead capture, and portal links when needed.
             </blockquote>
-          </article>
-
-          <article className="page-card">
-            <h3>What this means in practice</h3>
-            <p>
-              Strong copy, specific pages, clean architecture, and an operating model that allows
-              us to plug in live data, lead capture, and portal links when needed.
-            </p>
           </article>
         </div>
       </section>
