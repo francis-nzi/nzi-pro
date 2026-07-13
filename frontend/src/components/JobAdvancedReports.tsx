@@ -1098,7 +1098,7 @@ export default function JobAdvancedReports({
             print-color-adjust: exact;
           }
           .live-report-section,
-          .live-report-section * {
+          .live-report-section *:not(svg):not(svg *) {
             font-size: 10px !important;
           }
           .live-report-section p,
@@ -1129,10 +1129,6 @@ export default function JobAdvancedReports({
   /* Emissions summary box figure */
           .emissions-box-figure {
             font-size: 30px !important;
-          }
-          /* Donut center total: doubled from 14px */
-          .donut-total {
-            font-size: 28px !important;
           }
           .advanced-report-controls {
             display: none !important;
