@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import html
 import json
+import os
 import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -25,6 +27,26 @@ from services.outbound_email import send_tracked_email
 from services.tenancy import require_org
 
 router = APIRouter(tags=["job-training"])
+
+_TRAINING_DOCUMENTS_DIR = Path(
+    os.getenv("NZI_TRAINING_DOCUMENTS_DIR") or "/var/data/nzi-pro-api/training_documents"
+)
+_LEGACY_TRAINING_DOCUMENTS_DIR = Path(__file__).resolve().parents[1] / "frontend" / "public" / "uploads" / "training_documents"
+
+
+def _training_document_download_url(file_name: str) -> str:
+    safe_name = Path(str(file_name or "")).name
+    return f"/api/backend/training-documents/{safe_name}/download"
+
+
+def _training_document_candidates(file_name: str) -> list[Path]:
+    safe_name = Path(str(file_name or "")).name
+    if not safe_name:
+        return []
+    return [
+        _TRAINING_DOCUMENTS_DIR / safe_name,
+        _LEGACY_TRAINING_DOCUMENTS_DIR / safe_name,
+    ]
 
 
 def _actor(user: dict[str, str]) -> str:
@@ -3227,8 +3249,6 @@ def delete_training_product(
 # Training documents
 # ---------------------------------------------------------------------------
 
-_TRAINING_UPLOADS = Path(__file__).resolve().parents[1] / "frontend" / "public" / "uploads" / "training_documents"
-
 
 @router.post("/training-documents/upload")
 async def upload_training_document_file(
@@ -3237,7 +3257,7 @@ async def upload_training_document_file(
 ):
     """Save an uploaded file and return its public URL."""
     assert_permission(_user, "jobs.edit")
-    _TRAINING_UPLOADS.mkdir(parents=True, exist_ok=True)
+    _TRAINING_DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Build a safe, unique filename
     original = file.filename or "document"
@@ -3245,14 +3265,35 @@ async def upload_training_document_file(
     safe_stem = re.sub(r"[^a-zA-Z0-9._-]", "_", Path(original).stem)[:80]
     unique_name = f"{uuid.uuid4().hex[:8]}_{safe_stem}{ext}"
 
-    dest = _TRAINING_UPLOADS / unique_name
+    dest = _TRAINING_DOCUMENTS_DIR / unique_name
     content = await file.read()
     dest.write_bytes(content)
 
     return {
-        "file_url": f"/uploads/training_documents/{unique_name}",
+        "file_url": _training_document_download_url(unique_name),
         "file_name": original,
     }
+
+
+@router.get("/training-documents/{file_name}/download")
+def download_training_document_file(
+    file_name: str,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    assert_permission(_user, "jobs.view")
+    safe_name = Path(str(file_name or "")).name
+    if not safe_name:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    for candidate in _training_document_candidates(safe_name):
+        if candidate.exists():
+            return FileResponse(
+                path=str(candidate),
+                filename=safe_name,
+                media_type="application/octet-stream",
+            )
+
+    raise HTTPException(status_code=404, detail="File not found")
 
 
 @router.get("/training-documents")

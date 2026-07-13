@@ -45,6 +45,18 @@ function docTypeColor(type: string) {
   }
 }
 
+function resolveTrainingDocumentUrl(fileUrl: string, baseUrl: string): string {
+  const trimmed = fileUrl.trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith("mailto:")) return trimmed;
+  if (trimmed.startsWith("/uploads/training_documents/")) {
+    const fileName = trimmed.split("/").pop() || "";
+    return `${baseUrl}/training-documents/${encodeURIComponent(fileName)}/download`;
+  }
+  if (trimmed.startsWith("/")) return `${baseUrl}${trimmed}`;
+  return trimmed;
+}
+
 export default function DocumentsPanel({ targetType, targetId, baseUrl, title = "Documents" }: Props) {
   const [docs, setDocs] = useState<TrainingDocument[]>([]);
   const [loading, setLoading] = useState(true);
@@ -223,7 +235,7 @@ export default function DocumentsPanel({ targetType, targetId, baseUrl, title = 
               <div className="flex shrink-0 items-center gap-1">
                 {doc.file_url && (
                   <a
-                    href={doc.file_url}
+                    href={resolveTrainingDocumentUrl(doc.file_url, baseUrl)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
