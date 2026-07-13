@@ -44,7 +44,7 @@ export default function TrainingJobDetailsCard({ job, baseUrl }: Props) {
   const [crmName, setCrmName] = useState(job.crm_name ?? "");
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
-  const clientSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clientSearchTimer = useRef<number | null>(null);
 
   const loadClients = useCallback(async (query: string) => {
     setClientSearchLoading(true);
