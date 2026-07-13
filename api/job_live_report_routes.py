@@ -849,6 +849,25 @@ def _render_live_report_pdf_bytes(
                 pass
 
 
+def _render_live_report_pdf_bytes_guarded(
+    job_id: int,
+    bearer: str,
+    frontend_base: str,
+    extra_headers: dict[str, str],
+    queue_timeout: float = 600,
+) -> bytes:
+    """Same as _render_live_report_pdf_bytes but serialised behind the global
+    Chromium semaphore, so this code path can't run a second browser instance
+    concurrently with an in-flight "View PDF" render (or another Save)."""
+    acquired = _pdf_semaphore.acquire(timeout=queue_timeout)
+    if not acquired:
+        raise HTTPException(status_code=503, detail="PDF generation is busy. Please try again shortly.")
+    try:
+        return _render_live_report_pdf_bytes(job_id, bearer, frontend_base, extra_headers)
+    finally:
+        _pdf_semaphore.release()
+
+
 def _extract_pdf_request_parts(request: Request) -> tuple[str, str, dict[str, str]]:
     """Extract bearer token, frontend base URL, and extra headers from a request."""
     bearer = _extract_bearer_token(request)
@@ -873,7 +892,7 @@ def get_job_live_report_pdf(
 
     bearer, frontend_base, extra_headers = _extract_pdf_request_parts(request)
     try:
-        pdf_bytes = _render_live_report_pdf_bytes(int(job_id), bearer, frontend_base, extra_headers)
+        pdf_bytes = _render_live_report_pdf_bytes_guarded(int(job_id), bearer, frontend_base, extra_headers)
     except HTTPException:
         raise
     except Exception as exc:
@@ -1071,7 +1090,7 @@ def generate_job_report_react(
     # Render PDF via Playwright
     try:
         bearer, frontend_base, extra_headers = _extract_pdf_request_parts(request)
-        pdf_bytes = _render_live_report_pdf_bytes(int(job_id), bearer, frontend_base, extra_headers)
+        pdf_bytes = _render_live_report_pdf_bytes_guarded(int(job_id), bearer, frontend_base, extra_headers)
     except HTTPException:
         raise
     except Exception as exc:
