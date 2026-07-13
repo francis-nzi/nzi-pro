@@ -28,6 +28,17 @@ function forwardHeaders(req: NextRequest): Headers {
   const cookie = req.headers.get("cookie");
   if (cookie) headers.set("cookie", cookie);
 
+  if (!headers.has("authorization") && cookie) {
+    const tokenMatch = cookie.match(/(?:^|;\s*)nzi_token=([^;]+)/);
+    if (tokenMatch?.[1]) {
+      try {
+        headers.set("authorization", `Bearer ${decodeURIComponent(tokenMatch[1])}`);
+      } catch {
+        headers.set("authorization", `Bearer ${tokenMatch[1]}`);
+      }
+    }
+  }
+
   return headers;
 }
 
