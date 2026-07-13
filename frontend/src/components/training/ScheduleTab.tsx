@@ -1020,7 +1020,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                                 {participants.map((p) => (
                                   <div
                                     key={p.training_session_attendance_id}
-                                    className={`grid gap-2 rounded px-2 py-2 text-xs shadow-sm ring-1 ring-slate-100 md:grid-cols-[28px_minmax(0,1.7fr)_120px_120px_120px_auto] ${
+                                    className={`grid gap-2 rounded px-2 py-2 text-xs shadow-sm ring-1 ring-slate-100 md:grid-cols-[28px_minmax(0,1.7fr)_120px_120px_auto] ${
                                       String(p.billing_status || "").toLowerCase() === "paid" || String(p.billing_status || "").toLowerCase() === "included" || String(p.billing_status || "").toLowerCase() === "waived"
                                         ? "bg-white"
                                         : "bg-amber-50/80 ring-amber-200"
@@ -1048,12 +1048,6 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                                         {p.client_addr_city ? ` · ${p.client_addr_city}` : ""}
                                         {p.client_addr_country ? ` · ${p.client_addr_country}` : ""}
                                       </div>
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <span className="text-[10px] uppercase tracking-wide text-slate-400">Session</span>
-                                      <Badge className={`text-[10px] ${attendanceColor(p.attendance_status)}`} variant="outline">
-                                        {p.attendance_status.replace(/_/g, " ")}
-                                      </Badge>
                                     </div>
                                     <div className="flex flex-wrap items-center gap-2">
                                       <span className="text-[10px] uppercase tracking-wide text-slate-400">Booking</span>
