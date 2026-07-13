@@ -943,11 +943,7 @@ export default function JobAdvancedReports({
   const interimS2Pct = toNum(target_data?.interim_s2_pct ?? target_data?.interim_pct) || 50;
   const interimS3Pct = toNum(target_data?.interim_s3_pct ?? target_data?.interim_pct) || 50;
 
-  const scopeDonutData = buildScopeDonutItems(
-    scope_totals?.["Scope 1"],
-    scope_totals?.["Scope 2"],
-    scope_totals?.["Scope 3"],
-  );
+  const scopeDonutData = buildScopeDonutItems(scope1, scope2, scope3);
   const widgetPngsReadyState = widgetPngsReady ? "1" : "0";
   const normalizedSiteData = (() => {
     const siteData = (site_breakdowns?.scope ?? [])
