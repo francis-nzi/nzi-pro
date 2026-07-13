@@ -600,6 +600,54 @@ def _render_live_report_pdf_bytes(
     frontend_base: str,
     extra_headers: dict[str, str],
 ) -> bytes:
+    """Render the PDF in a background thread and return as soon as the bytes
+    are ready — do NOT wait for browser/context teardown.
+
+    Chromium's --single-process teardown (context.close()/browser.close(),
+    and sync_playwright's own driver shutdown) can hang even after page.pdf()
+    has already succeeded. The existing 180s watchdog only guards the
+    page.pdf() call itself, not what happens after it returns. If teardown
+    hangs, this function must still hand pdf_bytes back to the caller so the
+    async task is marked complete and the semaphore is released — otherwise
+    a single slow teardown blocks every subsequent PDF request indefinitely.
+    Cleanup continues in the (daemon) background thread on a best-effort
+    basis; if it never finishes, we leak one Chromium process rather than
+    wedging the whole PDF pipeline.
+    """
+    result: dict[str, Any] = {}
+    ready = threading.Event()
+
+    def _worker() -> None:
+        try:
+            _render_live_report_pdf_worker(job_id, bearer, frontend_base, extra_headers, result, ready)
+        except Exception as exc:  # pragma: no cover - safety net for setup failures
+            if "pdf_bytes" not in result and "error" not in result:
+                result["error"] = exc
+        finally:
+            ready.set()
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+    # Generous outer safety net: internal steps are individually bounded
+    # (goto 30s, networkidle 90s, widget-pngs 15s, page.pdf() 180s), so their
+    # worst-case sum is well under this. This only fires for a genuinely
+    # unbounded hang before page.pdf() is even reached (e.g. browser
+    # provisioning or launch).
+    if not ready.wait(timeout=360):
+        raise RuntimeError("PDF rendering timed out. Please try again.")
+    if "pdf_bytes" in result:
+        return result["pdf_bytes"]
+    raise result.get("error") or RuntimeError("PDF rendering failed for an unknown reason.")
+
+
+def _render_live_report_pdf_worker(
+    job_id: int,
+    bearer: str,
+    frontend_base: str,
+    extra_headers: dict[str, str],
+    result: dict[str, Any],
+    ready: threading.Event,
+) -> None:
     from playwright.sync_api import sync_playwright
 
     # Target the Advanced Reports page. The page fetches stored widget PNGs via the
@@ -819,7 +867,7 @@ def _render_live_report_pdf_bytes(
             _kill_timer = threading.Timer(180, _kill_browser)
             _kill_timer.start()
             try:
-                return page.pdf(
+                result["pdf_bytes"] = page.pdf(
                     format="A4",
                     print_background=True,
                     margin={
@@ -831,14 +879,19 @@ def _render_live_report_pdf_bytes(
                 )
             except Exception as exc:
                 if _pdf_timed_out.is_set():
-                    raise RuntimeError(
+                    result["error"] = RuntimeError(
                         "PDF rendering timed out after 3 minutes. Please try again."
-                    ) from exc
-                raise
+                    )
+                else:
+                    result["error"] = exc
             finally:
                 _kill_timer.cancel()
         finally:
             print(f"[PDF] job={job_id} total {time.time()-t0:.1f}s", file=sys.stderr, flush=True)
+            # Unblock the caller now — pdf_bytes/error are already captured.
+            # Teardown below (context/browser close) can hang on --single-process
+            # Chromium; it must never delay marking the task complete.
+            ready.set()
             try:
                 context.close()
             except Exception:
