@@ -62,3 +62,20 @@ services:
         sync: false
       - key: BACKEND_API_BASE_URL
         sync: false
+
+  - type: web
+    name: nzi-insights-pro-website-live
+    runtime: node
+    rootDir: website
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NEXT_PUBLIC_SITE_URL
+        sync: false
+      - key: NEXT_PUBLIC_API_BASE_URL
+        sync: false
+      - key: BACKEND_API_BASE_URL
+        sync: false
