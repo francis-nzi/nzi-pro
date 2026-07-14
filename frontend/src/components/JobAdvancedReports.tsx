@@ -1126,8 +1126,11 @@ export default function JobAdvancedReports({
           .org-boundary-section {
             break-before: page !important;
           }
-  /* Emissions summary box figure */
-          .emissions-box-figure {
+  /* Emissions summary box figure — selector must be more specific than the
+             .live-report-section *:not(svg):not(svg *) blanket rule above (both
+             are !important, so among !important rules the highest-specificity
+             selector wins regardless of source order). */
+          .live-report-section .emissions-box-figure {
             font-size: 60px !important;
           }
           .advanced-report-controls {
