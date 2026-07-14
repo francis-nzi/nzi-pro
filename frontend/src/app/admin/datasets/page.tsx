@@ -128,6 +128,42 @@ type FactorUploadResponse = {
   rejected_details?: UploadRejectedRow[];
 };
 
+type ColumnMappingEntry = {
+  source_header: string;
+  mapped_field: string | null;
+  mapped_label: string | null;
+};
+
+type ContentDuplicateWarning = {
+  original_ids: string[];
+  row_numbers: number[];
+  shared_fields: Record<string, string>;
+};
+
+type FactorUploadPreviewResponse = {
+  ok?: boolean;
+  detail?: { message?: string } | string;
+  dataset_id: number;
+  target_dataset_year: number | null;
+  blocking_error: string | null;
+  column_mapping: ColumnMappingEntry[];
+  missing_required_fields: string[];
+  counts: {
+    total_rows: number;
+    accepted_rows: number;
+    rejected_rows: number;
+    would_insert: number;
+    would_update: number;
+    would_delete_stale: number;
+    blocked_stale_rows: number;
+  };
+  rejected_details: UploadRejectedRow[];
+  content_duplicate_warnings: ContentDuplicateWarning[];
+  replacement_blocked: boolean;
+  dependency_summary: Record<string, unknown>;
+  years_seen: number[];
+};
+
 type WorkbookImportResponse = {
   detail?: { message?: string } | string;
   message?: string;
@@ -261,6 +297,11 @@ export default function DatasetsPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState("");
   const [uploadRejectedRows, setUploadRejectedRows] = useState<UploadRejectedRow[]>([]);
+  const [uploadPreview, setUploadPreview] = useState<FactorUploadPreviewResponse | null>(null);
+  const [previewedFile, setPreviewedFile] = useState<File | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewProgress, setPreviewProgress] = useState(0);
+  const [previewError, setPreviewError] = useState("");
   const [workbookFile, setWorkbookFile] = useState<File | null>(null);
   const [workbookUploading, setWorkbookUploading] = useState(false);
   const [workbookProgress, setWorkbookProgress] = useState(0);
@@ -526,9 +567,52 @@ export default function DatasetsPage() {
     }
   }
 
-  async function uploadFactors(datasetId: number) {
-    return uploadFactorsWithReport(datasetId);
+  async function previewFactorsWithReport(datasetId: number) {
+    if (!uploadFile) {
+      setPreviewError("Please select a file");
+      return;
+    }
+
+    setPreviewLoading(true);
+    setPreviewError("");
+    setUploadPreview(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", uploadFile);
+
+      const res = await uploadFormDataWithProgress(`${baseUrl}/admin/datasets/${datasetId}/upload-factors/preview`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+        onProgress: ({ percent }) => setPreviewProgress(percent),
+      });
+
+      const text = await res.text();
+      let payload: FactorUploadPreviewResponse | null = null;
+      try {
+        payload = JSON.parse(text) as FactorUploadPreviewResponse;
+      } catch {}
+
+      if (!res.ok || !payload) {
+        const detail = payload?.detail;
+        const message =
+          typeof detail === "string"
+            ? detail
+            : detail?.message || `Preview failed (${res.status})`;
+        setPreviewError(message);
+        return;
+      }
+
+      setUploadPreview(payload);
+      setPreviewedFile(uploadFile);
+    } catch (e) {
+      setPreviewError(`Error: ${(e as Error).message}`);
+    } finally {
+      setPreviewLoading(false);
+    }
   }
+
   async function uploadFactorsWithReport(datasetId: number) {
     if (!uploadFile) {
       setUploadStatus("Please select a file");
@@ -578,6 +662,8 @@ export default function DatasetsPage() {
       );
       setUploadFile(null);
       setUploadingDatasetId(null);
+      setUploadPreview(null);
+      setPreviewedFile(null);
       await loadDatasets();
     } catch (e) {
       setUploadStatus(`Error: ${(e as Error).message}`);
@@ -1828,20 +1914,133 @@ export default function DatasetsPage() {
                       setUploadFile(e.target.files?.[0] || null);
                       setUploadStatus("");
                       setUploadRejectedRows([]);
+                      setUploadPreview(null);
+                      setPreviewedFile(null);
+                      setPreviewError("");
                     }}
                     className="flex-1"
-                    disabled={uploadingDatasetId === editingDataset.dataset_id}
+                    disabled={uploadingDatasetId === editingDataset.dataset_id || previewLoading}
                   />
                   <Button
-                    onClick={() => uploadFactors(editingDataset.dataset_id)}
-                    disabled={!uploadFile || uploadingDatasetId === editingDataset.dataset_id}
+                    type="button"
+                    variant="secondary"
+                    onClick={() => previewFactorsWithReport(editingDataset.dataset_id)}
+                    disabled={!uploadFile || previewLoading || uploadingDatasetId === editingDataset.dataset_id}
                   >
-                    {uploadingDatasetId === editingDataset.dataset_id ? "Uploading..." : "Upload CSV"}
+                    {previewLoading ? "Checking..." : "Preview Import"}
+                  </Button>
+                  <Button
+                    onClick={() => uploadFactorsWithReport(editingDataset.dataset_id)}
+                    disabled={
+                      !uploadPreview
+                      || previewedFile !== uploadFile
+                      || uploadPreview.blocking_error !== null
+                      || uploadPreview.replacement_blocked
+                      || uploadingDatasetId === editingDataset.dataset_id
+                    }
+                  >
+                    {uploadingDatasetId === editingDataset.dataset_id ? "Importing..." : "Confirm Import"}
                   </Button>
                 </div>
+                {previewLoading ? (
+                  <UploadProgressBar value={previewProgress} label="Checking file..." />
+                ) : null}
                 {uploadingDatasetId === editingDataset.dataset_id ? (
                   <UploadProgressBar value={uploadProgress} label="Uploading factors..." />
                 ) : null}
+
+                {previewError && (
+                  <div className="rounded-md border border-red-200 bg-red-100 p-3 text-sm font-medium text-red-800">
+                    {previewError}
+                  </div>
+                )}
+
+                {uploadPreview && (
+                  <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+                    <div className="text-sm font-semibold">Review before import</div>
+
+                    {uploadPreview.blocking_error && (
+                      <div className="rounded-md border border-red-200 bg-red-100 p-3 text-sm font-medium text-red-800">
+                        {uploadPreview.blocking_error}
+                      </div>
+                    )}
+
+                    {!uploadPreview.blocking_error && (
+                      <>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          <span>Total rows: <strong className="text-foreground">{uploadPreview.counts.total_rows}</strong></span>
+                          <span>Will insert: <strong className="text-foreground">{uploadPreview.counts.would_insert}</strong></span>
+                          <span>Will update: <strong className="text-foreground">{uploadPreview.counts.would_update}</strong></span>
+                          <span>Will remove: <strong className="text-foreground">{uploadPreview.counts.would_delete_stale}</strong></span>
+                          <span>Rejected: <strong className="text-foreground">{uploadPreview.counts.rejected_rows}</strong></span>
+                        </div>
+
+                        <div className="rounded-md border bg-background">
+                          <div className="border-b p-2 text-xs font-medium">Column mapping</div>
+                          <div className="max-h-40 overflow-y-auto p-2 text-xs">
+                            {uploadPreview.column_mapping.map((m) => (
+                              <div key={m.source_header} className="flex items-center justify-between gap-2 py-0.5">
+                                <span className="text-muted-foreground">{m.source_header}</span>
+                                <span className={m.mapped_label ? "font-medium" : "text-amber-700"}>
+                                  {m.mapped_label ?? "Ignored (not mapped)"}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {uploadPreview.replacement_blocked && (
+                          <div className="rounded-md border border-red-200 bg-red-100 p-3 text-sm text-red-800">
+                            <div className="font-medium">Import blocked: {uploadPreview.counts.blocked_stale_rows} row(s) can&apos;t be removed</div>
+                            <div className="mt-1">
+                              These rows are still referenced by active jobs and must be cleared there first.
+                              {Array.isArray(uploadPreview.dependency_summary?.job_scope_rows_jobs) && (
+                                <> Affected jobs: {(uploadPreview.dependency_summary.job_scope_rows_jobs as Array<{ job_number?: string; title?: string }>)
+                                  .map((j) => j.title ? `${j.job_number} (${j.title})` : j.job_number)
+                                  .join(", ")}.</>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {uploadPreview.content_duplicate_warnings.length > 0 && (
+                          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                            <div className="font-medium">Possible Excel autofill mistake</div>
+                            <div className="mt-1 text-xs">
+                              These rows share identical descriptive text but have different IDs — check for an accidental
+                              drag-fill before importing.
+                            </div>
+                            <div className="mt-2 space-y-2">
+                              {uploadPreview.content_duplicate_warnings.map((w, idx) => (
+                                <div key={idx} className="rounded border border-amber-200 bg-amber-100/60 p-2 text-xs">
+                                  <div>IDs: {w.original_ids.join(", ")} (rows {w.row_numbers.join(", ")})</div>
+                                  <div className="text-amber-800">
+                                    {w.shared_fields.category || w.shared_fields.report_label_or_column_text}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {uploadPreview.rejected_details.length > 0 && (
+                          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                            <div className="font-medium">Rejected rows ({uploadPreview.rejected_details.length})</div>
+                            <div className="mt-2 max-h-64 space-y-1 overflow-y-auto">
+                              {uploadPreview.rejected_details.map((row) => (
+                                <div key={`${row.row_number}-${row.original_id ?? ""}-${row.scope ?? ""}`}>
+                                  Row {row.row_number}
+                                  {row.original_id ? `, ID ${row.original_id}` : ""}
+                                  {row.scope ? `, ${row.scope}` : ""}: {row.reason}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
 
                 {uploadStatus && (
                   <div className={`p-3 rounded-md text-sm font-medium ${
