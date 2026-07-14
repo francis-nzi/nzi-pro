@@ -1131,7 +1131,7 @@ export default function JobAdvancedReports({
              are !important, so among !important rules the highest-specificity
              selector wins regardless of source order). */
           .live-report-section .emissions-box-figure {
-            font-size: 60px !important;
+            font-size: 42px !important;
           }
           .advanced-report-controls {
             display: none !important;
