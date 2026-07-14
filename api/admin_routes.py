@@ -765,6 +765,14 @@ def _missing_data_update_one(con, *, entity: str, field_name: str, record_id: in
         if not exists:
             raise HTTPException(status_code=404, detail="Job not found")
         con.execute(f"UPDATE jobs SET {column} = %s WHERE job_id = %s", [coerced_value, int(record_id)])
+        # reporting_year must always equal the calendar year of
+        # reporting_period_end -- keep it in sync when that field is edited here.
+        if column == "reporting_period_end" and coerced_value:
+            try:
+                end_year = int(str(coerced_value)[:4])
+                con.execute("UPDATE jobs SET reporting_year = %s WHERE job_id = %s", [end_year, int(record_id)])
+            except Exception:
+                pass
     return coerced_value
 
 def _ensure_job_types_lookup_table(con, org_id: str | None) -> None:

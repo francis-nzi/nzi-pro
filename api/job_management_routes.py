@@ -999,7 +999,16 @@ def update_job(
             if "reporting_period_end" in body:
                 updates.append("reporting_period_end = ?")
                 params.append(body["reporting_period_end"])
-            
+                # reporting_year must always equal the calendar year of
+                # reporting_period_end -- it is not independently editable,
+                # so keep it in sync whenever the period end date changes.
+                try:
+                    end_year = int(str(body["reporting_period_end"])[:4])
+                    updates.append("reporting_year = ?")
+                    params.append(end_year)
+                except Exception:
+                    pass
+
             if "title" in body:
                 updates.append("title = ?")
                 params.append(body["title"])
