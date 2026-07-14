@@ -304,7 +304,6 @@ def _factor_by_original_id(con, original_id: str) -> dict[str, Any] | None:
         FROM v_factor_lookup f
         LEFT JOIN datasets d ON d.dataset_id = f.dataset_id
         WHERE TRIM(f.original_id) = %s
-          AND (d.spend_dataset = TRUE OR d.spend_dataset IS NULL)
           AND (d.archived IS NULL OR d.archived = FALSE)
         ORDER BY f.db_id DESC
         LIMIT 1
@@ -323,6 +322,42 @@ def _factor_by_original_id(con, original_id: str) -> dict[str, Any] | None:
         "factor": _safe_float(row[6], 0.0),
         "ghg_unit": str(row[7]).strip() if row[7] is not None else None,
     }
+
+
+def _resolve_upload_mapping(
+    con,
+    explicit_factor_db_id: int | None,
+    conversion_ref: str | None,
+) -> tuple[dict[str, Any] | None, bool]:
+    """Resolve the factor for an uploaded row's "Spend Conversion" cell,
+    e.g. "5226 | SPEND-SIC-82 | Office administrative...".
+
+    Excel's fill-handle auto-increments a leading integer when a cell is
+    dragged down (5226 -> 5227 -> 5228...) while leaving the rest of the text
+    untouched, so a dragged block of rows can end up with an id that no
+    longer matches the code/description still shown in the cell. Trusting
+    the id alone then silently maps each row to a different, wrong factor.
+
+    Cross-check the id-resolved factor's original_id against the code
+    segment still in the cell; if they disagree, re-resolve by that code
+    instead (which stays correct across a drag-fill) rather than trusting
+    the corrupted id. Returns (mapping, id_mismatch_detected).
+    """
+    if not explicit_factor_db_id:
+        if conversion_ref and not conversion_ref.isdigit():
+            return _factor_by_original_id(con, conversion_ref), False
+        return None, False
+
+    mapping = _factor_by_id(con, int(explicit_factor_db_id))
+    if mapping and conversion_ref and not conversion_ref.isdigit():
+        if str(mapping.get("original_id") or "").strip().lower() != conversion_ref.strip().lower():
+            corrected = _factor_by_original_id(con, conversion_ref)
+            if corrected:
+                return corrected, True
+            return None, True
+    if mapping is None and conversion_ref and not conversion_ref.isdigit():
+        return _factor_by_original_id(con, conversion_ref), False
+    return mapping, False
 
 
 def _is_kg_based_unit(ghg_unit: str | None) -> bool:
@@ -1525,16 +1560,8 @@ async def preview_spend_upload(
             code = str(r.get("reference_code") or "").strip()
             explicit_factor_db_id = _safe_optional_int(r.get("factor_db_id"))
             conversion_ref = str(r.get("factor_conversion_ref") or "").strip() or None
-            mapping: dict[str, Any] | None = None
-            mapping_source = "auto"
-            if explicit_factor_db_id:
-                mapping = _factor_by_id(con, int(explicit_factor_db_id))
-                if mapping:
-                    mapping_source = "explicit"
-                elif conversion_ref and not conversion_ref.isdigit():
-                    mapping = _factor_by_original_id(con, conversion_ref)
-                    if mapping:
-                        mapping_source = "explicit"
+            mapping, id_mismatch = _resolve_upload_mapping(con, explicit_factor_db_id, conversion_ref)
+            mapping_source = "explicit" if mapping and (explicit_factor_db_id or conversion_ref) else "auto"
             if mapping is None:
                 mapping = _auto_mapping(
                     con=con,
@@ -1572,6 +1599,10 @@ async def preview_spend_upload(
                     "factor_db_id": (mapping or {}).get("factor_db_id") or (mapping or {}).get("db_id"),
                     "factor_ghg_unit": factor_ghg_unit,
                     "unit_warning": _spend_factor_warning(factor_ghg_unit) if mapping else None,
+                    "id_mismatch_warning": (
+                        "Spend Conversion cell's id didn't match its code text (likely an Excel drag-fill error) "
+                        "-- resolved using the code instead. Check this row's source file." if id_mismatch else None
+                    ),
                     "estimated_emissions_kgco2e": amount * factor if mapping else None,
                     "estimated_emissions_tco2e": (amount * factor / 1000.0) if mapping else None,
                 }
@@ -1587,6 +1618,7 @@ async def preview_spend_upload(
             "mapped_spend_net": round(sum(_safe_float(x.get("amount_net"), 0.0) for x in items if str(x.get("mapping_status") or "").lower() == "suggested"), 2),
             "unmapped_spend_net": round(sum(_safe_float(x.get("amount_net"), 0.0) for x in items if str(x.get("mapping_status") or "").lower() != "suggested"), 2),
             "warning_count": len([x for x in items if x.get("unit_warning")]),
+            "id_mismatch_count": len([x for x in items if x.get("id_mismatch_warning")]),
         },
     }
 
@@ -1622,14 +1654,13 @@ async def commit_spend_upload(
 
         inserted = 0
         auto_mapped = 0
+        id_mismatches = 0
         for _, r in df.iterrows():
             explicit_factor_db_id = _safe_optional_int(r.get("factor_db_id"))
             conversion_ref = str(r.get("factor_conversion_ref") or "").strip() or None
-            factor_override: dict[str, Any] | None = None
-            if explicit_factor_db_id:
-                factor_override = _factor_by_id(con, int(explicit_factor_db_id))
-                if factor_override is None and conversion_ref and not conversion_ref.isdigit():
-                    factor_override = _factor_by_original_id(con, conversion_ref)
+            factor_override, id_mismatch = _resolve_upload_mapping(con, explicit_factor_db_id, conversion_ref)
+            if id_mismatch:
+                id_mismatches += 1
             saved = _persist_spend_row(
                 con=con,
                 job_id=int(job_id),
@@ -1644,7 +1675,11 @@ async def commit_spend_upload(
                 conversion_rate=_safe_float(r.get("conversion_rate"), 1.0),
                 amount_net=_safe_float(r.get("amount_net"), 0.0),
                 vat_pct=_safe_float(r.get("vat_pct"), 0.0),
-                notes=None,
+                notes=(
+                    "Auto-corrected: Spend Conversion cell's id didn't match its code text "
+                    "(likely an Excel drag-fill error) -- resolved using the code instead."
+                    if id_mismatch else None
+                ),
                 actor=actor,
                 factor_override=factor_override,
             )
@@ -1652,7 +1687,13 @@ async def commit_spend_upload(
             if saved.get("auto_mapped"):
                 auto_mapped += 1
 
-    return {"ok": True, "inserted": inserted, "auto_mapped": auto_mapped, "unmapped": inserted - auto_mapped}
+    return {
+        "ok": True,
+        "inserted": inserted,
+        "auto_mapped": auto_mapped,
+        "unmapped": inserted - auto_mapped,
+        "id_mismatches": id_mismatches,
+    }
 
 
 @router.get("/clients/{client_id}/spend-mappings")

@@ -50,6 +50,7 @@ type SpendPreviewRow = {
   mapped_report_label: string | null;
   factor_ghg_unit?: string | null;
   unit_warning?: string | null;
+  id_mismatch_warning?: string | null;
   estimated_emissions_kgco2e?: number | null;
   estimated_emissions_tco2e?: number | null;
 };
@@ -116,6 +117,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
     mapped_spend_net?: number;
     unmapped_spend_net?: number;
     warning_count?: number;
+    id_mismatch_count?: number;
   } | null>(null);
   const [replaceExisting, setReplaceExisting] = useState(false);
   const [commitResult, setCommitResult] = useState<{ inserted: number; auto_mapped: number } | null>(null);
@@ -692,6 +694,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                   Preview: <strong>{previewSummary.count}</strong> rows — <strong>{previewSummary.mapped}</strong> auto-mapped,{" "}
                   <strong>{previewSummary.unmapped}</strong> unmapped. Total net: {(previewSummary.total_spend_net ?? 0).toLocaleString()}.
                   {previewSummary.warning_count ? ` ${previewSummary.warning_count} factor warning(s).` : ""}
+                  {previewSummary.id_mismatch_count ? ` ${previewSummary.id_mismatch_count} row(s) auto-corrected from a Spend Conversion id/text mismatch (likely Excel drag-fill) -- check source file.` : ""}
                 </div>
               ) : null}
 
@@ -714,7 +717,17 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                           <td className="p-2">{r.reference_code || "-"}</td>
                           <td className="p-2">{r.spend_description}</td>
                           <td className="p-2">{r.currency} {(r.amount_net || 0).toLocaleString()}</td>
-                          <td className="p-2">{r.mapped_scope ? `${r.mapped_scope} – ${r.mapped_report_label || ""}` : "Unmapped"}</td>
+                          <td className="p-2">
+                            {r.mapped_scope ? `${r.mapped_scope} – ${r.mapped_report_label || ""}` : "Unmapped"}
+                            {r.id_mismatch_warning ? (
+                              <span
+                                className="ml-1.5 inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
+                                title={r.id_mismatch_warning}
+                              >
+                                auto-corrected
+                              </span>
+                            ) : null}
+                          </td>
                           <td className="p-2">{(r.estimated_emissions_tco2e || 0).toLocaleString()}</td>
                           <td className="p-2">
                             {r.factor_ghg_unit ? (
