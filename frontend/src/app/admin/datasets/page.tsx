@@ -241,6 +241,12 @@ export default function DatasetsPage() {
   const [factorEditorStatus, setFactorEditorStatus] = useState<string>("");
   const [editingFactor, setEditingFactor] = useState<Factor | null>(null);
   const [factorSaving, setFactorSaving] = useState(false);
+  const [factorEditorDialogOpen, setFactorEditorDialogOpen] = useState(false);
+  const [factorsTotal, setFactorsTotal] = useState(0);
+  const [factorsPage, setFactorsPage] = useState(1);
+  const [factorsPages, setFactorsPages] = useState(1);
+  const factorsPerPage = 20;
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [bulkRemoveText, setBulkRemoveText] = useState<string>("");
   const [bulkPreview, setBulkPreview] = useState<BulkNormalizePreviewRow[]>([]);
   const [bulkSummary, setBulkSummary] = useState<string>("");
@@ -377,9 +383,7 @@ export default function DatasetsPage() {
       setFactorFileName(latestDataset.name || "");
       setFactorEditorStatus(`Creating a row for ${latestDataset.name}.`);
     }
-    window.setTimeout(() => {
-      document.getElementById("factor-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 0);
+    setFactorEditorDialogOpen(true);
   }
 
   function syncFactorEditorDataset(value: string) {
@@ -434,9 +438,7 @@ export default function DatasetsPage() {
     setFactorValidTo(factor.valid_to || "");
     setFactorValue(factor.factor != null ? String(factor.factor) : "");
     setFactorEditorStatus(`Editing factor row ${factor.db_id}.`);
-    window.setTimeout(() => {
-      document.getElementById("factor-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 0);
+    setFactorEditorDialogOpen(true);
   }
 
   function buildFactorPayload(): Record<string, unknown> | null {
@@ -511,8 +513,9 @@ export default function DatasetsPage() {
 
       setStatus(editingFactor ? "Factor row updated successfully!" : "Factor row created successfully!");
       setFactorEditorStatus(editingFactor ? "Factor row updated successfully." : "Factor row created successfully.");
-      await Promise.all([loadDatasets(), searchFactors()]);
+      await Promise.all([loadDatasets(), searchFactors(factorsPage)]);
       resetFactorEditor();
+      setFactorEditorDialogOpen(false);
       setTimeout(() => setStatus(""), 3000);
     } catch (e) {
       const message = (e as Error).message;
@@ -691,7 +694,7 @@ export default function DatasetsPage() {
     setValidTo("");
   }
 
-  async function searchFactors() {
+  async function searchFactors(targetPage: number = 1) {
     setStatus("Searching...");
     try {
       const params = new URLSearchParams();
@@ -715,7 +718,8 @@ export default function DatasetsPage() {
       if (factorSourceFilter) params.set("source", factorSourceFilter);
       if (factorRegionFilter) params.set("region", factorRegionFilter);
       if (factorMethodFilter) params.set("method", factorMethodFilter);
-      params.set("limit", "100");
+      params.set("page", String(targetPage));
+      params.set("per_page", String(factorsPerPage));
 
       const res = await fetchWithAuth(`${baseUrl}/admin/factors?${params.toString()}`);
       if (!res.ok) {
@@ -723,7 +727,10 @@ export default function DatasetsPage() {
       }
       const json = await res.json();
       setFactors(json.items || []);
-      setStatus(`Found ${json.count} factors`);
+      setFactorsTotal(json.total || 0);
+      setFactorsPage(json.page || 1);
+      setFactorsPages(json.pages || 1);
+      setStatus(`Found ${json.total ?? (json.items || []).length} factors`);
     } catch (e) {
       setStatus(`Error: ${(e as Error).message}`);
     }
@@ -750,6 +757,9 @@ export default function DatasetsPage() {
     setFactorRegionFilter("");
     setFactorMethodFilter("");
     setFactors([]);
+    setFactorsTotal(0);
+    setFactorsPage(1);
+    setFactorsPages(1);
     setStatus("Factor search filters cleared.");
   }
 
@@ -834,7 +844,7 @@ export default function DatasetsPage() {
       setBulkSummary(
         `Applied ${json.updated_count || 0} updates from ${json.changed_count || 0} matching rows.`
       );
-      await searchFactors();
+      await searchFactors(factorsPage);
     } catch (e) {
       setBulkSummary(`Error: ${(e as Error).message}`);
     } finally {
@@ -1208,575 +1218,343 @@ export default function DatasetsPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="factors" className="space-y-6">
-        <Card className="mb-6 w-full">
-          <CardHeader>
-            <CardTitle>Search Conversion Factors</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="grid gap-4 lg:grid-cols-4">
-              <div className="space-y-2 lg:col-span-2">
-                <Label htmlFor="searchQuery">Search Text</Label>
-                <Input
-                  id="searchQuery"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search labels, descriptors, IDs, notes..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
+          <TabsContent value="factors" className="space-y-4">
+            <Card className="w-full">
+              <CardHeader>
+                <CardTitle>Search Conversion Factors</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="grid gap-4 lg:grid-cols-4">
+                  <div className="space-y-2 lg:col-span-2">
+                    <Label htmlFor="searchQuery">Search Text</Label>
+                    <Input
+                      id="searchQuery"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search labels, descriptors, IDs, notes..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") searchFactors(1);
+                      }}
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="factorDbIdFilter">DB ID</Label>
-                <Input
-                  id="factorDbIdFilter"
-                  value={factorDbIdFilter}
-                  onChange={(e) => setFactorDbIdFilter(e.target.value)}
-                  placeholder="12345"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="factorDbIdFilter">DB ID</Label>
+                    <Input
+                      id="factorDbIdFilter"
+                      value={factorDbIdFilter}
+                      onChange={(e) => setFactorDbIdFilter(e.target.value)}
+                      placeholder="12345"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") searchFactors(1);
+                      }}
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="factorDatasetFilter">Dataset</Label>
-                <SearchableStringSelect
-                  id="factorDatasetFilter"
-                  value={factorDatasetFilter}
-                  options={factorDatasetOptions}
-                  placeholder="All datasets"
-                  showClearButton
-                  onValueChange={setFactorDatasetFilter}
-                />
-              </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="factorDatasetFilter">Dataset</Label>
+                    <SearchableStringSelect
+                      id="factorDatasetFilter"
+                      value={factorDatasetFilter}
+                      options={factorDatasetOptions}
+                      placeholder="All datasets"
+                      showClearButton
+                      onValueChange={setFactorDatasetFilter}
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="factorCountry">Country</Label>
-                <SearchableStringSelect
-                  id="factorCountry"
-                  value={factorCountry}
-                  options={factorCountryOptions}
-                  placeholder="All Countries"
-                  showClearButton
-                  optionBadges={countryDatasetCounts}
-                  onValueChange={setFactorCountry}
-                />
-              </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="factorCountry">Country</Label>
+                    <SearchableStringSelect
+                      id="factorCountry"
+                      value={factorCountry}
+                      options={factorCountryOptions}
+                      placeholder="All Countries"
+                      showClearButton
+                      optionBadges={countryDatasetCounts}
+                      onValueChange={setFactorCountry}
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="factorYear">Year</Label>
-                <SearchableStringSelect
-                  id="factorYear"
-                  value={factorYear}
-                  options={factorYearOptions}
-                  placeholder="All Years"
-                  showClearButton
-                  onValueChange={setFactorYear}
-                />
-              </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="factorYear">Year</Label>
+                    <SearchableStringSelect
+                      id="factorYear"
+                      value={factorYear}
+                      options={factorYearOptions}
+                      placeholder="All Years"
+                      showClearButton
+                      onValueChange={setFactorYear}
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="factorScopeFilter">Scope</Label>
-                <Input
-                  id="factorScopeFilter"
-                  value={factorScopeFilter}
-                  onChange={(e) => setFactorScopeFilter(e.target.value)}
-                  placeholder="Scope 1 / Scope 2 / Scope 3"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="factorReportLabelFilter">Report Label</Label>
-                <Input
-                  id="factorReportLabelFilter"
-                  value={factorReportLabelFilter}
-                  onChange={(e) => setFactorReportLabelFilter(e.target.value)}
-                  placeholder="Report label..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorOriginalIdFilter">Original ID</Label>
-                <Input
-                  id="factorOriginalIdFilter"
-                  value={factorOriginalIdFilter}
-                  onChange={(e) => setFactorOriginalIdFilter(e.target.value)}
-                  placeholder="Factor ID..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorCategoryFilter">Category</Label>
-                <Input
-                  id="factorCategoryFilter"
-                  value={factorCategoryFilter}
-                  onChange={(e) => setFactorCategoryFilter(e.target.value)}
-                  placeholder="Category..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorLevel1Filter">Level 1</Label>
-                <Input
-                  id="factorLevel1Filter"
-                  value={factorLevel1Filter}
-                  onChange={(e) => setFactorLevel1Filter(e.target.value)}
-                  placeholder="Level 1..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorLevel2Filter">Level 2</Label>
-                <Input
-                  id="factorLevel2Filter"
-                  value={factorLevel2Filter}
-                  onChange={(e) => setFactorLevel2Filter(e.target.value)}
-                  placeholder="Level 2..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorLevel3Filter">Level 3</Label>
-                <Input
-                  id="factorLevel3Filter"
-                  value={factorLevel3Filter}
-                  onChange={(e) => setFactorLevel3Filter(e.target.value)}
-                  placeholder="Level 3..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorLevel4Filter">Level 4</Label>
-                <Input
-                  id="factorLevel4Filter"
-                  value={factorLevel4Filter}
-                  onChange={(e) => setFactorLevel4Filter(e.target.value)}
-                  placeholder="Level 4..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorColumnTextFilter">Column Text</Label>
-                <Input
-                  id="factorColumnTextFilter"
-                  value={factorColumnTextFilter}
-                  onChange={(e) => setFactorColumnTextFilter(e.target.value)}
-                  placeholder="Column text..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorUomFilter">UoM</Label>
-                <Input
-                  id="factorUomFilter"
-                  value={factorUomFilter}
-                  onChange={(e) => setFactorUomFilter(e.target.value)}
-                  placeholder="Unit..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorGhgUnitFilter">GHG Unit</Label>
-                <Input
-                  id="factorGhgUnitFilter"
-                  value={factorGhgUnitFilter}
-                  onChange={(e) => setFactorGhgUnitFilter(e.target.value)}
-                  placeholder="kgCO2e..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorSourceFilter">Source</Label>
-                <Input
-                  id="factorSourceFilter"
-                  value={factorSourceFilter}
-                  onChange={(e) => setFactorSourceFilter(e.target.value)}
-                  placeholder="Source..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorRegionFilter">Region</Label>
-                <Input
-                  id="factorRegionFilter"
-                  value={factorRegionFilter}
-                  onChange={(e) => setFactorRegionFilter(e.target.value)}
-                  placeholder="Region..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorMethodFilter">Method</Label>
-                <Input
-                  id="factorMethodFilter"
-                  value={factorMethodFilter}
-                  onChange={(e) => setFactorMethodFilter(e.target.value)}
-                  placeholder="Method..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={searchFactors}>Search Factors</Button>
-              <Button type="button" variant="secondary" onClick={clearFactorFilters}>
-                Clear Filters
-              </Button>
-              <Button type="button" variant="outline" onClick={startCreateFactor}>
-                Add Factor Row
-              </Button>
-            </div>
-
-            <div className="text-xs text-muted-foreground">
-              Search is smart across labels, IDs, notes, and metadata. Use the filters to narrow by exact dataset,
-              scope, report label, or any other column before editing the row.
-            </div>
-
-            {factors.length > 0 && (
-              <div className="mt-4 max-h-96 overflow-auto rounded-md border">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-muted">
-                    <tr>
-                      <th className="p-2 text-left">DB ID</th>
-                      <th className="p-2 text-left">ID</th>
-                      <th className="p-2 text-left">Dataset</th>
-                      <th className="p-2 text-left">Scope</th>
-                      <th className="p-2 text-left">Category</th>
-                      <th className="p-2 text-left">Report Label</th>
-                      <th className="p-2 text-right">Factor</th>
-                      <th className="p-2 text-left">Unit</th>
-                      <th className="p-2 text-left">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {factors.map((f) => (
-                      <tr key={f.db_id} className="border-t">
-                        <td className="p-2 text-xs text-muted-foreground">{f.db_id}</td>
-                        <td className="p-2 text-xs text-muted-foreground">{f.original_id}</td>
-                        <td className="p-2">{f.dataset}</td>
-                        <td className="p-2">{f.scope}</td>
-                        <td className="p-2">{f.category || "-"}</td>
-                        <td className="p-2">{f.report_label || f.column_text}</td>
-                        <td className="p-2 text-right">{f.factor}</td>
-                        <td className="p-2">{f.ghg_unit || f.uom || "-"}</td>
-                        <td className="p-2">
-                          <Button type="button" variant="outline" size="sm" onClick={() => startEditFactor(f)}>
-                            Edit
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="mb-6 w-full">
-          <CardHeader>
-            <CardTitle>Bulk Report Label Normalisation</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="text-sm text-muted-foreground">
-              Use the current factor filters above as the scope, then remove repeated fragments from <code>report_label</code>.
-              This is ideal for trimming labels like <code>- Cars (by size)</code> across Business Travel, Employee Commuting, and Company Vehicles.
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="bulkRemoveText">Remove fragments</Label>
-                <Textarea
-                  id="bulkRemoveText"
-                  value={bulkRemoveText}
-                  onChange={(e) => setBulkRemoveText(e.target.value)}
-                  placeholder={`Cars (by size)\nVehicles (by size)\nby vehicle size`}
-                  rows={6}
-                />
-                <div className="text-xs text-muted-foreground">
-                  Enter one fragment per line. Matching is case-insensitive and only affects <code>report_label</code>.
+                  <div className="space-y-2">
+                    <Label htmlFor="factorScopeFilter">Scope</Label>
+                    <Input
+                      id="factorScopeFilter"
+                      value={factorScopeFilter}
+                      onChange={(e) => setFactorScopeFilter(e.target.value)}
+                      placeholder="Scope 1 / Scope 2 / Scope 3"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") searchFactors(1);
+                      }}
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-3 rounded-md border bg-muted/20 p-4">
-                <div className="text-sm font-medium">Current scope</div>
-                <div className="text-xs text-muted-foreground">
-                  {searchQuery ? `Search text: "${searchQuery}"` : "Search text: none"}
+
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="factorReportLabelFilter">Report Label</Label>
+                    <Input
+                      id="factorReportLabelFilter"
+                      value={factorReportLabelFilter}
+                      onChange={(e) => setFactorReportLabelFilter(e.target.value)}
+                      placeholder="Report label..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") searchFactors(1);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="factorOriginalIdFilter">Original ID</Label>
+                    <Input
+                      id="factorOriginalIdFilter"
+                      value={factorOriginalIdFilter}
+                      onChange={(e) => setFactorOriginalIdFilter(e.target.value)}
+                      placeholder="Factor ID..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") searchFactors(1);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="factorCategoryFilter">Category</Label>
+                    <Input
+                      id="factorCategoryFilter"
+                      value={factorCategoryFilter}
+                      onChange={(e) => setFactorCategoryFilter(e.target.value)}
+                      placeholder="Category..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") searchFactors(1);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="factorLevel1Filter">Level 1</Label>
+                    <Input
+                      id="factorLevel1Filter"
+                      value={factorLevel1Filter}
+                      onChange={(e) => setFactorLevel1Filter(e.target.value)}
+                      placeholder="Level 1..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") searchFactors(1);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="factorLevel2Filter">Level 2</Label>
+                    <Input
+                      id="factorLevel2Filter"
+                      value={factorLevel2Filter}
+                      onChange={(e) => setFactorLevel2Filter(e.target.value)}
+                      placeholder="Level 2..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") searchFactors(1);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="factorLevel3Filter">Level 3</Label>
+                    <Input
+                      id="factorLevel3Filter"
+                      value={factorLevel3Filter}
+                      onChange={(e) => setFactorLevel3Filter(e.target.value)}
+                      placeholder="Level 3..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") searchFactors(1);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="factorLevel4Filter">Level 4</Label>
+                    <Input
+                      id="factorLevel4Filter"
+                      value={factorLevel4Filter}
+                      onChange={(e) => setFactorLevel4Filter(e.target.value)}
+                      placeholder="Level 4..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") searchFactors(1);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="factorColumnTextFilter">Column Text</Label>
+                    <Input
+                      id="factorColumnTextFilter"
+                      value={factorColumnTextFilter}
+                      onChange={(e) => setFactorColumnTextFilter(e.target.value)}
+                      placeholder="Column text..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") searchFactors(1);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="factorUomFilter">UoM</Label>
+                    <Input
+                      id="factorUomFilter"
+                      value={factorUomFilter}
+                      onChange={(e) => setFactorUomFilter(e.target.value)}
+                      placeholder="Unit..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") searchFactors(1);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="factorGhgUnitFilter">GHG Unit</Label>
+                    <Input
+                      id="factorGhgUnitFilter"
+                      value={factorGhgUnitFilter}
+                      onChange={(e) => setFactorGhgUnitFilter(e.target.value)}
+                      placeholder="kgCO2e..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") searchFactors(1);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="factorSourceFilter">Source</Label>
+                    <Input
+                      id="factorSourceFilter"
+                      value={factorSourceFilter}
+                      onChange={(e) => setFactorSourceFilter(e.target.value)}
+                      placeholder="Source..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") searchFactors(1);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="factorRegionFilter">Region</Label>
+                    <Input
+                      id="factorRegionFilter"
+                      value={factorRegionFilter}
+                      onChange={(e) => setFactorRegionFilter(e.target.value)}
+                      placeholder="Region..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") searchFactors(1);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="factorMethodFilter">Method</Label>
+                    <Input
+                      id="factorMethodFilter"
+                      value={factorMethodFilter}
+                      onChange={(e) => setFactorMethodFilter(e.target.value)}
+                      placeholder="Method..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") searchFactors(1);
+                      }}
+                    />
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  {factorCategoryFilter ? `Category: ${factorCategoryFilter}` : "Category: all"}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {factorReportLabelFilter ? `Report label: ${factorReportLabelFilter}` : "Report label: all"}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {factorCountry ? `Country: ${factorCountry}` : "Country: all"}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {factorYear ? `Year: ${factorYear}` : "Year: all"}
-                </div>
-                <div className="flex flex-wrap gap-2 pt-2">
-                  <Button type="button" variant="secondary" onClick={previewBulkReportLabelChanges} disabled={bulkWorking}>
-                    Preview changes
+
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={() => searchFactors(1)}>Search Factors</Button>
+                  <Button type="button" variant="secondary" onClick={clearFactorFilters}>
+                    Clear Filters
                   </Button>
-                  <Button type="button" onClick={applyBulkReportLabelChanges} disabled={bulkWorking}>
-                    Apply changes
+                  <Button type="button" variant="outline" onClick={startCreateFactor}>
+                    Add Factor Row
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setBulkDialogOpen(true)}>
+                    Bulk normalise these results
                   </Button>
                 </div>
-              </div>
-            </div>
 
-            {bulkSummary && (
-              <div className="rounded-md border bg-muted/30 p-3 text-sm">{bulkSummary}</div>
-            )}
+                <div className="text-xs text-muted-foreground">
+                  Search is smart across labels, IDs, notes, and metadata. Use the filters to narrow by exact dataset,
+                  scope, report label, or any other column before editing the row.
+                </div>
+              </CardContent>
+            </Card>
 
-            {bulkPreview.length > 0 && (
-              <div className="max-h-80 overflow-auto rounded-md border">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-muted">
-                    <tr>
-                      <th className="p-2 text-left">DB ID</th>
-                      <th className="p-2 text-left">Original ID</th>
-                      <th className="p-2 text-left">Current Label</th>
-                      <th className="p-2 text-left">New Label</th>
-                      <th className="p-2 text-left">Category</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bulkPreview.map((row) => (
-                      <tr key={row.db_id} className="border-t align-top">
-                        <td className="p-2 text-xs text-muted-foreground">{row.db_id}</td>
-                        <td className="p-2 text-xs text-muted-foreground">{row.original_id || "-"}</td>
-                        <td className="p-2">{row.current_label}</td>
-                        <td className="p-2 font-medium">{row.new_label}</td>
-                        <td className="p-2 text-xs text-muted-foreground">{row.category || "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="mb-6 w-full" id="factor-editor">
-          <CardHeader>
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle>{editingFactor ? `Edit Factor Row #${editingFactor.db_id}` : "Add Factor Row"}</CardTitle>
-              <div className="flex gap-2">
-                <Button type="button" variant="secondary" onClick={startCreateFactor}>
-                  New Row
-                </Button>
-                <Button type="button" variant="outline" onClick={resetFactorEditor}>
-                  Clear Editor
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {factorEditorStatus && (
-              <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-                {factorEditorStatus}
-              </div>
-            )}
-
-            {editingFactor?.factor_definition_id && (
-              <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-                <span className="font-semibold">Linked to factor definition #{editingFactor.factor_definition_id}.</span>{" "}
-                Fields marked <span className="font-semibold text-blue-700">★ All years</span> will update every dataset year that shares this factor — not just this one row.
-                {editingFactor.factor_year_value_id && (
-                  <> Year-specific values (factor, valid dates, currency) update only this year (year value #{editingFactor.factor_year_value_id}).</>
+            <Card className="w-full">
+              <CardHeader>
+                <CardTitle>{factorsTotal} factor{factorsTotal === 1 ? "" : "s"}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {factors.length > 0 ? (
+                  <>
+                    <div className="max-h-[32rem] overflow-auto rounded-md border">
+                      <table className="w-full text-sm">
+                        <thead className="sticky top-0 bg-muted">
+                          <tr>
+                            <th className="p-2 text-left">DB ID</th>
+                            <th className="p-2 text-left">ID</th>
+                            <th className="p-2 text-left">Dataset</th>
+                            <th className="p-2 text-left">Scope</th>
+                            <th className="p-2 text-left">Category</th>
+                            <th className="p-2 text-left">Report Label</th>
+                            <th className="p-2 text-right">Factor</th>
+                            <th className="p-2 text-left">Unit</th>
+                            <th className="p-2 text-left">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {factors.map((f) => (
+                            <tr key={f.db_id} className="border-t">
+                              <td className="p-2 text-xs text-muted-foreground">{f.db_id}</td>
+                              <td className="p-2 text-xs text-muted-foreground">{f.original_id}</td>
+                              <td className="p-2">{f.dataset}</td>
+                              <td className="p-2">{f.scope}</td>
+                              <td className="p-2">{f.category || "-"}</td>
+                              <td className="p-2">{f.report_label || f.column_text}</td>
+                              <td className="p-2 text-right">{f.factor}</td>
+                              <td className="p-2">{f.ghg_unit || f.uom || "-"}</td>
+                              <td className="p-2">
+                                <Button type="button" variant="outline" size="sm" onClick={() => startEditFactor(f)}>
+                                  Edit
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="flex items-center justify-between pt-3 text-sm text-muted-foreground">
+                      <div>Page {factorsPage} of {factorsPages}</div>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={factorsPage <= 1}
+                          onClick={() => searchFactors(factorsPage - 1)}
+                        >
+                          Previous
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={factorsPage >= factorsPages}
+                          onClick={() => searchFactors(factorsPage + 1)}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="py-6 text-center text-sm text-muted-foreground">
+                    No results yet. Use the filters above and click Search Factors.
+                  </div>
                 )}
-              </div>
-            )}
-
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <div className="space-y-2 xl:col-span-2">
-                <Label htmlFor="factorDatasetRef">Dataset</Label>
-                <SearchableStringSelect
-                  id="factorDatasetRef"
-                  value={factorDatasetRef}
-                  options={factorDatasetOptions}
-                  placeholder="Select a dataset..."
-                  showClearButton
-                  onValueChange={syncFactorEditorDataset}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorDbId">DB ID</Label>
-                <Input
-                  id="factorDbId"
-                  value={factorDbId}
-                  readOnly
-                  placeholder="New row"
-                  className="bg-muted"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorFileName">File Name</Label>
-                <Input id="factorFileName" value={factorFileName} onChange={(e) => setFactorFileName(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorEditorYear">Year</Label>
-                <Input
-                  id="factorEditorYear"
-                  value={factorEditorYear}
-                  onChange={(e) => setFactorEditorYear(e.target.value)}
-                  placeholder="2025"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorValue">Factor</Label>
-                <Input
-                  id="factorValue"
-                  value={factorValue}
-                  onChange={(e) => setFactorValue(e.target.value)}
-                  placeholder="0.231"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorUom">
-                  UoM{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
-                </Label>
-                <Input id="factorUom" value={factorUom} onChange={(e) => setFactorUom(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorGhgUnit">
-                  GHG Unit{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
-                </Label>
-                <Input id="factorGhgUnit" value={factorGhgUnit} onChange={(e) => setFactorGhgUnit(e.target.value)} />
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="factorOriginalId">Original ID</Label>
-                <Input id="factorOriginalId" value={factorOriginalId} onChange={(e) => setFactorOriginalId(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorScope">
-                  Scope{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
-                </Label>
-                <Input id="factorScope" value={factorScope} onChange={(e) => setFactorScope(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorReportLabel">
-                  Report Label{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
-                </Label>
-                <Input id="factorReportLabel" value={factorReportLabel} onChange={(e) => setFactorReportLabel(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorCategory">
-                  Category{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
-                </Label>
-                <Input id="factorCategory" value={factorCategory} onChange={(e) => setFactorCategory(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorLevel1">
-                  Level 1{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
-                </Label>
-                <Input id="factorLevel1" value={factorLevel1} onChange={(e) => setFactorLevel1(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorLevel2">
-                  Level 2{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
-                </Label>
-                <Input id="factorLevel2" value={factorLevel2} onChange={(e) => setFactorLevel2(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorLevel3">
-                  Level 3{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
-                </Label>
-                <Input id="factorLevel3" value={factorLevel3} onChange={(e) => setFactorLevel3(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorLevel4">
-                  Level 4{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
-                </Label>
-                <Input id="factorLevel4" value={factorLevel4} onChange={(e) => setFactorLevel4(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorColumnText">Column Text</Label>
-                <Input id="factorColumnText" value={factorColumnText} onChange={(e) => setFactorColumnText(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorSource">
-                  Source{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
-                </Label>
-                <Input id="factorSource" value={factorSource} onChange={(e) => setFactorSource(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorRegion">
-                  Region{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
-                </Label>
-                <Input id="factorRegion" value={factorRegion} onChange={(e) => setFactorRegion(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorCurrency">Currency</Label>
-                <Input id="factorCurrency" value={factorCurrency} onChange={(e) => setFactorCurrency(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorMethod">
-                  Method{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
-                </Label>
-                <Input id="factorMethod" value={factorMethod} onChange={(e) => setFactorMethod(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorValidFrom">Valid From</Label>
-                <Input id="factorValidFrom" type="date" value={factorValidFrom} onChange={(e) => setFactorValidFrom(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="factorValidTo">Valid To</Label>
-                <Input id="factorValidTo" type="date" value={factorValidTo} onChange={(e) => setFactorValidTo(e.target.value)} />
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={saveFactorRow} disabled={factorSaving}>
-                {factorSaving ? "Saving..." : editingFactor ? "Update Factor Row" : "Create Factor Row"}
-              </Button>
-              {editingFactor && (
-                <Button type="button" variant="outline" onClick={resetFactorEditor}>
-                  Cancel Edit
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="tools" className="space-y-6">
@@ -1797,7 +1575,7 @@ export default function DatasetsPage() {
                   >
                     Download blank XLSX template
                   </a>
-                  {" "}(for a single dataset's CSV upload, available from the Edit Dataset dialog in Browse Datasets)
+                  {" "}(for a single dataset&apos;s CSV upload, available from the Edit Dataset dialog in Browse Datasets)
                 </div>
                 <div className="flex gap-2">
                   <Input
@@ -2103,6 +1881,292 @@ export default function DatasetsPage() {
             </Button>
             <Button onClick={editingDataset ? updateDataset : createDataset}>
               {editingDataset ? "Save changes" : "Create dataset"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkDialogOpen} onOpenChange={setBulkDialogOpen}>
+        <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Bulk normalise report labels</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="text-sm text-muted-foreground">
+              Uses the factor filters currently active in Search & Edit Factors as the scope, then removes repeated
+              fragments from <code>report_label</code>. This is ideal for trimming labels like <code>- Cars (by size)</code>{" "}
+              across Business Travel, Employee Commuting, and Company Vehicles.
+            </div>
+
+            <div className="rounded-md border bg-muted/20 p-4 space-y-2">
+              <div className="text-sm font-medium">Current scope (from the search filters)</div>
+              <div className="text-xs text-muted-foreground">
+                {searchQuery ? `Search text: "${searchQuery}"` : "Search text: none"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {factorCategoryFilter ? `Category: ${factorCategoryFilter}` : "Category: all"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {factorReportLabelFilter ? `Report label: ${factorReportLabelFilter}` : "Report label: all"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {factorCountry ? `Country: ${factorCountry}` : "Country: all"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {factorYear ? `Year: ${factorYear}` : "Year: all"}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="bulkRemoveText">Remove fragments</Label>
+              <Textarea
+                id="bulkRemoveText"
+                value={bulkRemoveText}
+                onChange={(e) => setBulkRemoveText(e.target.value)}
+                placeholder={`Cars (by size)\nVehicles (by size)\nby vehicle size`}
+                rows={5}
+              />
+              <div className="text-xs text-muted-foreground">
+                Enter one fragment per line. Matching is case-insensitive and only affects <code>report_label</code>.
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="secondary" onClick={previewBulkReportLabelChanges} disabled={bulkWorking}>
+                Preview changes
+              </Button>
+              <Button type="button" onClick={applyBulkReportLabelChanges} disabled={bulkWorking}>
+                Apply changes
+              </Button>
+            </div>
+
+            {bulkSummary && (
+              <div className="rounded-md border bg-muted/30 p-3 text-sm">{bulkSummary}</div>
+            )}
+
+            {bulkPreview.length > 0 && (
+              <div className="max-h-80 overflow-auto rounded-md border">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-muted">
+                    <tr>
+                      <th className="p-2 text-left">DB ID</th>
+                      <th className="p-2 text-left">Original ID</th>
+                      <th className="p-2 text-left">Current Label</th>
+                      <th className="p-2 text-left">New Label</th>
+                      <th className="p-2 text-left">Category</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bulkPreview.map((row) => (
+                      <tr key={row.db_id} className="border-t align-top">
+                        <td className="p-2 text-xs text-muted-foreground">{row.db_id}</td>
+                        <td className="p-2 text-xs text-muted-foreground">{row.original_id || "-"}</td>
+                        <td className="p-2">{row.current_label}</td>
+                        <td className="p-2 font-medium">{row.new_label}</td>
+                        <td className="p-2 text-xs text-muted-foreground">{row.category || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDialogOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={factorEditorDialogOpen}
+        onOpenChange={(open) => {
+          setFactorEditorDialogOpen(open);
+          if (!open) resetFactorEditor();
+        }}
+      >
+        <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center justify-between gap-3 pr-6">
+              <DialogTitle>{editingFactor ? `Edit Factor Row #${editingFactor.db_id}` : "Add Factor Row"}</DialogTitle>
+              <div className="flex gap-2">
+                <Button type="button" variant="secondary" size="sm" onClick={startCreateFactor}>
+                  New Row
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={resetFactorEditor}>
+                  Clear Editor
+                </Button>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {factorEditorStatus && (
+              <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+                {factorEditorStatus}
+              </div>
+            )}
+
+            {editingFactor?.factor_definition_id && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                <span className="font-semibold">Linked to factor definition #{editingFactor.factor_definition_id}.</span>{" "}
+                Fields marked <span className="font-semibold text-blue-700">★ All years</span> will update every dataset year that shares this factor — not just this one row.
+                {editingFactor.factor_year_value_id && (
+                  <> Year-specific values (factor, valid dates, currency) update only this year (year value #{editingFactor.factor_year_value_id}).</>
+                )}
+              </div>
+            )}
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="factorDatasetRef">Dataset</Label>
+                <SearchableStringSelect
+                  id="factorDatasetRef"
+                  value={factorDatasetRef}
+                  options={factorDatasetOptions}
+                  placeholder="Select a dataset..."
+                  showClearButton
+                  onValueChange={syncFactorEditorDataset}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorDbId">DB ID</Label>
+                <Input
+                  id="factorDbId"
+                  value={factorDbId}
+                  readOnly
+                  placeholder="New row"
+                  className="bg-muted"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorFileName">File Name</Label>
+                <Input id="factorFileName" value={factorFileName} onChange={(e) => setFactorFileName(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorEditorYear">Year</Label>
+                <Input
+                  id="factorEditorYear"
+                  value={factorEditorYear}
+                  onChange={(e) => setFactorEditorYear(e.target.value)}
+                  placeholder="2025"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorValue">Factor</Label>
+                <Input
+                  id="factorValue"
+                  value={factorValue}
+                  onChange={(e) => setFactorValue(e.target.value)}
+                  placeholder="0.231"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorUom">
+                  UoM{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
+                <Input id="factorUom" value={factorUom} onChange={(e) => setFactorUom(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorGhgUnit">
+                  GHG Unit{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
+                <Input id="factorGhgUnit" value={factorGhgUnit} onChange={(e) => setFactorGhgUnit(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorOriginalId">Original ID</Label>
+                <Input id="factorOriginalId" value={factorOriginalId} onChange={(e) => setFactorOriginalId(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorScope">
+                  Scope{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
+                <Input id="factorScope" value={factorScope} onChange={(e) => setFactorScope(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorReportLabel">
+                  Report Label{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
+                <Input id="factorReportLabel" value={factorReportLabel} onChange={(e) => setFactorReportLabel(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorCategory">
+                  Category{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
+                <Input id="factorCategory" value={factorCategory} onChange={(e) => setFactorCategory(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorLevel1">
+                  Level 1{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
+                <Input id="factorLevel1" value={factorLevel1} onChange={(e) => setFactorLevel1(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorLevel2">
+                  Level 2{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
+                <Input id="factorLevel2" value={factorLevel2} onChange={(e) => setFactorLevel2(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorLevel3">
+                  Level 3{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
+                <Input id="factorLevel3" value={factorLevel3} onChange={(e) => setFactorLevel3(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorLevel4">
+                  Level 4{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
+                <Input id="factorLevel4" value={factorLevel4} onChange={(e) => setFactorLevel4(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorColumnText">
+                  Column Text{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
+                <Input id="factorColumnText" value={factorColumnText} onChange={(e) => setFactorColumnText(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorSource">
+                  Source{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
+                <Input id="factorSource" value={factorSource} onChange={(e) => setFactorSource(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorRegion">
+                  Region{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
+                <Input id="factorRegion" value={factorRegion} onChange={(e) => setFactorRegion(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorCurrency">Currency</Label>
+                <Input id="factorCurrency" value={factorCurrency} onChange={(e) => setFactorCurrency(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorMethod">
+                  Method{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
+                </Label>
+                <Input id="factorMethod" value={factorMethod} onChange={(e) => setFactorMethod(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorValidFrom">Valid From</Label>
+                <Input id="factorValidFrom" type="date" value={factorValidFrom} onChange={(e) => setFactorValidFrom(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorValidTo">Valid To</Label>
+                <Input id="factorValidTo" type="date" value={factorValidTo} onChange={(e) => setFactorValidTo(e.target.value)} />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setFactorEditorDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={saveFactorRow} disabled={factorSaving}>
+              {factorSaving ? "Saving..." : editingFactor ? "Update Factor Row" : "Create Factor Row"}
             </Button>
           </DialogFooter>
         </DialogContent>

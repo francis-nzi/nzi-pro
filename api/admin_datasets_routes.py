@@ -700,108 +700,48 @@ def search_factors(
     source: str = "",
     region: str = "",
     method: str = "",
-    limit: int = 100,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=1000),
     _user: dict = Depends(_current_user)
 ):
     """Search conversion factors (excludes archived datasets)."""
     try:
+        where_sql, params = _build_factor_search_filters(
+            q=q,
+            db_id=db_id,
+            dataset_id=dataset_id,
+            country=country,
+            year=year,
+            scope=scope,
+            report_label=report_label,
+            original_id=original_id,
+            category=category,
+            level_1=level_1,
+            level_2=level_2,
+            level_3=level_3,
+            level_4=level_4,
+            column_text=column_text,
+            uom=uom,
+            ghg_unit=ghg_unit,
+            source=source,
+            region=region,
+            method=method,
+        )
+
         with get_conn() as con:
             _ensure_factor_lookup_schema(con)
-            params: list[Any] = []
-            where_parts = ["COALESCE(d.archived, FALSE) = FALSE"]
 
-            if q.strip():
-                tokens = [part.strip() for part in re.split(r"\s+", q.strip()) if part.strip()]
-                token_parts: list[str] = []
-                token_params: list[Any] = []
-                searchable_sql = """
-                    (
-                        CAST(fl.db_id AS VARCHAR) ILIKE %s
-                        OR CAST(fl.dataset_id AS VARCHAR) ILIKE %s
-                        OR CAST(d.year AS VARCHAR) ILIKE %s
-                        OR COALESCE(d.name, '') ILIKE %s
-                        OR COALESCE(d.country, '') ILIKE %s
-                        OR COALESCE(d.analysis_type, '') ILIKE %s
-                        OR COALESCE(fl.original_id, '') ILIKE %s
-                        OR COALESCE(fl.scope, '') ILIKE %s
-                        OR COALESCE(fl.category, '') ILIKE %s
-                        OR COALESCE(fl.level_1, '') ILIKE %s
-                        OR COALESCE(fl.level_2, '') ILIKE %s
-                        OR COALESCE(fl.level_3, '') ILIKE %s
-                        OR COALESCE(fl.level_4, '') ILIKE %s
-                        OR COALESCE(fl.column_text, '') ILIKE %s
-                        OR COALESCE(fl.report_label, '') ILIKE %s
-                        OR COALESCE(fl.uom, '') ILIKE %s
-                        OR COALESCE(fl.ghg_unit, '') ILIKE %s
-                        OR COALESCE(fl.source, '') ILIKE %s
-                        OR COALESCE(fl.region, '') ILIKE %s
-                        OR COALESCE(fl.method, '') ILIKE %s
-                    )
-                """
-                for token in tokens:
-                    needle = f"%{token}%"
-                    token_parts.append(searchable_sql)
-                    token_params.extend([needle] * 20)
-                where_parts.append(" AND ".join(token_parts))
-                params.extend(token_params)
+            total_row = con.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM v_factor_lookup fl
+                LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
+                WHERE {where_sql}
+                """,
+                params,
+            ).fetchone()
+            total = int(total_row[0]) if total_row else 0
 
-            if db_id is not None:
-                where_parts.append("fl.db_id = %s")
-                params.append(int(db_id))
-            if dataset_id is not None:
-                where_parts.append("fl.dataset_id = %s")
-                params.append(int(dataset_id))
-            if country.strip():
-                where_parts.append("LOWER(TRIM(COALESCE(d.country, ''))) = LOWER(TRIM(%s))")
-                params.append(country.strip())
-            if year is not None:
-                where_parts.append("d.year = %s")
-                params.append(int(year))
-            if scope.strip():
-                where_parts.append("LOWER(TRIM(COALESCE(fl.scope, ''))) = LOWER(TRIM(%s))")
-                params.append(scope.strip())
-            if report_label.strip():
-                where_parts.append("COALESCE(fl.report_label, fl.column_text, '') ILIKE %s")
-                params.append(f"%{report_label.strip()}%")
-            if original_id.strip():
-                where_parts.append("COALESCE(fl.original_id, '') ILIKE %s")
-                params.append(f"%{original_id.strip()}%")
-            if category.strip():
-                where_parts.append("COALESCE(fl.category, fl.level_1, '') ILIKE %s")
-                params.append(f"%{category.strip()}%")
-            if level_1.strip():
-                where_parts.append("COALESCE(fl.level_1, '') ILIKE %s")
-                params.append(f"%{level_1.strip()}%")
-            if level_2.strip():
-                where_parts.append("COALESCE(fl.level_2, '') ILIKE %s")
-                params.append(f"%{level_2.strip()}%")
-            if level_3.strip():
-                where_parts.append("COALESCE(fl.level_3, '') ILIKE %s")
-                params.append(f"%{level_3.strip()}%")
-            if level_4.strip():
-                where_parts.append("COALESCE(fl.level_4, '') ILIKE %s")
-                params.append(f"%{level_4.strip()}%")
-            if column_text.strip():
-                where_parts.append("COALESCE(fl.column_text, '') ILIKE %s")
-                params.append(f"%{column_text.strip()}%")
-            if uom.strip():
-                where_parts.append("COALESCE(fl.uom, '') ILIKE %s")
-                params.append(f"%{uom.strip()}%")
-            if ghg_unit.strip():
-                where_parts.append("COALESCE(fl.ghg_unit, '') ILIKE %s")
-                params.append(f"%{ghg_unit.strip()}%")
-            if source.strip():
-                where_parts.append("COALESCE(fl.source, '') ILIKE %s")
-                params.append(f"%{source.strip()}%")
-            if region.strip():
-                where_parts.append("COALESCE(fl.region, '') ILIKE %s")
-                params.append(f"%{region.strip()}%")
-            if method.strip():
-                where_parts.append("COALESCE(fl.method, '') ILIKE %s")
-                params.append(f"%{method.strip()}%")
-
-            where_sql = " AND ".join(where_parts)
-            params.append(int(limit))
             df = con.execute(
                 f"""
                 SELECT
@@ -836,9 +776,9 @@ def search_factors(
                 LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
                 WHERE {where_sql}
                 ORDER BY d.year DESC NULLS LAST, d.name, COALESCE(fl.category, fl.level_1), fl.column_text, fl.original_id
-                LIMIT %s
+                LIMIT %s OFFSET %s
                 """,
-                params,
+                params + [int(per_page), int((page - 1) * per_page)],
             ).df()
 
         items: list[dict] = []
@@ -849,7 +789,14 @@ def search_factors(
             for record in safe_df.to_dict(orient="records"):
                 items.append(_serialize_factor_row(record))
 
-        return {"items": items, "count": len(items)}
+        pages = (total + per_page - 1) // per_page if per_page else 0
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": pages,
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -932,12 +879,12 @@ def create_factor_row(
 # Fields stored in emission_factor_definitions (shared across all years for this factor)
 _DEFINITION_FIELDS = frozenset({
     "scope", "category", "level_1", "level_2", "level_3", "level_4",
-    "report_label", "uom", "ghg_unit", "source", "region", "method",
+    "report_label", "uom", "ghg_unit", "source", "region", "method", "column_text",
 })
 # Fields stored in emission_factor_year_values (one value per dataset/year)
 _YEAR_VALUE_FIELDS = frozenset({"factor", "year", "original_id", "currency", "valid_from", "valid_to"})
 # Fields that always live only in factor_lookup
-_LEGACY_ONLY_FIELDS = frozenset({"dataset_id", "file_name", "column_text"})
+_LEGACY_ONLY_FIELDS = frozenset({"dataset_id", "file_name"})
 
 
 @router.patch("/factors/{db_id}")
