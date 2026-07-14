@@ -3,6 +3,7 @@ export default function sitemap() {
   const paths = [
     "",
     "/services",
+    "/carbon-reduction-plans",
     "/scope-3",
     "/workshops",
     "/training",

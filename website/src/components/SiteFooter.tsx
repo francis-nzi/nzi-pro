@@ -5,11 +5,11 @@ export function SiteFooter() {
     <footer className="site-footer">
       <div className="site-wrap footer-grid">
         <div>
-          <p className="eyebrow">NZ Insights Pro</p>
-          <h2>Built for the AI era, but grounded in real delivery.</h2>
+          <p className="eyebrow">Net Zero International</p>
+          <h2>Practical net zero support for organisations that need clarity and credibility.</h2>
           <p className="muted">
-            A future-proof marketing site should do three things well: explain the business clearly,
-            help AI and search understand the brand, and connect cleanly to live systems when needed.
+            We help clients measure, report and reduce emissions through carbon accounting,
+            carbon reduction plans, Scope 3 support, workshops and CPD accredited training.
           </p>
         </div>
 
@@ -17,10 +17,10 @@ export function SiteFooter() {
           <div>
             <span>Explore</span>
             <Link href="/services">Services</Link>
+            <Link href="/carbon-reduction-plans">Carbon Reduction Plans</Link>
             <Link href="/scope-3">Scope 3</Link>
             <Link href="/workshops">Workshops</Link>
             <Link href="/training">Training</Link>
-            <Link href="/ai-era">AI Era</Link>
             <Link href="/resources">Resources</Link>
             <Link href="/faq">FAQ</Link>
           </div>
@@ -32,17 +32,17 @@ export function SiteFooter() {
             <Link href="/contact">Contact</Link>
           </div>
           <div>
-            <span>Use cases</span>
-            <Link href="/workshops">Workshops</Link>
-            <Link href="/training">Training</Link>
-            <Link href="/ai-era">AI Era</Link>
+            <span>Support</span>
+            <Link href="/regulations">Reporting</Link>
+            <Link href="/resources">Knowledge hub</Link>
+            <Link href="/contact">Talk to us</Link>
           </div>
         </div>
       </div>
 
       <div className="site-wrap footer-bottom">
         <p>Net Zero International. Designed as a standalone Render service.</p>
-        <p>Public site first. Dynamic data later.</p>
+        <p>Measured content first, dynamic data when needed.</p>
       </div>
     </footer>
   );

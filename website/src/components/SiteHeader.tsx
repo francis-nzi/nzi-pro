@@ -20,7 +20,7 @@ export function SiteHeader() {
           <span className="brand-mark">NZI</span>
           <span className="brand-text">
             <strong>Net Zero International</strong>
-            <span>NZ Insights Pro</span>
+            <span>Carbon reporting and Net Zero support</span>
           </span>
         </Link>
 
@@ -38,7 +38,7 @@ export function SiteHeader() {
 
         <div className="header-actions">
           <Link href="/contact" className="btn btn-ghost desktop-only">
-            Book a call <ArrowRight size={16} />
+            Contact us <ArrowRight size={16} />
           </Link>
           <button className="mobile-menu" type="button" aria-label="Open navigation">
             <Menu size={20} />

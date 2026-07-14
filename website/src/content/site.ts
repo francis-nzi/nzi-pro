@@ -1,86 +1,124 @@
 export const navLinks = [
   { href: "/services", label: "Services" },
-  { href: "/ai-era", label: "AI Era" },
+  { href: "/carbon-reduction-plans", label: "Carbon Reduction Plans" },
+  { href: "/scope-3", label: "Scope 3" },
+  { href: "/training", label: "Training" },
   { href: "/resources", label: "Resources" },
   { href: "/about", label: "About" },
   { href: "/contact", label: "Contact" },
 ];
 
 export const homeStats = [
-  { label: "Strategy first", value: "Content model + IA" },
-  { label: "Built for AI search", value: "Schema + answer pages" },
-  { label: "Render ready", value: "Standalone service" },
-  { label: "Dynamic later", value: "API hooks pre-wired" },
+  { label: "Carbon accounting and reporting", value: "Scopes 1, 2 & 3" },
+  { label: "Public procurement support", value: "PPN 006 / NHS Evergreen" },
+  { label: "Capability building", value: "CPD accredited" },
+  { label: "Practical delivery", value: "Workshops and roadmaps" },
 ];
 
 export const aiPrinciples = [
   {
-    title: "Answer the question on the page",
-    text: "Each page should stand alone with a clear point of view, direct answers, and enough context for both humans and AI agents.",
+    title: "Specialist expertise",
+    text: "We bring deep knowledge of carbon accounting, sustainability frameworks, and sector-specific delivery challenges.",
   },
   {
-    title: "Structure everything",
-    text: "Use named entities, schema.org markup, internal links, and content blocks that can be reused across pages, search, and assistants.",
+    title: "Regulatory insight",
+    text: "We stay close to the standards that matter, including SECR, PPN 006, CSRD, and NHS Evergreen.",
   },
   {
-    title: "Ship fast, then connect data",
-    text: "The first release should be server-rendered, content-driven, and easy to extend with CRM, calculators, and portals later.",
+    title: "Tailored and practical",
+    text: "No one-size-fits-all advice. We shape the work around your sector, timeline, and available data.",
   },
   {
-    title: "Design for trust",
-    text: "Proof, team, process, and contact paths should be obvious. Visitors should always know who you are, what you do, and what to do next.",
+    title: "People-centred delivery",
+    text: "Net zero only works when teams understand it. We build capability, not just reports.",
   },
 ];
 
 export const serviceCards = [
   {
+    href: "/carbon-reduction-plans",
+    title: "Carbon reduction plans",
+    summary: "Measure and report emissions, then shape a plan that works for procurement, governance, and board approval.",
+  },
+  {
     href: "/scope-3",
-    title: "Net zero strategy",
-    summary: "High-level advisory, roadmap design, and executive-ready planning that can scale from one-off engagements to recurring advisory.",
+    title: "Scope 3 supply chain solutions",
+    summary: "Measure indirect emissions and build a practical approach to supplier engagement and category prioritisation.",
+  },
+  {
+    href: "/workshops",
+    title: "Net Zero strategy workshops",
+    summary: "Facilitated sessions that align leadership, identify priorities, and turn strategy into clear next steps.",
+  },
+  {
+    href: "/training",
+    title: "CPD accredited training",
+    summary: "Courses and workshops that build internal capability across leadership, procurement, finance, and operations.",
   },
   {
     href: "/regulations",
     title: "Reporting and compliance",
-    summary: "Clear service pages for carbon reporting, disclosures, and regulatory support, with room for live data and document delivery.",
-  },
-  {
-    href: "/training",
-    title: "Training and workshops",
-    summary: "Event pages, booking flows, and content hubs for CPD training, workshops, and repeatable learning programs.",
-  },
-  {
-    title: "Client portal and tooling",
-    summary: "Connect the public site to authenticated products when needed without forcing the marketing site to become the app.",
+    summary: "Support for SECR, CSRD, PPN 006, NHS Evergreen, and wider sustainability reporting.",
   },
   {
     href: "/resources",
-    title: "Resources and knowledge",
-    summary: "Glossary, FAQs, guides, and explainers that answer search intent and support AI retrieval.",
-  },
-  {
-    title: "Lead capture and CRM",
-    summary: "Forms, calls to action, and tracking that can later feed into your CRM and follow-up workflows.",
+    title: "Guides, glossary, and FAQs",
+    summary: "Supporting content that helps clients understand the terminology and the process before they commit.",
   },
 ];
 
 export const servicePages = [
   {
-    slug: "scope-3",
-    eyebrow: "Scope 3",
-    title: "Scope 3 solutions built for teams that need clarity, not jargon.",
+    slug: "carbon-reduction-plans",
+    eyebrow: "Carbon Reduction Plans",
+    title: "Carbon reduction plans that stand up to scrutiny.",
     description:
-      "We help organisations turn indirect emissions into a manageable workstream with a clear method, an owner, and reporting outputs that leadership can use.",
+      "We measure and report your carbon emissions, then shape a practical reduction plan for procurement, compliance, and board-level decision making.",
     sections: [
       {
-        title: "What the page should say",
+        title: "What this covers",
         points: [
-          "The scope of the problem and where the data usually lives",
-          "A plain-English explanation of the approach",
-          "The outputs the client will receive",
+          "Carbon emissions measurement and reporting",
+          "A structured reduction plan with clear actions",
+          "Support for public procurement and governance requirements",
         ],
       },
       {
-        title: "Ideal for",
+        title: "Standards we work with",
+        points: [
+          "PPN 006 / PPN 06/21 procurement requirements",
+          "NHS Evergreen carbon reduction plans",
+          "SECR, GHG Protocol, and related reporting frameworks",
+        ],
+      },
+      {
+        title: "Typical outputs",
+        points: [
+          "Baseline emissions summary",
+          "Draft carbon reduction plan",
+          "Action plan and evidence pack",
+          "Review and sign-off support",
+        ],
+      },
+    ],
+  },
+  {
+    slug: "scope-3",
+    eyebrow: "Scope 3",
+    title: "Scope 3 supply chain solutions built for clarity.",
+    description:
+      "We help organisations measure and report the emissions that sit in the supply chain, then build a realistic plan to engage suppliers and prioritise action.",
+    sections: [
+      {
+        title: "What we help with",
+        points: [
+          "Supplier mapping and category screening",
+          "Data collection templates and collection guidance",
+          "Hotspot analysis and prioritisation",
+        ],
+      },
+      {
+        title: "Who it is for",
         points: [
           "Businesses starting their Scope 3 journey",
           "Teams needing supplier engagement and category prioritisation",
@@ -90,10 +128,9 @@ export const servicePages = [
       {
         title: "Typical deliverables",
         points: [
-          "Category screening",
-          "Data collection templates",
-          "Hotspot analysis",
-          "Action plan and presentation pack",
+          "Category screening and materiality view",
+          "Supplier outreach templates",
+          "Summary report and action plan",
         ],
       },
     ],
@@ -101,9 +138,9 @@ export const servicePages = [
   {
     slug: "workshops",
     eyebrow: "Workshops",
-    title: "Strategy workshops that get leadership aligned quickly.",
+    title: "Net Zero strategy workshops that get leadership aligned.",
     description:
-      "A good workshop page should make the offer feel tangible: who attends, what happens, what gets produced, and how it moves the organisation forward.",
+      "We run focused sessions that help leadership teams agree ambition, understand the data, and leave with a workable plan.",
     sections: [
       {
         title: "Common workshop themes",
@@ -114,7 +151,7 @@ export const servicePages = [
         ],
       },
       {
-        title: "Workshop outputs",
+        title: "What the workshop produces",
         points: [
           "Facilitated notes",
           "Priority actions",
@@ -127,25 +164,24 @@ export const servicePages = [
   {
     slug: "training",
     eyebrow: "Training",
-    title: "CPD accredited training that can scale from one session to a program.",
+    title: "CPD accredited training that builds internal confidence.",
     description:
-      "Training pages should support booking, session details, learning outcomes, and the evidence people need before they commit.",
+      "Our training programmes help business leaders and teams understand carbon accounting, Net Zero strategy, and the actions that matter most.",
     sections: [
       {
-        title: "Training page needs",
+        title: "Training themes",
         points: [
-          "Course overview",
-          "Who it is for",
-          "Learning outcomes",
-          "Accreditation and booking details",
+          "Net Zero essentials for leaders and teams",
+          "Carbon accounting and reporting",
+          "Climate leadership and operational delivery",
         ],
       },
       {
-        title: "Future-friendly structure",
+        title: "Delivery options",
         points: [
-          "Repeatable session templates",
-          "Content blocks for dates and locations",
-          "Links to resources and follow-up material",
+          "Online, on-site, or hybrid delivery",
+          "CPD certificates and supporting materials",
+          "Tailored programmes for sectors and teams",
         ],
       },
     ],
@@ -153,17 +189,17 @@ export const servicePages = [
   {
     slug: "regulations",
     eyebrow: "Regulation",
-    title: "Regulations and legislation explained in plain English.",
+    title: "Regulations and reporting explained in plain English.",
     description:
-      "This page should help people understand what changed, why it matters, and how NZI can help them respond without overwhelm.",
+      "We translate the changing landscape into practical advice so clients can understand what matters and how to respond.",
     sections: [
       {
-        title: "Useful content themes",
+        title: "Topics we cover",
         points: [
-          "Updates and summaries",
-          "Who the change affects",
-          "Practical implications",
-          "Call to action for support",
+          "SECR and sustainability disclosures",
+          "PPN 006 and NHS Evergreen requirements",
+          "CSRD and wider reporting expectations",
+          "What the changes mean in practice",
         ],
       },
     ],
@@ -183,7 +219,7 @@ export const resourcePages = [
     eyebrow: "FAQ",
     title: "A reusable FAQ surface for common questions.",
     description:
-      "This can start as simple content and later become structured answer blocks used across the site and in AI search.",
+      "This can start as simple content and later become structured answer blocks used across the site.",
   },
 ];
 
@@ -201,12 +237,12 @@ export const glossaryTerms = [
     definition: "Other indirect emissions that occur in the value chain, upstream and downstream.",
   },
   {
-    term: "Carbon footprint",
-    definition: "A quantified measure of emissions associated with an organisation, product, or activity.",
+    term: "Carbon reduction plan",
+    definition: "A documented plan showing how an organisation will reduce its emissions over time.",
   },
   {
-    term: "Net zero",
-    definition: "A state where residual emissions are balanced by removals or offsets according to the chosen standard.",
+    term: "Carbon accounting",
+    definition: "The process of measuring and reporting greenhouse gas emissions using a recognised method.",
   },
   {
     term: "Baseline",
@@ -216,30 +252,38 @@ export const glossaryTerms = [
 
 export const buildPhases = [
   {
-    title: "Phase 1: Foundation",
-    points: ["Information architecture", "Visual system", "Content map", "SEO and schema"],
+    title: "Understand",
+    points: ["Initial discovery", "Review of reporting needs", "Sector and supplier context"],
   },
   {
-    title: "Phase 2: Core pages",
-    points: ["Home", "Services", "About", "Contact", "AI-era explainer"],
+    title: "Measure",
+    points: ["Carbon data collection", "Scope 3 prioritisation", "Current-state reporting"],
   },
   {
-    title: "Phase 3: Scale",
-    points: ["Case studies", "Knowledge base", "Lead forms", "API-backed content"],
+    title: "Plan",
+    points: ["Carbon reduction plan", "Strategy workshops", "Priority actions and timeline"],
+  },
+  {
+    title: "Support",
+    points: ["Training", "Supplier engagement", "Follow-up and implementation support"],
   },
 ];
 
 export const faqs = [
   {
-    q: "Why build a separate service instead of using the current WordPress stack?",
-    a: "A separate service gives you a cleaner architecture, faster server rendering, better schema control, and less coupling between the public site and internal tools.",
+    q: "What does a carbon reduction plan include?",
+    a: "A strong plan brings together a baseline emissions view, practical reduction actions, and evidence that can be used in procurement or governance settings.",
   },
   {
-    q: "Can we still pull in live data?",
-    a: "Yes. The site can remain content-first while calling backend APIs for pricing, dashboards, booking availability, downloads, or any other dynamic surface later.",
+    q: "Can you help with Scope 3 emissions?",
+    a: "Yes. We support category screening, supplier engagement, data collection, and the practical steps needed to make Scope 3 manageable.",
   },
   {
-    q: "Will this help with AI search and answer engines?",
-    a: "Yes. The combination of structured content, metadata, schema, internal linking, and concise answer pages is exactly what AI-first discovery favors.",
+    q: "Do you offer CPD accredited training?",
+    a: "Yes. Training is a core part of the offer and can be adapted for leadership, procurement, finance, operations, or mixed teams.",
+  },
+  {
+    q: "Which organisations do you work with?",
+    a: "We support private sector businesses, public sector suppliers, and organisations across sectors including manufacturing, construction, healthcare, logistics, and professional services.",
   },
 ];

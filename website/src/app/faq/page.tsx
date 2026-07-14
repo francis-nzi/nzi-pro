@@ -4,7 +4,7 @@ import { faqs } from "@/content/site";
 
 export const metadata: Metadata = {
   title: "FAQ",
-  description: "Common questions about the rebuilt public site and its future-proof setup.",
+  description: "Common questions about Net Zero International services and delivery.",
 };
 
 export default function FaqPage() {
@@ -12,10 +12,10 @@ export default function FaqPage() {
     <div className="site-wrap">
       <section className="page-hero">
         <p className="eyebrow">FAQ</p>
-        <h1>Questions the site should answer clearly.</h1>
+        <h1>Questions clients usually ask before they begin.</h1>
         <p className="lead">
-          These answers should be easy to scan, easy to quote, and easy to expand later as the
-          site grows.
+          These answers should be easy to scan, easy to quote, and easy to expand as the site
+          develops.
         </p>
       </section>
 

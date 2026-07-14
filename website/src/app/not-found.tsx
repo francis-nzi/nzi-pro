@@ -5,7 +5,7 @@ export default function NotFound() {
     <div className="site-wrap page-hero">
       <p className="eyebrow">404</p>
       <h1>That page does not exist.</h1>
-      <p className="lead">Use the navigation to return to the rebuilt site.</p>
+      <p className="lead">Use the navigation to return to the Net Zero International site.</p>
       <div className="hero-actions">
         <Link href="/" className="btn btn-primary">
           Go home

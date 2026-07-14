@@ -4,7 +4,7 @@ import { glossaryTerms } from "@/content/site";
 
 export const metadata: Metadata = {
   title: "Net Zero Glossary",
-  description: "Key terminology explained in plain English.",
+  description: "Key carbon reporting and Net Zero terminology explained in plain English.",
 };
 
 export default function GlossaryPage() {
@@ -14,8 +14,7 @@ export default function GlossaryPage() {
         <p className="eyebrow">Glossary</p>
         <h1>A glossary that makes the subject easier to navigate.</h1>
         <p className="lead">
-          This page helps visitors, search engines, and AI assistants understand the language
-          used across the site.
+          This page helps visitors and search engines understand the language used across the site.
         </p>
       </section>
 

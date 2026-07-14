@@ -2,7 +2,7 @@ import { SectionHeading } from "@/components/SectionHeading";
 
 export const metadata = {
   title: "About",
-  description: "Why the new site exists and what it should communicate.",
+  description: "About Net Zero International and the support we provide to organisations.",
 };
 
 export default function AboutPage() {
@@ -10,47 +10,48 @@ export default function AboutPage() {
     <div className="site-wrap">
       <section className="page-hero">
         <p className="eyebrow">About</p>
-        <h1>Clear, credible, and ready to scale.</h1>
+        <h1>Professional Net Zero support.</h1>
         <p className="lead">
-          The rebuilt site should make the company easier to understand in under a minute. That
-          means sharper positioning, more obvious proof, and fewer dead-end pages.
+          Net Zero International supports organisations to navigate the transition to a
+          low-carbon future with clarity, credibility, and confidence.
         </p>
       </section>
 
       <section className="content-section">
         <SectionHeading
-          eyebrow="Why now"
-          title="The current site is doing too much of the job through template noise"
-          description="A future-proof rebuild separates brand, content, and application concerns so each part can evolve without breaking the rest."
+          eyebrow="What we do"
+          title="Measure, manage, and reduce carbon emissions"
+          description="We work across the public and private sectors with practical, science-aligned support."
         />
 
         <div className="card-grid">
           <article className="info-card">
-            <h3>Sales surface</h3>
-            <p>Clear offers, obvious next steps, and pages that make it easy to enquire or book a call.</p>
+            <h3>Carbon accounting and reporting</h3>
+            <p>Scopes 1, 2 and 3 emissions measurement, reporting, and evidence-led documentation.</p>
           </article>
           <article className="info-card">
-            <h3>Knowledge surface</h3>
-            <p>Resources, glossary pages, and answer-first content that help people and AI systems understand the business.</p>
+            <h3>Carbon reduction plans</h3>
+            <p>Plans for procurement, governance, and delivery, including PPN 006 and NHS Evergreen support.</p>
           </article>
           <article className="info-card">
-            <h3>Trust surface</h3>
-            <p>Consistent design, proof points, and a structure that says who you are before asking for action.</p>
+            <h3>Scope 3 and supply chains</h3>
+            <p>Supplier engagement, category prioritisation, and practical help with indirect emissions.</p>
           </article>
         </div>
       </section>
 
       <section className="content-section">
         <SectionHeading
-          eyebrow="Working model"
-          title="What this means in practice"
-          description="The public site should be content-driven, but ready to connect to live data and product surfaces when needed."
+          eyebrow="Why work with us"
+          title="A specialist partner with practical delivery"
+          description="The goal is not just compliance. It is to help organisations build the understanding and capability to keep moving."
         />
 
         <div className="page-layout">
           <article className="quote-card">
             <blockquote>
-              Strong copy, specific pages, clean architecture, and an operating model that allows us to plug in live data, lead capture, and portal links when needed.
+              We support clients with expert carbon reporting services, training, workshops, and
+              tailored Net Zero strategies that fit the organisation in front of us.
             </blockquote>
           </article>
         </div>

@@ -4,7 +4,7 @@ import { SectionHeading } from "@/components/SectionHeading";
 
 export const metadata = {
   title: "Contact",
-  description: "Get in touch about the rebuild and future website architecture.",
+  description: "Contact Net Zero International about carbon reporting, Scope 3, workshops or training.",
 };
 
 export default function ContactPage() {
@@ -12,10 +12,10 @@ export default function ContactPage() {
     <div className="site-wrap">
       <section className="page-hero">
         <p className="eyebrow">Contact</p>
-        <h1>Let&apos;s turn the current discussion into a rebuild plan.</h1>
+        <h1>Start the conversation with the right service.</h1>
         <p className="lead">
-          The next step is straightforward: agree the scope, lock the page model, and build the
-          first version as a separate Render service.
+          Tell us what you need help with and we&apos;ll point you toward the right support,
+          whether that is carbon reporting, a carbon reduction plan, Scope 3 work, workshops or training.
         </p>
       </section>
 
@@ -25,7 +25,7 @@ export default function ContactPage() {
             <SectionHeading
               eyebrow="Start here"
               title="Best next step"
-              description="We can begin with the information architecture and the homepage, then expand into service and resource pages."
+              description="Use the email link below to request a discovery call or ask about a specific service."
             />
             <div>
               <Link href="mailto:info@netzero.international" className="btn btn-primary">
@@ -42,11 +42,11 @@ export default function ContactPage() {
             </p>
             <p>
               <MessageSquare size={16} style={{ display: "inline", verticalAlign: "-0.15em", marginRight: 8 }} />
-              Render-hosted marketing service in the NZI Insights Pro Live project
+              Tell us about your reporting, reduction plan, Scope 3, workshop, or training needs
             </p>
             <p>
               <ArrowRight size={16} style={{ display: "inline", verticalAlign: "-0.15em", marginRight: 8 }} />
-              Next step: connect the domain only after the site content and navigation are signed off.
+              We can start with a short discovery conversation and agree the right next step.
             </p>
           </article>
         </div>

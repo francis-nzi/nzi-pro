@@ -4,7 +4,7 @@ import { faqs, resourcePages } from "@/content/site";
 
 export const metadata = {
   title: "Resources",
-  description: "FAQs and support material for the rebuilt public site.",
+  description: "Glossary and FAQs that help explain the Net Zero International services.",
 };
 
 export default function ResourcesPage() {
@@ -12,10 +12,10 @@ export default function ResourcesPage() {
     <div className="site-wrap">
       <section className="page-hero">
         <p className="eyebrow">Resources</p>
-        <h1>Build the knowledge layer alongside the sales site.</h1>
+        <h1>Support material for clients and search visitors.</h1>
         <p className="lead">
-          Resource pages are where AI-era visibility compounds. They answer common questions,
-          support search intent, and create more entry points into the business.
+          Resource pages answer common questions, support search intent, and create more entry
+          points into the business.
         </p>
       </section>
 
@@ -23,7 +23,7 @@ export default function ResourcesPage() {
         <SectionHeading
           eyebrow="Resource hub"
           title="Start here for knowledge pages"
-          description="These pages support search, AI discovery, and internal linking."
+          description="These pages support search, answer discovery, and internal linking."
         />
 
         <div className="card-grid">

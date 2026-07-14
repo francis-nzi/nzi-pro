@@ -21,11 +21,11 @@ export const metadata: Metadata = {
     template: "%s | Net Zero International",
   },
   description:
-    "A future-proof marketing site for Net Zero International, designed for AI search, structured content, and dynamic data.",
+    "Net Zero International helps organisations measure, report and reduce emissions through carbon accounting, carbon reduction plans, Scope 3 support, workshops and training.",
   openGraph: {
     title: "Net Zero International",
     description:
-      "A future-proof marketing site for Net Zero International, designed for AI search, structured content, and dynamic data.",
+      "Carbon accounting, carbon reduction plans, Scope 3 support, workshops and CPD accredited training for organisations of all sizes.",
     url: "https://netzero.international",
     siteName: "Net Zero International",
     type: "website",

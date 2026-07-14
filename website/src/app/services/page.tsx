@@ -4,7 +4,7 @@ import { serviceCards, servicePages } from "@/content/site";
 
 export const metadata = {
   title: "Services",
-  description: "Core service areas for the rebuilt NZ Insights Pro site.",
+  description: "Carbon reporting, carbon reduction plans, Scope 3 support, workshops and training.",
 };
 
 export default function ServicesPage() {
@@ -12,18 +12,18 @@ export default function ServicesPage() {
     <div className="site-wrap">
       <section className="page-hero">
         <p className="eyebrow">Services</p>
-        <h1>Explain the offers in a way that converts and can be expanded later.</h1>
+        <h1>The core business offering, presented clearly.</h1>
         <p className="lead">
           Each service page should answer three questions immediately: what the service is,
-          who it is for, and what the next step should be.
+          who it is for, and how it helps the client move forward.
         </p>
       </section>
 
       <section className="content-section">
         <SectionHeading
           eyebrow="Service map"
-          title="Launch the services as proper pages, not just bullets"
-          description="The main offers should have dedicated landing pages so search, AI, and people can all understand the business clearly."
+          title="Dedicated pages for each core offer"
+          description="The main services each have a landing page so the site is useful for people and search."
         />
 
         <div className="card-grid">
@@ -40,7 +40,7 @@ export default function ServicesPage() {
       <section className="content-section">
         <SectionHeading
           eyebrow="Service blocks"
-          title="Supporting commercial entries"
+          title="Support content that backs up the sales pages"
           description="These are the reusable blocks the site can use across the homepage, cards, and future campaign pages."
         />
 
@@ -49,6 +49,11 @@ export default function ServicesPage() {
             <article key={item.title} className="page-card">
               <h3>{item.title}</h3>
               <p>{item.summary}</p>
+              {item.href ? (
+                <Link href={item.href} className="inline-cta">
+                  Learn more
+                </Link>
+              ) : null}
             </article>
           ))}
         </div>

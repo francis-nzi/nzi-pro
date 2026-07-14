@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, BookOpenText, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpenText } from "lucide-react";
 import { SectionHeading } from "@/components/SectionHeading";
 import { aiPrinciples, buildPhases, homeStats, serviceCards, servicePages } from "@/content/site";
 
@@ -9,20 +9,20 @@ export default function HomePage() {
       <section className="hero">
         <div className="site-wrap hero-grid">
           <div>
-            <p className="eyebrow">Net Zero International</p>
-            <h1>Build the public site for humans, search, and AI agents.</h1>
+            <p className="eyebrow">Professional Net Zero support</p>
+            <h1>Measure, report and reduce emissions with a specialist consultancy.</h1>
             <p className="hero-copy">
-              We are not just refreshing pages. We are rebuilding the website as a structured,
-              server-rendered, content-first platform that can explain your services clearly today
-              and plug into live systems tomorrow.
+              Net Zero International supports organisations with carbon accounting and reporting,
+              carbon reduction plans, Scope 3 supply-chain work, workshops, and CPD accredited
+              training.
             </p>
 
             <div className="hero-actions">
-              <Link href="/contact" className="btn btn-primary">
-                Start the rebuild <ArrowRight size={16} />
+              <Link href="/services" className="btn btn-primary">
+                Explore services <ArrowRight size={16} />
               </Link>
-              <Link href="/ai-era" className="btn btn-ghost">
-                Why AI-era matters <Sparkles size={16} />
+              <Link href="/contact" className="btn btn-primary">
+                Talk to us <ArrowRight size={16} />
               </Link>
             </div>
           </div>
@@ -30,10 +30,10 @@ export default function HomePage() {
           <aside className="hero-panel">
             <div className="hero-panel-card">
               <div className="panel-note">
-                <strong>What this first release does</strong>
+                <strong>Core services</strong>
                 <p>
-                  Establishes a strong visual system, answer-first pages, and a content model that
-                  can scale into CMS, CRM, booking, and portal integrations.
+                  The public site now points visitors to the real business offerings instead of
+                  internal notes.
                 </p>
               </div>
 
@@ -55,23 +55,24 @@ export default function HomePage() {
       <section className="content-section">
         <div className="site-wrap">
           <SectionHeading
-            eyebrow="Site map"
-            title="The public site now has a proper content backbone"
-            description="These pages are the foundation of the real launch, not just a one-page shell."
+            eyebrow="Core offer"
+            title="The services that sit at the centre of the business"
+            description="These are the commercial entry points we should make very easy to find."
           />
 
-          <div className="stats-grid">
-            {[
-              "Same Render environment, separate web service",
-              "Structured pages instead of fragmented WordPress templates",
-              "Built to support future data, not just present-day copy",
-              "Fast server rendering with clear schema and metadata",
-            ].map((item) => (
-              <article key={item} className="stat-card">
-                <span>Principle</span>
-                <strong>{item}</strong>
-              </article>
-            ))}
+          <div className="card-grid">
+            {serviceCards
+              .filter((item) => item.href)
+              .slice(0, 4)
+              .map((item) => (
+                <article key={item.title} className="page-card">
+                  <h3>{item.title}</h3>
+                  <p>{item.summary}</p>
+                  <Link href={item.href!} className="inline-cta">
+                    Learn more <ArrowRight size={15} />
+                  </Link>
+                </article>
+              ))}
           </div>
         </div>
       </section>
@@ -79,9 +80,9 @@ export default function HomePage() {
       <section className="content-section">
         <div className="site-wrap">
           <SectionHeading
-            eyebrow="AI era"
-            title="What the rebuild needs to get right"
-            description="The point is not to chase novelty. It is to make the website easier for people, search engines, and assistants to understand, trust, and act on."
+            eyebrow="Why work with us"
+            title="Specialist delivery, grounded in the standards that matter"
+            description="These are the qualities that should be obvious on the public site."
           />
 
           <div className="card-grid">
@@ -98,56 +99,9 @@ export default function HomePage() {
       <section className="content-section">
         <div className="site-wrap">
           <SectionHeading
-            eyebrow="Featured pages"
-            title="Core offers and supporting pages"
-            description="The launch should make the main offers obvious, then route visitors into the deeper pages that answer real questions."
-          />
-
-          <div className="card-grid">
-            {servicePages.map((page) => (
-              <Link key={page.slug} href={`/${page.slug}`} className="page-card">
-                <p className="eyebrow">{page.eyebrow}</p>
-                <h3>{page.title}</h3>
-                <p>{page.description}</p>
-                <span className="inline-cta">
-                  Read the page <BookOpenText size={15} />
-                </span>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="content-section">
-        <div className="site-wrap">
-          <SectionHeading
-            eyebrow="Services"
-            title="Primary services at a glance"
-            description="These are the commercial entry points the site should make very easy to find."
-          />
-
-          <div className="card-grid">
-            {serviceCards.map((item) => (
-              <article key={item.title} className="page-card">
-                <h3>{item.title}</h3>
-                <p>{item.summary}</p>
-                {item.href ? (
-                  <Link href={item.href} className="inline-cta">
-                    Learn more <ArrowRight size={15} />
-                  </Link>
-                ) : null}
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="content-section">
-        <div className="site-wrap">
-          <SectionHeading
-            eyebrow="Build plan"
-            title="The sequence I would use"
-            description="This keeps the work focused: establish the system first, deliver the core pages second, then wire in live data only where it adds value."
+            eyebrow="How we work"
+            title="A straightforward delivery model"
+            description="Start with the need, measure the right things, then turn the result into something the organisation can use."
           />
 
           <div className="phase-grid">
@@ -161,6 +115,29 @@ export default function HomePage() {
                   ))}
                 </ul>
               </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="content-section">
+        <div className="site-wrap">
+          <SectionHeading
+            eyebrow="Featured pages"
+            title="Deeper pages for the services and knowledge layer"
+            description="These pages support search, answer questions, and give each service its own proper home."
+          />
+
+          <div className="card-grid">
+            {servicePages.map((page) => (
+              <Link key={page.slug} href={`/${page.slug}`} className="page-card">
+                <p className="eyebrow">{page.eyebrow}</p>
+                <h3>{page.title}</h3>
+                <p>{page.description}</p>
+                <span className="inline-cta">
+                  Read the page <BookOpenText size={15} />
+                </span>
+              </Link>
             ))}
           </div>
         </div>

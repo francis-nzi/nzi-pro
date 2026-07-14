@@ -52,7 +52,7 @@ export function ContentPage({
       <section className="content-section">
         <SectionHeading
           eyebrow="Next step"
-          title="Make this page usable in a real sales conversation"
+          title="Make this page useful in the real world"
           description="Every public page should make the next action obvious."
         />
         <Link href={ctaHref} className="btn btn-primary">
