@@ -2007,131 +2007,6 @@ def _current_actor_identifier(user: dict[str, Any] | None) -> str:
     return normalized if normalized else "unknown"
 
 
-def _normalize_actor_email(actor: str | None) -> str | None:
-    normalized = str(actor or "").strip().lower()
-    if not normalized or normalized in {"unknown", "anonymous"}:
-        return None
-    return normalized
-
-
-def _lookup_team_member(
-    con,
-    *,
-    consultant_name: str | None = None,
-    actor_email: str | None = None,
-) -> tuple[str | None, str | None]:
-    name = str(consultant_name or "").strip()
-    if name:
-        try:
-            row = con.execute(
-                """
-                SELECT full_name,
-                       NULLIF(TRIM(position), '') AS consultant_position
-                FROM users
-                WHERE LOWER(COALESCE(full_name, '')) = LOWER(%s)
-                   OR LOWER(COALESCE(email, '')) = LOWER(%s)
-                   OR LOWER(COALESCE(user_id, '')) = LOWER(%s)
-                LIMIT 1
-                """,
-                [name, name, name],
-            ).fetchone()
-        except Exception:
-            logger.debug("Consultant lookup failed against users table; falling back to consultant_position-less query", exc_info=True)
-            try:
-                # Backward compatibility if users.position has not been migrated yet.
-                # Do NOT fall back to role for consultant_position.
-                row = con.execute(
-                    """
-                    SELECT full_name,
-                           NULL AS consultant_position
-                    FROM users
-                    WHERE LOWER(COALESCE(full_name, '')) = LOWER(%s)
-                       OR LOWER(COALESCE(email, '')) = LOWER(%s)
-                       OR LOWER(COALESCE(user_id, '')) = LOWER(%s)
-                    LIMIT 1
-                    """,
-                    [name, name, name],
-                ).fetchone()
-            except Exception:
-                logger.debug("Consultant lookup failed against users table; returning no consultant match", exc_info=True)
-                row = None
-        if row:
-            full_name = str(row[0]).strip() if row[0] is not None else None
-            position = str(row[1]).strip() if row[1] is not None else None
-            return (full_name if full_name else None, position if position else None)
-
-    normalized_actor = _normalize_actor_email(actor_email)
-    if normalized_actor:
-        try:
-            row = con.execute(
-                """
-                SELECT full_name,
-                       NULLIF(TRIM(position), '') AS consultant_position
-                FROM users
-                WHERE LOWER(COALESCE(email, '')) = LOWER(%s)
-                   OR LOWER(COALESCE(user_id, '')) = LOWER(%s)
-                LIMIT 1
-                """,
-                [normalized_actor, normalized_actor],
-            ).fetchone()
-        except Exception:
-            logger.debug("Consultant lookup failed against users table; falling back to consultant_position-less query", exc_info=True)
-            try:
-                # Backward compatibility if users.position has not been migrated yet.
-                # Do NOT fall back to role for consultant_position.
-                row = con.execute(
-                    """
-                    SELECT full_name,
-                           NULL AS consultant_position
-                    FROM users
-                    WHERE LOWER(COALESCE(email, '')) = LOWER(%s)
-                       OR LOWER(COALESCE(user_id, '')) = LOWER(%s)
-                    LIMIT 1
-                    """,
-                    [normalized_actor, normalized_actor],
-                ).fetchone()
-            except Exception:
-                logger.debug("Consultant lookup failed against users table for normalized actor; returning no consultant match", exc_info=True)
-                row = None
-        if row:
-            full_name = str(row[0]).strip() if row[0] is not None else None
-            position = str(row[1]).strip() if row[1] is not None else None
-            return (full_name if full_name else None, position if position else None)
-
-    return (None, None)
-
-
-def _sync_consultant_metadata_with_team_role(
-    con,
-    meta: dict[str, Any],
-    *,
-    actor_email: str | None = None,
-    skip_keys: set[str] | None = None,
-) -> bool:
-    # If the caller explicitly submitted consultant_name (even as blank/None),
-    # respect that value and do not auto-fill from the team member lookup.
-    if skip_keys and "consultant_name" in skip_keys:
-        return False
-    changed = False
-    consultant_name = str(meta.get("consultant_name") or "").strip() or None
-    resolved_name, resolved_position = _lookup_team_member(
-        con,
-        consultant_name=consultant_name,
-        actor_email=actor_email,
-    )
-
-    if resolved_name and meta.get("consultant_name") != resolved_name:
-        meta["consultant_name"] = resolved_name
-        consultant_name = resolved_name
-        changed = True
-
-    if resolved_position and meta.get("consultant_position") != resolved_position:
-        meta["consultant_position"] = resolved_position
-        changed = True
-
-    return changed
-
-
 def _ensure_report_metadata_table(con) -> None:
     global _report_metadata_table_seeded
     if _report_metadata_table_seeded:
@@ -2219,7 +2094,7 @@ def _ensure_report_metadata_table(con) -> None:
     _report_metadata_table_seeded = True
 
 
-def _build_default_report_meta(con, job_id: int, actor_email: str | None = None) -> dict[str, Any]:
+def _build_default_report_meta(con, job_id: int) -> dict[str, Any]:
     row = con.execute(
         """
         SELECT
@@ -2294,10 +2169,8 @@ def _build_default_report_meta(con, job_id: int, actor_email: str | None = None)
             "vehicles_leased": row[17],
             "client_signee_name": row[18],
             "client_signee_position": row[19],
-            "consultant_signature_date": date.today(),
         }
     )
-    _sync_consultant_metadata_with_team_role(con, defaults, actor_email=actor_email)
     return defaults
 
 
@@ -2336,7 +2209,7 @@ def _upsert_report_meta(con, job_id: int, meta: dict[str, Any], updated_by: str)
 
 def _ensure_job_report_meta(con, job_id: int, updated_by: str = "system") -> dict[str, Any]:
     _ensure_report_metadata_table(con)
-    defaults = _build_default_report_meta(con, int(job_id), actor_email=updated_by)
+    defaults = _build_default_report_meta(con, int(job_id))
     existing = _fetch_report_meta_row(con, int(job_id))
 
     merged: dict[str, Any] = {}
@@ -2350,9 +2223,6 @@ def _ensure_job_report_meta(con, job_id: int, updated_by: str = "system") -> dic
                 changed = True
         else:
             merged[key] = stored_value
-
-    if _sync_consultant_metadata_with_team_role(con, merged, actor_email=updated_by):
-        changed = True
 
     if _sync_energy_inputs_from_scope_rows(con, int(job_id), merged):
         changed = True
@@ -2501,12 +2371,6 @@ def save_job_report_metadata(
             updated_by=actor_identifier,
         )
         merged.update(resolved_updates)
-        _sync_consultant_metadata_with_team_role(
-            con,
-            merged,
-            actor_email=actor_identifier,
-            skip_keys=set(resolved_updates.keys()),
-        )
         _sync_energy_inputs_from_scope_rows(con, int(job_id), merged)
         _sync_renewables_pct_from_kwh(merged)
         _sync_energy_emissions_from_kwh(con, int(job_id), merged)
