@@ -860,7 +860,7 @@ def _sync_normalised_tables_pg(cur, rows: list[list[Any]]) -> None:
     # [15]=region [16]=currency [17]=method [18]=valid_from [19]=valid_to [20]=report_label
     sync_rows = [
         (r[0], r[3], r[2], r[4], r[6], r[7], r[8], r[9],
-         r[11], r[12], r[14], r[5], r[20], r[17], r[13], r[16], r[18], r[19])
+         r[11], r[12], r[14], r[5], r[20], r[17], r[13], r[16], r[18], r[19], r[10])
         for r in rows
     ]
 
@@ -883,7 +883,8 @@ def _sync_normalised_tables_pg(cur, rows: list[list[Any]]) -> None:
             factor       NUMERIC,
             currency     VARCHAR,
             valid_from   DATE,
-            valid_to     DATE
+            valid_to     DATE,
+            column_text  VARCHAR
         ) ON COMMIT DROP
     """)
     cur.execute("TRUNCATE tmp_nf_sync")
@@ -892,8 +893,8 @@ def _sync_normalised_tables_pg(cur, rows: list[list[Any]]) -> None:
         INSERT INTO tmp_nf_sync
             (dataset_id, original_id, year, scope, level_1, level_2, level_3, level_4,
              uom, ghg_unit, source, category, report_label, method,
-             factor, currency, valid_from, valid_to)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+             factor, currency, valid_from, valid_to, column_text)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """,
         sync_rows,
     )
@@ -917,7 +918,8 @@ def _sync_normalised_tables_pg(cur, rows: list[list[Any]]) -> None:
                 COALESCE(NULLIF(TRIM(t.source), ''), '') AS source,
                 t.category,
                 t.report_label,
-                t.method
+                t.method,
+                t.column_text
             FROM tmp_nf_sync t
             JOIN factor_lookup fl
                 ON  fl.dataset_id  = t.dataset_id
@@ -932,10 +934,10 @@ def _sync_normalised_tables_pg(cur, rows: list[list[Any]]) -> None:
         ins_defs AS (
             INSERT INTO emission_factor_definitions
                 (factor_id, scope, level_1, level_2, level_3, level_4,
-                 uom, ghg_unit, source, region, category, report_label, method, archived)
+                 uom, ghg_unit, source, region, category, report_label, method, archived, column_text)
             SELECT
                 factor_id, scope, level_1, level_2, level_3, level_4,
-                uom, ghg_unit, source, '' AS region, category, report_label, method, FALSE
+                uom, ghg_unit, source, '' AS region, category, report_label, method, FALSE, column_text
             FROM unaliased
             ON CONFLICT (factor_id) DO NOTHING
             RETURNING factor_id
