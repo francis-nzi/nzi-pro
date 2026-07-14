@@ -31,3 +31,10 @@ def _ingest_csv_report_for_dataset(csv_path: Path, *, replace: bool, dataset_id:
         "rejected_details": [],
         "deleted_rows": 0,
     }
+
+
+def _preview_csv_report_for_dataset(csv_path: Path, *, dataset_id: int) -> dict:
+    """Dry-run parse + validate a CSV against an existing dataset, writing nothing."""
+    from ingest_conversion_factors import preview_conversion_factor_upload
+
+    return preview_conversion_factor_upload(csv_path, dataset_id=dataset_id)

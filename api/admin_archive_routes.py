@@ -16,7 +16,7 @@ from services.pdf_generation_queue import get_pdf_queue
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
 from services.tenancy import require_org, get_current_org_context, run_with_org_context
-from api.admin_dataset_import_helpers import _ingest_csv_report_for_dataset
+from api.admin_dataset_import_helpers import _ingest_csv_report_for_dataset, _preview_csv_report_for_dataset
 from ingest_conversion_factors import DatasetReplacementBlocked, ingest_workbook_with_report
 from pathlib import Path
 import io
@@ -607,6 +607,53 @@ def delete_current_organisation_data(body: dict = Body(default={}), _user: dict 
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete organisation data: {e}")
+
+
+@router.post("/datasets/{dataset_id}/upload-factors/preview")
+async def preview_dataset_factors(
+    dataset_id: int,
+    file: UploadFile = File(...),
+    _user: dict = Depends(_current_user)
+):
+    """
+    Dry-run: parse and validate an upload against an existing dataset, diff it
+    against the dataset's current factor rows, and surface the resolved column
+    mapping plus any near-duplicate-content warnings. Writes nothing.
+    """
+    try:
+        with get_conn() as con:
+            dataset_row = con.execute(
+                "SELECT name FROM datasets WHERE dataset_id = %s",
+                [dataset_id]
+            ).fetchone()
+
+            if not dataset_row:
+                raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
+
+        with tempfile.NamedTemporaryFile(mode='wb', suffix='.csv', delete=False) as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            tmp_path = Path(tmp_file.name)
+
+        try:
+            current_org_id = get_current_org_context()
+            preview = await run_in_threadpool(
+                run_with_org_context,
+                _preview_csv_report_for_dataset,
+                current_org_id,
+                tmp_path,
+                dataset_id=dataset_id,
+            )
+            preview["ok"] = True
+            return preview
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to preview upload: {str(e)}")
 
 
 @router.post("/datasets/{dataset_id}/upload-factors")

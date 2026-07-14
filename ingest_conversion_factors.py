@@ -105,6 +105,78 @@ def _norm_ghg_unit(v: Any) -> str:
     return s
 
 
+@dataclass(frozen=True)
+class ConversionFactorColumn:
+    field: str
+    label: str
+    required: bool
+    aliases: tuple[str, ...]
+
+
+# Single source of truth for the conversion-factor upload column set, shared by
+# the per-dataset CSV parser, the DESNZ/DEFRA workbook parser, and the blank
+# upload template generator (api/admin_datasets_routes.py) so all three can
+# never drift out of sync with each other again.
+CONVERSION_FACTOR_COLUMNS: tuple[ConversionFactorColumn, ...] = (
+    ConversionFactorColumn("original_id", "ID", True, ("ID", "Code", "Original ID", "original_id", "original id", "factor id")),
+    ConversionFactorColumn("scope", "Scope", True, ("Scope", "scope", "emissions scope")),
+    ConversionFactorColumn("category", "Category", False, ("Category", "category")),
+    ConversionFactorColumn("level_1", "Level 1", False, ("Level 1", "level_1", "level 1")),
+    ConversionFactorColumn("level_2", "Level 2", False, ("Level 2", "Subcategory", "level_2", "level 2")),
+    ConversionFactorColumn("level_3", "Level 3", False, ("Level 3", "Detail", "level_3", "level 3")),
+    ConversionFactorColumn("level_4", "Level 4", False, ("Level 4", "level_4", "level 4")),
+    ConversionFactorColumn("column_text", "Column Text", False, ("Column Text", "Description", "Name", "Activity", "column_text", "column text", "activity name")),
+    ConversionFactorColumn("report_label", "Report Label", False, ("Report Label", "report_label", "report label")),
+    ConversionFactorColumn("uom", "UOM", False, ("UOM", "Unit", "Units", "uom", "unit of measure")),
+    ConversionFactorColumn("ghg_unit", "GHG Unit", False, ("GHG Unit", "GHGUnit", "GHG/Unit", "GHG Unit per", "ghg_unit", "ghg unit", "co2 unit")),
+    ConversionFactorColumn("factor", "Factor", True, ("Factor", "GHG Conversion Factor", "GHG Conversion Factor 2025", "GHG conversion factor", "kgCO2e per unit", "kgCO2e per gbp", "factor")),
+    ConversionFactorColumn("year", "Year", False, ("Year", "year", "reporting year")),
+    ConversionFactorColumn("source", "Source", False, ("Source", "source")),
+    ConversionFactorColumn("region", "Region", False, ("Region", "region")),
+    ConversionFactorColumn("method", "Method", False, ("Method", "method", "calculation method")),
+    ConversionFactorColumn("valid_from", "Valid From", False, ("Valid From", "ValidFrom", "valid_from", "valid from")),
+    ConversionFactorColumn("valid_to", "Valid To", False, ("Valid To", "ValidTo", "valid_to", "valid to")),
+)
+
+
+def _resolve_column_mapping(df_columns: list[str]) -> tuple[dict[str, str | None], list[dict[str, Any]], list[str]]:
+    """Resolve which physical column header in an uploaded file maps to which
+    canonical field, using the same fuzzy alias/prefix matching as `_pick`.
+
+    Returns:
+        field_columns: canonical field name -> physical column name (or None if unmatched)
+        mapping_report: one entry per physical column, for display in an upload preview UI
+        missing_required_labels: labels of any required field with no matching column
+    """
+    cols = {_norm_col(c): c for c in df_columns}
+    field_columns: dict[str, str | None] = {}
+    claimed: dict[str, str] = {}
+    for spec in CONVERSION_FACTOR_COLUMNS:
+        picked = _pick(cols, *spec.aliases)
+        field_columns[spec.field] = picked
+        if picked is not None:
+            claimed[picked] = spec.field
+
+    label_by_field = {spec.field: spec.label for spec in CONVERSION_FACTOR_COLUMNS}
+    mapping_report = [
+        {
+            "source_header": c,
+            "mapped_field": claimed.get(c),
+            "mapped_label": label_by_field.get(claimed.get(c) or "", None),
+        }
+        for c in df_columns
+    ]
+    missing_required = [spec.label for spec in CONVERSION_FACTOR_COLUMNS if spec.required and field_columns[spec.field] is None]
+    return field_columns, mapping_report, missing_required
+
+
+def _norm_dupe_text(v: Any) -> str:
+    if v is None:
+        return ""
+    s = str(v).strip().lower()
+    return "" if s == "nan" else " ".join(s.split())
+
+
 def _synth_column_text(r: pd.Series, c_text: str | None, c_l1: str | None, c_l2: str | None, c_l3: str | None, c_l4: str | None) -> str:
     if c_text is not None:
         v = r.get(c_text)
@@ -290,35 +362,52 @@ def _read_workbook_sheets(path: Path) -> list[tuple[str, pd.DataFrame]]:
     return sheets
 
 
-def _parse_conversion_factor_upload(path: Path, *, dataset_id: int | None = None) -> dict[str, Any]:
-    # Be forgiving with uploaded CSVs from different source systems by
-    # autodetecting the separator and cleaning up header artifacts.
-    df = _read_conversion_factor_csv(path)
-    df.columns = [str(c).replace("\ufeff", "").replace("\u200b", "").replace("\u200c", "").replace("\u200d", "").strip() for c in df.columns]
-    cols = {_norm_col(c): c for c in df.columns}
+def _parse_conversion_factor_rows(
+    df: pd.DataFrame,
+    *,
+    dataset_id: int,
+    target_dataset_year: int | None,
+    file_name: str,
+    default_source: str | None = None,
+) -> dict[str, Any]:
+    """Pure parse+validate of an already-loaded factor upload DataFrame against a
+    resolved dataset context. Issues no DB writes. Shared by the commit path
+    (`_parse_conversion_factor_upload`) and the preview/dry-run path
+    (`preview_conversion_factor_upload`).
+    """
+    field_columns, column_mapping, missing_required = _resolve_column_mapping(list(df.columns))
+    if missing_required:
+        return {
+            "rows": [],
+            "total_rows": int(len(df.index)),
+            "accepted_rows": 0,
+            "rejected_rows": 0,
+            "rejected_details": [],
+            "years_seen": [],
+            "column_mapping": column_mapping,
+            "missing_required_fields": missing_required,
+            "content_duplicate_warnings": [],
+        }
 
-    c_year = _pick(cols, "Year", "year", "reporting year")
-    c_id = _pick(cols, "ID", "Code", "Original ID", "original_id", "original id", "factor id")
-    c_scope = _pick(cols, "Scope", "scope", "emissions scope")
-    c_category = _pick(cols, "Category", "category")
-    c_l1 = _pick(cols, "Level 1", "level_1", "level 1")
-    c_l2 = _pick(cols, "Level 2", "Subcategory", "level_2", "level 2")
-    c_l3 = _pick(cols, "Level 3", "Detail", "level_3", "level 3")
-    c_l4 = _pick(cols, "Level 4", "level_4", "level 4")
-    c_text = _pick(cols, "Column Text", "Description", "Name", "Activity", "column_text", "column text", "activity name")
-    c_report_label = _pick(cols, "Report Label", "report_label", "report label")
-    c_uom = _pick(cols, "UOM", "Unit", "Units", "uom", "unit of measure")
-    c_ghg = _pick(cols, "GHG Unit", "GHGUnit", "GHG/Unit", "GHG Unit per", "ghg_unit", "ghg unit", "co2 unit")
-    c_fac = _pick(cols, "Factor", "GHG Conversion Factor", "GHG Conversion Factor 2025", "GHG conversion factor", "kgCO2e per unit", "kgCO2e per gbp", "factor")
-    c_method = _pick(cols, "Method", "method", "calculation method")
-    c_valid_from = _pick(cols, "Valid From", "ValidFrom", "valid_from", "valid from")
-    c_valid_to = _pick(cols, "Valid To", "ValidTo", "valid_to", "valid to")
-    c_source = _pick(cols, "Source", "source")
+    c_year = field_columns["year"]
+    c_id = field_columns["original_id"]
+    c_scope = field_columns["scope"]
+    c_category = field_columns["category"]
+    c_l1 = field_columns["level_1"]
+    c_l2 = field_columns["level_2"]
+    c_l3 = field_columns["level_3"]
+    c_l4 = field_columns["level_4"]
+    c_text = field_columns["column_text"]
+    c_report_label = field_columns["report_label"]
+    c_uom = field_columns["uom"]
+    c_ghg = field_columns["ghg_unit"]
+    c_fac = field_columns["factor"]
+    c_method = field_columns["method"]
+    c_valid_from = field_columns["valid_from"]
+    c_valid_to = field_columns["valid_to"]
+    c_source = field_columns["source"]
+    c_region = field_columns["region"]
 
-    if c_fac is None or c_id is None or c_scope is None:
-        raise RuntimeError(f"{path.name}: missing required columns (need Scope, ID, Factor). Found: {list(df.columns)}")
-
-    # Initialize year from CSV if available, otherwise use None
     year = None
     if c_year and not df.empty:
         try:
@@ -326,25 +415,12 @@ def _parse_conversion_factor_upload(path: Path, *, dataset_id: int | None = None
         except Exception:
             pass
 
-    # If dataset_id is provided, use it; otherwise create/find dataset from filename
-    if dataset_id is None:
-        name, source, analysis_type, year_guess, country = _dataset_meta_from_filename(path)
-        # Use year from CSV if available, otherwise use year from filename
-        if year is None:
-            year = year_guess
-
-        dataset_id = _ensure_dataset(name=name, source=source, analysis_type=analysis_type, country=country, year=int(year or 0))
-        target_dataset_year = int(year or 0) if year is not None else None
-    else:
-        # When uploading to existing dataset, source comes from CSV or is empty
-        source = None
-        target_dataset_year = _get_dataset_year(int(dataset_id))
-
     total_rows = int(len(df.index))
     rows: list[list[Any]] = []
     rejected_rows: list[dict[str, Any]] = []
     years_seen: set[int] = set()
     duplicate_keys_seen: set[tuple[int, str, str]] = set()
+    content_dupe_groups: dict[tuple[str, ...], dict[str, list[Any]]] = {}
     for _, r in df.iterrows():
         row_number = int(getattr(_, "item", lambda: _)()) + 2 if hasattr(_, "item") else int(_) + 2
         rejection_reasons: list[str] = []
@@ -494,12 +570,20 @@ def _parse_conversion_factor_upload(path: Path, *, dataset_id: int | None = None
             if src_val is not None and not (isinstance(src_val, float) and pd.isna(src_val)):
                 row_source = str(src_val).strip()
         if not row_source:
-            row_source = source if source else ""
+            row_source = default_source if default_source else ""
+
+        region = None
+        if c_region:
+            region_val = r.get(c_region)
+            if region_val is not None and not (isinstance(region_val, float) and pd.isna(region_val)):
+                region = str(region_val).strip()
+                if not region or region.lower() == "nan":
+                    region = None
 
         rows.append(
             [
                 int(dataset_id),
-                path.name,
+                file_name,
                 int(yr),
                 oid,
                 scope,
@@ -513,7 +597,7 @@ def _parse_conversion_factor_upload(path: Path, *, dataset_id: int | None = None
                 ghg_unit,
                 float(factor),
                 row_source,
-                "",
+                region or "",
                 "",
                 method,
                 valid_from,
@@ -522,15 +606,161 @@ def _parse_conversion_factor_upload(path: Path, *, dataset_id: int | None = None
             ]
         )
 
+        dupe_key = (
+            _norm_dupe_text(scope), _norm_dupe_text(category),
+            _norm_dupe_text(l1), _norm_dupe_text(l2), _norm_dupe_text(l3), _norm_dupe_text(l4),
+            _norm_dupe_text(report_label or col_text),
+        )
+        if any(dupe_key):
+            group = content_dupe_groups.setdefault(dupe_key, {"original_ids": [], "row_numbers": []})
+            if oid not in group["original_ids"]:
+                group["original_ids"].append(oid)
+            group["row_numbers"].append(row_number)
+
+    content_duplicate_warnings = [
+        {
+            "original_ids": g["original_ids"],
+            "row_numbers": g["row_numbers"],
+            "shared_fields": {
+                "scope": key[0], "category": key[1], "level_1": key[2], "level_2": key[3],
+                "level_3": key[4], "level_4": key[5], "report_label_or_column_text": key[6],
+            },
+        }
+        for key, g in content_dupe_groups.items()
+        if len(g["original_ids"]) > 1
+    ]
+
     return {
-        "dataset_id": int(dataset_id),
         "rows": rows,
         "total_rows": total_rows,
         "accepted_rows": len(rows),
         "rejected_rows": len(rejected_rows),
         "rejected_details": rejected_rows,
         "years_seen": sorted(years_seen),
+        "column_mapping": column_mapping,
+        "missing_required_fields": [],
+        "content_duplicate_warnings": content_duplicate_warnings,
     }
+
+
+def _parse_conversion_factor_upload(path: Path, *, dataset_id: int | None = None) -> dict[str, Any]:
+    # Be forgiving with uploaded CSVs from different source systems by
+    # autodetecting the separator and cleaning up header artifacts.
+    df = _read_conversion_factor_csv(path)
+    df.columns = [str(c).replace("\ufeff", "").replace("\u200b", "").replace("\u200c", "").replace("\u200d", "").strip() for c in df.columns]
+
+    field_columns_probe, _mapping_probe, _missing_probe = _resolve_column_mapping(list(df.columns))
+    c_year = field_columns_probe["year"]
+
+    # Initialize year from CSV if available, otherwise use None
+    year = None
+    if c_year and not df.empty:
+        try:
+            year = int(df.iloc[0][c_year])
+        except Exception:
+            pass
+
+    # If dataset_id is provided, use it; otherwise create/find dataset from filename
+    if dataset_id is None:
+        name, source, analysis_type, year_guess, country = _dataset_meta_from_filename(path)
+        # Use year from CSV if available, otherwise use year from filename
+        if year is None:
+            year = year_guess
+
+        dataset_id = _ensure_dataset(name=name, source=source, analysis_type=analysis_type, country=country, year=int(year or 0))
+        target_dataset_year = int(year or 0) if year is not None else None
+    else:
+        # When uploading to existing dataset, source comes from CSV or is empty
+        source = None
+        target_dataset_year = _get_dataset_year(int(dataset_id))
+
+    parsed = _parse_conversion_factor_rows(
+        df,
+        dataset_id=int(dataset_id),
+        target_dataset_year=target_dataset_year,
+        file_name=path.name,
+        default_source=source,
+    )
+
+    if parsed["missing_required_fields"]:
+        raise RuntimeError(f"{path.name}: missing required columns (need Scope, ID, Factor). Found: {list(df.columns)}")
+
+    parsed["dataset_id"] = int(dataset_id)
+    return parsed
+
+
+def preview_conversion_factor_upload(path: Path, *, dataset_id: int) -> dict[str, Any]:
+    """Parse + validate a CSV against an existing dataset_id and diff the accepted
+    rows against factor_lookup, WITHOUT writing anything. Mirrors the replace=True
+    semantics the commit route always uses (see ingest_csv_with_report)."""
+    df = _read_conversion_factor_csv(path)
+    df.columns = [str(c).replace("\ufeff", "").replace("\u200b", "").replace("\u200c", "").replace("\u200d", "").strip() for c in df.columns]
+    target_dataset_year = _get_dataset_year(int(dataset_id))
+    parsed = _parse_conversion_factor_rows(
+        df,
+        dataset_id=int(dataset_id),
+        target_dataset_year=target_dataset_year,
+        file_name=path.name,
+        default_source=None,
+    )
+
+    result: dict[str, Any] = {
+        "dataset_id": int(dataset_id),
+        "target_dataset_year": target_dataset_year,
+        "blocking_error": None,
+        "column_mapping": parsed["column_mapping"],
+        "missing_required_fields": parsed["missing_required_fields"],
+        "rejected_details": parsed["rejected_details"],
+        "content_duplicate_warnings": parsed["content_duplicate_warnings"],
+        "years_seen": parsed["years_seen"],
+    }
+
+    if parsed["missing_required_fields"]:
+        result["blocking_error"] = "Missing required column(s): " + ", ".join(parsed["missing_required_fields"])
+        result["counts"] = {
+            "total_rows": parsed["total_rows"],
+            "accepted_rows": 0,
+            "rejected_rows": 0,
+            "would_insert": 0,
+            "would_update": 0,
+            "would_delete_stale": 0,
+            "blocked_stale_rows": 0,
+        }
+        result["replacement_blocked"] = False
+        result["dependency_summary"] = {}
+        return result
+
+    rows = parsed["rows"]
+    incoming_keys = {(int(r[2]), str(r[4]), str(r[3])) for r in rows}
+    with get_conn() as con:
+        existing_rows = con.execute(
+            "SELECT db_id, year, scope, original_id FROM factor_lookup WHERE dataset_id = %s",
+            [int(dataset_id)],
+        ).fetchall()
+        existing_keys = {(int(yr or 0), str(scope or ""), str(oid or "")) for _, yr, scope, oid in existing_rows}
+        stale_ids = [
+            int(db_id)
+            for db_id, yr, scope, oid in existing_rows
+            if (int(yr or 0), str(scope or ""), str(oid or "")) not in incoming_keys
+        ]
+        deps = _replacement_dependency_summary(con, stale_ids) if stale_ids else {}
+
+    would_update = sum(1 for r in rows if (int(r[2]), str(r[4]), str(r[3])) in existing_keys)
+    would_insert = len(rows) - would_update
+    replacement_blocked = bool(deps)
+
+    result["counts"] = {
+        "total_rows": parsed["total_rows"],
+        "accepted_rows": parsed["accepted_rows"],
+        "rejected_rows": parsed["rejected_rows"],
+        "would_insert": would_insert,
+        "would_update": would_update,
+        "would_delete_stale": 0 if replacement_blocked else len(stale_ids),
+        "blocked_stale_rows": len(stale_ids) if replacement_blocked else 0,
+    }
+    result["replacement_blocked"] = replacement_blocked
+    result["dependency_summary"] = deps
+    return result
 
 
 def _parse_conversion_factor_workbook(path: Path) -> list[dict[str, Any]]:
@@ -547,26 +777,26 @@ def _parse_conversion_factor_workbook(path: Path) -> list[dict[str, Any]]:
                 continue
 
             dataset_id = _resolve_uk_dataset_id(con, sheet_year)
-            cols = {_norm_col(c): c for c in df.columns}
 
-            c_id = _pick(cols, "ID", "Code", "Original ID", "original_id", "original id", "factor id")
-            c_scope = _pick(cols, "Scope", "scope", "emissions scope")
-            c_category = _pick(cols, "Category", "category")
-            c_l1 = _pick(cols, "Level 1", "level_1", "level 1")
-            c_l2 = _pick(cols, "Level 2", "Subcategory", "level_2", "level 2")
-            c_l3 = _pick(cols, "Level 3", "Detail", "level_3", "level 3")
-            c_l4 = _pick(cols, "Level 4", "level_4", "level 4")
-            c_text = _pick(cols, "Column Text", "Description", "Name", "Activity", "column_text", "column text", "activity name")
-            c_report_label = _pick(cols, "Report Label", "report_label", "report label")
-            c_uom = _pick(cols, "UOM", "Unit", "Units", "uom", "unit of measure")
-            c_ghg = _pick(cols, "GHG Unit", "GHGUnit", "GHG/Unit", "GHG Unit per", "ghg_unit", "ghg unit", "co2 unit")
-            c_fac = _pick(cols, "Factor", "GHG Conversion Factor", "GHG Conversion Factor 2025", "GHG conversion factor", "kgCO2e per unit", "kgCO2e per gbp", "factor")
-            c_method = _pick(cols, "Method", "method", "calculation method")
-            c_valid_from = _pick(cols, "Valid From", "ValidFrom", "valid_from", "valid from")
-            c_valid_to = _pick(cols, "Valid To", "ValidTo", "valid_to", "valid to")
-            c_source = _pick(cols, "Source", "source")
+            field_columns, _mapping, missing_required = _resolve_column_mapping(list(df.columns))
+            c_id = field_columns["original_id"]
+            c_scope = field_columns["scope"]
+            c_category = field_columns["category"]
+            c_l1 = field_columns["level_1"]
+            c_l2 = field_columns["level_2"]
+            c_l3 = field_columns["level_3"]
+            c_l4 = field_columns["level_4"]
+            c_text = field_columns["column_text"]
+            c_report_label = field_columns["report_label"]
+            c_uom = field_columns["uom"]
+            c_ghg = field_columns["ghg_unit"]
+            c_fac = field_columns["factor"]
+            c_method = field_columns["method"]
+            c_valid_from = field_columns["valid_from"]
+            c_valid_to = field_columns["valid_to"]
+            c_source = field_columns["source"]
 
-            if c_fac is None or c_id is None or c_scope is None:
+            if missing_required:
                 raise RuntimeError(
                     f"{path.name} / {sheet_name}: missing required columns (need Scope, ID, Factor). Found: {list(df.columns)}"
                 )

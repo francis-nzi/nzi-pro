@@ -16,6 +16,7 @@ from services.pdf_generation_queue import get_pdf_queue
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
 from services.tenancy import require_org, get_current_org_context, run_with_org_context
+from ingest_conversion_factors import CONVERSION_FACTOR_COLUMNS
 from pathlib import Path
 import io
 import zipfile
@@ -315,11 +316,7 @@ def download_blank_upload_template(_user: dict = Depends(_current_user)):
     note_cell.fill = note_fill
     ws.merge_cells("A1:R1")
 
-    headers = [
-        "ID", "Scope", "Category", "Level 1", "Level 2", "Level 3", "Level 4",
-        "Column Text", "Report Label", "UOM", "GHG Unit", "Factor", "Year",
-        "Source", "Region", "Method", "Valid From", "Valid To",
-    ]
+    headers = [c.label for c in CONVERSION_FACTOR_COLUMNS]
     for col_idx, header in enumerate(headers, start=1):
         cell = ws.cell(row=2, column=col_idx, value=header)
         cell.font = Font(bold=True, color="FFFFFF")
@@ -339,27 +336,59 @@ def download_blank_upload_template(_user: dict = Depends(_current_user)):
         ws.column_dimensions[get_column_letter(col_idx)].width = w
     ws.freeze_panes = "A3"
 
+    # Presentation-only prose, keyed by canonical field name. Kept separate from
+    # CONVERSION_FACTOR_COLUMNS since descriptions/examples aren't parser-relevant
+    # (unlike label/required/aliases, which the parser actually consumes).
+    column_descriptions = {
+        "original_id": "Unique identifier for this factor row",
+        "scope": "Emission scope (e.g. Scope 1, Scope 2, Scope 3)",
+        "factor": "Numeric emission factor value (kgCO2e per unit)",
+        "category": "Top-level category label",
+        "level_1": "Sub-category level 1",
+        "level_2": "Sub-category level 2",
+        "level_3": "Sub-category level 3",
+        "level_4": "Sub-category level 4",
+        "column_text": "Activity description shown in dropdowns",
+        "report_label": "Label shown in reports",
+        "uom": "Unit of measure",
+        "ghg_unit": "Greenhouse gas unit",
+        "year": "Reporting year this factor applies to",
+        "source": "Data source name",
+        "region": "Geographic region",
+        "method": "Calculation method",
+        "valid_from": "Date from which factor is valid (YYYY-MM-DD)",
+        "valid_to": "Date to which factor is valid (YYYY-MM-DD)",
+    }
+    column_examples = {
+        "original_id": "1.A.1.a",
+        "scope": "Scope 1",
+        "factor": "0.18289",
+        "category": "Stationary combustion",
+        "level_1": "Fuels",
+        "level_2": "Gas",
+        "level_3": "",
+        "level_4": "",
+        "column_text": "Natural gas combustion",
+        "report_label": "Natural Gas",
+        "uom": "kWh",
+        "ghg_unit": "kgCO2e",
+        "year": "2025",
+        "source": "DESNZ",
+        "region": "United Kingdom",
+        "method": "Market-based",
+        "valid_from": "2025-01-01",
+        "valid_to": "2025-12-31",
+    }
+
     ws2 = wb.create_sheet("Instructions")
-    instr_rows = [
-        ("Column", "Required?", "Description", "Example"),
-        ("ID", "Required", "Unique identifier for this factor row", "1.A.1.a"),
-        ("Scope", "Required", "Emission scope (e.g. Scope 1, Scope 2, Scope 3)", "Scope 1"),
-        ("Factor", "Required", "Numeric emission factor value (kgCO2e per unit)", "0.18289"),
-        ("Category", "Optional", "Top-level category label", "Stationary combustion"),
-        ("Level 1", "Optional", "Sub-category level 1", "Fuels"),
-        ("Level 2", "Optional", "Sub-category level 2", "Gas"),
-        ("Level 3", "Optional", "Sub-category level 3", ""),
-        ("Level 4", "Optional", "Sub-category level 4", ""),
-        ("Column Text", "Optional", "Activity description shown in dropdowns", "Natural gas combustion"),
-        ("Report Label", "Optional", "Label shown in reports", "Natural Gas"),
-        ("UOM", "Optional", "Unit of measure", "kWh"),
-        ("GHG Unit", "Optional", "Greenhouse gas unit", "kgCO2e"),
-        ("Year", "Optional", "Reporting year this factor applies to", "2025"),
-        ("Source", "Optional", "Data source name", "DESNZ"),
-        ("Region", "Optional", "Geographic region", "United Kingdom"),
-        ("Method", "Optional", "Calculation method", "Market-based"),
-        ("Valid From", "Optional", "Date from which factor is valid (YYYY-MM-DD)", "2025-01-01"),
-        ("Valid To", "Optional", "Date to which factor is valid (YYYY-MM-DD)", "2025-12-31"),
+    instr_rows = [("Column", "Required?", "Description", "Example")] + [
+        (
+            c.label,
+            "Required" if c.required else "Optional",
+            column_descriptions.get(c.field, ""),
+            column_examples.get(c.field, ""),
+        )
+        for c in CONVERSION_FACTOR_COLUMNS
     ]
     req_fill = PatternFill(start_color="E8F5E9", end_color="E8F5E9", fill_type="solid")
     for row_idx, row in enumerate(instr_rows, start=1):
