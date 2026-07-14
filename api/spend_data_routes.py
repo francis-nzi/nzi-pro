@@ -909,7 +909,7 @@ def rollforward_spend_structure(job_id: int, body: dict = Body(default={}), _use
             amount_gross = _gross_from_net(amount_net, src_vat)
             factor_db_id = _safe_optional_int(r[11])
             factor = _factor_by_id(con, int(factor_db_id)) if factor_db_id else None
-            estimated = amount_net * _safe_float((factor or {}).get("factor"), 0.0) if factor else None
+            estimated = amount_gross * _safe_float((factor or {}).get("factor"), 0.0) if factor else None
             mapped_scope = _safe_optional_str(r[13])
             mapped_category = _safe_optional_str(r[14])
             mapped_report_label = _safe_optional_str(r[15])
@@ -1084,7 +1084,7 @@ def update_spend_data(job_id: int, entry_id: int, body: dict = Body(...), _user:
                 normalized_description=str(row[2] or ""),
             )
             if mapping:
-                emissions = _safe_float(converted_net_now, 0.0) * _safe_float(mapping.get("factor"), 0.0)
+                emissions = _safe_float(gross_now, 0.0) * _safe_float(mapping.get("factor"), 0.0)
                 con.execute(
                     """
                     UPDATE job_spend_entries
@@ -1145,7 +1145,7 @@ def map_spend_row(job_id: int, entry_id: int, body: dict = Body(...), _user: dic
 
         row = con.execute(
             """
-            SELECT reference_code, code_type, normalized_description, amount_net
+            SELECT reference_code, code_type, normalized_description, amount_net, vat_pct
             FROM job_spend_entries
             WHERE entry_id=%s AND job_id=%s AND COALESCE(is_deleted,FALSE)=FALSE
             """,
@@ -1154,7 +1154,7 @@ def map_spend_row(job_id: int, entry_id: int, body: dict = Body(...), _user: dic
         if not row:
             raise HTTPException(status_code=404, detail="Spend row not found")
 
-        amount = _safe_float(row[3], 0.0)
+        amount = _gross_from_net(_safe_float(row[3], 0.0), _safe_float(row[4], 0.0))
         emissions = amount * _safe_float(factor.get("factor"), 0.0)
         con.execute(
             """
