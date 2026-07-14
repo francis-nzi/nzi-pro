@@ -1128,7 +1128,7 @@ export default function JobAdvancedReports({
           }
   /* Emissions summary box figure */
           .emissions-box-figure {
-            font-size: 30px !important;
+            font-size: 42px !important;
           }
           .advanced-report-controls {
             display: none !important;
@@ -1869,6 +1869,12 @@ export default function JobAdvancedReports({
           const benchmarkTotal = toNum(benchmark_totals?.Total) ||
             (toNum(benchmark_totals?.["Scope 1"]) + toNum(benchmark_totals?.["Scope 2"]) + toNum(benchmark_totals?.["Scope 3"]));
 
+          // First-year reports have no distinct benchmark period — benchmark and
+          // current year are the same, so a Benchmark/Change comparison is meaningless.
+          const intensityBenchmarkYear = toYearNumber(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end);
+          const hideIntensityBenchmark = intensityBenchmarkYear != null && intensityBenchmarkYear === currentReportYear;
+          const intensityGridCols = hideIntensityBenchmark ? "grid-cols-[56px_1fr_110px]" : "grid-cols-[56px_1fr_110px_110px_90px]";
+
           const calcIntensity = (m: { value?: number | null; divider?: number | null }, emissions: number) => {
             const v = toNum(m.value);
             const d = toNum(m.divider) || 1;
@@ -1952,19 +1958,23 @@ export default function JobAdvancedReports({
                   </p>
                   <div className="overflow-hidden rounded-lg border border-gray-200">
                     {/* Header */}
-                    <div className="grid grid-cols-[56px_1fr_110px_110px_90px] border-b border-gray-200 bg-gray-50 px-3 py-1.5">
+                    <div className={`grid ${intensityGridCols} border-b border-gray-200 bg-gray-50 px-3 py-1.5`}>
                       <span /><span />
-                      <div className="text-right">
-                        <p className="text-xs font-semibold text-gray-600">Benchmark</p>
-                        <p className="text-xs text-gray-500">{benchmarkPeriodLabel}</p>
-                      </div>
+                      {!hideIntensityBenchmark && (
+                        <div className="text-right">
+                          <p className="text-xs font-semibold text-gray-600">Benchmark</p>
+                          <p className="text-xs text-gray-500">{benchmarkPeriodLabel}</p>
+                        </div>
+                      )}
                       <div className="text-right">
                         <p className="text-xs font-semibold text-gray-600">Current</p>
                         <p className="text-xs text-gray-500">{currentPeriodLabel}</p>
                       </div>
-                      <div className="text-right">
-                        <p className="text-xs font-semibold text-gray-600">Change</p>
-                      </div>
+                      {!hideIntensityBenchmark && (
+                        <div className="text-right">
+                          <p className="text-xs font-semibold text-gray-600">Change</p>
+                        </div>
+                      )}
                     </div>
                     {dedupedMetricEntries.map(([key, m], i) => {
                       const bmM = data.benchmark_intensity_metrics?.[key] ?? m;
@@ -1972,12 +1982,12 @@ export default function JobAdvancedReports({
                       const currIntensity  = calcIntensity(m, totalEmissions);
                       const pct = pctChange(currIntensity, benchIntensity);
                       return (
-                        <div key={key} className={`grid grid-cols-[56px_1fr_110px_110px_90px] items-center border-b border-gray-100 last:border-0 px-3 py-2 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                        <div key={key} className={`grid ${intensityGridCols} items-center border-b border-gray-100 last:border-0 px-3 py-2 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
                           <div className="flex items-center justify-center"><MetricIcon metricKey={key} label={m.label} /></div>
                           <span className="text-sm font-medium text-gray-700">{perLabel(key, m)}</span>
-                          <span className="text-right text-sm text-gray-600">{benchIntensity != null ? fmt(benchIntensity) : "-"}</span>
+                          {!hideIntensityBenchmark && <span className="text-right text-sm text-gray-600">{benchIntensity != null ? fmt(benchIntensity) : "-"}</span>}
                           <span className="text-right text-sm font-semibold text-gray-800">{currIntensity != null ? fmt(currIntensity) : "-"}</span>
-                          <span className={`text-right text-sm font-semibold ${pctColor(pct)}`}>{fmtPct(pct)}</span>
+                          {!hideIntensityBenchmark && <span className={`text-right text-sm font-semibold ${pctColor(pct)}`}>{fmtPct(pct)}</span>}
                         </div>
                       );
                     })}
