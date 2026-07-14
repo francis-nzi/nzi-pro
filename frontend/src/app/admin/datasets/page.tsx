@@ -3,10 +3,19 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import SearchableStringSelect from "@/components/SearchableStringSelect";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { STANDARD_COUNTRIES } from "@/lib/countries";
 import UploadProgressBar from "@/components/UploadProgressBar";
@@ -158,7 +167,23 @@ export default function DatasetsPage() {
   const [factors, setFactors] = useState<Factor[]>([]);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
-  
+
+  // Top-level page tabs
+  const [activeTab, setActiveTab] = useState("browse");
+
+  // Browse Datasets tab (server-side paginated)
+  const [browseItems, setBrowseItems] = useState<Dataset[]>([]);
+  const [browseTotal, setBrowseTotal] = useState(0);
+  const [browsePage, setBrowsePage] = useState(1);
+  const [browsePages, setBrowsePages] = useState(1);
+  const [browseCountries, setBrowseCountries] = useState<string[]>([]);
+  const [browseQuery, setBrowseQuery] = useState("");
+  const [browseCountryFilter, setBrowseCountryFilter] = useState("all");
+  const [browseYearFilter, setBrowseYearFilter] = useState("all");
+  const [browseArchivedFilter, setBrowseArchivedFilter] = useState("false");
+  const [browseLoading, setBrowseLoading] = useState(false);
+  const [datasetDialogOpen, setDatasetDialogOpen] = useState(false);
+
   // Dataset form
   const [name, setName] = useState("");
   const [source, setSource] = useState("");
@@ -221,10 +246,6 @@ export default function DatasetsPage() {
   const [bulkSummary, setBulkSummary] = useState<string>("");
   const [bulkWorking, setBulkWorking] = useState(false);
   
-  // Dataset filters
-  const [filterCountry, setFilterCountry] = useState<string>("");
-  const [filterYear, setFilterYear] = useState<string>("");
-  
   // Edit mode
   const [editingDataset, setEditingDataset] = useState<Dataset | null>(null);
   
@@ -243,7 +264,10 @@ export default function DatasetsPage() {
   const loadDatasets = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetchWithAuth(`${baseUrl}/admin/datasets`);
+      // Unpaginated fetch used to populate dropdowns elsewhere on this page
+      // (factor dataset picker, country options). per_page is set well above
+      // the current dataset count so this always returns everything.
+      const res = await fetchWithAuth(`${baseUrl}/admin/datasets?per_page=500&archived=all`);
       if (!res.ok) {
         throw new Error(await readErrorMessage(res, `Failed to load datasets (${res.status})`));
       }
@@ -260,6 +284,43 @@ export default function DatasetsPage() {
   useEffect(() => {
     loadDatasets();
   }, [loadDatasets]);
+
+  const loadBrowseDatasets = useCallback(
+    async (targetPage: number = browsePage) => {
+      setBrowseLoading(true);
+      try {
+        const params = new URLSearchParams({
+          page: String(targetPage),
+          per_page: "20",
+          archived: browseArchivedFilter,
+        });
+        if (browseQuery) params.set("q", browseQuery);
+        if (browseCountryFilter !== "all") params.set("country", browseCountryFilter);
+        if (browseYearFilter !== "all") params.set("year", browseYearFilter);
+
+        const res = await fetchWithAuth(`${baseUrl}/admin/datasets?${params.toString()}`);
+        if (!res.ok) {
+          throw new Error(await readErrorMessage(res, `Failed to load datasets (${res.status})`));
+        }
+        const json = await res.json();
+        setBrowseItems(json.items || []);
+        setBrowseTotal(json.total || 0);
+        setBrowsePage(json.page || 1);
+        setBrowsePages(json.pages || 1);
+        if (json.countries?.length) setBrowseCountries(json.countries);
+      } catch (e) {
+        setStatus(`Error loading datasets: ${(e as Error).message}`);
+      } finally {
+        setBrowseLoading(false);
+      }
+    },
+    [baseUrl, browseArchivedFilter, browseQuery, browseCountryFilter, browseYearFilter, browsePage]
+  );
+
+  useEffect(() => {
+    loadBrowseDatasets(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browseCountryFilter, browseYearFilter, browseArchivedFilter]);
 
   function factorDatasetOption(ds: Dataset): string {
     const parts = [
@@ -604,11 +665,19 @@ export default function DatasetsPage() {
       const json = await res.json();
       setStatus(`Dataset created with ID ${json.dataset_id}!`);
       clearForm();
+      setDatasetDialogOpen(false);
       loadDatasets();
+      loadBrowseDatasets(1);
       setTimeout(() => setStatus(""), 3000);
     } catch (e) {
       setStatus(`Error: ${(e as Error).message}`);
     }
+  }
+
+  function startCreateDataset() {
+    setEditingDataset(null);
+    clearForm();
+    setDatasetDialogOpen(true);
   }
 
   function clearForm() {
@@ -808,6 +877,7 @@ export default function DatasetsPage() {
     setVersion(dataset.version || "v1");
     setValidFrom(dataset.valid_from || "");
     setValidTo(dataset.valid_to || "");
+    setDatasetDialogOpen(true);
   }
 
   function startUploadForDataset(dataset: Dataset) {
@@ -819,7 +889,7 @@ export default function DatasetsPage() {
 
   async function updateDataset() {
     if (!editingDataset) return;
-    
+
     setStatus("Updating dataset...");
     try {
       const res = await fetchWithAuth(`${baseUrl}/admin/datasets/${editingDataset.dataset_id}`, {
@@ -844,41 +914,46 @@ export default function DatasetsPage() {
       setStatus("Dataset updated successfully!");
       setEditingDataset(null);
       clearForm();
+      setDatasetDialogOpen(false);
       loadDatasets();
+      loadBrowseDatasets(browsePage);
       setTimeout(() => setStatus(""), 3000);
     } catch (e) {
       setStatus(`Error: ${(e as Error).message}`);
     }
   }
 
-  async function archiveDataset(datasetId: number, datasetName: string) {
+  async function archiveDataset(datasetId: number, datasetName: string, nextArchived: boolean) {
     const confirmed = await confirmAction({
-      title: "Archive dataset?",
-      description: `Archive dataset "${datasetName}"? It will be hidden from the main view but can be restored later.`,
-      confirmLabel: "Archive",
-      destructive: true,
+      title: nextArchived ? "Archive dataset?" : "Restore dataset?",
+      description: nextArchived
+        ? `Archive dataset "${datasetName}"? It will be hidden from the main view but can be restored later.`
+        : `Restore dataset "${datasetName}"? It will become active again.`,
+      confirmLabel: nextArchived ? "Archive" : "Restore",
+      destructive: nextArchived,
     });
     if (!confirmed) {
       return;
     }
 
-    setStatus(`Archiving ${datasetName}...`);
+    setStatus(`${nextArchived ? "Archiving" : "Restoring"} ${datasetName}...`);
     try {
       const res = await fetchWithAuth(`${baseUrl}/admin/datasets/${datasetId}/archive`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ archived: true }),
+        body: JSON.stringify({ archived: nextArchived }),
       });
 
       if (!res.ok) {
         throw new Error(await readErrorMessage(res, `Failed: ${res.status}`));
       }
 
-      setStatus(`${datasetName} archived successfully!`);
+      setStatus(`${datasetName} ${nextArchived ? "archived" : "restored"} successfully!`);
       loadDatasets();
+      loadBrowseDatasets(browsePage);
       setTimeout(() => setStatus(""), 3000);
     } catch (e) {
-      setStatus(`Error archiving: ${(e as Error).message}`);
+      setStatus(`Error: ${(e as Error).message}`);
     }
   }
 
@@ -921,8 +996,6 @@ export default function DatasetsPage() {
 
   const factorCountryOptions = useMemo(() => datasetCountries, [datasetCountries]);
 
-  const filterCountryOptions = useMemo(() => datasetCountries, [datasetCountries]);
-
   const factorDatasetOptions = useMemo(() => {
     return [...datasets]
       .sort((a, b) => Number(b.year || 0) - Number(a.year || 0) || a.name.localeCompare(b.name))
@@ -943,36 +1016,6 @@ export default function DatasetsPage() {
   const datasetYearOptions = useMemo(() => allYearOptions, [allYearOptions]);
 
   const factorYearOptions = useMemo(() => allYearOptions, [allYearOptions]);
-
-  const filterYearOptions = useMemo(() => allYearOptions, [allYearOptions]);
-
-  // Filter and group datasets
-  const filteredDatasets = useMemo(() => {
-    return datasets.filter(ds => {
-      // Exclude archived datasets from main list
-      if (ds.archived) return false;
-      if (filterCountry && ds.country !== filterCountry) return false;
-      if (filterYear && ds.year !== Number(filterYear)) return false;
-      return true;
-    });
-  }, [datasets, filterCountry, filterYear]);
-
-  // Group datasets by country and year
-  const groupedDatasets = useMemo(() => {
-    const groups: Record<string, Record<string, Dataset[]>> = {};
-    
-    filteredDatasets.forEach(ds => {
-      const countryKey = ds.country || "Unknown";
-      const yearKey = String(ds.year || "Unknown");
-      
-      if (!groups[countryKey]) groups[countryKey] = {};
-      if (!groups[countryKey][yearKey]) groups[countryKey][yearKey] = [];
-      
-      groups[countryKey][yearKey].push(ds);
-    });
-    
-    return groups;
-  }, [filteredDatasets]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -1001,6 +1044,171 @@ export default function DatasetsPage() {
           </div>
         )}
 
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="browse">Browse Datasets</TabsTrigger>
+            <TabsTrigger value="factors">Search &amp; Edit Factors</TabsTrigger>
+            <TabsTrigger value="tools">Import &amp; Tools</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="browse" className="space-y-4">
+            <Card>
+              <CardContent className="pt-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex flex-1 gap-2">
+                    <Input
+                      placeholder="Search dataset name or source..."
+                      value={browseQuery}
+                      onChange={(e) => setBrowseQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && loadBrowseDatasets(1)}
+                      className="min-w-64"
+                    />
+                    <Button variant="secondary" onClick={() => loadBrowseDatasets(1)}>
+                      Search
+                    </Button>
+                  </div>
+
+                  <Select value={browseCountryFilter} onValueChange={setBrowseCountryFilter}>
+                    <SelectTrigger className="w-48">
+                      <SelectValue placeholder="All countries" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All countries</SelectItem>
+                      {browseCountries.map((c) => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={browseYearFilter} onValueChange={setBrowseYearFilter}>
+                    <SelectTrigger className="w-32">
+                      <SelectValue placeholder="All years" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All years</SelectItem>
+                      {allYearOptions.map((y) => (
+                        <SelectItem key={y} value={y}>{y}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={browseArchivedFilter} onValueChange={setBrowseArchivedFilter}>
+                    <SelectTrigger className="w-36">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="false">Active only</SelectItem>
+                      <SelectItem value="true">Archived only</SelectItem>
+                      <SelectItem value="all">All</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  <Button onClick={startCreateDataset}>+ New Dataset</Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  {browseLoading ? "Loading..." : `${browseTotal.toLocaleString()} datasets`}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-muted/40">
+                      <tr>
+                        <th className="px-4 py-2 text-left font-medium text-muted-foreground">Name</th>
+                        <th className="px-4 py-2 text-left font-medium text-muted-foreground">Country</th>
+                        <th className="px-4 py-2 text-left font-medium text-muted-foreground">Year</th>
+                        <th className="px-4 py-2 text-left font-medium text-muted-foreground">Source</th>
+                        <th className="px-4 py-2 text-left font-medium text-muted-foreground">Type</th>
+                        <th className="px-4 py-2 text-right font-medium text-muted-foreground">Factors</th>
+                        <th className="px-4 py-2 text-left font-medium text-muted-foreground">Valid</th>
+                        <th className="px-4 py-2 text-left font-medium text-muted-foreground">Status</th>
+                        <th className="px-4 py-2" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {browseItems.map((ds) => (
+                        <tr key={ds.dataset_id} className="hover:bg-muted/20">
+                          <td className="px-4 py-2 font-medium">{ds.name}</td>
+                          <td className="px-4 py-2 text-muted-foreground">{ds.country || "—"}</td>
+                          <td className="px-4 py-2 text-muted-foreground">{ds.year ?? "—"}</td>
+                          <td className="px-4 py-2 text-muted-foreground">{ds.source || "—"}</td>
+                          <td className="px-4 py-2 text-muted-foreground">{ds.analysis_type || "—"}</td>
+                          <td className={`px-4 py-2 text-right tabular-nums font-semibold ${(ds.factor_count || 0) === 0 ? "text-red-600" : "text-green-600"}`}>
+                            {ds.factor_count ?? 0}
+                          </td>
+                          <td className="px-4 py-2 text-xs text-muted-foreground">
+                            {ds.valid_from && ds.valid_to ? `${ds.valid_from} – ${ds.valid_to}` : "—"}
+                          </td>
+                          <td className="px-4 py-2">
+                            {ds.archived ? (
+                              <Badge variant="secondary" className="text-xs">Archived</Badge>
+                            ) : (
+                              <Badge variant="outline" className="border-green-500 text-xs text-green-600">Active</Badge>
+                            )}
+                          </td>
+                          <td className="px-4 py-2">
+                            <div className="flex justify-end gap-1">
+                              <Button size="sm" variant="ghost" onClick={() => startEditDataset(ds)}>Edit</Button>
+                              <Button size="sm" variant="ghost" onClick={() => startUploadForDataset(ds)}>Upload CSV</Button>
+                              <Button size="sm" variant="ghost" onClick={() => downloadDataset(ds.dataset_id, ds.name)}>Download</Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className={ds.archived ? "text-green-600" : "text-muted-foreground"}
+                                onClick={() => archiveDataset(ds.dataset_id, ds.name, !ds.archived)}
+                              >
+                                {ds.archived ? "Restore" : "Archive"}
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {!browseLoading && browseItems.length === 0 && (
+                        <tr>
+                          <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
+                            No datasets found.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {browsePages > 1 && (
+                  <div className="flex items-center justify-between border-t px-4 py-3">
+                    <span className="text-sm text-muted-foreground">
+                      Page {browsePage} of {browsePages}
+                    </span>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={browsePage <= 1 || browseLoading}
+                        onClick={() => loadBrowseDatasets(browsePage - 1)}
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={browsePage >= browsePages || browseLoading}
+                        onClick={() => loadBrowseDatasets(browsePage + 1)}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="factors" className="space-y-6">
         <Card className="mb-6 w-full">
           <CardHeader>
             <CardTitle>Search Conversion Factors</CardTitle>
@@ -1569,266 +1777,27 @@ export default function DatasetsPage() {
           </CardContent>
         </Card>
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* Create/Edit Dataset */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>{editingDataset ? "Edit Dataset" : "Create New Dataset"}</CardTitle>
-                {editingDataset && (
-                  <Button 
-                    variant="ghost" 
-                    size="sm"
-                    onClick={() => {
-                      setEditingDataset(null);
-                      clearForm();
-                    }}
+          </TabsContent>
+
+          <TabsContent value="tools" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Import DESNZ / DEFRA Conversion Workbook</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="text-xs text-muted-foreground">
+                  Upload the official year-by-year DESNZ / DEFRA Excel workbook (.xlsx) to merge UK factor data in place.
+                  Download the workbook from the UK government website (search: &ldquo;DESNZ greenhouse gas reporting conversion factors&rdquo;), then upload it here.
+                </div>
+                <div className="text-xs">
+                  <a
+                    href={`${baseUrl}/admin/datasets/blank-upload-template`}
+                    className="font-medium text-primary underline underline-offset-2"
+                    download="factors_upload_template.xlsx"
                   >
-                    ← Back to Create New
-                  </Button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Dataset Name *</Label>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="DESNZ Activity UK 2025"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="source">Source *</Label>
-                <Input
-                  id="source"
-                  value={source}
-                  onChange={(e) => setSource(e.target.value)}
-                  placeholder="DESNZ / DEFRA / Custom"
-                />
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="analysisType">Analysis Type</Label>
-                  <Select value={analysisType} onValueChange={setAnalysisType}>
-                    <SelectTrigger id="analysisType">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Activity">Activity</SelectItem>
-                      <SelectItem value="Spend">Spend</SelectItem>
-                      <SelectItem value="Activity & Spend">Activity & Spend</SelectItem>
-                      <SelectItem value="Custom">Custom</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="country">Country</Label>
-                  <div className="relative">
-                    <Input
-                      id="country"
-                      value={country}
-                      onChange={(e) => {
-                        setCountry(e.target.value);
-                        setCountrySearchStarted(true);
-                        setCountryMenuOpen(true);
-                      }}
-                      onFocus={() => {
-                        setCountrySearchStarted(false);
-                        setCountryMenuOpen(true);
-                      }}
-                      onBlur={() => {
-                        // Delay close so click selection can register.
-                        setTimeout(() => setCountryMenuOpen(false), 120);
-                      }}
-                      placeholder="Search country..."
-                    />
-                    {countryMenuOpen && (
-                      <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-background shadow-sm">
-                        {filteredCountryOptions.length === 0 ? (
-                          <div className="px-3 py-2 text-sm text-muted-foreground">No countries found</div>
-                        ) : (
-                          filteredCountryOptions.map((countryOption) => (
-                            <button
-                              key={countryOption}
-                              type="button"
-                              className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => {
-                                setCountry(countryOption);
-                                setCountrySearchStarted(false);
-                                setCountryMenuOpen(false);
-                              }}
-                            >
-                              {countryOption}
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="year">Year</Label>
-                  <div className="w-full max-w-[150px]">
-                    <SearchableStringSelect
-                      id="year"
-                      value={String(year)}
-                      options={datasetYearOptions}
-                      placeholder="Search years..."
-                      onValueChange={(value) => {
-                        const parsed = Number(String(value).trim());
-                        if (Number.isFinite(parsed)) {
-                          setYear(parsed);
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="version">Version</Label>
-                  <Input
-                    id="version"
-                    value={version}
-                    onChange={(e) => setVersion(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="validFrom">Valid From</Label>
-                  <Input
-                    id="validFrom"
-                    type="date"
-                    value={validFrom}
-                    onChange={(e) => setValidFrom(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="validTo">Valid To</Label>
-                  <Input
-                    id="validTo"
-                    type="date"
-                    value={validTo}
-                    onChange={(e) => setValidTo(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                {editingDataset && (
-                  <Button 
-                    variant="outline" 
-                    onClick={() => {
-                      setEditingDataset(null);
-                      clearForm();
-                    }}
-                    className="flex-1"
-                  >
-                    Cancel
-                  </Button>
-                )}
-                <Button 
-                  onClick={editingDataset ? updateDataset : createDataset} 
-                  className="flex-1"
-                >
-                  {editingDataset ? "Update Dataset" : "Create Dataset"}
-                </Button>
-              </div>
-              
-              {/* Upload Factors Section - Only show after dataset is created/selected */}
-              {editingDataset && (
-                <div id="upload-factors-section" className="mt-6 pt-6 border-t space-y-3">
-                  <div className="space-y-1">
-                    <div className="text-sm font-semibold">Upload Conversion Factors</div>
-                    <div className="text-xs text-muted-foreground">
-                      Upload a CSV file containing conversion factors for <span className="font-medium">{editingDataset.name}</span>.
-                      Columns: ID, Scope, Factor (required) + Category, Levels 1–4, UOM, GHG Unit, Report Label, Year, Source, etc.
-                    </div>
-                    <div className="text-xs">
-                      <a
-                        href={`${baseUrl}/admin/datasets/blank-upload-template`}
-                        className="font-medium text-primary underline underline-offset-2"
-                        download="factors_upload_template.xlsx"
-                      >
-                        Download blank XLSX template
-                      </a>
-                      {" "}(open in Excel, fill in data, save as CSV, then upload)
-                    </div>
-                  </div>
-                  
-                  <div className="flex gap-2">
-                    <Input
-                      type="file"
-                      accept=".csv"
-                      onChange={(e) => {
-                        setUploadFile(e.target.files?.[0] || null);
-                        setUploadStatus("");
-                        setUploadRejectedRows([]);
-                      }}
-                      className="flex-1"
-                      disabled={uploadingDatasetId === editingDataset.dataset_id}
-                    />
-                    <Button
-                      onClick={() => uploadFactors(editingDataset.dataset_id)}
-                      disabled={!uploadFile || uploadingDatasetId === editingDataset.dataset_id}
-                    >
-                      {uploadingDatasetId === editingDataset.dataset_id ? "Uploading..." : "Upload CSV"}
-                    </Button>
-                  </div>
-                  {uploadingDatasetId === editingDataset.dataset_id ? (
-                    <UploadProgressBar value={uploadProgress} label="Uploading factors..." />
-                  ) : null}
-                  
-                  {/* Prominent Success/Failure Message */}
-                  {uploadStatus && (
-                    <div className={`p-3 rounded-md text-sm font-medium ${
-                      uploadStatus.startsWith("Success")
-                        ? "bg-green-100 text-green-800 border border-green-200" 
-                        : uploadStatus.includes("failed") || uploadStatus.includes("Error")
-                        ? "bg-red-100 text-red-800 border border-red-200"
-                        : "bg-blue-100 text-blue-800 border border-blue-200"
-                    }`}>
-                      {uploadStatus}
-                    </div>
-                  )}
-                  {uploadRejectedRows.length > 0 && (
-                    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                      <div className="font-medium">Rejected rows</div>
-                      <div className="mt-2 space-y-1">
-                        {uploadRejectedRows.slice(0, 10).map((row) => (
-                          <div key={`${row.row_number}-${row.original_id ?? ""}-${row.scope ?? ""}`}>
-                            Row {row.row_number}
-                            {row.original_id ? `, ID ${row.original_id}` : ""}
-                            {row.scope ? `, ${row.scope}` : ""}: {row.reason}
-                          </div>
-                        ))}
-                        {uploadRejectedRows.length > 10 && (
-                          <div>Showing first 10 of {uploadRejectedRows.length} rejected rows.</div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="mt-6 pt-6 border-t space-y-3">
-                <div className="space-y-1">
-                  <div className="text-sm font-semibold">Import DESNZ / DEFRA Conversion Workbook</div>
-                  <div className="text-xs text-muted-foreground">
-                    Upload the official year-by-year DESNZ / DEFRA Excel workbook (.xlsx) to merge UK factor data in place.
-                    Download the workbook from the UK government website (search: &ldquo;DESNZ greenhouse gas reporting conversion factors&rdquo;), then upload it here.
-                  </div>
+                    Download blank XLSX template
+                  </a>
+                  {" "}(for a single dataset's CSV upload, available from the Edit Dataset dialog in Browse Datasets)
                 </div>
                 <div className="flex gap-2">
                   <Input
@@ -1884,155 +1853,260 @@ export default function DatasetsPage() {
                     </div>
                   </div>
                 )}
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
 
-          {/* Existing Datasets */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Existing Datasets</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {/* Filters */}
-              <div className="mb-4 grid gap-3 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="filterCountry">Filter by Country</Label>
-                  <div className="w-full max-w-[200px]">
-                    <SearchableStringSelect
-                      id="filterCountry"
-                      value={filterCountry}
-                      options={filterCountryOptions}
-                      placeholder="All Countries"
-                      showClearButton
-                      optionBadges={countryDatasetCounts}
-                      onValueChange={setFilterCountry}
-                    />
+            <CrossCountryAudit />
+
+            <Card>
+              <CardHeader>
+                <CardTitle>About Datasets</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div>
+                  <span className="font-medium">Activity-based:</span> Conversion factors based on physical activities (e.g., kWh electricity, km traveled)
+                </div>
+                <div>
+                  <span className="font-medium">Spend-based:</span> Conversion factors based on monetary spend (e.g., £ spent on services)
+                </div>
+                <div>
+                  <span className="font-medium">Valid From/To:</span> Date range when this dataset is applicable for auto-selection
+                </div>
+                <div>
+                  <span className="font-medium">CSV Upload:</span> Use the data import tooling to upload factor CSVs.
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      <Dialog open={datasetDialogOpen} onOpenChange={setDatasetDialogOpen}>
+        <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingDataset ? `Edit Dataset — ${editingDataset.name}` : "New Dataset"}</DialogTitle>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="name">Dataset Name *</Label>
+              <Input
+                id="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="DESNZ Activity UK 2025"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="source">Source *</Label>
+              <Input
+                id="source"
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+                placeholder="DESNZ / DEFRA / Custom"
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="analysisType">Analysis Type</Label>
+                <Select value={analysisType} onValueChange={setAnalysisType}>
+                  <SelectTrigger id="analysisType">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Activity">Activity</SelectItem>
+                    <SelectItem value="Spend">Spend</SelectItem>
+                    <SelectItem value="Activity & Spend">Activity & Spend</SelectItem>
+                    <SelectItem value="Custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="country">Country</Label>
+                <div className="relative">
+                  <Input
+                    id="country"
+                    value={country}
+                    onChange={(e) => {
+                      setCountry(e.target.value);
+                      setCountrySearchStarted(true);
+                      setCountryMenuOpen(true);
+                    }}
+                    onFocus={() => {
+                      setCountrySearchStarted(false);
+                      setCountryMenuOpen(true);
+                    }}
+                    onBlur={() => {
+                      // Delay close so click selection can register.
+                      setTimeout(() => setCountryMenuOpen(false), 120);
+                    }}
+                    placeholder="Search country..."
+                  />
+                  {countryMenuOpen && (
+                    <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-background shadow-sm">
+                      {filteredCountryOptions.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">No countries found</div>
+                      ) : (
+                        filteredCountryOptions.map((countryOption) => (
+                          <button
+                            key={countryOption}
+                            type="button"
+                            className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setCountry(countryOption);
+                              setCountrySearchStarted(false);
+                              setCountryMenuOpen(false);
+                            }}
+                          >
+                            {countryOption}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="year">Year</Label>
+                <SearchableStringSelect
+                  id="year"
+                  value={String(year)}
+                  options={datasetYearOptions}
+                  placeholder="Search years..."
+                  onValueChange={(value) => {
+                    const parsed = Number(String(value).trim());
+                    if (Number.isFinite(parsed)) {
+                      setYear(parsed);
+                    }
+                  }}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="version">Version</Label>
+                <Input
+                  id="version"
+                  value={version}
+                  onChange={(e) => setVersion(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="validFrom">Valid From</Label>
+                <Input
+                  id="validFrom"
+                  type="date"
+                  value={validFrom}
+                  onChange={(e) => setValidFrom(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="validTo">Valid To</Label>
+                <Input
+                  id="validTo"
+                  type="date"
+                  value={validTo}
+                  onChange={(e) => setValidTo(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Upload Factors Section - only for an existing dataset being edited */}
+            {editingDataset && (
+              <div id="upload-factors-section" className="mt-2 border-t pt-4 space-y-3">
+                <div className="space-y-1">
+                  <div className="text-sm font-semibold">Upload Conversion Factors</div>
+                  <div className="text-xs text-muted-foreground">
+                    Upload a CSV file to replace this dataset&apos;s rows. Columns: ID, Scope, Factor (required) +
+                    Category, Levels 1–4, UOM, GHG Unit, Report Label, Year, Source, etc.
+                  </div>
+                  <div className="text-xs">
+                    <a
+                      href={`${baseUrl}/admin/datasets/blank-upload-template`}
+                      className="font-medium text-primary underline underline-offset-2"
+                      download="factors_upload_template.xlsx"
+                    >
+                      Download blank XLSX template
+                    </a>
+                    {" "}(open in Excel, fill in data, save as CSV, then upload)
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="filterYear">Filter by Year</Label>
-                  <div className="w-full max-w-[150px]">
-                    <SearchableStringSelect
-                      id="filterYear"
-                      value={filterYear}
-                      options={filterYearOptions}
-                      placeholder="All Years"
-                      showClearButton
-                      onValueChange={setFilterYear}
-                    />
-                  </div>
-                </div>
-              </div>
 
-              {loading ? (
-                <div className="text-sm text-muted-foreground">Loading...</div>
-              ) : datasets.length === 0 ? (
-                <div className="text-sm text-muted-foreground">No datasets found</div>
-              ) : filteredDatasets.length === 0 ? (
-                <div className="text-sm text-muted-foreground">No datasets match the selected filters</div>
-              ) : (
-                <div className="space-y-4">
-                  {Object.entries(groupedDatasets).sort(([a], [b]) => a.localeCompare(b)).map(([country, yearGroups]) => (
-                    <div key={country} className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <div className="text-sm font-semibold text-primary">📁 {country}</div>
-                        <div className="h-px flex-1 bg-border"></div>
-                      </div>
-                      {Object.entries(yearGroups).sort(([a], [b]) => Number(b) - Number(a)).map(([year, datasets]) => (
-                        <div key={year} className="ml-4 space-y-2">
-                          <div className="flex items-center gap-2">
-                            <div className="text-xs font-medium text-muted-foreground">📅 {year}</div>
-                            <div className="h-px flex-1 bg-border/50"></div>
-                          </div>
-                          <div className="ml-4 space-y-2">
-                            {datasets.map((ds) => (
-                              <div
-                                key={ds.dataset_id}
-                                className="rounded-md border p-3 hover:bg-muted/50 transition-colors"
-                              >
-                                <div className="flex items-start justify-between gap-2">
-                                  <div className="flex-1">
-                                    <div className="font-medium text-sm">
-                                      [{ds.dataset_id}] {ds.name}
-                                    </div>
-                                    <div className="mt-1 text-xs text-muted-foreground">
-                                      {ds.source} • {ds.analysis_type} • <span className={`font-semibold ${ds.factor_count === 0 ? 'text-red-600' : 'text-green-600'}`}>{ds.factor_count || 0} factors</span>
-                                    </div>
-                                    {ds.valid_from && ds.valid_to && (
-                                      <div className="mt-1 text-xs text-muted-foreground">
-                                        Valid: {ds.valid_from} to {ds.valid_to}
-                                      </div>
-                                    )}
-                                  </div>
-                                  <div className="flex flex-wrap gap-2">
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => startEditDataset(ds)}
-                                    >
-                                      Edit
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => startUploadForDataset(ds)}
-                                    >
-                                      Upload CSV
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => downloadDataset(ds.dataset_id, ds.name)}
-                                    >
-                                      Download CSV
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => archiveDataset(ds.dataset_id, ds.name)}
-                                    >
-                                      Archive
-                                    </Button>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                <div className="flex gap-2">
+                  <Input
+                    type="file"
+                    accept=".csv"
+                    onChange={(e) => {
+                      setUploadFile(e.target.files?.[0] || null);
+                      setUploadStatus("");
+                      setUploadRejectedRows([]);
+                    }}
+                    className="flex-1"
+                    disabled={uploadingDatasetId === editingDataset.dataset_id}
+                  />
+                  <Button
+                    onClick={() => uploadFactors(editingDataset.dataset_id)}
+                    disabled={!uploadFile || uploadingDatasetId === editingDataset.dataset_id}
+                  >
+                    {uploadingDatasetId === editingDataset.dataset_id ? "Uploading..." : "Upload CSV"}
+                  </Button>
+                </div>
+                {uploadingDatasetId === editingDataset.dataset_id ? (
+                  <UploadProgressBar value={uploadProgress} label="Uploading factors..." />
+                ) : null}
+
+                {uploadStatus && (
+                  <div className={`p-3 rounded-md text-sm font-medium ${
+                    uploadStatus.startsWith("Success")
+                      ? "bg-green-100 text-green-800 border border-green-200"
+                      : uploadStatus.includes("failed") || uploadStatus.includes("Error")
+                      ? "bg-red-100 text-red-800 border border-red-200"
+                      : "bg-blue-100 text-blue-800 border border-blue-200"
+                  }`}>
+                    {uploadStatus}
+                  </div>
+                )}
+                {uploadRejectedRows.length > 0 && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <div className="font-medium">Rejected rows</div>
+                    <div className="mt-2 space-y-1">
+                      {uploadRejectedRows.slice(0, 10).map((row) => (
+                        <div key={`${row.row_number}-${row.original_id ?? ""}-${row.scope ?? ""}`}>
+                          Row {row.row_number}
+                          {row.original_id ? `, ID ${row.original_id}` : ""}
+                          {row.scope ? `, ${row.scope}` : ""}: {row.reason}
                         </div>
                       ))}
+                      {uploadRejectedRows.length > 10 && (
+                        <div>Showing first 10 of {uploadRejectedRows.length} rejected rows.</div>
+                      )}
                     </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
-        {/* Cross-Country Audit */}
-        <CrossCountryAudit />
-
-        {/* Documentation */}
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle>About Datasets</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div>
-              <span className="font-medium">Activity-based:</span> Conversion factors based on physical activities (e.g., kWh electricity, km traveled)
-            </div>
-            <div>
-              <span className="font-medium">Spend-based:</span> Conversion factors based on monetary spend (e.g., £ spent on services)
-            </div>
-            <div>
-              <span className="font-medium">Valid From/To:</span> Date range when this dataset is applicable for auto-selection
-            </div>
-            <div>
-              <span className="font-medium">CSV Upload:</span> Use the data import tooling to upload factor CSVs.
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDatasetDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={editingDataset ? updateDataset : createDataset}>
+              {editingDataset ? "Save changes" : "Create dataset"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

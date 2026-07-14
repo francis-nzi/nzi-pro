@@ -1177,8 +1177,16 @@ def bulk_normalize_factor_report_labels(
 # =========================
 
 @router.get("/datasets")
-def list_datasets(_user: dict = Depends(_current_user)):
-    """List all datasets with factor counts."""
+def list_datasets(
+    q: str = Query(""),
+    country: str = Query(""),
+    year: int | None = Query(None),
+    archived: str = Query("false"),  # "false" | "true" | "all"
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=1000),
+    _user: dict = Depends(_current_user),
+):
+    """List datasets with factor counts, paginated and filterable."""
     try:
         with get_conn() as con:
             def _table_exists(name: str) -> bool:
@@ -1252,16 +1260,44 @@ def list_datasets(_user: dict = Depends(_current_user)):
             group_by_sql = ", ".join(group_parts) if group_parts else "d.dataset_id"
             select_sql = ",\n                       ".join(select_parts)
 
+            where_clauses: list[str] = []
+            where_params: list[Any] = []
+            if q:
+                like = f"%{q.strip().lower()}%"
+                where_clauses.append("(LOWER(COALESCE(d.name, '')) LIKE %s OR LOWER(COALESCE(d.source, '')) LIKE %s)")
+                where_params.extend([like, like])
+            if country:
+                where_clauses.append("d.country = %s")
+                where_params.append(country)
+            if year is not None:
+                where_clauses.append("d.year = %s")
+                where_params.append(int(year))
+            if archived == "true":
+                where_clauses.append("d.archived = TRUE")
+            elif archived != "all":
+                where_clauses.append("(d.archived = FALSE OR d.archived IS NULL)")
+            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+            total_row = con.execute(
+                f"SELECT COUNT(*) FROM datasets d {where_sql}",
+                where_params,
+            ).fetchone()
+            total = int(total_row[0] or 0)
+
+            offset = (page - 1) * per_page
             df = con.execute(
                 f"""
                 SELECT {select_sql}
                 FROM datasets d
                 {factor_join}
+                {where_sql}
                 GROUP BY {group_by_sql}
                 ORDER BY year DESC NULLS LAST, name
-                """
+                LIMIT %s OFFSET %s
+                """,
+                where_params + [per_page, offset],
             ).df()
-        
+
         items = []
         if df is not None and not df.empty:
             for _, r in df.iterrows():
@@ -1282,8 +1318,22 @@ def list_datasets(_user: dict = Depends(_current_user)):
                     "archived_by": str(r.get("archived_by")) if r.get("archived_by") else None,
                     "factor_count": int(r.get("factor_count") or 0),
                 })
-        
-        return {"items": items}
+
+        with get_conn() as con:
+            countries = [
+                r[0] for r in con.execute(
+                    "SELECT DISTINCT country FROM datasets WHERE country IS NOT NULL AND TRIM(country) != '' ORDER BY country"
+                ).fetchall()
+            ]
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": max(1, (total + per_page - 1) // per_page),
+            "countries": countries,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list datasets: {e}")
 
