@@ -67,7 +67,7 @@ export function EmissionsReductionPathwayWidget({
   widgetKey = REPORT_WIDGET_IDS.emissionsReductionPathway,
   showWidgetRef = false,
   className,
-  valueFormatter = (value) => `${formatNumber(Number(value || 0), 1)} tCO2e`,
+  valueFormatter = (value) => `${formatNumber(Number(value || 0), 1)} tCO₂e`,
 }: EmissionsReductionPathwayWidgetProps) {
   const yearLookup = new Map<number, EmissionsPathwayPoint>(data.map((point) => [Number(point.year), point]));
   const chartWrapRef = useRef<HTMLDivElement | null>(null);

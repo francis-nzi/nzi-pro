@@ -134,18 +134,18 @@ export function ScopeYearOnYearBarWidget({
           {showBenchmarkBar ? (
             <div className="flex items-center justify-between gap-4 text-sm">
               <span>{benchmarkLabel}</span>
-              <span className="font-medium">{formatNumber(benchmark, 1)} tCO2e</span>
+              <span className="font-medium">{formatNumber(benchmark, 1)} tCO₂e</span>
             </div>
           ) : null}
           {showPreviousBar ? (
             <div className="flex items-center justify-between gap-4 text-sm">
               <span>{previousLabel}</span>
-              <span className="font-medium">{formatNumber(previous, 1)} tCO2e</span>
+              <span className="font-medium">{formatNumber(previous, 1)} tCO₂e</span>
             </div>
           ) : null}
           <div className="flex items-center justify-between gap-4 text-sm">
             <span>{currentLabel}</span>
-            <span className="font-medium">{formatNumber(current, 1)} tCO2e</span>
+            <span className="font-medium">{formatNumber(current, 1)} tCO₂e</span>
           </div>
           {showComparisonPct && pct != null ? (
             <div className="pt-1 text-xs font-semibold" style={{ color: pct < 0 ? "#16a34a" : "#dc2626" }}>
@@ -241,10 +241,10 @@ export function ScopeYearOnYearBarWidget({
                   tick={{ fontSize: 10 }}
                   axisLine={false}
                   tickLine={false}
-                  label={{ value: "tCO2e", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "#94a3b8" } }}
+                  label={{ value: "tCO₂e", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "#94a3b8" } }}
                 />
                 <Tooltip
-                  formatter={(v: unknown, name: unknown) => [typeof v === "number" ? `${formatNumber(v, 1)} tCO2e` : "—", String(name ?? "")]}
+                  formatter={(v: unknown, name: unknown) => [typeof v === "number" ? `${formatNumber(v, 1)} tCO₂e` : "—", String(name ?? "")]}
                   content={renderTooltip}
                 />
                 <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="top" />

@@ -1128,7 +1128,7 @@ export default function JobAdvancedReports({
           }
   /* Emissions summary box figure */
           .emissions-box-figure {
-            font-size: 42px !important;
+            font-size: 60px !important;
           }
           .advanced-report-controls {
             display: none !important;
@@ -1790,7 +1790,7 @@ export default function JobAdvancedReports({
                 <p className="emissions-box-figure text-5xl font-bold" style={{ color: BRAND }}>
                   {fmt(totalEmissions)}
                 </p>
-                <p className="mt-1 text-xs text-gray-500">tCO2e</p>
+                <p className="mt-1 text-xs text-gray-500">tCO₂e</p>
               </div>
             </div>
 
@@ -1809,7 +1809,7 @@ export default function JobAdvancedReports({
                 <div className="overflow-hidden rounded-lg border border-gray-200">
                   <div className="grid grid-cols-[1fr_120px_120px] px-3 py-2" style={{ backgroundColor: BRAND }}>
                     <span className="text-xs font-semibold uppercase tracking-wide text-white">Site</span>
-                    <span className="text-xs font-semibold text-white text-right" style={{ textTransform: 'none' }}>tCO2e</span>
+                    <span className="text-xs font-semibold text-white text-right" style={{ textTransform: 'none' }}>tCO₂e</span>
                     <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">% of Total</span>
                   </div>
                   {site_breakdowns?.overall?.map((row, i) => (
@@ -1934,7 +1934,7 @@ export default function JobAdvancedReports({
             const label = m.label?.trim() || key;
             const d = toNum(m.divider) || 1;
             const perStr = d === 1 ? `per ${label.toLowerCase()}` : `per ${d.toLocaleString()} ${label.toLowerCase()}`;
-            return `${fmt(intensity)} tCO2e ${perStr}`;
+            return `${fmt(intensity)} tCO₂e ${perStr}`;
           }).filter(Boolean);
 
           const employeeCount = toNum(intensity_metrics.employees?.value);
@@ -2065,7 +2065,7 @@ export default function JobAdvancedReports({
                 <div className="grid grid-cols-[52px_1fr_90px_58px] px-3 py-2" style={{ backgroundColor: BRAND }}>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white">Scope</span>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white">Description</span>
-                  <span className="text-xs font-semibold text-white text-right" style={{ textTransform: 'none' }}>tCO2e</span>
+                  <span className="text-xs font-semibold text-white text-right" style={{ textTransform: 'none' }}>tCO₂e</span>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">%</span>
                 </div>
                 {([
@@ -2229,11 +2229,11 @@ export default function JobAdvancedReports({
           const bmYearLabel = toYearLabel(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end) || "BM";
           const currentYearLabel = toYearLabel(data.job_data.reporting_period_start, data.job_data.reporting_period_end) || "Current";
 
-          // Shared header cell style: label on line 1, tCO2e on line 2
+          // Shared header cell style: label on line 1, tCO₂e on line 2
           const colHdr = (label: string) => (
             <span className="text-xs font-semibold text-white text-right leading-snug" style={{ textTransform: 'none' }}>
               <span className="block">{label}</span>
-              <span className="block opacity-80">tCO2e</span>
+              <span className="block opacity-80">tCO₂e</span>
             </span>
           );
 
@@ -2573,7 +2573,7 @@ export default function JobAdvancedReports({
                       <th className="py-2 pr-3 text-left font-semibold text-gray-500">Details</th>
                       <th className="py-2 pr-3 text-right font-semibold text-gray-500">Qty</th>
                       <th className="py-2 pr-3 text-left font-semibold text-gray-500">Unit</th>
-                      <th className="py-2 text-right font-semibold text-gray-500">tCO2e</th>
+                      <th className="py-2 text-right font-semibold text-gray-500">tCO₂e</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2664,7 +2664,7 @@ export default function JobAdvancedReports({
                         {/* Site header */}
                         <div className="flex items-center justify-between px-4 py-2.5" style={{ backgroundColor: BRAND }}>
                           <span className="text-sm font-semibold text-white">{site}</span>
-                          <span className="text-sm font-semibold text-white">{fmt(siteTotal)} tCO2e</span>
+                          <span className="text-sm font-semibold text-white">{fmt(siteTotal)} tCO₂e</span>
                         </div>
                         {orderedScopes.map((scope, si) => {
                           const catMap = scopeMap.get(scope)!;
@@ -2675,7 +2675,7 @@ export default function JobAdvancedReports({
                               {/* Scope sub-header */}
                               <div className="flex items-center justify-between bg-gray-100 px-4 py-2">
                                 <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">{scope}</span>
-                                <span className="text-xs font-semibold text-gray-700">{fmt(scopeTotal)} tCO2e</span>
+                                <span className="text-xs font-semibold text-gray-700">{fmt(scopeTotal)} tCO₂e</span>
                               </div>
                               {/* Category rows */}
                               {cats.map(([cat, em], ci) => (
@@ -2724,7 +2724,7 @@ export default function JobAdvancedReports({
               <div className="grid grid-cols-3 gap-4 rounded-xl border border-gray-100 bg-gray-50 p-4">
                 <div className="text-center">
                   <div className="text-2xl font-bold" style={{ color: BRAND }}>{fmt(totalEmissions)}</div>
-                  <div className="mt-1 text-xs text-gray-500">Total tCO2e</div>
+                  <div className="mt-1 text-xs text-gray-500">Total tCO₂e</div>
                 </div>
                 <div className="text-center">
                   <div className="text-2xl font-bold text-blue-600">
@@ -2765,10 +2765,10 @@ export default function JobAdvancedReports({
                       { label: "UK Energy Consumption (kWh)", value: fmt(toNum(report_metadata?.energy_consumption_uk_kwh)), unit: "kWh" },
                       { label: "Non-UK Energy Consumption (kWh)", value: fmt(toNum(report_metadata?.energy_consumption_non_uk_kwh)), unit: "kWh" },
                       { label: "Renewable Energy (kWh)", value: fmt(toNum(report_metadata?.renewable_energy_kwh)), unit: "kWh" },
-                      { label: "Energy Emissions - Location-based (tCO2e)", value: fmt(toNum(report_metadata?.energy_emissions_tco2e)), unit: "tCO2e" },
-                      { label: "Energy Emissions - Market-based (tCO2e)", value: fmt(toNum(report_metadata?.energy_emissions_market_tco2e)), unit: "tCO2e" },
-                      { label: "Total Scope 1 & 2 Emissions (tCO2e)", value: fmt(scope1 + scope2), unit: "tCO2e" },
-                      { label: "Total Greenhouse Gas Emissions (tCO2e)", value: fmt(totalEmissions), unit: "tCO2e" },
+                      { label: "Energy Emissions - Location-based (tCO₂e)", value: fmt(toNum(report_metadata?.energy_emissions_tco2e)), unit: "tCO₂e" },
+                      { label: "Energy Emissions - Market-based (tCO₂e)", value: fmt(toNum(report_metadata?.energy_emissions_market_tco2e)), unit: "tCO₂e" },
+                      { label: "Total Scope 1 & 2 Emissions (tCO₂e)", value: fmt(scope1 + scope2), unit: "tCO₂e" },
+                      { label: "Total Greenhouse Gas Emissions (tCO₂e)", value: fmt(totalEmissions), unit: "tCO₂e" },
                     ].map((row, i) => (
                       <tr key={i} className="border-b border-gray-50 last:border-0">
                         <td className="py-2.5 pl-4 text-xs text-gray-700">{row.label}</td>

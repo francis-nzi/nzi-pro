@@ -31,7 +31,7 @@ const FALLBACK_COLORS = ["#7e57c2", "#a3a3a3", "#4c7bd9", "#f07f2f", "#10b981", 
 
 function formatTooltipValue(value: unknown): [string, string] {
   const amount = Array.isArray(value) ? Number(value[0] ?? 0) : Number(value ?? 0);
-  return [`${formatNumber(amount, 1)} tCO2e`, ""];
+  return [`${formatNumber(amount, 1)} tCO₂e`, ""];
 }
 
 export function EmissionsByActivityWidget({
@@ -141,7 +141,7 @@ export function EmissionsByActivityWidget({
             />
             <YAxis type="category" dataKey="name" width={180} tick={{ fontSize: 9 }} />
             <Tooltip formatter={formatTooltipValue} />
-            <Bar isAnimationActive={false} dataKey="value" name="tCO2e" radius={[0, 3, 3, 0]} barSize={22}>
+            <Bar isAnimationActive={false} dataKey="value" name="tCO₂e" radius={[0, 3, 3, 0]} barSize={22}>
               {data.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={entry.fill || FALLBACK_COLORS[index % FALLBACK_COLORS.length]} />
               ))}
