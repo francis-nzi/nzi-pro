@@ -28,6 +28,14 @@ import {
 } from "@/components/report-widgets";
 import { ReportMarkdown } from "@/components/ReportMarkdown";
 
+/** Short badge wording for the Planned Initiatives table only - the term picker and
+ * Outputs -> Actions editor keep the fuller "Short term"/"Medium term"/"Long term" wording. */
+const PLANNED_INITIATIVES_TERM_LABELS: Record<string, string> = {
+  short: "Short",
+  medium: "Medium",
+  long: "Long",
+};
+
 /** Convert a reporting period to a compact year label: "2025" or "2022-2023". */
 function toYearLabel(start: string | null | undefined, end: string | null | undefined): string {
   const sy = start ? new Date(start).getFullYear() : null;
@@ -195,6 +203,7 @@ type LiveData = {
   intensity_metrics?: Record<string, { label?: string; value?: number | null; divider?: number | null }>;
   benchmark_intensity_metrics?: Record<string, { label?: string; value?: number | null; divider?: number | null }>;
   job_actions?: {
+    items?: Array<Record<string, unknown>>;
     grouped?: Array<{
       term?: string;
       label?: string;
@@ -2338,67 +2347,62 @@ export default function JobAdvancedReports({
 
             <div>
               <p className="text-sm font-bold text-gray-800 mb-3">Planned Initiatives</p>
-              <div className="overflow-hidden rounded-lg border border-gray-200">
-                {/* Table header */}
-                <div
-                  className="grid items-center px-3 py-2.5"
-                  style={{
-                    gridTemplateColumns: "140px 1fr 140px 2fr",
-                    backgroundColor: "#8abb8a",
-                  }}
-                >
-                  <span className="text-xs font-bold uppercase tracking-wider text-white">Term</span>
-                  <span className="text-xs font-bold uppercase tracking-wider text-white">Action</span>
-                  <span className="text-xs font-bold uppercase tracking-wider text-white">Category</span>
-                  <span className="text-xs font-bold uppercase tracking-wider text-white">Description</span>
-                </div>
-
-                {/* Action rows */}
-                {(job_actions?.total_actions ?? 0) > 0
-                  ? (job_actions?.grouped ?? []).flatMap((group) =>
-                      (group.items ?? []).map((item, ii) => (
-                        <div
-                          key={`${group.term}-${ii}`}
-                          className="grid items-start border-t border-gray-100 px-3 py-3"
-                          style={{ gridTemplateColumns: "140px 1fr 140px 2fr" }}
-                        >
-                          <div className="pt-0.5">
-                            <span className="inline-flex items-center rounded-full border border-green-400 bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
-                              {group.label ?? group.term}
-                            </span>
-                          </div>
-                          <span className="pr-4 text-sm font-semibold text-gray-800">
-                            {String(item.action_name ?? "")}
+              <table className="w-full border-collapse text-sm" style={{ tableLayout: "fixed" }}>
+                <colgroup>
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "57%" }} />
+                </colgroup>
+                <thead>
+                  <tr style={{ backgroundColor: "#8abb8a" }}>
+                    <th className="border border-gray-200 px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white">Term</th>
+                    <th className="border border-gray-200 px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white">Action</th>
+                    <th className="border border-gray-200 px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white">Category</th>
+                    <th className="border border-gray-200 px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white">Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(job_actions?.total_actions ?? 0) > 0
+                    ? (job_actions?.items ?? []).map((item, ii) => {
+                        const termCode = String(item.action_term ?? "medium");
+                        return (
+                          <tr key={ii} style={{ breakInside: "avoid", pageBreakInside: "avoid" }}>
+                            <td className="border border-gray-200 px-3 py-3 align-top">
+                              <span className="inline-flex items-center rounded-full border border-green-400 bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
+                                {PLANNED_INITIATIVES_TERM_LABELS[termCode] ?? String(item.action_term_label ?? termCode)}
+                              </span>
+                            </td>
+                            <td className="border border-gray-200 px-3 py-3 align-top font-semibold text-gray-800">
+                              {String(item.action_name ?? "")}
+                            </td>
+                            <td className="border border-gray-200 px-3 py-3 align-top text-gray-600">
+                              {String(item.action_category ?? "")}
+                            </td>
+                            <td className="border border-gray-200 px-3 py-3 align-top text-gray-600">
+                              {String(item.description ?? "")}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    : (
+                      <tr style={{ breakInside: "avoid", pageBreakInside: "avoid" }}>
+                        <td className="border border-gray-200 px-3 py-3 align-top">
+                          <span className="inline-flex items-center rounded-full border border-green-400 bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
+                            Short
                           </span>
-                          <span className="pr-4 text-sm text-gray-600">
-                            {String(item.action_category ?? "")}
-                          </span>
-                          <span className="text-sm text-gray-600">
-                            {String(item.description ?? "")}
-                          </span>
-                        </div>
-                      ))
-                    )
-                  : (
-                    <div
-                      className="grid items-start border-t border-gray-100 px-3 py-3"
-                      style={{ gridTemplateColumns: "140px 1fr 140px 2fr" }}
-                    >
-                      <div className="pt-0.5">
-                        <span className="inline-flex items-center rounded-full border border-green-400 bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
-                          Short term
-                        </span>
-                      </div>
-                      <span className="pr-4 text-sm font-semibold text-gray-800">
-                        Action plan in development
-                      </span>
-                      <span className="pr-4 text-sm text-gray-600">General</span>
-                      <span className="text-sm text-gray-600">
-                        Suggested and custom actions can be selected in the job Actions section before final issue.
-                      </span>
-                    </div>
-                  )}
-              </div>
+                        </td>
+                        <td className="border border-gray-200 px-3 py-3 align-top font-semibold text-gray-800">
+                          Action plan in development
+                        </td>
+                        <td className="border border-gray-200 px-3 py-3 align-top text-gray-600">General</td>
+                        <td className="border border-gray-200 px-3 py-3 align-top text-gray-600">
+                          Suggested and custom actions can be selected in the job Actions section before final issue.
+                        </td>
+                      </tr>
+                    )}
+                </tbody>
+              </table>
             </div>
 
             {actionsNarrativeText && (
