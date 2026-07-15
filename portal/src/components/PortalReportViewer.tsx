@@ -23,12 +23,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { apiFetch } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 
-/** Short badge wording for the Planned Initiatives table only - the term picker and
- * Outputs -> Actions editor keep the fuller "Short term"/"Medium term"/"Long term" wording. */
-const PLANNED_INITIATIVES_TERM_LABELS: Record<string, string> = {
-  short: "Short",
-  medium: "Medium",
-  long: "Long",
+/** Single-letter badge + colour for the Planned Initiatives table only - the term picker and
+ * Outputs -> Actions editor keep the fuller "Short term"/"Medium term"/"Long term" wording.
+ * Colours match termBadgeVariant() in JobActions.tsx for consistency across the app. */
+const PLANNED_INITIATIVES_TERM_META: Record<string, { label: string; className: string }> = {
+  short: { label: "S", className: "border-green-400 bg-green-50 text-green-700" },
+  medium: { label: "M", className: "border-amber-400 bg-amber-50 text-amber-700" },
+  long: { label: "L", className: "border-sky-400 bg-sky-50 text-sky-700" },
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1563,46 +1564,51 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
           </p>
           <div>
             <p className="text-sm font-bold text-gray-800 mb-3">Planned Initiatives</p>
-            <table className="w-full border-collapse text-sm" style={{ tableLayout: "fixed" }}>
+            <table className="w-full border-collapse border border-gray-200 text-sm" style={{ tableLayout: "fixed" }}>
               <colgroup>
-                <col style={{ width: "9%" }} />
+                <col style={{ width: "7%" }} />
                 <col style={{ width: "20%" }} />
                 <col style={{ width: "14%" }} />
-                <col style={{ width: "57%" }} />
+                <col style={{ width: "59%" }} />
               </colgroup>
               <thead>
                 <tr style={{ backgroundColor: "#8abb8a" }}>
-                  <th className="border border-gray-200 px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white">Term</th>
-                  <th className="border border-gray-200 px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white">Action</th>
-                  <th className="border border-gray-200 px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white">Category</th>
-                  <th className="border border-gray-200 px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white">Description</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white">Term</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white">Action</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white">Category</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white">Description</th>
                 </tr>
               </thead>
               <tbody>
                 {(job_actions?.total_actions ?? 0) > 0
                   ? (job_actions?.items ?? []).map((item, ii) => {
                       const termCode = String(item.action_term ?? "medium");
+                      const termMeta = PLANNED_INITIATIVES_TERM_META[termCode];
                       return (
-                        <tr key={ii} style={{ breakInside: "avoid", pageBreakInside: "avoid" }}>
-                          <td className="border border-gray-200 px-3 py-3 align-top">
-                            <span className="inline-flex items-center rounded-full border border-green-400 bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
-                              {PLANNED_INITIATIVES_TERM_LABELS[termCode] ?? String(item.action_term_label ?? termCode)}
+                        <tr
+                          key={ii}
+                          className={ii % 2 === 1 ? "bg-gray-50" : "bg-white"}
+                          style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+                        >
+                          <td className="px-3 py-3 align-top">
+                            <span className={`inline-flex items-center justify-center rounded-full border w-6 h-6 text-xs font-medium ${termMeta?.className ?? "border-amber-400 bg-amber-50 text-amber-700"}`}>
+                              {termMeta?.label ?? String(item.action_term_label ?? termCode).charAt(0).toUpperCase()}
                             </span>
                           </td>
-                          <td className="border border-gray-200 px-3 py-3 align-top font-semibold text-gray-800">{String(item.action_name ?? "")}</td>
-                          <td className="border border-gray-200 px-3 py-3 align-top text-gray-600">{String(item.action_category ?? "")}</td>
-                          <td className="border border-gray-200 px-3 py-3 align-top text-gray-600">{String(item.description ?? "")}</td>
+                          <td className="px-3 py-3 align-top font-semibold text-gray-800">{String(item.action_name ?? "")}</td>
+                          <td className="px-3 py-3 align-top text-gray-600">{String(item.action_category ?? "")}</td>
+                          <td className="px-3 py-3 align-top text-gray-600">{String(item.description ?? "")}</td>
                         </tr>
                       );
                     })
                   : (
                     <tr style={{ breakInside: "avoid", pageBreakInside: "avoid" }}>
-                      <td className="border border-gray-200 px-3 py-3 align-top">
-                        <span className="inline-flex items-center rounded-full border border-green-400 bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">Short</span>
+                      <td className="px-3 py-3 align-top">
+                        <span className="inline-flex items-center justify-center rounded-full border w-6 h-6 text-xs font-medium border-green-400 bg-green-50 text-green-700">S</span>
                       </td>
-                      <td className="border border-gray-200 px-3 py-3 align-top font-semibold text-gray-800">Action plan in development</td>
-                      <td className="border border-gray-200 px-3 py-3 align-top text-gray-600">General</td>
-                      <td className="border border-gray-200 px-3 py-3 align-top text-gray-600">Actions will be added by the NZI team prior to final issue.</td>
+                      <td className="px-3 py-3 align-top font-semibold text-gray-800">Action plan in development</td>
+                      <td className="px-3 py-3 align-top text-gray-600">General</td>
+                      <td className="px-3 py-3 align-top text-gray-600">Actions will be added by the NZI team prior to final issue.</td>
                     </tr>
                   )}
               </tbody>
