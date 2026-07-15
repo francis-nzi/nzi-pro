@@ -375,7 +375,7 @@ def get_portal_user_by_email(email: str, *, con=None) -> dict[str, Any] | None:
     row = con.execute(
         """
         SELECT portal_user_id, client_db_id, contact_id, email, full_name,
-               is_active, created_at, last_login_at, created_by, password_hash
+               is_active, created_at, last_login_at, created_by, invited_at, invited_by, password_hash
         FROM client_portal_users
         WHERE LOWER(email) = LOWER(%s)
         """,
@@ -384,7 +384,7 @@ def get_portal_user_by_email(email: str, *, con=None) -> dict[str, Any] | None:
     if not row:
         return None
     user = _row_to_portal_user(row)
-    user["password_hash"] = row[9]
+    user["password_hash"] = row[11]
     return user
 
 
