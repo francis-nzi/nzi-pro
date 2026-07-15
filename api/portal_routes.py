@@ -474,25 +474,27 @@ def _notify_crm_new_comment(job_id: int, client_name: str) -> None:
             return
         from services.outbound_email import send_tracked_email
         job_ref = f"{row[0]} — {row[1]}" if row[0] else str(row[1] or f"Job {job_id}")
-        send_tracked_email(
-            to_email=row[2],
-            subject=f"New client comment on {job_ref}",
-            body_text=(
-                f"Hi {row[3] or 'there'},\n\n"
-                f"{client_name} has added a comment to {job_ref} in NZInsights.\n\n"
-                f"Log in to the NZI app to review and respond."
-            ),
-            body_html=(
-                f"<p>Hi {row[3] or 'there'},</p>"
-                f"<p><strong>{client_name}</strong> has added a comment to <strong>{job_ref}</strong> in NZInsights.</p>"
-                f"<p>Log in to the NZI app to review and respond.</p>"
-            ),
-            template_key="portal_client_commented",
-            entity_type="job",
-            entity_id=str(job_id),
-            job_id=job_id,
-            created_by="portal",
-        )
+        with get_conn() as con:
+            send_tracked_email(
+                con,
+                to_email=row[2],
+                subject=f"New client comment on {job_ref}",
+                body_text=(
+                    f"Hi {row[3] or 'there'},\n\n"
+                    f"{client_name} has added a comment to {job_ref} in NZInsights.\n\n"
+                    f"Log in to the NZI app to review and respond."
+                ),
+                body_html=(
+                    f"<p>Hi {row[3] or 'there'},</p>"
+                    f"<p><strong>{client_name}</strong> has added a comment to <strong>{job_ref}</strong> in NZInsights.</p>"
+                    f"<p>Log in to the NZI app to review and respond.</p>"
+                ),
+                template_key="portal_client_commented",
+                entity_type="job",
+                entity_id=str(job_id),
+                job_id=job_id,
+                created_by="portal",
+            )
     except Exception:
         pass  # Non-fatal
 
@@ -1198,25 +1200,27 @@ def _notify_crm_approval(job_id: int, approver_name: str, approver_email: str) -
             return
         from services.outbound_email import send_tracked_email
         job_ref = f"{row[0]} — {row[1]}" if row[0] else str(row[1] or f"Job {job_id}")
-        send_tracked_email(
-            to_email=row[2],
-            subject=f"Report approved: {job_ref}",
-            body_text=(
-                f"Hi {row[3] or 'there'},\n\n"
-                f"{approver_name} ({approver_email}) has approved the report for {job_ref}.\n\n"
-                f"PDF generation has been triggered and will be uploaded to the client files automatically."
-            ),
-            body_html=(
-                f"<p>Hi {row[3] or 'there'},</p>"
-                f"<p><strong>{approver_name}</strong> ({approver_email}) has approved the report for <strong>{job_ref}</strong>.</p>"
-                f"<p>PDF generation has been triggered and will be uploaded to the client files automatically.</p>"
-            ),
-            template_key="portal_report_approved",
-            entity_type="job",
-            entity_id=str(job_id),
-            job_id=job_id,
-            created_by="portal",
-        )
+        with get_conn() as con:
+            send_tracked_email(
+                con,
+                to_email=row[2],
+                subject=f"Report approved: {job_ref}",
+                body_text=(
+                    f"Hi {row[3] or 'there'},\n\n"
+                    f"{approver_name} ({approver_email}) has approved the report for {job_ref}.\n\n"
+                    f"PDF generation has been triggered and will be uploaded to the client files automatically."
+                ),
+                body_html=(
+                    f"<p>Hi {row[3] or 'there'},</p>"
+                    f"<p><strong>{approver_name}</strong> ({approver_email}) has approved the report for <strong>{job_ref}</strong>.</p>"
+                    f"<p>PDF generation has been triggered and will be uploaded to the client files automatically.</p>"
+                ),
+                template_key="portal_report_approved",
+                entity_type="job",
+                entity_id=str(job_id),
+                job_id=job_id,
+                created_by="portal",
+            )
     except Exception:
         pass
 

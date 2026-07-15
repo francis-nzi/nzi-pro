@@ -40,6 +40,8 @@ type PortalUser = {
   full_name: string;
   is_active: boolean;
   last_login_at: string | null;
+  invited_at: string | null;
+  invited_by: string | null;
 };
 
 type ClientPortalFile = {
@@ -658,6 +660,21 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
     }
   }
 
+  async function handleResendInvite(user: PortalUser) {
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/portal-users/${user.portal_user_id}/resend-invite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to resend invite");
+      setStatusMsg("Invite email resent.");
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   async function handleResetPassword(e: React.FormEvent) {
     e.preventDefault();
     if (!resettingFor) return;
@@ -1051,6 +1068,9 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
                       {!user.last_login_at && (
                         <div className="text-xs text-muted-foreground">Never logged in</div>
                       )}
+                      {user.invited_at && (
+                        <div className="text-xs text-muted-foreground">Invited: {fmtDate(user.invited_at)}</div>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant={user.is_active ? "secondary" : "outline"}>
@@ -1058,6 +1078,14 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
                       </Badge>
                       <Button variant="ghost" size="sm" onClick={() => void handleToggleActive(user)}>
                         {user.is_active ? "Deactivate" : "Reactivate"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs text-muted-foreground"
+                        onClick={() => void handleResendInvite(user)}
+                      >
+                        Resend Invite
                       </Button>
                       <Button
                         variant="ghost"

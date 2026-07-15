@@ -26,6 +26,7 @@ from services.portal import (
     list_comments,
     list_portal_users,
     mark_published,
+    resend_portal_invite,
     respond_to_comment,
     send_review_to_client,
     send_to_portal,
@@ -200,6 +201,27 @@ def reset_portal_user_password(
     return {"ok": True}
 
 
+@router.post("/clients/{client_db_id}/portal-users/{portal_user_id}/resend-invite")
+def resend_client_portal_invite(
+    client_db_id: int,
+    portal_user_id: int,
+    _user: dict = Depends(_current_user),
+):
+    assert_permission(_user, "jobs.edit")
+    assert_client_access(_user, int(client_db_id))
+    with get_conn() as con:
+        ensure_portal_schema(con)
+        row = con.execute(
+            "SELECT client_db_id FROM client_portal_users WHERE portal_user_id = %s",
+            [int(portal_user_id)],
+        ).fetchone()
+    if not row or int(row[0]) != int(client_db_id):
+        raise HTTPException(status_code=404, detail="Portal user not found")
+    updated = resend_portal_invite(int(portal_user_id), actor=_actor(_user))
+    _send_welcome_email(updated)
+    return {"ok": True, "item": updated}
+
+
 @router.get("/clients/{client_db_id}/portal-history")
 def get_client_portal_history(
     client_db_id: int,
@@ -327,27 +349,29 @@ def get_client_portal_files(
 def _send_welcome_email(portal_user: dict) -> None:
     from api.portal_auth_routes import _portal_base_url
     try:
-        send_tracked_email(
-            to_email=portal_user["email"],
-            subject="Welcome to NZInsights — your carbon reporting portal",
-            body_text=(
-                f"Hi {portal_user['full_name']},\n\n"
-                f"Your NZInsights account is ready. You can log in at:\n\n"
-                f"{_portal_base_url()}/login\n\n"
-                f"Use your email address and the password provided to you by your NZI contact.\n\n"
-                f"NZInsights gives you secure access to your carbon reports and allows you to review and approve them online."
-            ),
-            body_html=(
-                f"<p>Hi {portal_user['full_name']},</p>"
-                f"<p>Your NZInsights account is ready.</p>"
-                f"<p><a href='{_portal_base_url()}/login'>Log in to NZInsights</a></p>"
-                f"<p>Use your email address and the password provided to you by your NZI contact.</p>"
-            ),
-            template_key="portal_welcome",
-            entity_type="portal_user",
-            entity_id=str(portal_user["portal_user_id"]),
-            created_by="portal-admin",
-        )
+        with get_conn() as con:
+            send_tracked_email(
+                con,
+                to_email=portal_user["email"],
+                subject="Welcome to NZInsights — your carbon reporting portal",
+                body_text=(
+                    f"Hi {portal_user['full_name']},\n\n"
+                    f"Your NZInsights account is ready. You can log in at:\n\n"
+                    f"{_portal_base_url()}/login\n\n"
+                    f"Use your email address and the password provided to you by your NZI contact.\n\n"
+                    f"NZInsights gives you secure access to your carbon reports and allows you to review and approve them online."
+                ),
+                body_html=(
+                    f"<p>Hi {portal_user['full_name']},</p>"
+                    f"<p>Your NZInsights account is ready.</p>"
+                    f"<p><a href='{_portal_base_url()}/login'>Log in to NZInsights</a></p>"
+                    f"<p>Use your email address and the password provided to you by your NZI contact.</p>"
+                ),
+                template_key="portal_welcome",
+                entity_type="portal_user",
+                entity_id=str(portal_user["portal_user_id"]),
+                created_by="portal-admin",
+            )
     except Exception:
         pass
 
@@ -467,27 +491,29 @@ def _notify_client_review_ready(portal_user: dict, job_ref: str, job_id: int) ->
     from api.portal_auth_routes import _portal_base_url
     try:
         review_url = f"{_portal_base_url()}/jobs/{job_id}/review"
-        send_tracked_email(
-            to_email=portal_user["email"],
-            subject=f"Your report is ready to review — {job_ref}",
-            body_text=(
-                f"Hi {portal_user['full_name']},\n\n"
-                f"Your carbon report for {job_ref} is now ready for your review in NZInsights.\n\n"
-                f"Review it here: {review_url}\n\n"
-                f"You can read the report, leave comments or change requests, and approve it when you are happy."
-            ),
-            body_html=(
-                f"<p>Hi {portal_user['full_name']},</p>"
-                f"<p>Your carbon report for <strong>{job_ref}</strong> is now ready for your review in NZInsights.</p>"
-                f"<p><a href='{review_url}'>Review your report</a></p>"
-                f"<p>You can read the report, leave comments or change requests, and approve it when you are happy.</p>"
-            ),
-            template_key="portal_review_ready",
-            entity_type="job",
-            entity_id=str(job_id),
-            job_id=job_id,
-            created_by="portal",
-        )
+        with get_conn() as con:
+            send_tracked_email(
+                con,
+                to_email=portal_user["email"],
+                subject=f"Your report is ready to review — {job_ref}",
+                body_text=(
+                    f"Hi {portal_user['full_name']},\n\n"
+                    f"Your carbon report for {job_ref} is now ready for your review in NZInsights.\n\n"
+                    f"Review it here: {review_url}\n\n"
+                    f"You can read the report, leave comments or change requests, and approve it when you are happy."
+                ),
+                body_html=(
+                    f"<p>Hi {portal_user['full_name']},</p>"
+                    f"<p>Your carbon report for <strong>{job_ref}</strong> is now ready for your review in NZInsights.</p>"
+                    f"<p><a href='{review_url}'>Review your report</a></p>"
+                    f"<p>You can read the report, leave comments or change requests, and approve it when you are happy.</p>"
+                ),
+                template_key="portal_review_ready",
+                entity_type="job",
+                entity_id=str(job_id),
+                job_id=job_id,
+                created_by="portal",
+            )
     except Exception:
         pass
 
@@ -643,30 +669,31 @@ def _notify_client_all_resolved(job_id: int) -> None:
                 "SELECT job_number, title FROM jobs WHERE job_id = %s", [int(job_id)]
             ).fetchone()
             portal_users = _get_active_portal_users_for_job(job_id, con=con)
-        if not portal_users or not job_row:
-            return
-        job_ref = f"{job_row[0]} — {job_row[1]}" if job_row[0] else str(job_row[1] or f"Job {job_id}")
-        review_url = f"{_portal_base_url()}/jobs/{job_id}/review"
-        for pu in portal_users:
-            send_tracked_email(
-                to_email=pu["email"],
-                subject=f"Your comments have been addressed — {job_ref}",
-                body_text=(
-                    f"Hi {pu['full_name']},\n\n"
-                    f"All your comments on {job_ref} have been addressed.\n\n"
-                    f"Log in to NZInsights to review the responses and approve your report when happy:\n{review_url}"
-                ),
-                body_html=(
-                    f"<p>Hi {pu['full_name']},</p>"
-                    f"<p>All your comments on <strong>{job_ref}</strong> have been addressed.</p>"
-                    f"<p><a href='{review_url}'>Log in to review and approve</a></p>"
-                ),
-                template_key="portal_comments_addressed",
-                entity_type="job",
-                entity_id=str(job_id),
-                job_id=job_id,
-                created_by="portal",
-            )
+            if not portal_users or not job_row:
+                return
+            job_ref = f"{job_row[0]} — {job_row[1]}" if job_row[0] else str(job_row[1] or f"Job {job_id}")
+            review_url = f"{_portal_base_url()}/jobs/{job_id}/review"
+            for pu in portal_users:
+                send_tracked_email(
+                    con,
+                    to_email=pu["email"],
+                    subject=f"Your comments have been addressed — {job_ref}",
+                    body_text=(
+                        f"Hi {pu['full_name']},\n\n"
+                        f"All your comments on {job_ref} have been addressed.\n\n"
+                        f"Log in to NZInsights to review the responses and approve your report when happy:\n{review_url}"
+                    ),
+                    body_html=(
+                        f"<p>Hi {pu['full_name']},</p>"
+                        f"<p>All your comments on <strong>{job_ref}</strong> have been addressed.</p>"
+                        f"<p><a href='{review_url}'>Log in to review and approve</a></p>"
+                    ),
+                    template_key="portal_comments_addressed",
+                    entity_type="job",
+                    entity_id=str(job_id),
+                    job_id=job_id,
+                    created_by="portal",
+                )
     except Exception:
         pass
 

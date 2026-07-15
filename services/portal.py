@@ -121,6 +121,8 @@ def ensure_portal_schema(con) -> None:
         "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS contact_id INTEGER",
         "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS reset_token_hash VARCHAR",
         "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP",
+        "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS invited_at TIMESTAMP",
+        "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS invited_by VARCHAR",
         # T&C acceptance
         "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS accepted_tac_at TIMESTAMPTZ",
         "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS accepted_tac_version VARCHAR",
@@ -143,6 +145,13 @@ def ensure_portal_schema(con) -> None:
             con.execute(ddl)
         except Exception:
             pass
+
+    try:
+        con.execute(
+            "UPDATE client_portal_users SET invited_at = created_at, invited_by = created_by WHERE invited_at IS NULL"
+        )
+    except Exception:
+        pass
 
     # client_portal_access — client-level portal access control
     con.execute("""
@@ -317,6 +326,8 @@ def _row_to_portal_user(row) -> dict[str, Any]:
         "created_at": str(row[6]) if row[6] else None,
         "last_login_at": str(row[7]) if row[7] else None,
         "created_by": str(row[8] or "") or None,
+        "invited_at": str(row[9]) if row[9] else None,
+        "invited_by": str(row[10] or "") or None,
     }
 
 
@@ -328,7 +339,7 @@ def list_portal_users(client_db_id: int, *, con=None) -> list[dict[str, Any]]:
     rows = con.execute(
         """
         SELECT portal_user_id, client_db_id, contact_id, email, full_name,
-               is_active, created_at, last_login_at, created_by
+               is_active, created_at, last_login_at, created_by, invited_at, invited_by
         FROM client_portal_users
         WHERE client_db_id = %s
         ORDER BY full_name ASC
@@ -346,7 +357,7 @@ def get_portal_user_by_id(portal_user_id: int, *, con=None) -> dict[str, Any] | 
     row = con.execute(
         """
         SELECT portal_user_id, client_db_id, contact_id, email, full_name,
-               is_active, created_at, last_login_at, created_by
+               is_active, created_at, last_login_at, created_by, invited_at, invited_by
         FROM client_portal_users
         WHERE portal_user_id = %s
         """,
@@ -458,11 +469,11 @@ def create_portal_user(
     row = con.execute(
         """
         INSERT INTO client_portal_users
-          (client_db_id, contact_id, email, full_name, password_hash, is_active, created_by)
-        VALUES (%s, %s, %s, %s, %s, TRUE, %s)
+          (client_db_id, contact_id, email, full_name, password_hash, is_active, created_by, invited_at, invited_by)
+        VALUES (%s, %s, %s, %s, %s, TRUE, %s, NOW(), %s)
         RETURNING portal_user_id
         """,
-        [int(client_db_id), contact_id, email, full_name, ph, created_by],
+        [int(client_db_id), contact_id, email, full_name, ph, created_by, created_by],
     ).fetchone()
     return get_portal_user_by_id(int(row[0]), con=con)
 
@@ -505,6 +516,20 @@ def set_portal_user_password(portal_user_id: int, password: str, *, con=None) ->
         "UPDATE client_portal_users SET password_hash = %s, updated_at = NOW(), reset_token_hash = NULL, reset_token_expires = NULL WHERE portal_user_id = %s",
         [ph, int(portal_user_id)],
     )
+
+
+def resend_portal_invite(portal_user_id: int, *, actor: str, con=None) -> dict[str, Any]:
+    if con is None:
+        with get_conn(autocommit=False) as managed:
+            return resend_portal_invite(portal_user_id, actor=actor, con=managed)
+    user = get_portal_user_by_id(portal_user_id, con=con)
+    if not user:
+        raise HTTPException(status_code=404, detail="Portal user not found")
+    con.execute(
+        "UPDATE client_portal_users SET invited_at = NOW(), invited_by = %s, updated_at = NOW() WHERE portal_user_id = %s",
+        [actor, int(portal_user_id)],
+    )
+    return get_portal_user_by_id(portal_user_id, con=con)
 
 
 # ---------------------------------------------------------------------------
