@@ -65,6 +65,7 @@ type PreviewPayload = {
   unresolved_count: number;
   total_tco2e: number;
   employee_headcount?: number | null;
+  job_employee_headcount?: number | null;
   commuting_response_count?: number | null;
   commuting_scale_factor?: number | null;
   unit_fallback_count?: number | null;
@@ -147,6 +148,7 @@ export default function EmployeeCommutingData({
   const [sites, setSites] = useState<SiteOption[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>("__none__");
   const [employeeCount, setEmployeeCount] = useState<string>("");
+  const [disableScaling, setDisableScaling] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadPhase, setUploadPhase] = useState("");
@@ -433,6 +435,9 @@ export default function EmployeeCommutingData({
     if (Number.isFinite(parsedEmployeeCount) && parsedEmployeeCount > 0) {
       params.set("employee_count", String(Math.floor(parsedEmployeeCount)));
     }
+    if (disableScaling) {
+      params.set("disable_scaling", "true");
+    }
     return params.toString() ? `?${params.toString()}` : "";
   }
 
@@ -513,8 +518,11 @@ export default function EmployeeCommutingData({
       }
       const data = (await res.json()) as PreviewPayload;
       setPreview(data);
-      const scalingNote =
-        data.employee_headcount && data.commuting_response_count && data.commuting_scale_factor
+      const scalingNote = disableScaling
+        ? data.commuting_response_count
+          ? ` Scaling disabled — using raw workbook data (${data.commuting_response_count} distinct employees).`
+          : ""
+        : data.employee_headcount && data.commuting_response_count && data.commuting_scale_factor
           ? ` Scaled to ${data.employee_headcount} employees from ${data.commuting_response_count} distinct employees (${data.commuting_scale_factor.toFixed(2)}x).`
           : "";
       setStatus(
@@ -797,10 +805,20 @@ export default function EmployeeCommutingData({
             value={employeeCount}
             onChange={(e) => setEmployeeCount(e.target.value)}
             placeholder="Enter employee count"
+            disabled={disableScaling}
           />
           <p className="text-xs text-muted-foreground">
             This is the full workforce count used for pro-rata scaling. Each person is counted once even if they have multiple commute rows or commute by more than one mode.
+            {summary?.employee_headcount ? ` Job Setup employee count: ${summary.employee_headcount}.` : ""}
           </p>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={disableScaling}
+              onChange={(e) => setDisableScaling(e.target.checked)}
+            />
+            Do not scale (use raw workbook data)
+          </label>
         </CardContent>
       </Card>
 
@@ -1266,7 +1284,7 @@ export default function EmployeeCommutingData({
               </div>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-4">
+            <div className="grid gap-3 md:grid-cols-5">
               <div className="rounded-md border p-3">
                 <div className="text-xs uppercase text-muted-foreground">Parsed Rows</div>
                 <div className="mt-1 text-xl font-semibold">{preview.parsed_count}</div>
@@ -1280,6 +1298,10 @@ export default function EmployeeCommutingData({
                 <div className="mt-1 text-xl font-semibold">{preview.unresolved_count}</div>
               </div>
               <div className="rounded-md border p-3">
+                <div className="text-xs uppercase text-muted-foreground">Distinct Employees</div>
+                <div className="mt-1 text-xl font-semibold">{preview.commuting_response_count ?? "—"}</div>
+              </div>
+              <div className="rounded-md border p-3">
                 <div className="text-xs uppercase text-muted-foreground">Preview tCO₂e</div>
                 <div className="mt-1 text-xl font-semibold">
                   {formatNumber(preview.total_tco2e, 4)}
@@ -1287,7 +1309,11 @@ export default function EmployeeCommutingData({
               </div>
             </div>
 
-            {preview.employee_headcount && preview.commuting_response_count && preview.commuting_scale_factor && preview.commuting_scale_factor > 1 ? (
+            {disableScaling ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                Scaling disabled — using raw workbook data as entered ({preview.commuting_response_count ?? 0} distinct employees).
+              </div>
+            ) : preview.employee_headcount && preview.commuting_response_count && preview.commuting_scale_factor && preview.commuting_scale_factor > 1 ? (
               <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
                 Scaled to {preview.employee_headcount} employees from {preview.commuting_response_count} distinct employees.
                 Applied factor: {preview.commuting_scale_factor.toFixed(2)}x.

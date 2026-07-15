@@ -900,6 +900,7 @@ def _resolve_preview_rows(
     site_id: int | None,
     parsed_rows: list[dict[str, Any]],
     employee_count_override: int | None = None,
+    disable_scaling: bool = False,
 ) -> dict[str, Any]:
     ready_rows: list[dict[str, Any]] = []
     unresolved_rows: list[dict[str, Any]] = []
@@ -913,7 +914,7 @@ def _resolve_preview_rows(
     }
     commuting_response_count = len(responding_employees)
     commuting_scale_factor = 1.0
-    if employee_headcount and commuting_response_count and commuting_response_count < employee_headcount:
+    if not disable_scaling and employee_headcount and commuting_response_count and commuting_response_count < employee_headcount:
         commuting_scale_factor = float(employee_headcount) / float(commuting_response_count)
 
     for parsed_row in parsed_rows:
@@ -1770,6 +1771,7 @@ async def preview_employee_commuting_upload(
     job_id: int,
     site_id: int | None = Query(None),
     employee_count: int | None = Query(None, ge=1),
+    disable_scaling: bool = Query(False),
     file: UploadFile = File(...),
     _user: dict[str, str] = Depends(_current_user),
 ):
@@ -1782,7 +1784,7 @@ async def preview_employee_commuting_upload(
         _job_meta(con, int(job_id))
         validated_site_id, site_label = _job_site_label(con, int(job_id), site_id)
         parsed_rows = _parse_template(raw)
-        preview = _resolve_preview_rows(con, int(job_id), validated_site_id, parsed_rows, employee_count)
+        preview = _resolve_preview_rows(con, int(job_id), validated_site_id, parsed_rows, employee_count, disable_scaling)
 
     return {
         "job_id": int(job_id),
@@ -1800,6 +1802,7 @@ async def commit_employee_commuting_upload(
     site_id: int | None = Query(None),
     replace_existing: bool = Query(True),
     employee_count: int | None = Query(None, ge=1),
+    disable_scaling: bool = Query(False),
     file: UploadFile = File(...),
     _user: dict[str, str] = Depends(_current_user),
 ):
@@ -1819,7 +1822,7 @@ async def commit_employee_commuting_upload(
             meta = _job_meta(con, int(job_id))
             validated_site_id, site_label = _job_site_label(con, int(job_id), site_id)
             parsed_rows = _parse_template(raw)
-            preview = _resolve_preview_rows(con, int(job_id), validated_site_id, parsed_rows, employee_count)
+            preview = _resolve_preview_rows(con, int(job_id), validated_site_id, parsed_rows, employee_count, disable_scaling)
 
             if preview["unresolved_count"] > 0:
                 raise HTTPException(
