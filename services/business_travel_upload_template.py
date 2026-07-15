@@ -12,6 +12,7 @@ from openpyxl.utils import get_column_letter
 
 from core.database import get_conn
 from services.dataset_selector import get_monthly_headers, get_reporting_period_display
+from services.download_filenames import build_download_filename
 from services.fetch_existing_data import fetch_existing_scope_entries
 
 
@@ -22,23 +23,11 @@ def _clean(value: Any) -> str:
     return "" if text.lower() == "nan" else text
 
 
-def _safe_filename_part(value: Any) -> str:
-    text = _clean(value)
-    if not text:
-        return ""
-    for char in '<>:"/\\|?*':
-        text = text.replace(char, "_")
-    text = text.replace(" ", "_")
-    while "__" in text:
-        text = text.replace("__", "_")
-    return text.strip("_")
-
-
 def _job_context(con, job_id: int) -> dict[str, Any]:
     row = con.execute(
         """
         SELECT j.job_id, j.job_number, j.reporting_year, j.reporting_period_end,
-               c.client_name, c.db_id
+               c.client_name, c.db_id, j.reporting_period_start
         FROM jobs j
         JOIN clients c ON c.db_id = j.client_db_id
         WHERE j.job_id=%s
@@ -59,6 +48,7 @@ def _job_context(con, job_id: int) -> dict[str, Any]:
         "job_id": int(row[0]),
         "job_number": row[1],
         "reporting_year": reporting_year,
+        "reporting_period_start": row[6],
         "reporting_period_end": row[3],
         "client_name": row[4],
         "client_db_id": int(row[5]) if row[5] is not None else None,
@@ -506,17 +496,14 @@ def generate_business_travel_upload_template(
             for col, width in widths.items():
                 ws_prev.column_dimensions[col].width = width
 
-    file_name = "_".join(
-        part
-        for part in [
-            _safe_filename_part(job_number) or f"job_{job_id}",
-            _safe_filename_part(client_name) or "client",
-            _safe_filename_part(selected_site_name) if selected_site_name else "",
-            _safe_filename_part("business_travel_data_upload"),
-            _safe_filename_part(reporting_year) or "year",
-        ]
-        if part
-    ) + ".xlsx"
+    file_name = build_download_filename(
+        job_number=job_number or f"job-{job_id}",
+        client_name=client_name or "Client",
+        descriptor="Business Travel",
+        period_start=context.get("reporting_period_start"),
+        period_end=context.get("reporting_period_end"),
+        reporting_year=reporting_year or context.get("reporting_year"),
+    )
 
     stream = BytesIO()
     wb.save(stream)

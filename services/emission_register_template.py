@@ -8,6 +8,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 
+from services.download_filenames import build_download_filename
+
 
 SCOPE_OPTIONS = ["Scope 1", "Scope 2", "Scope 3"]
 CATEGORY_OPTIONS = ["Fleet", "Travel", "Equipment"]
@@ -23,27 +25,15 @@ def _safe_int(value: Any) -> int | None:
         return None
 
 
-def _safe_filename_part(value: Any) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    for char in '<>:"/\\|?*':
-        text = text.replace(char, "_")
-    text = text.replace(" ", "_")
-    while "__" in text:
-        text = text.replace("__", "_")
-    return text.strip("_")
-
-
-def _register_token(source_type: str) -> str:
-    return "business_travel_register" if str(source_type or "").strip() == "business_travel" else "asset_register"
+def _register_descriptor(source_type: str) -> str:
+    return "Business Travel" if str(source_type or "").strip() == "business_travel" else "Asset Register"
 
 
 def _job_context(con, job_id: int) -> dict[str, Any]:
     row = con.execute(
         """
         SELECT j.job_id, j.job_number, j.reporting_year, j.reporting_period_end,
-               c.client_name, c.db_id
+               c.client_name, c.db_id, j.reporting_period_start
         FROM jobs j
         JOIN clients c ON c.db_id = j.client_db_id
         WHERE j.job_id=%s
@@ -64,6 +54,7 @@ def _job_context(con, job_id: int) -> dict[str, Any]:
         "job_id": int(row[0]),
         "job_number": row[1],
         "reporting_year": reporting_year,
+        "reporting_period_start": row[6],
         "reporting_period_end": row[3],
         "client_name": row[4],
         "client_db_id": int(row[5]) if row[5] is not None else None,
@@ -171,15 +162,15 @@ def build_emission_register_workbook(
     reporting_year = context.get("reporting_year")
     if reporting_year is None:
         reporting_year = datetime.now().year
-    register_name = _register_token(source_type_value)
-    filename_parts = [
-        _safe_filename_part(job_number),
-        _safe_filename_part(client_name),
-        _safe_filename_part(register_name),
-        _safe_filename_part(reporting_year),
-    ]
-    base_name = "_".join(part for part in filename_parts if part)
-    file_name = f"{base_name}{'_example' if kind_value == 'example' else ''}.xlsx"
+    file_name = build_download_filename(
+        job_number=job_number,
+        client_name=client_name,
+        descriptor=_register_descriptor(source_type_value),
+        period_start=context.get("reporting_period_start"),
+        period_end=context.get("reporting_period_end"),
+        reporting_year=reporting_year,
+        suffix=" Example" if kind_value == "example" else "",
+    )
 
     selected_site = _resolve_selected_site(con, context.get("client_db_id"), _safe_int(site_id))
     selected_site_name = selected_site.get("site_name") if selected_site else None

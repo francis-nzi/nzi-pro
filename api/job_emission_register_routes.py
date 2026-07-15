@@ -17,6 +17,16 @@ from services.audit_log import record_audit_event
 router = APIRouter()
 
 
+class _PreviewRollback(Exception):
+    """Raised inside a transaction to force a rollback while still carrying
+    a result payload back out to the route — used to make import-workbook's
+    preview_only mode run the exact same insert/lookup logic as a real
+    import without persisting anything."""
+
+    def __init__(self, payload: dict[str, Any]):
+        self.payload = payload
+
+
 def _ensure_schema(con) -> None:
     con.execute(
         """
@@ -753,7 +763,10 @@ def download_emission_register_template(
         return Response(
             content=payload,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="{file_name}"',
+                "X-Filename": file_name,
+            },
         )
     except HTTPException:
         raise
@@ -975,6 +988,7 @@ async def import_emission_register_workbook(
     job_id: int,
     file: UploadFile = File(...),
     source_type: str = Query("asset"),
+    preview_only: bool = Query(False),
     _user: dict[str, str] = Depends(_current_user),
 ):
     try:
@@ -1241,38 +1255,50 @@ async def import_emission_register_workbook(
                 if row:
                     inserted_sources += 1
 
-            record_audit_event(
-                con,
-                request=None,
-                actor={"email": actor},
-                action="create",
-                entity_type="job_emission_register_import",
-                entity_id=None,
-                job_id=int(job_id),
-                after={
-                    "source_type": source_type_value,
-                    "inserted_groups": inserted_groups,
-                    "reused_groups": reused_groups,
-                    "auto_groups_created": auto_groups_created,
-                    "inserted_sources": inserted_sources,
-                    "skipped_sources": skipped_sources,
-                    "filename": file.filename,
-                },
-            )
+            if not preview_only:
+                record_audit_event(
+                    con,
+                    request=None,
+                    actor={"email": actor},
+                    action="create",
+                    entity_type="job_emission_register_import",
+                    entity_id=None,
+                    job_id=int(job_id),
+                    after={
+                        "source_type": source_type_value,
+                        "inserted_groups": inserted_groups,
+                        "reused_groups": reused_groups,
+                        "auto_groups_created": auto_groups_created,
+                        "inserted_sources": inserted_sources,
+                        "skipped_sources": skipped_sources,
+                        "filename": file.filename,
+                    },
+                )
 
             summary = _list_register(con, int(job_id), source_type_value, False).get("summary", {})
 
-        return {
-            "ok": True,
-            "job_id": int(job_id),
-            "source_type": source_type_value,
-            "inserted_groups": inserted_groups,
-            "reused_groups": reused_groups,
-            "auto_groups_created": auto_groups_created,
-            "inserted_sources": inserted_sources,
-            "skipped_sources": skipped_sources,
-            "summary": summary,
-        }
+            result = {
+                "ok": True,
+                "job_id": int(job_id),
+                "source_type": source_type_value,
+                "preview": preview_only,
+                "inserted_groups": inserted_groups,
+                "reused_groups": reused_groups,
+                "auto_groups_created": auto_groups_created,
+                "inserted_sources": inserted_sources,
+                "skipped_sources": skipped_sources,
+                "summary": summary,
+            }
+
+            if preview_only:
+                # Raising here (rather than returning) forces _PgConn.__exit__ to roll
+                # back everything this request just wrote, in both the pooled and
+                # direct-connection paths — see core/database.py.
+                raise _PreviewRollback(result)
+
+        return result
+    except _PreviewRollback as preview:
+        return preview.payload
     except HTTPException:
         raise
     except Exception as e:

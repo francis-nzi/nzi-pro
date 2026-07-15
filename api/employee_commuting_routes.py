@@ -34,6 +34,7 @@ from api.job_emission_register_routes import _ensure_schema as _ensure_emission_
 from core.database import get_conn
 from services.audit_log import record_audit_event
 from services.dataset_selector import get_applicable_datasets, get_scope_primary_datasets
+from services.download_filenames import build_download_filename
 
 router = APIRouter()
 
@@ -227,13 +228,6 @@ def _is_blank(value: Any) -> bool:
     if isinstance(value, str) and not value.strip():
         return True
     return False
-
-
-def _safe_name_part(value: str) -> str:
-    text = str(value or "").strip()
-    text = re.sub(r'[<>:"/\\\\|?*]+', "", text)
-    text = re.sub(r"\s+", "_", text)
-    return text.strip("_") or "Unknown"
 
 
 def _fmt_period_part(value: Any) -> str:
@@ -445,23 +439,14 @@ def _job_site_label(con, job_id: int, site_id: int | None) -> tuple[int | None, 
 
 
 def _template_filename(meta: dict[str, Any], site_label: str) -> str:
-    period_part = (
-        f"{_fmt_period_part(meta.get('reporting_period_start'))}"
-        f"-to-"
-        f"{_fmt_period_part(meta.get('reporting_period_end'))}"
+    return build_download_filename(
+        job_number=meta.get("job_number") or f"Job-{meta.get('job_id')}",
+        client_name=meta.get("client_name") or "Client",
+        descriptor="Employee Commuting",
+        period_start=meta.get("reporting_period_start"),
+        period_end=meta.get("reporting_period_end"),
+        reporting_year=meta.get("reporting_year"),
     )
-    if period_part == "-to-":
-        period_part = str(meta.get("reporting_year") or datetime.now().year)
-
-    return "_".join(
-        [
-            _safe_name_part(str(meta.get("job_number") or f"Job-{meta.get('job_id')}")),
-            _safe_name_part(str(meta.get("client_name") or "Client")),
-            _safe_name_part(site_label),
-            _safe_name_part(period_part),
-            "employee_commuting",
-        ]
-    ) + ".xlsx"
 
 
 def _apply_header_row(ws, row_number: int, headers: list[str]) -> None:
@@ -1722,7 +1707,10 @@ def download_employee_commuting_template(
     return Response(
         content=workbook_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_filename}"',
+            "X-Filename": filename,
+        },
     )
 
 

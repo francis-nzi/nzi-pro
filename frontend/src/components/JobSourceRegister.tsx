@@ -127,6 +127,16 @@ type BusinessTravelScopeRow = {
   month_12: number | null;
 };
 
+type ImportPreviewResult = {
+  readyCount: number;
+  insertedGroups?: number;
+  reusedGroups?: number;
+  autoGroupsCreated?: number;
+  skippedSources?: number;
+  errors: string[];
+  warnings: string[];
+};
+
 function blankScope(sourceType: string): string {
   return sourceType === "business_travel" ? "Scope 3" : "Scope 1";
 }
@@ -200,6 +210,8 @@ export default function JobSourceRegister({
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
+  const [importPreview, setImportPreview] = useState<ImportPreviewResult | null>(null);
+  const [businessTravelRowsReady, setBusinessTravelRowsReady] = useState<unknown[] | null>(null);
 
   const hasUnsavedChanges = useMemo(() => {
     return Boolean(
@@ -480,7 +492,10 @@ export default function JobSourceRegister({
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = registerFilename(kind);
+      const xFilename = res.headers.get("x-filename");
+      const disposition = res.headers.get("content-disposition") || "";
+      const cdMatch = disposition.match(/filename="?([^"]+)"?/i);
+      a.download = xFilename || cdMatch?.[1] || registerFilename(kind);
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -593,7 +608,7 @@ export default function JobSourceRegister({
     }
   }
 
-  async function importWorkbook() {
+  async function previewImportWorkbook() {
     if (!uploadFile) {
       setError("Choose an Excel workbook first.");
       return;
@@ -601,6 +616,8 @@ export default function JobSourceRegister({
     setImporting(true);
     setError("");
     setImportProgress(0);
+    setImportPreview(null);
+    setBusinessTravelRowsReady(null);
     try {
       if (sourceType === "business_travel") {
         if (downloadSiteId === "__all__") {
@@ -639,16 +656,69 @@ export default function JobSourceRegister({
         }
 
         const rowsReady = Array.isArray(validateJson?.rows_ready) ? validateJson.rows_ready : [];
+        const warnings = Array.isArray(validateJson?.warnings) ? validateJson.warnings.map(String) : [];
         if (rowsReady.length === 0) {
           throw new Error("No business travel rows were found in the workbook.");
         }
 
+        setBusinessTravelRowsReady(rowsReady);
+        setImportPreview({ readyCount: rowsReady.length, errors: [], warnings });
+      } else {
+        const fd = new FormData();
+        fd.append("file", uploadFile);
+        const res = await uploadFormDataWithProgress(
+          `/jobs/${jobId}/emission-registers/import-workbook?source_type=${encodeURIComponent(sourceType)}&preview_only=true`,
+          {
+            method: "POST",
+            headers: (() => {
+              const token = getToken();
+              const headers: Record<string, string> = {};
+              if (token) headers.Authorization = `Bearer ${token}`;
+              return headers;
+            })(),
+            credentials: "include",
+            body: fd,
+            onProgress: ({ percent }) => setImportProgress(percent),
+          }
+        );
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(text || `Workbook validation failed (${res.status})`);
+        }
+        const data = await res.json();
+        setImportPreview({
+          readyCount: Number(data?.inserted_sources ?? 0),
+          insertedGroups: Number(data?.inserted_groups ?? 0),
+          reusedGroups: Number(data?.reused_groups ?? 0),
+          autoGroupsCreated: Number(data?.auto_groups_created ?? 0),
+          skippedSources: Number(data?.skipped_sources ?? 0),
+          errors: [],
+          warnings: [],
+        });
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to preview workbook");
+    } finally {
+      setImporting(false);
+      setImportProgress(0);
+    }
+  }
+
+  async function confirmImportWorkbook() {
+    if (!uploadFile || !importPreview) return;
+    setImporting(true);
+    setError("");
+    try {
+      if (sourceType === "business_travel") {
+        if (!businessTravelRowsReady) {
+          throw new Error("Preview the workbook again before importing.");
+        }
         const importRes = await apiFetch(`/jobs/${jobId}/excel-import`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             site_id: Number(downloadSiteId),
-            rows_ready: rowsReady,
+            rows_ready: businessTravelRowsReady,
           }),
         });
         if (!importRes.ok) {
@@ -656,7 +726,6 @@ export default function JobSourceRegister({
           throw new Error(text || `Workbook import failed (${importRes.status})`);
         }
         const importJson = await importRes.json().catch(() => null);
-        setUploadFile(null);
         setStatus(
           `Workbook imported into Data Entry: ${importJson?.inserted ?? 0} inserted, ${importJson?.updated ?? 0} updated. Duplicate IDs were merged and month values were stored.`
         );
@@ -683,18 +752,25 @@ export default function JobSourceRegister({
           throw new Error(text || `Workbook import failed (${res.status})`);
         }
         const data = await res.json();
-        setUploadFile(null);
         setStatus(
           `Workbook imported: ${data?.inserted_sources ?? 0} sources, ${data?.inserted_groups ?? 0} groups.`
         );
         await reloadRegisterAndSummary();
       }
+      setUploadFile(null);
+      setImportPreview(null);
+      setBusinessTravelRowsReady(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to import workbook");
     } finally {
       setImporting(false);
       setImportProgress(0);
     }
+  }
+
+  function cancelImportPreview() {
+    setImportPreview(null);
+    setBusinessTravelRowsReady(null);
   }
 
   async function importPreviousYear() {
@@ -873,20 +949,54 @@ export default function JobSourceRegister({
                 id="asset-register-upload"
                 type="file"
                 accept=".xlsx"
-                onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => {
+                  setUploadFile(e.target.files?.[0] ?? null);
+                  setImportPreview(null);
+                  setBusinessTravelRowsReady(null);
+                }}
               />
             </div>
             <div className="flex items-end">
-              <Button
-                onClick={importWorkbook}
-                disabled={loading || importing || !uploadFile || (isBusinessTravel && downloadSiteId === "__all__")}
-                className="w-full"
-              >
-                {importing ? "Importing workbook..." : importButtonLabel}
-              </Button>
+              {!importPreview ? (
+                <Button
+                  onClick={previewImportWorkbook}
+                  disabled={loading || importing || !uploadFile || (isBusinessTravel && downloadSiteId === "__all__")}
+                  className="w-full"
+                >
+                  {importing ? "Checking workbook..." : "Preview Import"}
+                </Button>
+              ) : (
+                <div className="flex w-full gap-2">
+                  <Button onClick={confirmImportWorkbook} disabled={importing} className="flex-1">
+                    {importing ? "Importing workbook..." : importButtonLabel}
+                  </Button>
+                  <Button variant="outline" onClick={cancelImportPreview} disabled={importing}>
+                    Cancel
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
-          {importing ? <UploadProgressBar value={importProgress} label="Importing workbook..." /> : null}
+          {importing ? <UploadProgressBar value={importProgress} label="Checking workbook..." /> : null}
+          {importPreview ? (
+            <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
+              <p className="font-medium">
+                {importPreview.readyCount} row{importPreview.readyCount === 1 ? "" : "s"} ready to import
+                {isBusinessTravel ? "" : ` (${importPreview.insertedGroups ?? 0} new group${(importPreview.insertedGroups ?? 0) === 1 ? "" : "s"}, ${importPreview.reusedGroups ?? 0} reused)`}
+                . Nothing has been saved yet — click &quot;{importButtonLabel}&quot; to commit, or Cancel to discard.
+              </p>
+              {!isBusinessTravel && (importPreview.skippedSources ?? 0) > 0 ? (
+                <p className="text-muted-foreground">{importPreview.skippedSources} row(s) already exist and will be skipped.</p>
+              ) : null}
+              {importPreview.warnings.length > 0 ? (
+                <ul className="list-disc pl-5 text-amber-700">
+                  {importPreview.warnings.map((w, idx) => (
+                    <li key={idx}>{w}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

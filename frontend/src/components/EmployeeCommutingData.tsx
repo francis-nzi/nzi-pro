@@ -449,9 +449,10 @@ export default function EmployeeCommutingData({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      // Use the app's own naming convention directly so downloads remain stable
-      // even if a stale/proxied Content-Disposition header is returned.
-      const filename = fallbackTemplateFilename();
+      const xFilename = res.headers.get("x-filename");
+      const disposition = res.headers.get("content-disposition") || "";
+      const cdMatch = disposition.match(/filename="?([^"]+)"?/i);
+      const filename = xFilename || cdMatch?.[1] || fallbackTemplateFilename();
       link.download = filename;
       document.body.appendChild(link);
       link.click();
@@ -1320,7 +1321,12 @@ export default function EmployeeCommutingData({
 
             {preview.ready_rows.length > 0 ? (
               <div className="rounded-md border">
-                <div className="border-b px-3 py-2 text-sm font-medium">Ready Rows</div>
+                <div className="border-b px-3 py-2 text-sm font-medium">
+                  Ready Rows
+                  {preview.ready_rows.length > 60 ? (
+                    <span className="font-normal text-muted-foreground"> (showing first 60 of {preview.ready_rows.length})</span>
+                  ) : null}
+                </div>
                 <div className="max-h-72 overflow-auto">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-background">
