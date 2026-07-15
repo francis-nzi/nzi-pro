@@ -35,6 +35,11 @@ const PortalGovernance = dynamic(() => import("@/components/PortalGovernance"), 
   loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading governance...</div>,
 });
 
+const PortalPortfolioDashboard = dynamic(() => import("@/components/PortalPortfolioDashboard"), {
+  ssr: false,
+  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading portfolio dashboard...</div>,
+});
+
 const PortalDashboardCharts = dynamic(() => import("@/components/PortalDashboardCharts"), {
   ssr: false,
   loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading charts...</div>,
@@ -154,8 +159,8 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
   );
 }
 
-type TabKey = "dashboard" | "data" | "reports" | "actions" | "insights" | "files" | "governance";
-const VALID_TABS: TabKey[] = ["dashboard", "data", "reports", "actions", "insights", "files", "governance"];
+type TabKey = "dashboard" | "portfolio" | "data" | "reports" | "actions" | "insights" | "files" | "governance";
+const VALID_TABS: TabKey[] = ["dashboard", "portfolio", "data", "reports", "actions", "insights", "files", "governance"];
 
 export default function DashboardPage() {
   return (
@@ -179,6 +184,26 @@ function DashboardPageInner() {
     setActiveTab(t);
     router.replace(`/dashboard?tab=${t}`, { scroll: false });
   }
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch("/portal/auth/me")
+      .then((res) => res.ok ? res.json() : null)
+      .then((payload: { portal_mode?: string } | null) => {
+        if (cancelled || !payload?.portal_mode) return;
+        if (!tabFromUrl && payload.portal_mode === "portfolio_owner") {
+          setActiveTab("portfolio");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          // Ignore auth discovery failures; the shell guard will handle redirects.
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tabFromUrl]);
 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [clientName, setClientName] = useState("");
@@ -302,6 +327,7 @@ function DashboardPageInner() {
           </div>
         )}
 
+        {activeTab === "portfolio" && <div><PortalPortfolioDashboard /></div>}
         {activeTab === "data" && <div><PortalReporting /></div>}
         {activeTab === "actions" && <div><PortalActions /></div>}
         {activeTab === "insights" && <div><PortalInsights /></div>}

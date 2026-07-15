@@ -57,6 +57,15 @@ export const ADMIN_MODULES: AdminModule[] = [
     highlight: true,
   },
   {
+    title: "Portfolio Owners",
+    description: "Manage portfolio owner companies, inspect their client networks, and open the portfolio-level dashboard.",
+    href: "/admin/portfolios",
+    cta: "Open portfolio owners",
+    domain: "People & Access",
+    icon: Building2,
+    highlight: true,
+  },
+  {
     title: "Billing & Entitlements",
     description: "Review plan status, subscription state, usage limits, invoices, and billing events.",
     href: "/admin/billing",

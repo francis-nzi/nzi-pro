@@ -134,6 +134,7 @@ from api.ai_prompt_routes import router as ai_prompt_router
 from api.report_manifest_routes import router as report_manifest_router
 from api.portal_auth_routes import router as portal_auth_router
 from api.portal_routes import router as portal_router
+from api.portfolio_routes import router as portfolio_router
 from api.job_review_routes import router as job_review_router
 from api.system_settings_routes import router as system_settings_router
 from api.custom_fields_routes import router as custom_fields_router
@@ -329,6 +330,7 @@ app.include_router(report_manifest_router)
 # Include client portal routes
 app.include_router(portal_auth_router)
 app.include_router(portal_router)
+app.include_router(portfolio_router)
 app.include_router(job_review_router)
 
 # Include system settings routes (NZI logo upload and system configuration)

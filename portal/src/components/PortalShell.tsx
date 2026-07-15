@@ -41,6 +41,7 @@ type NavItem = {
 
 const ALL_NAV_ITEMS: NavItem[] = [
   { key: "dashboard", label: "Dashboard",  icon: <LayoutDashboard className="h-5 w-5" />, tab: "dashboard" },
+  { key: "portfolio", label: "Portfolio",  icon: <BarChart3 className="h-5 w-5" />,       tab: "portfolio" },
   { key: "data",      label: "Data",       icon: <BarChart3 className="h-5 w-5" />,       tab: "data" },
   { key: "reports",   label: "Reports",    icon: <FileText className="h-5 w-5" />,         tab: "reports" },
   { key: "actions",   label: "Actions",    icon: <Zap className="h-5 w-5" />,              tab: "actions" },

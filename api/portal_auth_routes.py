@@ -105,6 +105,23 @@ def _must_accept_tac(auth_data: dict) -> bool:
     return str(auth_data.get("accepted_tac_version") or "").strip() != PORTAL_CLIENT_TAC_VERSION
 
 
+def _portal_nav_for_mode(mode: str, base_nav: dict[str, Any] | None = None) -> dict[str, bool]:
+    nav = dict(base_nav or {})
+    if mode == "portfolio_owner":
+        defaults = {
+            "dashboard": True,
+            "portfolio": True,
+            "reports": True,
+            "files": True,
+            "governance": True,
+            "data": False,
+            "actions": False,
+            "insights": False,
+        }
+        return {**defaults, **nav}
+    return nav
+
+
 # ---------------------------------------------------------------------------
 # Recovery-code helpers
 # ---------------------------------------------------------------------------
@@ -679,6 +696,7 @@ def portal_me(current_user: dict = Depends(_portal_onboarding_user)):
             },
             "must_accept_tac": False,
             "mfa_setup_required": False,
+            "portal_mode": "staff",
         }
 
     must_accept = _must_accept_tac(current_user)
@@ -688,7 +706,19 @@ def portal_me(current_user: dict = Depends(_portal_onboarding_user)):
     with get_conn() as con:
         ensure_portal_schema(con)
         access_record = get_client_portal_access(client_db_id, con=con)
+        client_row = con.execute(
+            """
+            SELECT client_name, status, portfolio
+            FROM clients
+            WHERE db_id = %s
+            """,
+            [client_db_id],
+        ).fetchone()
     nav_config = access_record.get("nav_config", {})
+    client_status = str(client_row[1] or "") if client_row else ""
+    portal_mode = "portfolio_owner" if client_status.strip().lower() == "portfolio owner" else "client"
+    if portal_mode == "portfolio_owner":
+        nav_config = _portal_nav_for_mode(portal_mode)
 
     return {
         "ok": True,
@@ -702,6 +732,12 @@ def portal_me(current_user: dict = Depends(_portal_onboarding_user)):
         "must_accept_tac": must_accept,
         "mfa_setup_required": mfa_setup_required,
         "nav_config": nav_config,
+        "portal_mode": portal_mode,
+        "portal_client": {
+            "client_name": str(client_row[0] or "") if client_row else "",
+            "status": client_status or None,
+            "portfolio": str(client_row[2] or "") if client_row else None,
+        } if client_row else None,
     }
 
 

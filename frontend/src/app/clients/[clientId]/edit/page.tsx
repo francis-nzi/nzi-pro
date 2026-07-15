@@ -876,6 +876,7 @@ export default function EditClientPage() {
                       <SelectItem value="Active">Active</SelectItem>
                       <SelectItem value="Inactive">Inactive</SelectItem>
                       <SelectItem value="Prospect">Prospect</SelectItem>
+                      <SelectItem value="Portfolio Owner">Portfolio Owner</SelectItem>
                       <SelectItem value="Archived">Archived</SelectItem>
                     </SelectContent>
                   </Select>

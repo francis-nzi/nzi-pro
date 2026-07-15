@@ -27,6 +27,8 @@ from services.portal import (
     portal_dashboard_jobs,
     send_review_to_client,
 )
+from services.portfolio import build_portfolio_overview
+from services.tenancy import org_context
 
 router = APIRouter(tags=["portal"])
 
@@ -65,6 +67,23 @@ def portal_dashboard(current_user: dict = Depends(portal_user_dep)):
         "client_name": str(client_row[0] or "") if client_row else "",
         "jobs": jobs,
     }
+
+
+@router.get("/portal/portfolio-dashboard")
+def portal_portfolio_dashboard(current_user: dict = Depends(portal_user_dep)):
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        client_row = con.execute(
+            "SELECT status, org_id FROM clients WHERE db_id = %s",
+            [client_db_id],
+        ).fetchone()
+        if not client_row:
+            raise HTTPException(status_code=404, detail="Client not found")
+        if str(client_row[0] or "").strip().lower() != "portfolio owner":
+            raise HTTPException(status_code=403, detail="Portfolio dashboard is only available to portfolio owners")
+        org_id = str(client_row[1]) if client_row[1] else None
+        with org_context(org_id):
+            return build_portfolio_overview(con, client_db_id)
 
 
 # ---------------------------------------------------------------------------
