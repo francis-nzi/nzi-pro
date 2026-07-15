@@ -473,22 +473,30 @@ def _notify_crm_new_comment(job_id: int, client_name: str) -> None:
         if not row or not row[2]:
             return
         from services.outbound_email import send_tracked_email
+        from services.messaging_templates import build_email_content
         job_ref = f"{row[0]} — {row[1]}" if row[0] else str(row[1] or f"Job {job_id}")
+        crm_name = row[3] or "there"
+        context = {"crm_name": crm_name, "client_name": client_name, "job_ref": job_ref}
+        fallback_body = (
+            f"<p>Hi {crm_name},</p>"
+            f"<p><strong>{client_name}</strong> has added a comment to <strong>{job_ref}</strong> in NZInsights.</p>"
+            f"<p>Log in to the NZI app to review and respond.</p>"
+        )
         with get_conn() as con:
+            rendered = build_email_content(
+                con=con,
+                template_key="portal_client_commented",
+                context=context,
+                fallback_subject=f"New client comment on {job_ref}",
+                fallback_body=fallback_body,
+                sender_identifier="portal",
+            )
             send_tracked_email(
                 con,
                 to_email=row[2],
-                subject=f"New client comment on {job_ref}",
-                body_text=(
-                    f"Hi {row[3] or 'there'},\n\n"
-                    f"{client_name} has added a comment to {job_ref} in NZInsights.\n\n"
-                    f"Log in to the NZI app to review and respond."
-                ),
-                body_html=(
-                    f"<p>Hi {row[3] or 'there'},</p>"
-                    f"<p><strong>{client_name}</strong> has added a comment to <strong>{job_ref}</strong> in NZInsights.</p>"
-                    f"<p>Log in to the NZI app to review and respond.</p>"
-                ),
+                subject=rendered["subject"],
+                body_text=rendered["body_text"],
+                body_html=rendered["body_html"],
                 template_key="portal_client_commented",
                 entity_type="job",
                 entity_id=str(job_id),
@@ -1199,22 +1207,35 @@ def _notify_crm_approval(job_id: int, approver_name: str, approver_email: str) -
         if not row or not row[2]:
             return
         from services.outbound_email import send_tracked_email
+        from services.messaging_templates import build_email_content
         job_ref = f"{row[0]} — {row[1]}" if row[0] else str(row[1] or f"Job {job_id}")
+        crm_name = row[3] or "there"
+        context = {
+            "crm_name": crm_name,
+            "approver_name": approver_name,
+            "approver_email": approver_email,
+            "job_ref": job_ref,
+        }
+        fallback_body = (
+            f"<p>Hi {crm_name},</p>"
+            f"<p><strong>{approver_name}</strong> ({approver_email}) has approved the report for <strong>{job_ref}</strong>.</p>"
+            f"<p>PDF generation has been triggered and will be uploaded to the client files automatically.</p>"
+        )
         with get_conn() as con:
+            rendered = build_email_content(
+                con=con,
+                template_key="portal_report_approved",
+                context=context,
+                fallback_subject=f"Report approved: {job_ref}",
+                fallback_body=fallback_body,
+                sender_identifier="portal",
+            )
             send_tracked_email(
                 con,
                 to_email=row[2],
-                subject=f"Report approved: {job_ref}",
-                body_text=(
-                    f"Hi {row[3] or 'there'},\n\n"
-                    f"{approver_name} ({approver_email}) has approved the report for {job_ref}.\n\n"
-                    f"PDF generation has been triggered and will be uploaded to the client files automatically."
-                ),
-                body_html=(
-                    f"<p>Hi {row[3] or 'there'},</p>"
-                    f"<p><strong>{approver_name}</strong> ({approver_email}) has approved the report for <strong>{job_ref}</strong>.</p>"
-                    f"<p>PDF generation has been triggered and will be uploaded to the client files automatically.</p>"
-                ),
+                subject=rendered["subject"],
+                body_text=rendered["body_text"],
+                body_html=rendered["body_html"],
                 template_key="portal_report_approved",
                 entity_type="job",
                 entity_id=str(job_id),

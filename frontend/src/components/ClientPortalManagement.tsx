@@ -540,14 +540,11 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
   const [candidateSearch, setCandidateSearch] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
-  const [newPassword, setNewPassword] = useState("");
   const [addingUser, setAddingUser] = useState(false);
   const [addError, setAddError] = useState("");
 
   // Reset password
-  const [resettingFor, setResettingFor] = useState<number | null>(null);
-  const [resetPassword, setResetPassword] = useState("");
-  const [resetting, setResetting] = useState(false);
+  const [resettingUserId, setResettingUserId] = useState<number | null>(null);
 
   const loadAccess = useCallback(async () => {
     const res = await fetch(`${baseUrl}/clients/${clientId}/portal-access`, { credentials: "include" });
@@ -614,6 +611,19 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
     catch { throw new Error(`Server error (HTTP ${res.status})`); }
   }
 
+  async function copyPasswordAndNotify(temporaryPassword: string | undefined, message: string) {
+    if (!temporaryPassword) {
+      setStatusMsg(message);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(temporaryPassword);
+      setStatusMsg(`${message} Temporary password copied to clipboard.`);
+    } catch {
+      setStatusMsg(message);
+    }
+  }
+
   async function handleAddUser(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedCandidate) { setAddError("Please select a person first."); return; }
@@ -623,7 +633,6 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
       const body: Record<string, unknown> = {
         email: selectedCandidate.email,
         full_name: selectedCandidate.full_name,
-        password: newPassword,
       };
       if (selectedCandidate.contact_id !== undefined) body.contact_id = selectedCandidate.contact_id;
       const res = await fetch(`${baseUrl}/clients/${clientId}/portal-users`, {
@@ -632,11 +641,11 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
         credentials: "include",
         body: JSON.stringify(body),
       });
-      const data = await safeJson<{ ok?: boolean; detail?: string }>(res);
+      const data = await safeJson<{ ok?: boolean; detail?: string; temporary_password?: string }>(res);
       if (!res.ok) throw new Error(data.detail ?? "Failed to create user");
       setShowAddUser(false);
-      setSelectedCandidate(null); setCandidateSearch(""); setNewPassword("");
-      setStatusMsg("Portal user created and welcome email sent.");
+      setSelectedCandidate(null); setCandidateSearch("");
+      await copyPasswordAndNotify(data.temporary_password, "Portal user created and welcome email sent.");
       await load();
     } catch (e) {
       setAddError((e as Error).message);
@@ -667,34 +676,30 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
       });
-      if (!res.ok) throw new Error("Failed to resend invite");
-      setStatusMsg("Invite email resent.");
+      const data = await safeJson<{ ok?: boolean; detail?: string; temporary_password?: string }>(res);
+      if (!res.ok) throw new Error(data.detail ?? "Failed to resend invite");
+      await copyPasswordAndNotify(data.temporary_password, "Invite email resent.");
       await load();
     } catch (e) {
       setError((e as Error).message);
     }
   }
 
-  async function handleResetPassword(e: React.FormEvent) {
-    e.preventDefault();
-    if (!resettingFor) return;
-    setResetting(true);
+  async function handleResetPassword(user: PortalUser) {
+    setResettingUserId(user.portal_user_id);
     try {
-      const res = await fetch(`${baseUrl}/clients/${clientId}/portal-users/${resettingFor}/reset-password`, {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/portal-users/${user.portal_user_id}/reset-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ new_password: resetPassword }),
       });
-      const data = await safeJson<{ ok?: boolean; detail?: string }>(res);
+      const data = await safeJson<{ ok?: boolean; detail?: string; temporary_password?: string }>(res);
       if (!res.ok) throw new Error(data.detail ?? "Failed to reset password");
-      setResettingFor(null);
-      setResetPassword("");
-      setStatusMsg("Password reset successfully.");
+      await copyPasswordAndNotify(data.temporary_password, "Password reset and emailed to the user.");
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setResetting(false);
+      setResettingUserId(null);
     }
   }
 
@@ -1036,16 +1041,12 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <Label htmlFor="pu-pass">Temporary Password</Label>
-                <Input id="pu-pass" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Min 8 characters" required minLength={8} />
-              </div>
               {addError && <p className="text-xs text-red-600">{addError}</p>}
               <div className="flex gap-2">
                 <Button type="submit" size="sm" disabled={addingUser || !selectedCandidate}>
                   {addingUser ? "Creating…" : "Create Account & Send Welcome Email"}
                 </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => { setShowAddUser(false); setSelectedCandidate(null); setCandidateSearch(""); setNewPassword(""); }}>Cancel</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => { setShowAddUser(false); setSelectedCandidate(null); setCandidateSearch(""); }}>Cancel</Button>
               </div>
             </form>
           )}
@@ -1091,32 +1092,13 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
                         variant="ghost"
                         size="sm"
                         className="text-xs text-muted-foreground"
-                        onClick={() => { setResettingFor(resettingFor === user.portal_user_id ? null : user.portal_user_id); setResetPassword(""); }}
+                        disabled={resettingUserId === user.portal_user_id}
+                        onClick={() => void handleResetPassword(user)}
                       >
-                        Reset password
+                        {resettingUserId === user.portal_user_id ? "Resetting…" : "Reset password"}
                       </Button>
                     </div>
                   </div>
-
-                  {resettingFor === user.portal_user_id && (
-                    <form onSubmit={e => void handleResetPassword(e)} className="flex items-end gap-2 border-t bg-muted/20 px-4 py-3">
-                      <div className="space-y-1">
-                        <Label htmlFor={`rp-${user.portal_user_id}`} className="text-xs">New password (min 8 chars)</Label>
-                        <Input
-                          id={`rp-${user.portal_user_id}`}
-                          type="password"
-                          value={resetPassword}
-                          onChange={e => setResetPassword(e.target.value)}
-                          placeholder="New password"
-                          required
-                          minLength={8}
-                          className="h-8 text-xs w-48"
-                        />
-                      </div>
-                      <Button type="submit" size="sm" disabled={resetting}>{resetting ? "Saving…" : "Set Password"}</Button>
-                      <Button type="button" size="sm" variant="ghost" onClick={() => setResettingFor(null)}>Cancel</Button>
-                    </form>
-                  )}
                 </div>
               ))}
             </div>

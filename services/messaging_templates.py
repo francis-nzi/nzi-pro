@@ -168,7 +168,88 @@ DEFAULT_EMAIL_TEMPLATES: list[dict[str, str]] = [
             "<p>Kind regards,<br/>{{sender_name}}</p>"
         ),
     },
-] 
+    {
+        "template_key": "portal_welcome",
+        "template_name": "Portal Welcome",
+        "subject_template": "Welcome to NZInsights — your carbon reporting portal",
+        "body_template": (
+            "<p>Hi {{full_name}},</p>"
+            "<p>Your NZInsights account is ready.</p>"
+            "<p>Username: <strong>{{email}}</strong><br/>"
+            "Temporary password: <strong>{{temporary_password}}</strong></p>"
+            "<p><a href=\"{{login_url}}\">Log in to NZInsights</a></p>"
+            "<p>Please sign in and change your password after logging in.</p>"
+            "<p>NZInsights gives you secure access to your carbon reports and allows you to review and approve them online.</p>"
+        ),
+    },
+    {
+        "template_key": "portal_reinvite",
+        "template_name": "Portal Re-invite",
+        "subject_template": "Your NZInsights access has been refreshed",
+        "body_template": (
+            "<p>Hi {{full_name}},</p>"
+            "<p>Your NZInsights access has been re-issued.</p>"
+            "<p>Username: <strong>{{email}}</strong><br/>"
+            "Temporary password: <strong>{{temporary_password}}</strong></p>"
+            "<p><a href=\"{{login_url}}\">Log in to NZInsights</a></p>"
+            "<p>Please sign in and change your password after logging in.</p>"
+        ),
+    },
+    {
+        "template_key": "portal_password_reset",
+        "template_name": "Portal Password Reset",
+        "subject_template": "Your NZInsights temporary password",
+        "body_template": (
+            "<p>Hi {{full_name}},</p>"
+            "<p>Your NZInsights password has been reset.</p>"
+            "<p>Username: <strong>{{email}}</strong><br/>"
+            "Temporary password: <strong>{{temporary_password}}</strong></p>"
+            "<p><a href=\"{{login_url}}\">Log in to NZInsights</a></p>"
+            "<p>Please sign in and change your password after logging in.</p>"
+        ),
+    },
+    {
+        "template_key": "portal_review_ready",
+        "template_name": "Portal Review Ready",
+        "subject_template": "Your report is ready to review — {{job_ref}}",
+        "body_template": (
+            "<p>Hi {{full_name}},</p>"
+            "<p>Your carbon report for <strong>{{job_ref}}</strong> is now ready for your review in NZInsights.</p>"
+            "<p><a href=\"{{review_url}}\">Review your report</a></p>"
+            "<p>You can read the report, leave comments or change requests, and approve it when you are happy.</p>"
+        ),
+    },
+    {
+        "template_key": "portal_comments_addressed",
+        "template_name": "Portal Comments Addressed",
+        "subject_template": "Your comments have been addressed — {{job_ref}}",
+        "body_template": (
+            "<p>Hi {{full_name}},</p>"
+            "<p>All your comments on <strong>{{job_ref}}</strong> have been addressed.</p>"
+            "<p><a href=\"{{review_url}}\">Log in to review and approve</a></p>"
+        ),
+    },
+    {
+        "template_key": "portal_client_commented",
+        "template_name": "Portal Client Commented (CRM notice)",
+        "subject_template": "New client comment on {{job_ref}}",
+        "body_template": (
+            "<p>Hi {{crm_name}},</p>"
+            "<p><strong>{{client_name}}</strong> has added a comment to <strong>{{job_ref}}</strong> in NZInsights.</p>"
+            "<p>Log in to the NZI app to review and respond.</p>"
+        ),
+    },
+    {
+        "template_key": "portal_report_approved",
+        "template_name": "Portal Report Approved (CRM notice)",
+        "subject_template": "Report approved: {{job_ref}}",
+        "body_template": (
+            "<p>Hi {{crm_name}},</p>"
+            "<p><strong>{{approver_name}}</strong> ({{approver_email}}) has approved the report for <strong>{{job_ref}}</strong>.</p>"
+            "<p>PDF generation has been triggered and will be uploaded to the client files automatically.</p>"
+        ),
+    },
+]
 
 
 def _strip_html(value: str) -> str:

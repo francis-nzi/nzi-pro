@@ -19,6 +19,7 @@ from api.permissions import assert_job_access, assert_permission, assert_client_
 from core.database import get_conn
 from services.portal import (
     add_comment,
+    admin_reset_portal_user_password,
     create_portal_user,
     ensure_portal_schema,
     get_client_portal_access,
@@ -32,8 +33,8 @@ from services.portal import (
     send_to_portal,
     update_portal_user,
     upsert_client_portal_access,
-    set_portal_user_password,
 )
+from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
 
 router = APIRouter(tags=["job-review"])
@@ -51,17 +52,12 @@ def _actor(user: dict) -> str:
 class CreatePortalUserPayload(BaseModel):
     email: str = Field(..., min_length=1)
     full_name: str = Field(..., min_length=1)
-    password: str = Field(..., min_length=8)
     contact_id: int | None = None
 
 
 class UpdatePortalUserPayload(BaseModel):
     full_name: str | None = None
     is_active: bool | None = None
-
-
-class ResetPortalPasswordPayload(BaseModel):
-    new_password: str = Field(..., min_length=8)
 
 
 @router.get("/clients/{client_db_id}/portal-candidate-users")
@@ -138,19 +134,18 @@ def create_client_portal_user(
             if not row:
                 raise HTTPException(status_code=400, detail="Contact not found on this client")
 
-    user = create_portal_user(
+    user, temporary_password = create_portal_user(
         client_db_id=int(client_db_id),
         email=payload.email,
         full_name=payload.full_name,
-        password=payload.password,
         contact_id=payload.contact_id,
         created_by=_actor(_user),
     )
 
-    # Send welcome email with login URL
-    _send_welcome_email(user)
+    # Send welcome email with login URL and the generated password
+    _send_welcome_email(user, temporary_password=temporary_password)
 
-    return {"ok": True, "item": user}
+    return {"ok": True, "item": user, "temporary_password": temporary_password}
 
 
 @router.patch("/clients/{client_db_id}/portal-users/{portal_user_id}")
@@ -184,7 +179,6 @@ def update_client_portal_user(
 def reset_portal_user_password(
     client_db_id: int,
     portal_user_id: int,
-    payload: ResetPortalPasswordPayload = Body(...),
     _user: dict = Depends(_current_user),
 ):
     assert_permission(_user, "jobs.edit")
@@ -197,8 +191,9 @@ def reset_portal_user_password(
         ).fetchone()
     if not row or int(row[0]) != int(client_db_id):
         raise HTTPException(status_code=404, detail="Portal user not found")
-    set_portal_user_password(int(portal_user_id), payload.new_password)
-    return {"ok": True}
+    updated, temporary_password = admin_reset_portal_user_password(int(portal_user_id))
+    _send_password_reset_email(updated, temporary_password=temporary_password)
+    return {"ok": True, "item": updated, "temporary_password": temporary_password}
 
 
 @router.post("/clients/{client_db_id}/portal-users/{portal_user_id}/resend-invite")
@@ -217,9 +212,9 @@ def resend_client_portal_invite(
         ).fetchone()
     if not row or int(row[0]) != int(client_db_id):
         raise HTTPException(status_code=404, detail="Portal user not found")
-    updated = resend_portal_invite(int(portal_user_id), actor=_actor(_user))
-    _send_welcome_email(updated)
-    return {"ok": True, "item": updated}
+    updated, temporary_password = resend_portal_invite(int(portal_user_id), actor=_actor(_user))
+    _send_reinvite_email(updated, temporary_password=temporary_password)
+    return {"ok": True, "item": updated, "temporary_password": temporary_password}
 
 
 @router.get("/clients/{client_db_id}/portal-history")
@@ -346,34 +341,93 @@ def get_client_portal_files(
     }
 
 
-def _send_welcome_email(portal_user: dict) -> None:
+def _send_portal_credentials_email(
+    portal_user: dict,
+    *,
+    temporary_password: str,
+    template_key: str,
+    fallback_subject: str,
+    fallback_body: str,
+) -> None:
     from api.portal_auth_routes import _portal_base_url
     try:
+        context = {
+            "full_name": portal_user["full_name"],
+            "email": portal_user["email"],
+            "temporary_password": temporary_password,
+            "login_url": f"{_portal_base_url()}/login",
+        }
         with get_conn() as con:
+            rendered = build_email_content(
+                con=con,
+                template_key=template_key,
+                context=context,
+                fallback_subject=fallback_subject,
+                fallback_body=fallback_body,
+                sender_identifier="portal-admin",
+            )
             send_tracked_email(
                 con,
                 to_email=portal_user["email"],
-                subject="Welcome to NZInsights — your carbon reporting portal",
-                body_text=(
-                    f"Hi {portal_user['full_name']},\n\n"
-                    f"Your NZInsights account is ready. You can log in at:\n\n"
-                    f"{_portal_base_url()}/login\n\n"
-                    f"Use your email address and the password provided to you by your NZI contact.\n\n"
-                    f"NZInsights gives you secure access to your carbon reports and allows you to review and approve them online."
-                ),
-                body_html=(
-                    f"<p>Hi {portal_user['full_name']},</p>"
-                    f"<p>Your NZInsights account is ready.</p>"
-                    f"<p><a href='{_portal_base_url()}/login'>Log in to NZInsights</a></p>"
-                    f"<p>Use your email address and the password provided to you by your NZI contact.</p>"
-                ),
-                template_key="portal_welcome",
+                subject=rendered["subject"],
+                body_text=rendered["body_text"],
+                body_html=rendered["body_html"],
+                template_key=template_key,
                 entity_type="portal_user",
                 entity_id=str(portal_user["portal_user_id"]),
                 created_by="portal-admin",
             )
     except Exception:
         pass
+
+
+def _send_welcome_email(portal_user: dict, *, temporary_password: str) -> None:
+    _send_portal_credentials_email(
+        portal_user,
+        temporary_password=temporary_password,
+        template_key="portal_welcome",
+        fallback_subject="Welcome to NZInsights — your carbon reporting portal",
+        fallback_body=(
+            f"<p>Hi {portal_user['full_name']},</p>"
+            f"<p>Your NZInsights account is ready.</p>"
+            f"<p>Username: <strong>{portal_user['email']}</strong><br/>"
+            f"Temporary password: <strong>{temporary_password}</strong></p>"
+            f"<p>Please sign in and change your password after logging in.</p>"
+            f"<p>NZInsights gives you secure access to your carbon reports and allows you to review and approve them online.</p>"
+        ),
+    )
+
+
+def _send_reinvite_email(portal_user: dict, *, temporary_password: str) -> None:
+    _send_portal_credentials_email(
+        portal_user,
+        temporary_password=temporary_password,
+        template_key="portal_reinvite",
+        fallback_subject="Your NZInsights access has been refreshed",
+        fallback_body=(
+            f"<p>Hi {portal_user['full_name']},</p>"
+            f"<p>Your NZInsights access has been re-issued.</p>"
+            f"<p>Username: <strong>{portal_user['email']}</strong><br/>"
+            f"Temporary password: <strong>{temporary_password}</strong></p>"
+            f"<p>Please sign in and change your password after logging in.</p>"
+        ),
+    )
+
+
+def _send_password_reset_email(portal_user: dict, *, temporary_password: str) -> None:
+    _send_portal_credentials_email(
+        portal_user,
+        temporary_password=temporary_password,
+        template_key="portal_password_reset",
+        fallback_subject="Your NZInsights temporary password",
+        fallback_body=(
+            f"<p>Hi {portal_user['full_name']},</p>"
+            f"<p>Your NZInsights password has been reset.</p>"
+            f"<p>Username: <strong>{portal_user['email']}</strong><br/>"
+            f"Temporary password: <strong>{temporary_password}</strong></p>"
+            f"<p>Please sign in and change your password after logging in.</p>"
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -491,23 +545,32 @@ def _notify_client_review_ready(portal_user: dict, job_ref: str, job_id: int) ->
     from api.portal_auth_routes import _portal_base_url
     try:
         review_url = f"{_portal_base_url()}/jobs/{job_id}/review"
+        context = {
+            "full_name": portal_user["full_name"],
+            "job_ref": job_ref,
+            "review_url": review_url,
+        }
+        fallback_body = (
+            f"<p>Hi {portal_user['full_name']},</p>"
+            f"<p>Your carbon report for <strong>{job_ref}</strong> is now ready for your review in NZInsights.</p>"
+            f"<p><a href='{review_url}'>Review your report</a></p>"
+            f"<p>You can read the report, leave comments or change requests, and approve it when you are happy.</p>"
+        )
         with get_conn() as con:
+            rendered = build_email_content(
+                con=con,
+                template_key="portal_review_ready",
+                context=context,
+                fallback_subject=f"Your report is ready to review — {job_ref}",
+                fallback_body=fallback_body,
+                sender_identifier="portal",
+            )
             send_tracked_email(
                 con,
                 to_email=portal_user["email"],
-                subject=f"Your report is ready to review — {job_ref}",
-                body_text=(
-                    f"Hi {portal_user['full_name']},\n\n"
-                    f"Your carbon report for {job_ref} is now ready for your review in NZInsights.\n\n"
-                    f"Review it here: {review_url}\n\n"
-                    f"You can read the report, leave comments or change requests, and approve it when you are happy."
-                ),
-                body_html=(
-                    f"<p>Hi {portal_user['full_name']},</p>"
-                    f"<p>Your carbon report for <strong>{job_ref}</strong> is now ready for your review in NZInsights.</p>"
-                    f"<p><a href='{review_url}'>Review your report</a></p>"
-                    f"<p>You can read the report, leave comments or change requests, and approve it when you are happy.</p>"
-                ),
+                subject=rendered["subject"],
+                body_text=rendered["body_text"],
+                body_html=rendered["body_html"],
                 template_key="portal_review_ready",
                 entity_type="job",
                 entity_id=str(job_id),
@@ -674,20 +737,30 @@ def _notify_client_all_resolved(job_id: int) -> None:
             job_ref = f"{job_row[0]} — {job_row[1]}" if job_row[0] else str(job_row[1] or f"Job {job_id}")
             review_url = f"{_portal_base_url()}/jobs/{job_id}/review"
             for pu in portal_users:
+                context = {
+                    "full_name": pu["full_name"],
+                    "job_ref": job_ref,
+                    "review_url": review_url,
+                }
+                fallback_body = (
+                    f"<p>Hi {pu['full_name']},</p>"
+                    f"<p>All your comments on <strong>{job_ref}</strong> have been addressed.</p>"
+                    f"<p><a href='{review_url}'>Log in to review and approve</a></p>"
+                )
+                rendered = build_email_content(
+                    con=con,
+                    template_key="portal_comments_addressed",
+                    context=context,
+                    fallback_subject=f"Your comments have been addressed — {job_ref}",
+                    fallback_body=fallback_body,
+                    sender_identifier="portal",
+                )
                 send_tracked_email(
                     con,
                     to_email=pu["email"],
-                    subject=f"Your comments have been addressed — {job_ref}",
-                    body_text=(
-                        f"Hi {pu['full_name']},\n\n"
-                        f"All your comments on {job_ref} have been addressed.\n\n"
-                        f"Log in to NZInsights to review the responses and approve your report when happy:\n{review_url}"
-                    ),
-                    body_html=(
-                        f"<p>Hi {pu['full_name']},</p>"
-                        f"<p>All your comments on <strong>{job_ref}</strong> have been addressed.</p>"
-                        f"<p><a href='{review_url}'>Log in to review and approve</a></p>"
-                    ),
+                    subject=rendered["subject"],
+                    body_text=rendered["body_text"],
+                    body_html=rendered["body_html"],
                     template_key="portal_comments_addressed",
                     entity_type="job",
                     entity_id=str(job_id),

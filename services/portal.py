@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import os
 import secrets
+import string
 from datetime import datetime, timezone
 from typing import Any
 
@@ -21,6 +22,11 @@ from core.database import get_conn
 # ---------------------------------------------------------------------------
 # Password helpers (same algorithm as core.auth)
 # ---------------------------------------------------------------------------
+
+def _generate_temp_password(length: int = 14) -> str:
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
 
 def _hash_password(password: str, iterations: int = 100_000) -> str:
     salt = os.urandom(16)
@@ -431,18 +437,21 @@ def create_portal_user(
     client_db_id: int,
     email: str,
     full_name: str,
-    password: str,
     contact_id: int | None = None,
     created_by: str,
     con=None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], str]:
+    """Create a portal user with a system-generated temporary password.
+
+    Returns (user, temporary_password) — the plaintext password is only
+    available here, at creation time, for the caller to email to the user.
+    """
     if con is None:
         with get_conn(autocommit=False) as managed:
             return create_portal_user(
                 client_db_id=client_db_id,
                 email=email,
                 full_name=full_name,
-                password=password,
                 contact_id=contact_id,
                 created_by=created_by,
                 con=managed,
@@ -455,8 +464,6 @@ def create_portal_user(
     full_name = str(full_name or "").strip()
     if not full_name:
         raise HTTPException(status_code=400, detail="Full name is required")
-    if not password or len(password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
     existing = con.execute(
         "SELECT portal_user_id FROM client_portal_users WHERE LOWER(email) = LOWER(%s)",
@@ -465,7 +472,8 @@ def create_portal_user(
     if existing:
         raise HTTPException(status_code=400, detail="A portal account with this email already exists")
 
-    ph = _hash_password(password)
+    temporary_password = _generate_temp_password()
+    ph = _hash_password(temporary_password)
     row = con.execute(
         """
         INSERT INTO client_portal_users
@@ -475,7 +483,8 @@ def create_portal_user(
         """,
         [int(client_db_id), contact_id, email, full_name, ph, created_by, created_by],
     ).fetchone()
-    return get_portal_user_by_id(int(row[0]), con=con)
+    user = get_portal_user_by_id(int(row[0]), con=con)
+    return user, temporary_password
 
 
 def update_portal_user(
@@ -518,18 +527,51 @@ def set_portal_user_password(portal_user_id: int, password: str, *, con=None) ->
     )
 
 
-def resend_portal_invite(portal_user_id: int, *, actor: str, con=None) -> dict[str, Any]:
+def resend_portal_invite(portal_user_id: int, *, actor: str, con=None) -> tuple[dict[str, Any], str]:
+    """Re-invite a portal user with a freshly generated temporary password.
+
+    A new password is required here because the original one can't be
+    recovered in plaintext once hashed. Returns (user, temporary_password).
+    """
     if con is None:
         with get_conn(autocommit=False) as managed:
             return resend_portal_invite(portal_user_id, actor=actor, con=managed)
     user = get_portal_user_by_id(portal_user_id, con=con)
     if not user:
         raise HTTPException(status_code=404, detail="Portal user not found")
+    temporary_password = _generate_temp_password()
+    ph = _hash_password(temporary_password)
     con.execute(
-        "UPDATE client_portal_users SET invited_at = NOW(), invited_by = %s, updated_at = NOW() WHERE portal_user_id = %s",
-        [actor, int(portal_user_id)],
+        """
+        UPDATE client_portal_users
+        SET invited_at = NOW(), invited_by = %s, password_hash = %s, updated_at = NOW(),
+            reset_token_hash = NULL, reset_token_expires = NULL
+        WHERE portal_user_id = %s
+        """,
+        [actor, ph, int(portal_user_id)],
     )
-    return get_portal_user_by_id(portal_user_id, con=con)
+    updated = get_portal_user_by_id(portal_user_id, con=con)
+    return updated, temporary_password
+
+
+def admin_reset_portal_user_password(portal_user_id: int, *, con=None) -> tuple[dict[str, Any], str]:
+    """CRM-initiated password reset with a system-generated password.
+
+    Distinct from set_portal_user_password(), which stays generic since it's
+    also used by the client's own self-service change/forgot-password flows
+    (where the client picks their own new password). Returns
+    (user, temporary_password).
+    """
+    if con is None:
+        with get_conn(autocommit=False) as managed:
+            return admin_reset_portal_user_password(portal_user_id, con=managed)
+    user = get_portal_user_by_id(portal_user_id, con=con)
+    if not user:
+        raise HTTPException(status_code=404, detail="Portal user not found")
+    temporary_password = _generate_temp_password()
+    set_portal_user_password(portal_user_id, temporary_password, con=con)
+    updated = get_portal_user_by_id(portal_user_id, con=con)
+    return updated, temporary_password
 
 
 # ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@ const MESSAGE_TYPES = [
   { value: "reminder", label: "Reminder" },
   { value: "introduction", label: "Introduction" },
   { value: "job_start", label: "Job Start" },
+  { value: "portal", label: "Portal" },
   { value: "general", label: "General" },
 ];
 
