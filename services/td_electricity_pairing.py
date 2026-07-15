@@ -13,26 +13,38 @@ from __future__ import annotations
 from typing import Any
 
 
-def detect_electricity_pair_kind(*, category: str | None, uom: str | None) -> str | None:
-    """Return 'kwh' | 'spend' | None for a factor's category/uom.
+def detect_electricity_pair_kind(*, level_1: str | None, level_2: str | None, uom: str | None) -> str | None:
+    """Return 'kwh' | 'spend' | None for a factor's level_1/level_2/uom.
 
-    Matches only the exact purchased-grid-electricity line, not any
-    electricity-adjacent category. Deliberately does not gate on
-    scope=='Scope 2': the DEFRA spend-factor CSV tags its plain
-    electricity spend factor as scope='Scope 3' even though it is
-    conceptually Scope 2 purchased electricity, so category text is the
-    only reliable signal across both source files. Also deliberately does
-    not fire on "Managed assets- electricity" or "WTT- UK electricity"
-    categories, which share the same level_3/uom but have no T&D pair of
-    their own (or represent a different upstream stage).
+    The discriminating label lives in level_1 for every row this module
+    cares about -- category is uniformly "Energy" (or blank) across the
+    grid-electricity and T&D factor lines and carries no useful signal
+    here. Deliberately does not gate on scope=='Scope 2': the DEFRA
+    spend-factor CSV tags its plain electricity spend factor as
+    scope='Scope 3' even though it is conceptually Scope 2 purchased
+    electricity. Also deliberately does not fire on "Managed assets-
+    electricity", "WTT- UK electricity", "UK electricity for EVs", or
+    "Electricity Generation" (international) level_1 values, which share
+    overlapping uom/level_2 text but have no T&D pair of their own (or
+    represent a different upstream stage/scope).
+
+    "UK Renewable Electricity" only pairs when level_2 is "Electricity
+    generated" (a grid-purchased renewable tariff, still transmitted over
+    the public grid) -- not "Electricity self generated" (on-site
+    solar/wind/bio/other), which never touches T&D infrastructure.
     """
-    cat = str(category or "").strip().lower()
+    lvl1 = str(level_1 or "").strip().lower()
+    lvl2 = str(level_2 or "").strip().lower()
     uom_norm = str(uom or "").strip().lower()
 
-    if uom_norm == "kwh" and cat == "uk electricity":
-        return "kwh"
-    if uom_norm == "gbp" and cat == "electricity":
+    if uom_norm == "gbp" and lvl1 == "electricity":
         return "spend"
+    if uom_norm != "kwh":
+        return None
+    if lvl1 == "uk electricity":
+        return "kwh"
+    if lvl1 == "uk renewable electricity" and lvl2 == "electricity generated":
+        return "kwh"
     return None
 
 
@@ -41,7 +53,6 @@ def find_td_pair_factor(
     *,
     dataset_id: int,
     pair_kind: str,
-    level_3: str | None,
     uom: str | None,
 ) -> dict[str, Any] | None:
     """Look up the single T&D factor pairing a grid-electricity factor.
@@ -57,13 +68,13 @@ def find_td_pair_factor(
             FROM factor_lookup
             WHERE dataset_id = %s
               AND scope = 'Scope 3'
-              AND category = 'Transmission and distribution'
-              AND level_3 IS NOT DISTINCT FROM %s
+              AND level_1 = 'Transmission and distribution'
+              AND level_2 = 'T&D- UK electricity'
               AND uom IS NOT DISTINCT FROM %s
             ORDER BY db_id ASC
             LIMIT 2
         """
-        params: list[Any] = [int(dataset_id), level_3, uom]
+        params: list[Any] = [int(dataset_id), uom]
     elif pair_kind == "spend":
         query = """
             SELECT db_id, original_id, factor, ghg_unit, uom, report_label,
@@ -71,7 +82,7 @@ def find_td_pair_factor(
             FROM factor_lookup
             WHERE dataset_id = %s
               AND scope = 'Scope 3'
-              AND TRIM(category) = 'Electricity, transmission and distribution'
+              AND TRIM(level_1) = 'Electricity, transmission and distribution'
             ORDER BY db_id ASC
             LIMIT 2
         """
@@ -110,8 +121,8 @@ def resolve_td_pair_for_new_row(
     con,
     *,
     dataset_id: int | None,
-    category: str | None,
-    level_3: str | None,
+    level_1: str | None,
+    level_2: str | None,
     uom: str | None,
 ) -> dict[str, Any] | None:
     """Single entrypoint: detect + look up a T&D pair for a new row.
@@ -122,10 +133,10 @@ def resolve_td_pair_for_new_row(
     """
     if dataset_id is None:
         return None
-    pair_kind = detect_electricity_pair_kind(category=category, uom=uom)
+    pair_kind = detect_electricity_pair_kind(level_1=level_1, level_2=level_2, uom=uom)
     if pair_kind is None:
         return None
-    pair = find_td_pair_factor(con, dataset_id=dataset_id, pair_kind=pair_kind, level_3=level_3, uom=uom)
+    pair = find_td_pair_factor(con, dataset_id=dataset_id, pair_kind=pair_kind, uom=uom)
     if pair is not None:
         pair["auto_pair_kind"] = f"td_electricity_{pair_kind}"
     return pair

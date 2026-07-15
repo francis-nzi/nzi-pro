@@ -1378,11 +1378,18 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         removeScopeDataRow(rowId);
         clearRowDirty(rowId);
         if (result?.cascaded_row_id) {
-          removeScopeDataRow(result.cascaded_row_id);
-          clearRowDirty(result.cascaded_row_id);
+          // The shared T&D row's total was recomputed (it may or may not
+          // still exist, depending on whether other rows still link to
+          // it) -- refresh it rather than assuming it was deleted too.
+          await refreshScopeDataRow(result.cascaded_row_id);
         }
-        if (result?.unlinked_row_id) {
-          replaceScopeDataRow(result.unlinked_row_id, { linked_row_id: null });
+        const unlinkedRowIds: number[] = Array.isArray(result?.unlinked_row_ids)
+          ? result.unlinked_row_ids
+          : result?.unlinked_row_id
+          ? [result.unlinked_row_id]
+          : [];
+        for (const unlinkedId of unlinkedRowIds) {
+          replaceScopeDataRow(unlinkedId, { linked_row_id: null });
         }
         await refreshScopeTotals();
         dispatchJobScopeRefresh("job-data-entry");
@@ -2152,14 +2159,14 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             {row.is_auto_generated ? (
                               <div
                                 className="inline-flex rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-medium text-purple-900"
-                                title={`Automatically generated from row #${row.linked_row_id ?? "?"} - qty and monthly split stay in sync with it.`}
+                                title="Automatically calculated by summing every grid-electricity row at this site that pairs to this T&D factor - not directly editable."
                               >
                                 Auto T&D
                               </div>
                             ) : row.linked_row_id ? (
                               <div
                                 className="inline-flex rounded-full bg-purple-50 px-2 py-0.5 text-[11px] font-medium text-purple-800"
-                                title={`Linked to an auto-generated T&D row (#${row.linked_row_id}) - editing qty or monthly values here updates it too.`}
+                                title={`Contributes to a shared T&D total (row #${row.linked_row_id}) alongside any other grid-electricity rows at this site.`}
                               >
                                 Linked → T&D
                               </div>
@@ -2168,7 +2175,14 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                         </td>
                         {visibleColumns.qty && (
                           <td className="p-2 text-right">
-                            {isLegacyFallbackRow(row) ? (
+                            {row.is_auto_generated ? (
+                              <span
+                                className="inline-block px-2 py-1 font-mono"
+                                title="Automatically calculated by summing linked grid-electricity rows at this site - not directly editable."
+                              >
+                                {row.qty?.toFixed(2) || "0.00"}
+                              </span>
+                            ) : isLegacyFallbackRow(row) ? (
                               <span
                                 className="inline-block px-2 py-1 font-mono"
                                 title="Legacy annual row shows the original source volume. This row is stored monthly as tCO₂e for audit compatibility."
