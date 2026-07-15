@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -255,6 +255,17 @@ export default function JobSourceRegister({
   ]);
 
   useUnsavedChangesGuard(hasUnsavedChanges);
+
+  const [currentStep, setCurrentStep] = useState<number>(1);
+  const initialStepSet = useRef(false);
+
+  useEffect(() => {
+    if (initialStepSet.current) return;
+    if (!summary) return;
+    initialStepSet.current = true;
+    const hasData = isBusinessTravel ? businessTravelRows.length > 0 : (summary.source_count ?? 0) > 0;
+    if (hasData) setCurrentStep(3);
+  }, [summary, businessTravelRows.length, isBusinessTravel]);
 
   async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
     const token = getToken();
@@ -851,6 +862,12 @@ export default function JobSourceRegister({
     }
   }
 
+  const stages = [
+    { num: 1, label: "Setup", done: Boolean(summary) },
+    { num: 2, label: "Add Data", done: isBusinessTravel ? businessTravelRows.length > 0 : (summary?.source_count ?? 0) > 0 },
+    { num: 3, label: "Job Data", done: false },
+  ];
+
   return (
     <div className="space-y-6">
       {showEmissionsSummary ? <EmissionsSummary jobId={jobId} baseUrl={baseUrl} /> : null}
@@ -860,584 +877,659 @@ export default function JobSourceRegister({
           <CardTitle>{title}</CardTitle>
           <p className="text-sm text-muted-foreground">{description}</p>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-4">
-          <div><div className="text-xs text-muted-foreground">{recordPlural}</div><div className="text-2xl font-semibold">{summary?.source_count ?? 0}</div></div>
-          <div><div className="text-xs text-muted-foreground">Groups</div><div className="text-2xl font-semibold">{summary?.group_count ?? 0}</div></div>
-          <div><div className="text-xs text-muted-foreground">Ungrouped</div><div className="text-2xl font-semibold">{summary?.ungrouped_source_count ?? 0}</div></div>
-          <div><div className="text-xs text-muted-foreground">tCO₂e</div><div className="text-2xl font-semibold">{(summary?.total_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</div></div>
+        <CardContent className="space-y-3">
+          <div className="grid gap-4 md:grid-cols-4">
+            <div><div className="text-xs text-muted-foreground">{recordPlural}</div><div className="text-2xl font-semibold">{summary?.source_count ?? 0}</div></div>
+            <div><div className="text-xs text-muted-foreground">Groups</div><div className="text-2xl font-semibold">{summary?.group_count ?? 0}</div></div>
+            <div><div className="text-xs text-muted-foreground">Ungrouped</div><div className="text-2xl font-semibold">{summary?.ungrouped_source_count ?? 0}</div></div>
+            <div><div className="text-xs text-muted-foreground">tCO₂e</div><div className="text-2xl font-semibold">{(summary?.total_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</div></div>
+          </div>
+          {error ? <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</div> : null}
+          {status ? <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{status}</div> : null}
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="space-y-5">
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-2 min-w-[220px]">
-              <Label>{isBusinessTravel ? "Workbook site" : "Workbook site"}</Label>
-              <Select value={downloadSiteId} onValueChange={setDownloadSiteId}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">All sites</SelectItem>
-                  {sites.filter((s) => s.site_id != null).map((s) => (
-                    <SelectItem key={String(s.site_id)} value={String(s.site_id)}>{s.site_name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+      {/* Stage progress indicator */}
+      <div className="flex items-start px-2">
+        {stages.map((stage, i) => (
+          <Fragment key={stage.num}>
+            <div className="flex flex-col items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                disabled={!stage.done && stage.num > currentStep}
+                onClick={() => { if (stage.done || stage.num <= currentStep) setCurrentStep(stage.num); }}
+                className={[
+                  "flex h-9 w-9 items-center justify-center rounded-full border-2 text-sm font-semibold transition-colors",
+                  currentStep === stage.num
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : stage.done
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-700 cursor-pointer"
+                    : stage.num < currentStep
+                    ? "border-primary/50 bg-primary/10 text-primary cursor-pointer"
+                    : "border-muted-foreground/30 bg-background text-muted-foreground cursor-default",
+                ].join(" ")}
+              >
+                {stage.done ? "✓" : stage.num}
+              </button>
+              <span className={[
+                "text-xs font-medium text-center whitespace-nowrap",
+                currentStep === stage.num ? "text-primary" : stage.done ? "text-emerald-700" : "text-muted-foreground",
+              ].join(" ")}>
+                {stage.label}
+              </span>
             </div>
-            <Button variant="outline" onClick={() => void downloadRegisterWorkbook("template")} disabled={loading || importing}>
-              Download template
-            </Button>
-            <Button variant="outline" onClick={() => void downloadRegisterWorkbook("example")} disabled={loading || importing}>
-              Download example
-            </Button>
-            {!isBusinessTravel ? (
-              <Button variant="secondary" onClick={importPreviousYear} disabled={loading || importing}>
-                {importing ? "Importing previous year..." : "Import previous year"}
-              </Button>
-            ) : null}
-          </div>
-
-          <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground space-y-2">
-            <p>
-              {isBusinessTravel ? (
-                <>
-                  Download a <span className="font-medium text-foreground">Data Upload</span> workbook for business
-                  travel, compare the current year against prior-year tabs, then import the completed workbook into{" "}
-                  <span className="font-medium text-foreground">Data Entry</span>.
-                </>
-              ) : (
-                <>
-                  Use matching <span className="font-medium text-foreground">{groupLabel}</span> values to link{" "}
-                  {recordPlural.toLowerCase()} to shared roll-up groups. The {groupLabel} name is the business roll-up
-                  label, while the factor ID lives in{" "}
-                  <span className="font-medium text-foreground">Original ID</span> or{" "}
-                  <span className="font-medium text-foreground">Factor DB ID</span> on each{" "}
-                  {recordLabel.toLowerCase()} row.
-                </>
-              )}
-            </p>
-            <p>
-              <span className="font-medium text-foreground">group_type</span> is handled internally by the system and
-              usually stays as <span className="font-medium text-foreground">asset</span> for the Asset Register and{" "}
-              <span className="font-medium text-foreground">business_travel</span> for the business travel upload.
-            </p>
-            <p>
-              Suggested pattern:{" "}
-              <span className="font-medium text-foreground">[Category] - [{isBusinessTravel ? "Mode" : "Asset"}] - [Site or Team]</span>.
-            </p>
-            {isBusinessTravel ? (
-              <p>
-                Each row in the workbook should use the filtered factor title that best matches the mode, vehicle, or
-                hotel stay you are comparing. Search is live on the factor picker, and the workbook download can be
-                limited to a single site.
-              </p>
-            ) : (
-              <p>
-                For fleet-style reporting, use the group as the factor family bucket, for example{" "}
-                <span className="font-medium text-foreground">Diesel Van Class 1 - Head Office</span>, and keep each{" "}
-                {recordLabel.toLowerCase()} as the individual record underneath it.
-              </p>
+            {i < stages.length - 1 && (
+              <div className={[
+                "flex-1 h-0.5 mt-[18px] mx-2",
+                stage.done || currentStep > stage.num ? "bg-emerald-300" : "bg-muted",
+              ].join(" ")} />
             )}
-            {!isBusinessTravel ? <p>Search is live on the factor picker, and the workbook download can be limited to a single site.</p> : null}
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-[1.5fr_1fr]">
-            <div className="space-y-2">
-              <Label htmlFor="asset-register-upload">
-                {isBusinessTravel ? "Import workbook for Data Entry (.xlsx)" : "Import workbook (.xlsx)"}
-              </Label>
-              <Input
-                id="asset-register-upload"
-                type="file"
-                accept=".xlsx"
-                onChange={(e) => {
-                  setUploadFile(e.target.files?.[0] ?? null);
-                  setImportPreview(null);
-                  setBusinessTravelRowsReady(null);
-                }}
-              />
-            </div>
-            <div className="flex items-end">
-              {!importPreview ? (
-                <Button
-                  onClick={previewImportWorkbook}
-                  disabled={loading || importing || !uploadFile || (isBusinessTravel && downloadSiteId === "__all__")}
-                  className="w-full"
-                >
-                  {importing ? "Checking workbook..." : "Preview Import"}
-                </Button>
-              ) : (
-                <div className="flex w-full gap-2">
-                  <Button onClick={confirmImportWorkbook} disabled={importing} className="flex-1">
-                    {importing ? "Importing workbook..." : importButtonLabel}
-                  </Button>
-                  <Button variant="outline" onClick={cancelImportPreview} disabled={importing}>
-                    Cancel
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-          {importing ? <UploadProgressBar value={importProgress} label="Checking workbook..." /> : null}
-          {importPreview ? (
-            <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
-              <p className="font-medium">
-                {importPreview.readyCount} row{importPreview.readyCount === 1 ? "" : "s"} ready to import
-                {isBusinessTravel ? "" : ` (${importPreview.insertedGroups ?? 0} new group${(importPreview.insertedGroups ?? 0) === 1 ? "" : "s"}, ${importPreview.reusedGroups ?? 0} reused)`}
-                . Nothing has been saved yet — click &quot;{importButtonLabel}&quot; to commit, or Cancel to discard.
-              </p>
-              {!isBusinessTravel && (importPreview.skippedSources ?? 0) > 0 ? (
-                <p className="text-muted-foreground">{importPreview.skippedSources} row(s) already exist and will be skipped.</p>
-              ) : null}
-              {importPreview.warnings.length > 0 ? (
-                <ul className="list-disc pl-5 text-amber-700">
-                  {importPreview.warnings.map((w, idx) => (
-                    <li key={idx}>{w}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      {error ? <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</div> : null}
-      {status ? <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{status}</div> : null}
-
-      <div className="space-y-6">
-        {isBusinessTravel ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Business Travel Workbook Guidance</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-muted-foreground">
-              <p>Use the workbook to compare the current year with previous years and keep the same factor titles where possible.</p>
-              <p>Include new factor lines only when the business travel category needs something that was not used previously.</p>
-              <p>The import process writes into Data Entry rather than creating travel register rows.</p>
-            </CardContent>
-          </Card>
-        ) : null}
-
-        {!isBusinessTravel ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Create Group</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Group name</Label>
-                <Input value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="Diesel Vans Class 1 - Head Office" />
-              </div>
-              <div className="space-y-2">
-                <Label>Scope</Label>
-                <Select value={groupScope} onValueChange={setGroupScope}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Scope 1">Scope 1</SelectItem>
-                    <SelectItem value="Scope 2">Scope 2</SelectItem>
-                    <SelectItem value="Scope 3">Scope 3</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Category</Label>
-                <Input value={groupCategory} onChange={(e) => setGroupCategory(e.target.value)} placeholder="Fleet / Travel / Equipment" />
-              </div>
-              <div className="space-y-2">
-                <Label>Roll-up</Label>
-                <Select value={groupRollupMethod} onValueChange={setGroupRollupMethod}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="sum">Sum</SelectItem>
-                    <SelectItem value="weighted_sum">Weighted sum</SelectItem>
-                    <SelectItem value="headcount_scaled">Headcount scaled</SelectItem>
-                    <SelectItem value="average">Average</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Site</Label>
-              <Select value={groupSiteId} onValueChange={setGroupSiteId}>
-                <SelectTrigger><SelectValue placeholder="Optional site..." /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">No site</SelectItem>
-                  {sites.filter((s) => s.site_id != null).map((s) => (
-                    <SelectItem key={String(s.site_id)} value={String(s.site_id)}>{s.site_name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-3 rounded-md border bg-muted/10 p-4">
-              <div className="space-y-2">
-                <Label>Factor search</Label>
-                <Input
-                  value={factorSearch}
-                  onChange={(e) => setFactorSearch(e.target.value)}
-                  placeholder="Search by label, category, UOM, or ID"
-                />
-                <div className="text-xs text-muted-foreground">
-                  Pick the factor family this group will own. All assets added underneath inherit it.
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Factor scope filter</Label>
-                <Select value={factorScopeFilter} onValueChange={setFactorScopeFilter}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="All">All</SelectItem>
-                    <SelectItem value="Scope 1">Scope 1</SelectItem>
-                    <SelectItem value="Scope 2">Scope 2</SelectItem>
-                    <SelectItem value="Scope 3">Scope 3</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="max-h-56 overflow-auto rounded-md border bg-background">
-                <div className="grid grid-cols-[1fr_auto] gap-2 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
-                  <div>Factor</div>
-                  <div>Select</div>
-                </div>
-                {factorOptions.length ? factorOptions.map((factor) => (
-                  <div key={`${factor.original_id}-${factor.report_label}`} className="grid grid-cols-[1fr_auto] gap-2 border-b px-3 py-2 text-sm">
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{factor.report_label}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {factor.scope} · {factor.category} · UOM {factor.uom || "-"} · {factor.original_id}
-                      </div>
-                    </div>
-                    <Button variant={selectedFactor?.original_id === factor.original_id ? "secondary" : "outline"} size="sm" onClick={() => chooseFactor(factor)}>
-                      {selectedFactor?.original_id === factor.original_id ? "Chosen" : "Use"}
-                    </Button>
-                  </div>
-                )) : (
-                  <div className="p-3 text-sm text-muted-foreground">Search to find a factor, then choose it for this group.</div>
-                )}
-              </div>
-              {selectedFactor ? (
-                <div className="rounded-md border bg-background p-3 text-sm">
-                  <div className="font-medium">Selected factor</div>
-                  <div className="text-muted-foreground">
-                {selectedFactor.report_label} · {selectedFactor.original_id} · {selectedFactor.factor ?? "-"} {selectedFactor.ghg_unit ?? ""} · UOM {selectedFactor.uom || "-"}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-            <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
-              Group the similar assets that share the same emissions factor family. Each asset remains a separate row,
-              but the group controls the roll-up bucket.
-            </div>
-            <div className="space-y-2">
-              <Label>Notes</Label>
-              <Input value={groupNotes} onChange={(e) => setGroupNotes(e.target.value)} placeholder="Optional roll-up notes" />
-            </div>
-            <div className="flex justify-end">
-              <Button onClick={createGroup} disabled={loading || !groupName.trim() || !selectedFactor}>Create group</Button>
-            </div>
-          </CardContent>
-        </Card>
-        ) : null}
-
-        {!isBusinessTravel ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>{`Add ${recordLabel}`}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>{`${recordLabel} name`}</Label>
-                <Input value={sourceName} onChange={(e) => setSourceName(e.target.value)} placeholder={recordNamePlaceholder} />
-              </div>
-              <div className="space-y-2">
-                <Label>{recordIdentityLabel}</Label>
-                <Input value={assetIdentifier} onChange={(e) => setAssetIdentifier(e.target.value)} placeholder={recordIdentityPlaceholder} />
-              </div>
-              <div className="space-y-2">
-                <Label>{isBusinessTravel ? "Employee name" : "Owner / operator"}</Label>
-                <Input value={employeeName} onChange={(e) => setEmployeeName(e.target.value)} placeholder="Optional" />
-              </div>
-              <div className="space-y-2">
-                <Label>{isBusinessTravel ? "Travel subtype" : "Asset subtype"}</Label>
-                <Input value={sourceSubtype} onChange={(e) => setSourceSubtype(e.target.value)} placeholder="Optional subtype" />
-              </div>
-              <div className="space-y-2">
-                <Label>Group</Label>
-                <Select value={selectedGroupId} onValueChange={setSelectedGroupId}>
-                  <SelectTrigger><SelectValue placeholder="Choose a group..." /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">No group</SelectItem>
-                    {groups.map((g) => (
-                      <SelectItem key={g.group_id} value={String(g.group_id)}>{g.group_name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Qty</Label>
-                <Input type="number" step="any" value={qty} onChange={(e) => setQty(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>Apply %</Label>
-                <Input type="number" step="any" value={applyPct} onChange={(e) => setApplyPct(e.target.value)} />
-              </div>
-            </div>
-            <div className="rounded-md border bg-muted/10 p-4 text-sm text-muted-foreground space-y-2">
-              <p>
-                {recordPlural} inherit scope, site, category, and factor from the selected group. Pick the group
-                that represents the roll-up bucket, then add each individual {recordLabel.toLowerCase()} underneath
-                it.
-              </p>
-              {selectedGroup ? (
-                <p className="text-foreground">
-                  Selected group: <span className="font-medium">{selectedGroup.group_name}</span> · {selectedGroup.scope}
-                  {selectedGroup.site_name ? ` · ${selectedGroup.site_name}` : ""}
-                  {selectedGroup.factor_report_label ? ` · ${selectedGroup.factor_report_label}` : ""}
-                  {selectedGroup.uom ? ` · UOM ${selectedGroup.uom}` : ""}
-                </p>
-              ) : (
-                <p className="text-amber-700">
-                  Choose or create a group first so the {recordLabel.toLowerCase()} can inherit its factor and
-                  reporting details.
-                </p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label>Notes</Label>
-              <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" />
-            </div>
-            <div className="flex justify-end">
-              <Button onClick={createSource} disabled={loading || !sourceName.trim() || !selectedGroup || !selectedGroup.factor_db_id}>{`Add ${recordLabel.toLowerCase()}`}</Button>
-            </div>
-          </CardContent>
-        </Card>
-        ) : null}
+          </Fragment>
+        ))}
       </div>
 
-      {isBusinessTravel ? (
-        <>
+      {/* Stage 1: Setup */}
+      {currentStep === 1 && (
+        <div className="space-y-5">
           <Card>
-            <CardHeader>
-              <CardTitle>Data Entry Destination</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-muted-foreground">
-              <p>Imported business travel rows land in the Data Entry section as job scope rows.</p>
-              <p>Use the workbook tabs to compare previous years and keep factor titles consistent before importing.</p>
-              <p>Factor families are still searchable above if you need to inspect the available travel categories.</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Imported Business Travel Detail</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="text-sm text-muted-foreground">
-                Rows shown here are the imported job scope records from the business travel workbook.
-              </div>
-              <div className="grid gap-3 md:grid-cols-[1.5fr_1fr_1fr]">
-                <div className="space-y-2">
-                  <Label>Search</Label>
-                  <Input
-                    value={businessTravelSearch}
-                    onChange={(e) => setBusinessTravelSearch(e.target.value)}
-                    placeholder="Search by site, factor, ID, notes, or source..."
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Site</Label>
-                  <Select value={businessTravelSiteFilter} onValueChange={setBusinessTravelSiteFilter}>
+            <CardHeader><CardTitle>Stage 1: Setup</CardTitle></CardHeader>
+            <CardContent className="space-y-5">
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="space-y-2 min-w-[220px]">
+                  <Label>Workbook site</Label>
+                  <Select value={downloadSiteId} onValueChange={setDownloadSiteId}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__all__">All sites</SelectItem>
-                      {sites.filter((site) => site.site_id != null).map((site) => (
-                        <SelectItem key={String(site.site_id)} value={String(site.site_id)}>
-                          {site.site_name}
-                        </SelectItem>
+                      {sites.filter((s) => s.site_id != null).map((s) => (
+                        <SelectItem key={String(s.site_id)} value={String(s.site_id)}>{s.site_name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label>Data confidence</Label>
-                  <Select value={businessTravelConfidenceFilter} onValueChange={setBusinessTravelConfidenceFilter}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="All">All</SelectItem>
-                      <SelectItem value="H">H</SelectItem>
-                      <SelectItem value="M">M</SelectItem>
-                      <SelectItem value="L">L</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                <div>
-                  Showing {filteredBusinessTravelRows.length} of {businessTravelRows.length} imported rows
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setBusinessTravelSearch("");
-                    setBusinessTravelSiteFilter("__all__");
-                    setBusinessTravelConfidenceFilter("All");
-                  }}
-                >
-                  Clear filters
+                <Button variant="outline" onClick={() => void downloadRegisterWorkbook("template")} disabled={loading || importing}>
+                  Download template
                 </Button>
+                <Button variant="outline" onClick={() => void downloadRegisterWorkbook("example")} disabled={loading || importing}>
+                  Download example
+                </Button>
+                {!isBusinessTravel ? (
+                  <Button variant="secondary" onClick={importPreviousYear} disabled={loading || importing}>
+                    {importing ? "Importing previous year..." : "Import previous year"}
+                  </Button>
+                ) : null}
               </div>
-              {businessTravelRowsError ? (
-                <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-                  {businessTravelRowsError}
-                </div>
-              ) : null}
-              {businessTravelRowsLoading ? (
-                <div className="text-sm text-muted-foreground">Loading imported business travel rows...</div>
-              ) : filteredBusinessTravelRows.length ? (
-                <div className="overflow-x-auto rounded-md border">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/30">
-                      <tr className="border-b text-left">
-                        <th className="p-2">Factor</th>
-                        <th className="p-2">ID</th>
-                        <th className="p-2 text-right">Qty</th>
-                        <th className="p-2 text-right">tCO₂e</th>
-                        <th className="p-2">Data Source</th>
-                        <th className="p-2">Notes</th>
-                        <th className="p-2 text-right">M1</th>
-                        <th className="p-2 text-right">M2</th>
-                        <th className="p-2 text-right">M3</th>
-                        <th className="p-2 text-right">M4</th>
-                        <th className="p-2 text-right">M5</th>
-                        <th className="p-2 text-right">M6</th>
-                        <th className="p-2 text-right">M7</th>
-                        <th className="p-2 text-right">M8</th>
-                        <th className="p-2 text-right">M9</th>
-                        <th className="p-2 text-right">M10</th>
-                        <th className="p-2 text-right">M11</th>
-                        <th className="p-2 text-right">M12</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredBusinessTravelRows.map((row) => (
-                        <tr key={row.row_id} className="border-b align-top">
-                          <td className="p-2">
-                            <div className="font-medium text-foreground">{row.report_label || row.category || row.original_id}</div>
-                            <div className="text-xs text-muted-foreground">{row.category || "-"}{row.uom ? ` · UOM ${row.uom}` : ""}</div>
-                          </td>
-                          <td className="p-2 text-xs text-muted-foreground">{row.original_id}</td>
-                          <td className="p-2 text-right">{typeof row.qty === "number" ? row.qty.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
-                          <td className="p-2 text-right">{row.calc_tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                          <td className="p-2 text-xs text-muted-foreground">{row.data_source || "-"}</td>
-                          <td className="p-2 text-xs text-muted-foreground max-w-[20rem]">{row.notes || "-"}</td>
-                          <td className="p-2 text-right text-xs">{typeof row.month_1 === "number" ? row.month_1.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
-                          <td className="p-2 text-right text-xs">{typeof row.month_2 === "number" ? row.month_2.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
-                          <td className="p-2 text-right text-xs">{typeof row.month_3 === "number" ? row.month_3.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
-                          <td className="p-2 text-right text-xs">{typeof row.month_4 === "number" ? row.month_4.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
-                          <td className="p-2 text-right text-xs">{typeof row.month_5 === "number" ? row.month_5.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
-                          <td className="p-2 text-right text-xs">{typeof row.month_6 === "number" ? row.month_6.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
-                          <td className="p-2 text-right text-xs">{typeof row.month_7 === "number" ? row.month_7.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
-                          <td className="p-2 text-right text-xs">{typeof row.month_8 === "number" ? row.month_8.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
-                          <td className="p-2 text-right text-xs">{typeof row.month_9 === "number" ? row.month_9.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
-                          <td className="p-2 text-right text-xs">{typeof row.month_10 === "number" ? row.month_10.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
-                          <td className="p-2 text-right text-xs">{typeof row.month_11 === "number" ? row.month_11.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
-                          <td className="p-2 text-right text-xs">{typeof row.month_12 === "number" ? row.month_12.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="text-sm text-muted-foreground">
-                  No imported business travel rows yet. Download the workbook, complete it, then import it here.
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </>
-      ) : (
-        <>
-          <Card>
-            <CardHeader>
-              <CardTitle>Groups</CardTitle>
-            </CardHeader>
-            <CardContent className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left">
-                    <th className="p-2">Name</th>
-                    <th className="p-2">Scope</th>
-                    <th className="p-2">Site</th>
-                    <th className="p-2">Factor</th>
-                    <th className="p-2">UOM</th>
-                    <th className="p-2">Sources</th>
-                    <th className="p-2 text-right">tCO₂e</th>
-                    <th className="p-2"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {groups.length ? groups.map((g) => (
-                    <tr key={g.group_id} className="border-b">
-                      <td className="p-2">{g.group_name}</td>
-                      <td className="p-2">{g.scope}</td>
-                      <td className="p-2">{g.site_name || "-"}</td>
-                      <td className="p-2">
-                        <div className="font-medium">{g.factor_report_label || g.original_id || "-"}</div>
-                        <div className="text-xs text-muted-foreground">{g.original_id || "-"}{g.factor != null ? ` · ${g.factor}` : ""}{g.ghg_unit ? ` ${g.ghg_unit}` : ""}</div>
-                      </td>
-                      <td className="p-2">{g.uom || "-"}</td>
-                      <td className="p-2">{g.source_count ?? 0}</td>
-                      <td className="p-2 text-right">{(g.source_total_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                      <td className="p-2 text-right">
-                        <Button variant="outline" size="sm" onClick={() => removeGroup(g.group_id, g.group_name)}>Delete</Button>
-                      </td>
-                    </tr>
-                  )) : (
-                    <tr><td colSpan={8} className="p-4 text-muted-foreground">No groups yet.</td></tr>
+
+              <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground space-y-2">
+                <p>
+                  {isBusinessTravel ? (
+                    <>
+                      Download a <span className="font-medium text-foreground">Data Upload</span> workbook for business
+                      travel, compare the current year against prior-year tabs, then import the completed workbook into{" "}
+                      <span className="font-medium text-foreground">Data Entry</span>.
+                    </>
+                  ) : (
+                    <>
+                      Use matching <span className="font-medium text-foreground">{groupLabel}</span> values to link{" "}
+                      {recordPlural.toLowerCase()} to shared roll-up groups. The {groupLabel} name is the business roll-up
+                      label, while the factor ID lives in{" "}
+                      <span className="font-medium text-foreground">Original ID</span> or{" "}
+                      <span className="font-medium text-foreground">Factor DB ID</span> on each{" "}
+                      {recordLabel.toLowerCase()} row.
+                    </>
                   )}
-                </tbody>
-              </table>
+                </p>
+                <p>
+                  <span className="font-medium text-foreground">group_type</span> is handled internally by the system and
+                  usually stays as <span className="font-medium text-foreground">asset</span> for the Asset Register and{" "}
+                  <span className="font-medium text-foreground">business_travel</span> for the business travel upload.
+                </p>
+                <p>
+                  Suggested pattern:{" "}
+                  <span className="font-medium text-foreground">[Category] - [{isBusinessTravel ? "Mode" : "Asset"}] - [Site or Team]</span>.
+                </p>
+                {isBusinessTravel ? (
+                  <p>
+                    Each row in the workbook should use the filtered factor title that best matches the mode, vehicle, or
+                    hotel stay you are comparing. Search is live on the factor picker, and the workbook download can be
+                    limited to a single site.
+                  </p>
+                ) : (
+                  <p>
+                    For fleet-style reporting, use the group as the factor family bucket, for example{" "}
+                    <span className="font-medium text-foreground">Diesel Van Class 1 - Head Office</span>, and keep each{" "}
+                    {recordLabel.toLowerCase()} as the individual record underneath it.
+                  </p>
+                )}
+                {!isBusinessTravel ? <p>Search is live on the factor picker, and the workbook download can be limited to a single site.</p> : null}
+              </div>
             </CardContent>
           </Card>
 
+          {isBusinessTravel ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Business Travel Workbook Guidance</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm text-muted-foreground">
+                <p>Use the workbook to compare the current year with previous years and keep the same factor titles where possible.</p>
+                <p>Include new factor lines only when the business travel category needs something that was not used previously.</p>
+                <p>The import process writes into Data Entry rather than creating travel register rows.</p>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <div className="flex justify-end">
+            <Button onClick={() => setCurrentStep(2)}>Continue to Add Data →</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Stage 2: Add Data */}
+      {currentStep === 2 && (
+        <div className="space-y-5">
           <Card>
-            <CardHeader>
-              <CardTitle>{recordPlural}</CardTitle>
-            </CardHeader>
-            <CardContent className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left">
-                    <th className="p-2">Name</th>
-                    <th className="p-2">Identity</th>
-                    <th className="p-2">Group</th>
-                    <th className="p-2 text-right">Qty</th>
-                    <th className="p-2 text-right">tCO₂e</th>
-                    <th className="p-2">Status</th>
-                    <th className="p-2"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sources.length ? sources.map((s) => (
-                    <tr key={s.source_id} className="border-b">
-                      <td className="p-2">{s.source_name}</td>
-                      <td className="p-2">{s.asset_identifier || s.employee_name || "-"}</td>
-                      <td className="p-2">{s.group_name || "-"}</td>
-                      <td className="p-2 text-right">{typeof s.qty === "number" ? s.qty.toLocaleString() : "-"}</td>
-                      <td className="p-2 text-right">{(s.calc_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                      <td className="p-2">{s.enabled ? "Active" : "Hidden"}</td>
-                      <td className="p-2 text-right">
-                        <Button variant="outline" size="sm" onClick={() => removeSource(s.source_id, s.source_name)}>Delete</Button>
-                      </td>
-                    </tr>
-                  )) : (
-                    <tr><td colSpan={7} className="p-4 text-muted-foreground">No records yet.</td></tr>
+            <CardHeader><CardTitle>Stage 2: Add Data</CardTitle></CardHeader>
+            <CardContent className="space-y-5">
+              <div className="grid gap-4 md:grid-cols-[1.5fr_1fr]">
+                <div className="space-y-2">
+                  <Label htmlFor="asset-register-upload">
+                    {isBusinessTravel ? "Import workbook for Data Entry (.xlsx)" : "Import workbook (.xlsx)"}
+                  </Label>
+                  <Input
+                    id="asset-register-upload"
+                    type="file"
+                    accept=".xlsx"
+                    onChange={(e) => {
+                      setUploadFile(e.target.files?.[0] ?? null);
+                      setImportPreview(null);
+                      setBusinessTravelRowsReady(null);
+                    }}
+                  />
+                </div>
+                <div className="flex items-end">
+                  {!importPreview ? (
+                    <Button
+                      onClick={previewImportWorkbook}
+                      disabled={loading || importing || !uploadFile || (isBusinessTravel && downloadSiteId === "__all__")}
+                      className="w-full"
+                    >
+                      {importing ? "Checking workbook..." : "Preview Import"}
+                    </Button>
+                  ) : (
+                    <div className="flex w-full gap-2">
+                      <Button onClick={confirmImportWorkbook} disabled={importing} className="flex-1">
+                        {importing ? "Importing workbook..." : importButtonLabel}
+                      </Button>
+                      <Button variant="outline" onClick={cancelImportPreview} disabled={importing}>
+                        Cancel
+                      </Button>
+                    </div>
                   )}
-                </tbody>
-              </table>
+                </div>
+              </div>
+              {importing ? <UploadProgressBar value={importProgress} label="Checking workbook..." /> : null}
+              {importPreview ? (
+                <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
+                  <p className="font-medium">
+                    {importPreview.readyCount} row{importPreview.readyCount === 1 ? "" : "s"} ready to import
+                    {isBusinessTravel ? "" : ` (${importPreview.insertedGroups ?? 0} new group${(importPreview.insertedGroups ?? 0) === 1 ? "" : "s"}, ${importPreview.reusedGroups ?? 0} reused)`}
+                    . Nothing has been saved yet — click &quot;{importButtonLabel}&quot; to commit, or Cancel to discard.
+                  </p>
+                  {!isBusinessTravel && (importPreview.skippedSources ?? 0) > 0 ? (
+                    <p className="text-muted-foreground">{importPreview.skippedSources} row(s) already exist and will be skipped.</p>
+                  ) : null}
+                  {importPreview.warnings.length > 0 ? (
+                    <ul className="list-disc pl-5 text-amber-700">
+                      {importPreview.warnings.map((w, idx) => (
+                        <li key={idx}>{w}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
-        </>
+
+          {!isBusinessTravel ? (
+            <details className="rounded-md border p-4">
+              <summary className="cursor-pointer font-medium">Manual Entry (Create Group / Add {recordLabel})</summary>
+              <div className="mt-4 space-y-5">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Create Group</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Group name</Label>
+                        <Input value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="Diesel Vans Class 1 - Head Office" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Scope</Label>
+                        <Select value={groupScope} onValueChange={setGroupScope}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Scope 1">Scope 1</SelectItem>
+                            <SelectItem value="Scope 2">Scope 2</SelectItem>
+                            <SelectItem value="Scope 3">Scope 3</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Category</Label>
+                        <Input value={groupCategory} onChange={(e) => setGroupCategory(e.target.value)} placeholder="Fleet / Travel / Equipment" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Roll-up</Label>
+                        <Select value={groupRollupMethod} onValueChange={setGroupRollupMethod}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="sum">Sum</SelectItem>
+                            <SelectItem value="weighted_sum">Weighted sum</SelectItem>
+                            <SelectItem value="headcount_scaled">Headcount scaled</SelectItem>
+                            <SelectItem value="average">Average</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Site</Label>
+                      <Select value={groupSiteId} onValueChange={setGroupSiteId}>
+                        <SelectTrigger><SelectValue placeholder="Optional site..." /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">No site</SelectItem>
+                          {sites.filter((s) => s.site_id != null).map((s) => (
+                            <SelectItem key={String(s.site_id)} value={String(s.site_id)}>{s.site_name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-3 rounded-md border bg-muted/10 p-4">
+                      <div className="space-y-2">
+                        <Label>Factor search</Label>
+                        <Input
+                          value={factorSearch}
+                          onChange={(e) => setFactorSearch(e.target.value)}
+                          placeholder="Search by label, category, UOM, or ID"
+                        />
+                        <div className="text-xs text-muted-foreground">
+                          Pick the factor family this group will own. All assets added underneath inherit it.
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Factor scope filter</Label>
+                        <Select value={factorScopeFilter} onValueChange={setFactorScopeFilter}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="All">All</SelectItem>
+                            <SelectItem value="Scope 1">Scope 1</SelectItem>
+                            <SelectItem value="Scope 2">Scope 2</SelectItem>
+                            <SelectItem value="Scope 3">Scope 3</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="max-h-56 overflow-auto rounded-md border bg-background">
+                        <div className="grid grid-cols-[1fr_auto] gap-2 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
+                          <div>Factor</div>
+                          <div>Select</div>
+                        </div>
+                        {factorOptions.length ? factorOptions.map((factor) => (
+                          <div key={`${factor.original_id}-${factor.report_label}`} className="grid grid-cols-[1fr_auto] gap-2 border-b px-3 py-2 text-sm">
+                            <div className="min-w-0">
+                              <div className="truncate font-medium">{factor.report_label}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {factor.scope} · {factor.category} · UOM {factor.uom || "-"} · {factor.original_id}
+                              </div>
+                            </div>
+                            <Button variant={selectedFactor?.original_id === factor.original_id ? "secondary" : "outline"} size="sm" onClick={() => chooseFactor(factor)}>
+                              {selectedFactor?.original_id === factor.original_id ? "Chosen" : "Use"}
+                            </Button>
+                          </div>
+                        )) : (
+                          <div className="p-3 text-sm text-muted-foreground">Search to find a factor, then choose it for this group.</div>
+                        )}
+                      </div>
+                      {selectedFactor ? (
+                        <div className="rounded-md border bg-background p-3 text-sm">
+                          <div className="font-medium">Selected factor</div>
+                          <div className="text-muted-foreground">
+                        {selectedFactor.report_label} · {selectedFactor.original_id} · {selectedFactor.factor ?? "-"} {selectedFactor.ghg_unit ?? ""} · UOM {selectedFactor.uom || "-"}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+                      Group the similar assets that share the same emissions factor family. Each asset remains a separate row,
+                      but the group controls the roll-up bucket.
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Notes</Label>
+                      <Input value={groupNotes} onChange={(e) => setGroupNotes(e.target.value)} placeholder="Optional roll-up notes" />
+                    </div>
+                    <div className="flex justify-end">
+                      <Button onClick={createGroup} disabled={loading || !groupName.trim() || !selectedFactor}>Create group</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>{`Add ${recordLabel}`}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>{`${recordLabel} name`}</Label>
+                        <Input value={sourceName} onChange={(e) => setSourceName(e.target.value)} placeholder={recordNamePlaceholder} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>{recordIdentityLabel}</Label>
+                        <Input value={assetIdentifier} onChange={(e) => setAssetIdentifier(e.target.value)} placeholder={recordIdentityPlaceholder} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>{isBusinessTravel ? "Employee name" : "Owner / operator"}</Label>
+                        <Input value={employeeName} onChange={(e) => setEmployeeName(e.target.value)} placeholder="Optional" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>{isBusinessTravel ? "Travel subtype" : "Asset subtype"}</Label>
+                        <Input value={sourceSubtype} onChange={(e) => setSourceSubtype(e.target.value)} placeholder="Optional subtype" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Group</Label>
+                        <Select value={selectedGroupId} onValueChange={setSelectedGroupId}>
+                          <SelectTrigger><SelectValue placeholder="Choose a group..." /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">No group</SelectItem>
+                            {groups.map((g) => (
+                              <SelectItem key={g.group_id} value={String(g.group_id)}>{g.group_name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Qty</Label>
+                        <Input type="number" step="any" value={qty} onChange={(e) => setQty(e.target.value)} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Apply %</Label>
+                        <Input type="number" step="any" value={applyPct} onChange={(e) => setApplyPct(e.target.value)} />
+                      </div>
+                    </div>
+                    <div className="rounded-md border bg-muted/10 p-4 text-sm text-muted-foreground space-y-2">
+                      <p>
+                        {recordPlural} inherit scope, site, category, and factor from the selected group. Pick the group
+                        that represents the roll-up bucket, then add each individual {recordLabel.toLowerCase()} underneath
+                        it.
+                      </p>
+                      {selectedGroup ? (
+                        <p className="text-foreground">
+                          Selected group: <span className="font-medium">{selectedGroup.group_name}</span> · {selectedGroup.scope}
+                          {selectedGroup.site_name ? ` · ${selectedGroup.site_name}` : ""}
+                          {selectedGroup.factor_report_label ? ` · ${selectedGroup.factor_report_label}` : ""}
+                          {selectedGroup.uom ? ` · UOM ${selectedGroup.uom}` : ""}
+                        </p>
+                      ) : (
+                        <p className="text-amber-700">
+                          Choose or create a group first so the {recordLabel.toLowerCase()} can inherit its factor and
+                          reporting details.
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Notes</Label>
+                      <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" />
+                    </div>
+                    <div className="flex justify-end">
+                      <Button onClick={createSource} disabled={loading || !sourceName.trim() || !selectedGroup || !selectedGroup.factor_db_id}>{`Add ${recordLabel.toLowerCase()}`}</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </details>
+          ) : null}
+
+          <div className="flex justify-between">
+            <Button variant="outline" onClick={() => setCurrentStep(1)}>← Back to Setup</Button>
+            <Button onClick={() => setCurrentStep(3)}>Continue to Job Data →</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Stage 3: Job Data */}
+      {currentStep === 3 && (
+        <div className="space-y-5">
+          {isBusinessTravel ? (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Stage 3: Job Data</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm text-muted-foreground">
+                  <p>Imported business travel rows land in the Data Entry section as job scope rows.</p>
+                  <p>Use the workbook tabs to compare previous years and keep factor titles consistent before importing.</p>
+                  <p>Factor families are still searchable above if you need to inspect the available travel categories.</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Imported Business Travel Detail</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="text-sm text-muted-foreground">
+                    Rows shown here are the imported job scope records from the business travel workbook.
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-[1.5fr_1fr_1fr]">
+                    <div className="space-y-2">
+                      <Label>Search</Label>
+                      <Input
+                        value={businessTravelSearch}
+                        onChange={(e) => setBusinessTravelSearch(e.target.value)}
+                        placeholder="Search by site, factor, ID, notes, or source..."
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Site</Label>
+                      <Select value={businessTravelSiteFilter} onValueChange={setBusinessTravelSiteFilter}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All sites</SelectItem>
+                          {sites.filter((site) => site.site_id != null).map((site) => (
+                            <SelectItem key={String(site.site_id)} value={String(site.site_id)}>
+                              {site.site_name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Data confidence</Label>
+                      <Select value={businessTravelConfidenceFilter} onValueChange={setBusinessTravelConfidenceFilter}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="All">All</SelectItem>
+                          <SelectItem value="H">H</SelectItem>
+                          <SelectItem value="M">M</SelectItem>
+                          <SelectItem value="L">L</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                    <div>
+                      Showing {filteredBusinessTravelRows.length} of {businessTravelRows.length} imported rows
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setBusinessTravelSearch("");
+                        setBusinessTravelSiteFilter("__all__");
+                        setBusinessTravelConfidenceFilter("All");
+                      }}
+                    >
+                      Clear filters
+                    </Button>
+                  </div>
+                  {businessTravelRowsError ? (
+                    <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                      {businessTravelRowsError}
+                    </div>
+                  ) : null}
+                  {businessTravelRowsLoading ? (
+                    <div className="text-sm text-muted-foreground">Loading imported business travel rows...</div>
+                  ) : filteredBusinessTravelRows.length ? (
+                    <div className="overflow-x-auto rounded-md border">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted/30">
+                          <tr className="border-b text-left">
+                            <th className="p-2">Factor</th>
+                            <th className="p-2">ID</th>
+                            <th className="p-2 text-right">Qty</th>
+                            <th className="p-2 text-right">tCO₂e</th>
+                            <th className="p-2">Data Source</th>
+                            <th className="p-2">Notes</th>
+                            <th className="p-2 text-right">M1</th>
+                            <th className="p-2 text-right">M2</th>
+                            <th className="p-2 text-right">M3</th>
+                            <th className="p-2 text-right">M4</th>
+                            <th className="p-2 text-right">M5</th>
+                            <th className="p-2 text-right">M6</th>
+                            <th className="p-2 text-right">M7</th>
+                            <th className="p-2 text-right">M8</th>
+                            <th className="p-2 text-right">M9</th>
+                            <th className="p-2 text-right">M10</th>
+                            <th className="p-2 text-right">M11</th>
+                            <th className="p-2 text-right">M12</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredBusinessTravelRows.map((row) => (
+                            <tr key={row.row_id} className="border-b align-top">
+                              <td className="p-2">
+                                <div className="font-medium text-foreground">{row.report_label || row.category || row.original_id}</div>
+                                <div className="text-xs text-muted-foreground">{row.category || "-"}{row.uom ? ` · UOM ${row.uom}` : ""}</div>
+                              </td>
+                              <td className="p-2 text-xs text-muted-foreground">{row.original_id}</td>
+                              <td className="p-2 text-right">{typeof row.qty === "number" ? row.qty.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                              <td className="p-2 text-right">{row.calc_tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                              <td className="p-2 text-xs text-muted-foreground">{row.data_source || "-"}</td>
+                              <td className="p-2 text-xs text-muted-foreground max-w-[20rem]">{row.notes || "-"}</td>
+                              <td className="p-2 text-right text-xs">{typeof row.month_1 === "number" ? row.month_1.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                              <td className="p-2 text-right text-xs">{typeof row.month_2 === "number" ? row.month_2.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                              <td className="p-2 text-right text-xs">{typeof row.month_3 === "number" ? row.month_3.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                              <td className="p-2 text-right text-xs">{typeof row.month_4 === "number" ? row.month_4.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                              <td className="p-2 text-right text-xs">{typeof row.month_5 === "number" ? row.month_5.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                              <td className="p-2 text-right text-xs">{typeof row.month_6 === "number" ? row.month_6.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                              <td className="p-2 text-right text-xs">{typeof row.month_7 === "number" ? row.month_7.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                              <td className="p-2 text-right text-xs">{typeof row.month_8 === "number" ? row.month_8.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                              <td className="p-2 text-right text-xs">{typeof row.month_9 === "number" ? row.month_9.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                              <td className="p-2 text-right text-xs">{typeof row.month_10 === "number" ? row.month_10.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                              <td className="p-2 text-right text-xs">{typeof row.month_11 === "number" ? row.month_11.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                              <td className="p-2 text-right text-xs">{typeof row.month_12 === "number" ? row.month_12.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">
+                      No imported business travel rows yet. Download the workbook, complete it, then import it here.
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Groups</CardTitle>
+                </CardHeader>
+                <CardContent className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left">
+                        <th className="p-2">Name</th>
+                        <th className="p-2">Scope</th>
+                        <th className="p-2">Site</th>
+                        <th className="p-2">Factor</th>
+                        <th className="p-2">UOM</th>
+                        <th className="p-2">Sources</th>
+                        <th className="p-2 text-right">tCO₂e</th>
+                        <th className="p-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groups.length ? groups.map((g) => (
+                        <tr key={g.group_id} className="border-b">
+                          <td className="p-2">{g.group_name}</td>
+                          <td className="p-2">{g.scope}</td>
+                          <td className="p-2">{g.site_name || "-"}</td>
+                          <td className="p-2">
+                            <div className="font-medium">{g.factor_report_label || g.original_id || "-"}</div>
+                            <div className="text-xs text-muted-foreground">{g.original_id || "-"}{g.factor != null ? ` · ${g.factor}` : ""}{g.ghg_unit ? ` ${g.ghg_unit}` : ""}</div>
+                          </td>
+                          <td className="p-2">{g.uom || "-"}</td>
+                          <td className="p-2">{g.source_count ?? 0}</td>
+                          <td className="p-2 text-right">{(g.source_total_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                          <td className="p-2 text-right">
+                            <Button variant="outline" size="sm" onClick={() => removeGroup(g.group_id, g.group_name)}>Delete</Button>
+                          </td>
+                        </tr>
+                      )) : (
+                        <tr><td colSpan={8} className="p-4 text-muted-foreground">No groups yet.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>{recordPlural}</CardTitle>
+                </CardHeader>
+                <CardContent className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left">
+                        <th className="p-2">Name</th>
+                        <th className="p-2">Identity</th>
+                        <th className="p-2">Group</th>
+                        <th className="p-2 text-right">Qty</th>
+                        <th className="p-2 text-right">tCO₂e</th>
+                        <th className="p-2">Status</th>
+                        <th className="p-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sources.length ? sources.map((s) => (
+                        <tr key={s.source_id} className="border-b">
+                          <td className="p-2">{s.source_name}</td>
+                          <td className="p-2">{s.asset_identifier || s.employee_name || "-"}</td>
+                          <td className="p-2">{s.group_name || "-"}</td>
+                          <td className="p-2 text-right">{typeof s.qty === "number" ? s.qty.toLocaleString() : "-"}</td>
+                          <td className="p-2 text-right">{(s.calc_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                          <td className="p-2">{s.enabled ? "Active" : "Hidden"}</td>
+                          <td className="p-2 text-right">
+                            <Button variant="outline" size="sm" onClick={() => removeSource(s.source_id, s.source_name)}>Delete</Button>
+                          </td>
+                        </tr>
+                      )) : (
+                        <tr><td colSpan={7} className="p-4 text-muted-foreground">No records yet.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+            </>
+          )}
+
+          <div className="flex justify-start">
+            <Button variant="outline" onClick={() => setCurrentStep(2)}>← Back to Add Data</Button>
+          </div>
+        </div>
       )}
     </div>
   );
