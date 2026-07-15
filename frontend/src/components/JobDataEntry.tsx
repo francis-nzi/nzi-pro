@@ -102,6 +102,8 @@ type ScopeDataRow = {
   data_confidence: string | null;
   notes: string | null;
   is_custom_entry: boolean;
+  linked_row_id?: number | null;
+  is_auto_generated?: boolean;
   site_id: number | null;
   month_1: number | null;
   month_2: number | null;
@@ -275,6 +277,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const [factorsTotal, setFactorsTotal] = useState(0);
   const [factorsHasMore, setFactorsHasMore] = useState(false);
   const [loadingMoreFactors, setLoadingMoreFactors] = useState(false);
+  const [autoAddTd, setAutoAddTd] = useState(true);
   
   // Inline editing state
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
@@ -387,6 +390,21 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
   function removeScopeDataRow(rowId: number) {
     setScopeData((prev) => prev.filter((row) => row.row_id !== rowId));
+  }
+
+  async function refreshScopeDataRow(rowId: number) {
+    try {
+      const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data?row_id=${rowId}`, { credentials: "include" });
+      if (!res.ok) return;
+      const json = await res.json().catch(() => ({}));
+      const row = Array.isArray(json?.rows) ? (json.rows[0] as ScopeDataRow | undefined) : undefined;
+      if (row) {
+        replaceScopeDataRowFromServer(row);
+        invalidateRowDetailCache(rowId);
+      }
+    } catch {
+      // Best-effort refresh of a cascaded sibling row; a full reload will still show it correctly.
+    }
   }
 
   async function refreshScopeTotals() {
@@ -848,11 +866,15 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       });
 
       if (res.ok) {
+        const result = await res.json().catch(() => ({}));
         replaceScopeDataRow(rowId, fields);
         invalidateRowDetailCache(rowId);
         clearRowDirty(rowId);
         await refreshScopeTotals();
         dispatchJobScopeRefresh("job-data-entry");
+        if (result?.cascaded_row_id) {
+          await refreshScopeDataRow(result.cascaded_row_id);
+        }
         return true;
       }
 
@@ -1187,8 +1209,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         data_confidence: "M",
         is_custom_entry: false,
         site_id: siteFilter !== "All" ? parseInt(siteFilter) : null,
+        auto_add_td: autoAddTd,
       };
-      
+
       console.log("Sending payload:", payload);
       
       const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data`, {
@@ -1208,7 +1231,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         console.log("Factor added successfully:", result);
         await loadData();
         dispatchJobScopeRefresh("job-data-entry");
-        setError("");
+        setError(result?.td_pair_warning || "");
       } else {
         const text = await res.text();
         console.error("Failed to add factor:", text);
@@ -1246,6 +1269,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         data_confidence: row.data_confidence || "M",
         is_custom_entry: false,
         site_id: siteFilter !== "All" ? parseInt(siteFilter) : null,
+        auto_add_td: autoAddTd,
       };
 
       const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data`, {
@@ -1259,9 +1283,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       });
 
       if (res.ok) {
+        const result = await res.json().catch(() => ({}));
         await loadData();
         dispatchJobScopeRefresh("job-data-entry");
-        setError("");
+        setError(result?.td_pair_warning || "");
       } else {
         const text = await res.text();
         setError(`Failed to add previous-year row: ${text}`);
@@ -1300,6 +1325,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
           data_confidence: row.data_confidence || "M",
           is_custom_entry: false,
           site_id: siteFilter !== "All" ? parseInt(siteFilter) : null,
+          auto_add_td: autoAddTd,
         };
         const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data`, {
           method: "POST",
@@ -1348,8 +1374,16 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       });
 
       if (res.ok) {
+        const result = await res.json().catch(() => ({}));
         removeScopeDataRow(rowId);
         clearRowDirty(rowId);
+        if (result?.cascaded_row_id) {
+          removeScopeDataRow(result.cascaded_row_id);
+          clearRowDirty(result.cascaded_row_id);
+        }
+        if (result?.unlinked_row_id) {
+          replaceScopeDataRow(result.unlinked_row_id, { linked_row_id: null });
+        }
         await refreshScopeTotals();
         dispatchJobScopeRefresh("job-data-entry");
       } else {
@@ -1854,6 +1888,15 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         </CardContent>
         {showFactorBrowser && (
           <div className="px-6 pb-6">
+            <label className="mb-3 flex items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={autoAddTd}
+                onChange={(e) => setAutoAddTd(e.target.checked)}
+                className="h-4 w-4"
+              />
+              Add T&D automatically for grid electricity rows
+            </label>
             <FactorBrowserCard
               title="Browse & Add Factors"
               factorSearchQuery={factorSearchQuery}
@@ -2106,6 +2149,21 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                 Unit missing
                               </div>
                             )}
+                            {row.is_auto_generated ? (
+                              <div
+                                className="inline-flex rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-medium text-purple-900"
+                                title={`Automatically generated from row #${row.linked_row_id ?? "?"} - qty and monthly split stay in sync with it.`}
+                              >
+                                Auto T&D
+                              </div>
+                            ) : row.linked_row_id ? (
+                              <div
+                                className="inline-flex rounded-full bg-purple-50 px-2 py-0.5 text-[11px] font-medium text-purple-800"
+                                title={`Linked to an auto-generated T&D row (#${row.linked_row_id}) - editing qty or monthly values here updates it too.`}
+                              >
+                                Linked → T&D
+                              </div>
+                            ) : null}
                           </div>
                         </td>
                         {visibleColumns.qty && (
@@ -2455,6 +2513,15 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
           <div className="text-sm text-muted-foreground">
             Reuse rows from earlier jobs for this client to keep data entry fast and consistent. The factor and hierarchy fields are copied in, ready for this year&apos;s quantities.
           </div>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-gray-300"
+              checked={autoAddTd}
+              onChange={(e) => setAutoAddTd(e.target.checked)}
+            />
+            Add T&D automatically for grid electricity rows
+          </label>
           {previousYearLoading ? (
             <div className="text-sm text-muted-foreground">Loading previous-year rows...</div>
           ) : previousYearError ? (

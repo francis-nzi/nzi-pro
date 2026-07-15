@@ -16,6 +16,7 @@ from api.job_data_output_routes import _build_scope_summary, _load_data_output_r
 from services.audit_log import ensure_audit_log_table, fetch_row_dict, parse_json_text, record_audit_event
 from services.dataset_selector import get_scope_primary_datasets
 from services.monthly_emissions import JobMonthlyEmissionsResolver
+from services.td_electricity_pairing import detect_electricity_pair_kind, resolve_td_pair_for_new_row
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -24,6 +25,15 @@ _FACTOR_ORIGINAL_ID_RE = re.compile(r"(?:^|[;( ])factor_original_id=([^;)\s]+)",
 _STORAGE_REASON_RE = re.compile(r"(?:^|[;( ])storage_reason=([^;)\s]+)", re.IGNORECASE)
 _scope_rows_schema_seeded: bool = False
 _table_columns_cache: dict[str, set[str]] = {}
+
+# Fields that describe the physical activity, not reporting/provenance
+# metadata, and so must stay identical between a row and its auto-generated
+# T&D pair (see linked_row_id/is_auto_generated on job_scope_rows).
+_MIRRORED_SCOPE_ROW_FIELDS = {
+    "qty", "apply_pct", "site_id",
+    "month_1", "month_2", "month_3", "month_4", "month_5", "month_6",
+    "month_7", "month_8", "month_9", "month_10", "month_11", "month_12",
+}
 
 
 def _ensure_job_scope_rows_schema(con) -> None:
@@ -97,6 +107,27 @@ def _ensure_job_scope_rows_schema(con) -> None:
         con.execute("DROP INDEX IF EXISTS job_scope_rows_job_site_scope_oid_uidx")
     except Exception:
         logger.debug("Ignoring job_scope_rows unique index drop failure", exc_info=True)
+    try:
+        con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS linked_row_id INTEGER REFERENCES job_scope_rows(row_id) ON DELETE SET NULL")
+    except Exception:
+        logger.debug("Ignoring job_scope_rows.linked_row_id compatibility migration failure", exc_info=True)
+    try:
+        con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS is_auto_generated BOOLEAN NOT NULL DEFAULT FALSE")
+    except Exception:
+        logger.debug("Ignoring job_scope_rows.is_auto_generated compatibility migration failure", exc_info=True)
+    try:
+        con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS auto_pair_kind VARCHAR")
+    except Exception:
+        logger.debug("Ignoring job_scope_rows.auto_pair_kind compatibility migration failure", exc_info=True)
+    try:
+        con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS job_scope_rows_linked_row_idx
+            ON job_scope_rows (linked_row_id) WHERE linked_row_id IS NOT NULL
+            """
+        )
+    except Exception:
+        logger.debug("Ignoring job_scope_rows.linked_row_id index compatibility migration failure", exc_info=True)
     _scope_rows_schema_seeded = True
 
 
@@ -736,6 +767,7 @@ def get_job_scope_data(
                     jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4, jsr.month_5, jsr.month_6,
                     jsr.month_7, jsr.month_8, jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12,
                     jsr.data_source, jsr.data_confidence, jsr.notes, jsr.is_custom_entry, jsr.enabled, jsr.created_at, jsr.updated_at,
+                    jsr.linked_row_id, jsr.is_auto_generated,
                     fl.factor AS lookup_factor,
                     fl.ghg_unit AS lookup_ghg_unit,
                     {fl_parts['fl_category_expr']} AS lookup_category,
@@ -876,6 +908,8 @@ def get_job_scope_data(
                         "notes": r.get("notes"),
                         "is_custom_entry": safe_bool(r.get("is_custom_entry")),
                         "enabled": safe_bool(r.get("enabled")),
+                        "linked_row_id": safe_int(r.get("linked_row_id")),
+                        "is_auto_generated": safe_bool(r.get("is_auto_generated")),
                     })
                     if include_monthly_details:
                         rows[-1].update({
@@ -1781,7 +1815,139 @@ def create_scope_data_row(
                 },
             )
 
-            return {"ok": True, "row_id": int(row_id), "job_id": int(job_id)}
+            # Auto-create the paired Scope 3 Transmission & Distribution row
+            # for grid electricity, unless the caller opted out.
+            linked_row_id = None
+            td_pair_warning = None
+            if payload.get("auto_add_td", True):
+                pair_category = (
+                    payload.get("dataset_category")
+                    or payload.get("category")
+                    or payload.get("level_1")
+                    or payload.get("level_2")
+                )
+                td_pair = resolve_td_pair_for_new_row(
+                    con,
+                    dataset_id=final_dataset_id,
+                    category=pair_category,
+                    level_3=payload.get("level_3"),
+                    uom=payload.get("uom"),
+                )
+                if td_pair is not None:
+                    td_dataset_id = final_dataset_id
+                    td_factor_db_id = td_pair["db_id"]
+                    td_factor = td_pair["factor"]
+                    td_ghg_unit = td_pair["ghg_unit"]
+                    try:
+                        td_scope_map: dict[str, int] = {
+                            str(s): int(d)
+                            for s, d in (_resolution.get("scope_primary_datasets") or {}).items()
+                            if d is not None
+                        }
+                        td_scope3_dataset = td_scope_map.get("Scope 3")
+                        if td_scope3_dataset:
+                            _td_refreshed = _lookup_factor_from_reference(
+                                con, td_scope3_dataset, "Scope 3", str(td_pair["original_id"])
+                            )
+                            if _td_refreshed:
+                                td_dataset_id = td_scope3_dataset
+                                td_factor_db_id = _td_refreshed["db_id"]
+                                td_factor = _td_refreshed["factor"]
+                                td_ghg_unit = _td_refreshed["ghg_unit"]
+                    except Exception:
+                        logger.debug("Falling back to raw td_pair factor values", exc_info=True)
+
+                    td_result = con.execute(
+                        """
+                        INSERT INTO job_scope_rows (
+                            job_id, scope, site_id, dataset_id, factor_db_id, original_id,
+                            category, level_1, level_2, level_3, level_4, column_text, report_label,
+                            qty, uom, factor, ghg_unit, apply_pct, data_source, data_confidence, notes, is_custom_entry,
+                            month_1, month_2, month_3, month_4, month_5, month_6,
+                            month_7, month_8, month_9, month_10, month_11, month_12,
+                            is_auto_generated, linked_row_id, auto_pair_kind
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING row_id
+                        """,
+                        [
+                            int(job_id),
+                            "Scope 3",
+                            site_id,
+                            td_dataset_id,
+                            td_factor_db_id,
+                            td_pair["original_id"],
+                            td_pair["category"],
+                            td_pair["level_1"],
+                            td_pair["level_2"],
+                            td_pair["level_3"],
+                            td_pair["level_4"],
+                            td_pair["column_text"],
+                            td_pair["report_label"],
+                            payload.get("qty"),
+                            td_pair["uom"],
+                            td_factor,
+                            td_ghg_unit,
+                            payload.get("apply_pct", 100),
+                            payload.get("data_source", "Company Data"),
+                            payload.get("data_confidence", "M"),
+                            None,
+                            False,
+                            payload.get("month_1"),
+                            payload.get("month_2"),
+                            payload.get("month_3"),
+                            payload.get("month_4"),
+                            payload.get("month_5"),
+                            payload.get("month_6"),
+                            payload.get("month_7"),
+                            payload.get("month_8"),
+                            payload.get("month_9"),
+                            payload.get("month_10"),
+                            payload.get("month_11"),
+                            payload.get("month_12"),
+                            True,
+                            int(row_id),
+                            td_pair["auto_pair_kind"],
+                        ]
+                    ).fetchone()
+                    linked_row_id = td_result[0] if td_result else None
+
+                    if linked_row_id:
+                        con.execute(
+                            "UPDATE job_scope_rows SET linked_row_id=%s WHERE row_id=%s",
+                            [int(linked_row_id), int(row_id)],
+                        )
+                        td_after = _job_scope_row_snapshot(con, int(job_id), int(linked_row_id))
+                        record_audit_event(
+                            con,
+                            request=request,
+                            actor=_user,
+                            action="create",
+                            entity_type="job_scope_row",
+                            entity_id=int(linked_row_id),
+                            job_id=int(job_id),
+                            after=td_after,
+                            metadata={
+                                "scope": "Scope 3",
+                                "original_id": td_pair["original_id"],
+                                "dataset_id": td_dataset_id,
+                                "factor_db_id": td_factor_db_id,
+                                "auto_generated_for_row_id": int(row_id),
+                            },
+                        )
+                elif detect_electricity_pair_kind(category=pair_category, uom=payload.get("uom")) is not None:
+                    td_pair_warning = (
+                        "Could not find a matching Transmission & Distribution factor to auto-add for this "
+                        "electricity row. Add one manually if needed."
+                    )
+
+            return {
+                "ok": True,
+                "row_id": int(row_id),
+                "job_id": int(job_id),
+                "linked_row_id": int(linked_row_id) if linked_row_id else None,
+                "td_pair_warning": td_pair_warning,
+            }
             
     except HTTPException:
         raise
@@ -1900,8 +2066,79 @@ def update_scope_data_row(
                 metadata={"updated_fields": [field for field in allowed_fields if field in payload]},
             )
 
-            return {"ok": True, "row_id": int(row_id), "job_id": int(job_id)}
-            
+            # Cascade mirrored (activity-quantity) fields to the linked
+            # T&D row, if one exists, so the pair stays in sync regardless
+            # of which side of the pair was edited.
+            cascaded_row_id = None
+            linked_row_id = before.get("linked_row_id") if before else None
+            mirrored_fields_in_payload = [f for f in allowed_fields if f in payload and f in _MIRRORED_SCOPE_ROW_FIELDS]
+            if linked_row_id and mirrored_fields_in_payload:
+                linked_row_id = int(linked_row_id)
+                linked_before = _job_scope_row_snapshot(con, int(job_id), linked_row_id)
+                if "site_id" in mirrored_fields_in_payload and site_id is not None:
+                    conflict = con.execute(
+                        """
+                        SELECT row_id
+                        FROM job_scope_rows
+                        WHERE job_id=%s
+                          AND site_id=%s
+                          AND scope=%s
+                          AND original_id=%s
+                          AND COALESCE(enabled, TRUE) = TRUE
+                          AND row_id<>%s
+                        LIMIT 1
+                        """,
+                        [
+                            int(job_id),
+                            int(site_id),
+                            str((linked_before or {}).get("scope") or ""),
+                            str((linked_before or {}).get("original_id") or ""),
+                            linked_row_id,
+                        ],
+                    ).fetchone()
+                    if conflict:
+                        conflict_row_id = int(conflict[0])
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                "Cannot move the linked Transmission & Distribution row to this site - "
+                                f"another row already exists there (conflicting row_id {conflict_row_id})."
+                            ),
+                        )
+
+                cascade_fields = []
+                cascade_params = []
+                for field in mirrored_fields_in_payload:
+                    cascade_fields.append(f"{field}=%s")
+                    cascade_params.append(site_id if field == "site_id" else payload[field])
+                cascade_fields.append("updated_at=NOW()")
+                cascade_params.append(linked_row_id)
+                con.execute(
+                    f"UPDATE job_scope_rows SET {', '.join(cascade_fields)} WHERE row_id=%s",
+                    cascade_params,
+                )
+                cascaded_row_id = linked_row_id
+                linked_after = _job_scope_row_snapshot(con, int(job_id), linked_row_id)
+                record_audit_event(
+                    con,
+                    request=request,
+                    actor=_user,
+                    action="update",
+                    entity_type="job_scope_row",
+                    entity_id=linked_row_id,
+                    job_id=int(job_id),
+                    before=linked_before,
+                    after=linked_after,
+                    metadata={"cascaded_from_row_id": int(row_id), "updated_fields": mirrored_fields_in_payload},
+                )
+
+            return {
+                "ok": True,
+                "row_id": int(row_id),
+                "job_id": int(job_id),
+                "cascaded_row_id": cascaded_row_id,
+            }
+
     except HTTPException:
         raise
     except Exception as e:
@@ -2102,6 +2339,18 @@ def repoint_scope_data_row(
                 ],
             )
 
+            # Repointing to a different factor means this row is no longer
+            # confidently the same activity as its T&D pair, so break the
+            # link on both sides. The user can re-add a fresh pair via
+            # "Add to Job" if they want one for the new factor.
+            previously_linked_row_id = before.get("linked_row_id")
+            if previously_linked_row_id:
+                con.execute("UPDATE job_scope_rows SET linked_row_id=NULL WHERE row_id=%s", [int(row_id)])
+                con.execute(
+                    "UPDATE job_scope_rows SET linked_row_id=NULL WHERE row_id=%s",
+                    [int(previously_linked_row_id)],
+                )
+
             after = _job_scope_row_snapshot(con, int(job_id), int(row_id))
             record_audit_event(
                 con,
@@ -2207,8 +2456,49 @@ def delete_scope_data_row(
                 after=after,
             )
 
-            return {"ok": True, "row_id": int(row_id), "job_id": int(job_id)}
-            
+            # A linked T&D pair: deleting the electricity (parent) row
+            # cascades the delete to its T&D pair; deleting the T&D row
+            # directly just unlinks the parent so it survives on its own.
+            cascaded_row_id = None
+            unlinked_row_id = None
+            linked_row_id = before.get("linked_row_id") if before else None
+            if linked_row_id:
+                linked_row_id = int(linked_row_id)
+                if before.get("is_auto_generated"):
+                    con.execute(
+                        "UPDATE job_scope_rows SET linked_row_id=NULL WHERE row_id=%s",
+                        [linked_row_id],
+                    )
+                    unlinked_row_id = linked_row_id
+                else:
+                    linked_before = _job_scope_row_snapshot(con, int(job_id), linked_row_id)
+                    con.execute(
+                        "UPDATE job_scope_rows SET enabled=FALSE, updated_at=NOW() WHERE row_id=%s",
+                        [linked_row_id],
+                    )
+                    linked_after = _job_scope_row_snapshot(con, int(job_id), linked_row_id)
+                    record_audit_event(
+                        con,
+                        request=request,
+                        actor=_user,
+                        action="delete",
+                        entity_type="job_scope_row",
+                        entity_id=linked_row_id,
+                        job_id=int(job_id),
+                        before=linked_before,
+                        after=linked_after,
+                        metadata={"cascaded_from_row_id": int(row_id)},
+                    )
+                    cascaded_row_id = linked_row_id
+
+            return {
+                "ok": True,
+                "row_id": int(row_id),
+                "job_id": int(job_id),
+                "cascaded_row_id": cascaded_row_id,
+                "unlinked_row_id": unlinked_row_id,
+            }
+
     except HTTPException:
         raise
     except Exception as e:
