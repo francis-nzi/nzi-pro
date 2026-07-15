@@ -24,6 +24,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 from api.auth import _current_user
 from core.database import get_conn
+from services.dataset_selector import get_applicable_datasets, get_scope_primary_datasets
 from services.download_filenames import build_download_filename
 
 router = APIRouter()
@@ -1354,20 +1355,56 @@ def download_spend_template(
 
         label_expr = _factor_label_expr(con, "f")
         category_expr = _factor_category_expr(con, "f")
-        year_filter = f"AND d.year = {int(reporting_year)}" if reporting_year else ""
+        # Scope to the datasets actually applicable to this job (matched by
+        # country/period, same resolver used for factor lookups elsewhere)
+        # rather than any non-archived dataset sharing the reporting year --
+        # two datasets for different countries (e.g. UK and UAE) can share a
+        # year, and without this filter every SPEND factor was pulled from
+        # both, duplicating each conversion option in the dropdown.
+        #
+        # A job whose reporting period crosses a calendar-year boundary can
+        # still have more than one *applicable* dataset for the same country
+        # (e.g. one per year), each carrying the same conversion reference
+        # with a different factor value -- rank those by preference (primary
+        # dataset first) and keep only the best-ranked row per reference so
+        # the dropdown doesn't offer indistinguishable duplicate options.
+        primary_datasets = get_scope_primary_datasets(int(job_id))
+        applicable_datasets = get_applicable_datasets(int(job_id))
+        dataset_preference: list[int] = []
+        for dsid in list(primary_datasets.values()) + [d for ids in applicable_datasets.values() for d in ids]:
+            if dsid is not None and int(dsid) not in dataset_preference:
+                dataset_preference.append(int(dsid))
+        preference_rank = {dsid: idx for idx, dsid in enumerate(dataset_preference)}
+
+        if dataset_preference:
+            ids_sql = ",".join(str(dsid) for dsid in dataset_preference)
+            dataset_filter = f"AND f.dataset_id IN ({ids_sql})"
+        else:
+            dataset_filter = f"AND d.year = {int(reporting_year)}" if reporting_year else ""
         factors_df = con.execute(
             f"""
-            SELECT f.db_id,
+            SELECT f.db_id, f.dataset_id,
                    COALESCE(NULLIF(TRIM(f.original_id), ''), CAST(f.db_id AS VARCHAR)) AS conversion_reference,
                    COALESCE({label_expr}, {category_expr}, CONCAT('Factor ', CAST(f.db_id AS VARCHAR))) AS conversion_label
             FROM v_factor_lookup f
             LEFT JOIN datasets d ON d.dataset_id = f.dataset_id
             WHERE (d.archived IS NULL OR d.archived = FALSE)
               AND upper(COALESCE(f.original_id, '')) LIKE 'SPEND%%'
-              {year_filter}
+              {dataset_filter}
             ORDER BY conversion_label
             """
         ).df()
+
+        if factors_df is not None and not factors_df.empty and preference_rank:
+            factors_df["_pref_rank"] = factors_df["dataset_id"].map(
+                lambda dsid: preference_rank.get(int(dsid), len(preference_rank))
+            )
+            factors_df = (
+                factors_df.sort_values(["conversion_reference", "_pref_rank"])
+                .drop_duplicates(subset=["conversion_reference"], keep="first")
+                .sort_values("conversion_label")
+                .drop(columns=["_pref_rank"])
+            )
 
     job_number = str(row[0] or f"Job-{job_id}")
     client_name = str(row[3] or "Client")
