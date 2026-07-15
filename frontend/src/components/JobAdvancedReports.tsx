@@ -2602,9 +2602,7 @@ export default function JobAdvancedReports({
                         </td>
                       </tr>
                     ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-gray-300">
+                    <tr className="border-t-2 border-gray-300" style={{ breakInside: "avoid", pageBreakInside: "avoid" }}>
                       <td colSpan={6} className="py-2 pr-3 text-xs font-bold text-gray-700">
                         Total
                       </td>
@@ -2612,7 +2610,7 @@ export default function JobAdvancedReports({
                         {fmt(totalEmissions)}
                       </td>
                     </tr>
-                  </tfoot>
+                  </tbody>
                 </table>
               </div>
             </CardContent>

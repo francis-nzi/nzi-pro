@@ -1736,13 +1736,11 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                       <td className="py-1.5 text-right font-semibold text-gray-800">{row.emissions != null ? fmt(toNum(row.emissions)) : "—"}</td>
                     </tr>
                   ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-gray-300">
+                  <tr className="border-t-2 border-gray-300" style={{ breakInside: "avoid", pageBreakInside: "avoid" }}>
                     <td colSpan={6} className="py-2 pr-3 text-xs font-bold text-gray-700">Total</td>
                     <td className="py-2 text-right text-xs font-bold text-gray-800">{fmt(totalEmissions)}</td>
                   </tr>
-                </tfoot>
+                </tbody>
               </table>
             </div>
           </CardContent>
