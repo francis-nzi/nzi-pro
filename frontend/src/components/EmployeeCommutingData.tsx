@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -172,8 +172,22 @@ export default function EmployeeCommutingData({
   const [manualReplaceExisting, setManualReplaceExisting] = useState(false);
   const [editingDirectSourceId, setEditingDirectSourceId] = useState<number | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [currentStep, setCurrentStep] = useState<number>(1);
+  const initialStepSet = useRef(false);
 
   useUnsavedChangesGuard(hasUnsavedChanges);
+
+  // Auto-advance to Job Data on load if this job already has commuting data,
+  // so a returning user sees their existing rows instead of the Setup stage.
+  useEffect(() => {
+    if (initialStepSet.current) return;
+    if (!summary) return;
+    initialStepSet.current = true;
+    const hasData = (summary.row_count ?? 0) > 0 || directEntries.length > 0 || importedRows.length > 0;
+    if (hasData) {
+      setCurrentStep(3);
+    }
+  }, [summary, directEntries.length, importedRows.length]);
 
   useEffect(() => {
     const dirty =
@@ -305,6 +319,7 @@ export default function EmployeeCommutingData({
     setError("");
     setStatus(`Editing saved entry for ${row.employee_name || row.source_name}.`);
     setHasUnsavedChanges(true);
+    setCurrentStep(2);
   }
 
   function cancelEditDirectEntry() {
@@ -755,6 +770,12 @@ export default function EmployeeCommutingData({
     }
   }
 
+  const stages = [
+    { num: 1, label: "Setup", done: Boolean(summary) },
+    { num: 2, label: "Add Data", done: (summary?.row_count ?? 0) > 0 || directEntries.length > 0 },
+    { num: 3, label: "Job Data", done: false },
+  ];
+
   return (
     <div className="space-y-5">
       <ConfirmDialog
@@ -773,624 +794,685 @@ export default function EmployeeCommutingData({
         <CardHeader>
           <CardTitle>Commuting Import Summary</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-md border p-3">
-            <div className="text-xs uppercase text-muted-foreground">Imported Rows</div>
-            <div className="mt-1 text-2xl font-semibold">{summary?.row_count ?? 0}</div>
-          </div>
-          <div className="rounded-md border p-3">
-            <div className="text-xs uppercase text-muted-foreground">Imported tCO₂e</div>
-            <div className="mt-1 text-2xl font-semibold">
-              {formatNumber(summary?.total_tco2e ?? 0, 4)}
+        <CardContent className="space-y-3">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-md border p-3">
+              <div className="text-xs uppercase text-muted-foreground">Imported Rows</div>
+              <div className="mt-1 text-2xl font-semibold">{summary?.row_count ?? 0}</div>
             </div>
-          </div>
-          <div className="rounded-md border p-3">
-            <div className="text-xs uppercase text-muted-foreground">Sites Covered</div>
-            <div className="mt-1 text-2xl font-semibold">{summary?.site_count ?? 0}</div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Scaling Basis</CardTitle>
-        </CardHeader>
-          <CardContent className="space-y-2">
-          <Label htmlFor="employee-count">Employees to scale to</Label>
-          <Input
-            id="employee-count"
-            type="number"
-            min="1"
-            step="1"
-            value={employeeCount}
-            onChange={(e) => setEmployeeCount(e.target.value)}
-            placeholder="Enter employee count"
-            disabled={disableScaling}
-          />
-          <p className="text-xs text-muted-foreground">
-            This is the full workforce count used for pro-rata scaling. Each person is counted once even if they have multiple commute rows or commute by more than one mode.
-            {summary?.employee_headcount ? ` Job Setup employee count: ${summary.employee_headcount}.` : ""}
-          </p>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={disableScaling}
-              onChange={(e) => setDisableScaling(e.target.checked)}
-            />
-            Do not scale (use raw workbook data)
-          </label>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Employee Commuting &amp; Working From Home</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="text-sm text-muted-foreground">
-            Download the commuting workbook, add direct employee rows here, or complete the commuting and WFH tabs and upload it here.
-            Imported rows are written into Job Data below with the appropriate employee commuting source.
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-[1fr_auto]">
-            <div className="space-y-2">
-              <Label htmlFor="employee-commuting-site">Site</Label>
-              <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
-                <SelectTrigger id="employee-commuting-site">
-                  <SelectValue placeholder="Organisation-wide / no site" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Organisation-wide / No site</SelectItem>
-                  {sites
-                    .filter((site) => site.site_id != null && (site.site_name ?? "").trim().length > 0)
-                    .map((site) => (
-                      <SelectItem key={site.site_id ?? ""} value={String(site.site_id)}>
-                        {site.site_name}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-              <div className="text-xs text-muted-foreground">
-                The selected site is used in the downloaded file name and applied to imported rows.
+            <div className="rounded-md border p-3">
+              <div className="text-xs uppercase text-muted-foreground">Imported tCO₂e</div>
+              <div className="mt-1 text-2xl font-semibold">
+                {formatNumber(summary?.total_tco2e ?? 0, 4)}
               </div>
             </div>
-            <div className="flex items-end">
-              <Button variant="outline" onClick={downloadTemplate} disabled={loading}>
-                Download Template
-              </Button>
+            <div className="rounded-md border p-3">
+              <div className="text-xs uppercase text-muted-foreground">Sites Covered</div>
+              <div className="mt-1 text-2xl font-semibold">{summary?.site_count ?? 0}</div>
             </div>
           </div>
-
-          <div className="grid gap-4 md:grid-cols-[1fr_auto_auto]">
-            <div className="space-y-2">
-              <Label htmlFor="employee-commuting-upload">Completed Workbook (.xlsx)</Label>
-              <Input
-                id="employee-commuting-upload"
-                type="file"
-                accept=".xlsx"
-                onChange={(e) => {
-                  setUploadFile(e.target.files?.[0] ?? null);
-                  setPreview(null);
-                  setError("");
-                  setStatus("");
-                }}
-              />
-            </div>
-            <div className="flex items-end">
-              <Button variant="outline" onClick={previewUpload} disabled={loading || !uploadFile}>
-                Preview Upload
-              </Button>
-            </div>
-            <div className="flex items-end">
-              <Button
-                onClick={commitUpload}
-                disabled={
-                  loading ||
-                  !uploadFile ||
-                  !preview ||
-                  preview.ready_count === 0 ||
-                  preview.unresolved_count > 0
-                }
-              >
-                Import to Job Data
-              </Button>
-            </div>
-          </div>
-
-          {loading && uploadPhase ? (
-            <UploadProgressBar value={uploadProgress} label={`${uploadPhase} ${uploadProgress > 0 ? `(${uploadProgress}%)` : ""}`} />
-          ) : null}
-
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={replaceExisting}
-              onChange={(e) => setReplaceExisting(e.target.checked)}
-            />
-            Replace previous commuting import for this site selection
-          </label>
-
           {error ? (
             <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
               {error}
             </div>
           ) : null}
-
           {status ? (
             <div className="rounded-md border bg-muted/40 p-3 text-sm">{status}</div>
           ) : null}
-
-          <div className="space-y-4 rounded-md border p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="font-medium">Direct Employee Data Entry</div>
-              <div className="text-sm text-muted-foreground">
-                Add commuting or working-from-home rows directly here when a survey workbook is not available.
-              </div>
-            </div>
-            <div className="text-sm text-muted-foreground">
-              Saved entries flow into reporting alongside the workbook import.
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2">
-              <Label htmlFor="manual-row-type">Row type</Label>
-              <Select value={manualRowType} onValueChange={(value) => setManualRowType(value as "commuting" | "wfh")}>
-                <SelectTrigger id="manual-row-type">
-                  <SelectValue placeholder="Choose row type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="commuting">Commuting</SelectItem>
-                  <SelectItem value="wfh">Working from home</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="manual-employee">Employee / Team</Label>
-              <Input
-                id="manual-employee"
-                value={manualEmployeeName}
-                onChange={(e) => setManualEmployeeName(e.target.value)}
-                placeholder="e.g. Jane Smith or Sales team"
-              />
-            </div>
-          </div>
-
-          {manualRowType === "commuting" ? (
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="manual-mode">Commute Mode</Label>
-                <Select value={manualModeValue} onValueChange={setManualModeValue}>
-                  <SelectTrigger id="manual-mode">
-                    <SelectValue placeholder="Select mode" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Car - Petrol">Car - Petrol</SelectItem>
-                    <SelectItem value="Car - Diesel">Car - Diesel</SelectItem>
-                    <SelectItem value="Car - Hybrid">Car - Hybrid</SelectItem>
-                    <SelectItem value="Car - Electric">Car - Electric</SelectItem>
-                    <SelectItem value="Motorbike">Motorbike</SelectItem>
-                    <SelectItem value="Taxi">Taxi</SelectItem>
-                    <SelectItem value="Bus">Bus</SelectItem>
-                    <SelectItem value="Rail">Rail</SelectItem>
-                    <SelectItem value="Ferry">Ferry</SelectItem>
-                    <SelectItem value="Walking">Walking</SelectItem>
-                    <SelectItem value="Cycling">Cycling</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="manual-service">Vehicle / Service Type</Label>
-                <Input
-                  id="manual-service"
-                  value={manualServiceValue}
-                  onChange={(e) => setManualServiceValue(e.target.value)}
-                  placeholder="Average, Small, Regular, etc"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="manual-unit">Distance Unit</Label>
-                <Select value={manualUnitValue} onValueChange={setManualUnitValue}>
-                  <SelectTrigger id="manual-unit">
-                    <SelectValue placeholder="Select unit" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="miles">miles</SelectItem>
-                    <SelectItem value="km">km</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="manual-annual-days">Annual WFH Days</Label>
-                <Input
-                  id="manual-annual-days"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={manualAnnualDays}
-                  onChange={(e) => setManualAnnualDays(e.target.value)}
-                  placeholder="e.g. 120"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="manual-hours-per-day">Hours Per Day</Label>
-                <Input
-                  id="manual-hours-per-day"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={manualHoursPerDay}
-                  onChange={(e) => setManualHoursPerDay(e.target.value)}
-                  placeholder="e.g. 7.5"
-                />
-              </div>
-            </div>
-          )}
-
-          {manualRowType === "commuting" ? (
-            <div className="grid gap-4 md:grid-cols-4">
-              <div className="space-y-2">
-                <Label htmlFor="manual-one-way-distance">One-Way Distance</Label>
-                <Input
-                  id="manual-one-way-distance"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={manualOneWayDistance}
-                  onChange={(e) => setManualOneWayDistance(e.target.value)}
-                  placeholder="e.g. 18"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="manual-office-days">Office Days / Week</Label>
-                <Input
-                  id="manual-office-days"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={manualOfficeDays}
-                  onChange={(e) => setManualOfficeDays(e.target.value)}
-                  placeholder="e.g. 3"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="manual-weeks-per-year">Weeks / Year</Label>
-                <Input
-                  id="manual-weeks-per-year"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={manualWeeksPerYear}
-                  onChange={(e) => setManualWeeksPerYear(e.target.value)}
-                  placeholder="e.g. 46"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="manual-annual-distance">Annual Distance</Label>
-                <Input
-                  id="manual-annual-distance"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={manualAnnualDistance}
-                  onChange={(e) => setManualAnnualDistance(e.target.value)}
-                  placeholder="Optional override"
-                />
-              </div>
-            </div>
-          ) : null}
-
-          {editingDirectSourceId !== null ? (
-            <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-              Editing saved direct entry #{editingDirectSourceId}. Update the fields below, then save the changes back into the register.
-            </div>
-          ) : null}
-
-          <div className="grid gap-4 md:grid-cols-[1fr_auto_auto]">
-            <div className="space-y-2">
-              <Label htmlFor="manual-notes">Notes</Label>
-              <Input
-                id="manual-notes"
-                value={manualNotes}
-                onChange={(e) => setManualNotes(e.target.value)}
-                placeholder="Optional context for the audit trail"
-              />
-            </div>
-            <div className="flex items-end">
-              <Button
-                variant="outline"
-                onClick={editingDirectSourceId !== null ? cancelEditDirectEntry : addManualEntryDraft}
-                disabled={loading}
-              >
-                {editingDirectSourceId !== null ? "Cancel Edit" : "Add Draft Row"}
-              </Button>
-            </div>
-            <div className="flex items-end">
-              <Button
-                onClick={editingDirectSourceId !== null ? saveEditedDirectEntry : saveManualEntries}
-                disabled={loading || (!editingDirectSourceId && manualEntries.length === 0)}
-              >
-                {editingDirectSourceId !== null ? "Update Saved Entry" : "Save Direct Entries"}
-              </Button>
-            </div>
-          </div>
-
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={manualReplaceExisting}
-              onChange={(e) => setManualReplaceExisting(e.target.checked)}
-            />
-            Replace previous direct commuting entries for this site selection
-          </label>
-
-          {manualEntries.length > 0 ? (
-            <div className="rounded-md border">
-              <div className="border-b px-3 py-2 text-sm font-medium">Draft Direct Rows ({manualEntries.length})</div>
-              <div className="max-h-64 overflow-auto">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-background">
-                    <tr className="border-b text-left">
-                      <th className="px-3 py-2">Type</th>
-                      <th className="px-3 py-2">Employee / Team</th>
-                      <th className="px-3 py-2">Details</th>
-                      <th className="px-3 py-2 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {manualEntries.map((row) => (
-                      <tr key={row.row_id} className="border-b">
-                        <td className="px-3 py-2 capitalize">{row.row_type}</td>
-                        <td className="px-3 py-2">{row.employee_name}</td>
-                        <td className="px-3 py-2 text-muted-foreground">
-                          {row.row_type === "commuting"
-                            ? `${row.mode_value || "Commute"}${row.service_value ? ` â€¢ ${row.service_value}` : ""}${row.unit_value ? ` â€¢ ${row.unit_value}` : ""}`
-                            : `WFH ${row.annual_days || "?"} days, ${row.hours_per_day || "?"} hrs/day`}
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setManualEntries((current) => current.filter((item) => item.row_id !== row.row_id))}
-                          >
-                            Remove
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="space-y-2">
-            <div className="font-medium">Saved Direct Entries</div>
-            {directEntries.length > 0 ? (
-              <div className="rounded-md border">
-                <div className="max-h-64 overflow-auto">
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 bg-background">
-                      <tr className="border-b text-left">
-                        <th className="px-3 py-2">Employee / Team</th>
-                        <th className="px-3 py-2">Site</th>
-                        <th className="px-3 py-2">Source</th>
-                        <th className="px-3 py-2">Factor ID</th>
-                        <th className="px-3 py-2 text-right">Qty</th>
-                        <th className="px-3 py-2">Unit</th>
-                        <th className="px-3 py-2 text-right">tCO₂e</th>
-                        <th className="px-3 py-2 text-right">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {directEntries.map((row) => (
-                        <tr key={row.source_id} className="border-b">
-                          <td className="px-3 py-2">{row.employee_name || row.source_name}</td>
-                          <td className="px-3 py-2">{row.site_name || "Organisation-wide / No site"}</td>
-                          <td className="px-3 py-2">
-                            <div className="font-medium">{row.source_subtype || "direct"}</div>
-                            <div className="text-xs text-muted-foreground">{row.source_name}</div>
-                          </td>
-                          <td className="px-3 py-2">
-                            <div className="font-mono text-xs">{row.original_id || "-"}</div>
-                          </td>
-                          <td className="px-3 py-2 text-right">{row.qty != null ? formatNumber(row.qty, 4) : "-"}</td>
-                          <td className="px-3 py-2">{row.uom || ""}</td>
-                          <td className="px-3 py-2 text-right">{formatNumber(row.calc_tco2e, 4)}</td>
-                          <td className="px-3 py-2 text-right">
-                            <div className="flex justify-end gap-2">
-                              <Button variant="outline" size="sm" onClick={() => startEditDirectEntry(row)}>
-                                Edit
-                              </Button>
-                              <Button variant="ghost" size="sm" onClick={() => removeDirectEntry(row.source_id, row.employee_name || row.source_name)}>
-                                Delete
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : (
-              <div className="text-sm text-muted-foreground">No direct entries saved yet.</div>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <div className="font-medium">Imported Workbook Rows</div>
-            {importedRows.length > 0 ? (
-              <div className="rounded-md border">
-                <div className="max-h-64 overflow-auto">
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 bg-background">
-                      <tr className="border-b text-left">
-                        <th className="px-3 py-2">Employee / Team</th>
-                        <th className="px-3 py-2">Site</th>
-                        <th className="px-3 py-2">Factor ID</th>
-                        <th className="px-3 py-2">Report Label</th>
-                        <th className="px-3 py-2 text-right">Qty</th>
-                        <th className="px-3 py-2">Unit</th>
-                        <th className="px-3 py-2 text-right">tCO₂e</th>
-                        <th className="px-3 py-2">Notes</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {importedRows.map((row) => (
-                        <tr key={row.row_id} className="border-b align-top">
-                          <td className="px-3 py-2">{row.employee_name || "-"}</td>
-                          <td className="px-3 py-2">{row.site_name || "Organisation-wide / No site"}</td>
-                          <td className="px-3 py-2 font-mono text-xs">{row.original_id || "-"}</td>
-                          <td className="px-3 py-2">{row.report_label || "-"}</td>
-                          <td className="px-3 py-2 text-right">{row.qty != null ? formatNumber(row.qty, 4) : "-"}</td>
-                          <td className="px-3 py-2">{row.uom || "-"}</td>
-                          <td className="px-3 py-2 text-right">{formatNumber(row.calc_tco2e, 4)}</td>
-                          <td className="px-3 py-2 text-xs text-muted-foreground">
-                            {row.data_source ? <div>{row.data_source}</div> : null}
-                            {row.unit_warning ? <div className="text-amber-700">{row.unit_warning}</div> : null}
-                            {row.uses_emissions_fallback ? <div className="text-blue-700">Emissions fallback used</div> : null}
-                            {row.notes ? <div>{row.notes}</div> : null}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : (
-              <div className="text-sm text-muted-foreground">No imported workbook rows found yet.</div>
-            )}
-          </div>
-          </div>
         </CardContent>
       </Card>
 
-        {preview ? (
-          <div className="space-y-4 rounded-md border p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="font-medium">Preview Summary</div>
-                <div className="text-sm text-muted-foreground">
-                  {preview.site_label.replaceAll("_", " ")} â€¢ {preview.template_version}
-                </div>
-              </div>
-              <div className="text-sm text-muted-foreground">
-                Ready rows: {preview.ready_count} | Unresolved rows: {preview.unresolved_count}
-              </div>
+      {/* Stage progress indicator */}
+      <div className="flex items-start px-2">
+        {stages.map((stage, i) => (
+          <Fragment key={stage.num}>
+            <div className="flex flex-col items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                disabled={!stage.done && stage.num > currentStep}
+                onClick={() => { if (stage.done || stage.num <= currentStep) setCurrentStep(stage.num); }}
+                className={[
+                  "flex h-9 w-9 items-center justify-center rounded-full border-2 text-sm font-semibold transition-colors",
+                  currentStep === stage.num
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : stage.done
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-700 cursor-pointer"
+                    : stage.num < currentStep
+                    ? "border-primary/50 bg-primary/10 text-primary cursor-pointer"
+                    : "border-muted-foreground/30 bg-background text-muted-foreground cursor-default",
+                ].join(" ")}
+              >
+                {stage.done ? "✓" : stage.num}
+              </button>
+              <span className={[
+                "text-xs font-medium text-center whitespace-nowrap",
+                currentStep === stage.num ? "text-primary" : stage.done ? "text-emerald-700" : "text-muted-foreground",
+              ].join(" ")}>
+                {stage.label}
+              </span>
             </div>
+            {i < stages.length - 1 && (
+              <div className={[
+                "flex-1 h-0.5 mt-[18px] mx-2",
+                stage.done || currentStep > stage.num ? "bg-emerald-300" : "bg-muted",
+              ].join(" ")} />
+            )}
+          </Fragment>
+        ))}
+      </div>
 
-            <div className="grid gap-3 md:grid-cols-5">
-              <div className="rounded-md border p-3">
-                <div className="text-xs uppercase text-muted-foreground">Parsed Rows</div>
-                <div className="mt-1 text-xl font-semibold">{preview.parsed_count}</div>
-              </div>
-              <div className="rounded-md border p-3">
-                <div className="text-xs uppercase text-muted-foreground">Ready Rows</div>
-                <div className="mt-1 text-xl font-semibold">{preview.ready_count}</div>
-              </div>
-              <div className="rounded-md border p-3">
-                <div className="text-xs uppercase text-muted-foreground">Unresolved Rows</div>
-                <div className="mt-1 text-xl font-semibold">{preview.unresolved_count}</div>
-              </div>
-              <div className="rounded-md border p-3">
-                <div className="text-xs uppercase text-muted-foreground">Distinct Employees</div>
-                <div className="mt-1 text-xl font-semibold">{preview.commuting_response_count ?? "—"}</div>
-              </div>
-              <div className="rounded-md border p-3">
-                <div className="text-xs uppercase text-muted-foreground">Preview tCO₂e</div>
-                <div className="mt-1 text-xl font-semibold">
-                  {formatNumber(preview.total_tco2e, 4)}
-                </div>
-              </div>
-            </div>
-
-            {disableScaling ? (
-              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                Scaling disabled — using raw workbook data as entered ({preview.commuting_response_count ?? 0} distinct employees).
-              </div>
-            ) : preview.employee_headcount && preview.commuting_response_count && preview.commuting_scale_factor && preview.commuting_scale_factor > 1 ? (
-              <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-                Scaled to {preview.employee_headcount} employees from {preview.commuting_response_count} distinct employees.
-                Applied factor: {preview.commuting_scale_factor.toFixed(2)}x.
-              </div>
-            ) : null}
-
-            {preview.unit_fallback_count && preview.unit_fallback_count > 0 ? (
-              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                Unit fallback applied to {preview.unit_fallback_count} row{preview.unit_fallback_count === 1 ? "" : "s"}.
-                This usually means the workbook unit and the factor lookup unit differed, so the alternate distance unit was used.
-              </div>
-            ) : null}
-
-            {preview.unresolved_rows.length > 0 ? (
-              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
-                <div className="mb-2 font-medium text-destructive">Unresolved Rows</div>
-                <div className="space-y-2 text-sm">
-                  {preview.unresolved_rows.map((row, idx) => (
-                    <div key={`${row.sheet}-${row.row_number}-${idx}`} className="rounded border bg-background p-2">
-                      <div className="font-medium">
-                        {row.sheet} row {row.row_number}
-                        {row.employee_name ? ` â€¢ ${row.employee_name}` : ""}
-                      </div>
-                      <div className="text-muted-foreground">{row.reason}</div>
-                      {row.original_id ? <div className="font-mono text-xs">{row.original_id}</div> : null}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {preview.ready_rows.length > 0 ? (
-              <div className="rounded-md border">
-                <div className="border-b px-3 py-2 text-sm font-medium">
-                  Ready Rows
-                  {preview.ready_rows.length > 60 ? (
-                    <span className="font-normal text-muted-foreground"> (showing first 60 of {preview.ready_rows.length})</span>
-                  ) : null}
-                </div>
-                <div className="max-h-72 overflow-auto">
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 bg-background">
-                      <tr className="border-b text-left">
-                        <th className="px-3 py-2">Row</th>
-                        <th className="px-3 py-2">Type</th>
-                        <th className="px-3 py-2">Employee / Team</th>
-                        <th className="px-3 py-2">Original ID</th>
-                        <th className="px-3 py-2">Report Label</th>
-                        <th className="px-3 py-2 text-right">Qty</th>
-                        <th className="px-3 py-2">Unit</th>
-                        <th className="px-3 py-2 text-right">tCO₂e</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {preview.ready_rows.slice(0, 60).map((row) => (
-                        <tr key={`${row.row_type}-${row.row_number}-${row.original_id}`} className="border-b">
-                          <td className="px-3 py-2">{row.row_number}</td>
-                          <td className="px-3 py-2 capitalize">{row.row_type}</td>
-                          <td className="px-3 py-2">{row.employee_name || "Unspecified"}</td>
-                          <td className="px-3 py-2 font-mono">{row.original_id}</td>
-                          <td className="px-3 py-2">{row.report_label || ""}</td>
-                          <td className="px-3 py-2 text-right">
-                            {formatNumber(row.qty, 4)}
-                          </td>
-                          <td className="px-3 py-2">{row.uom || ""}</td>
-                          <td className="px-3 py-2 text-right">
-                            {formatNumber(row.calc_tco2e, 6)}
-                          </td>
-                        </tr>
+      {/* Stage 1: Setup */}
+      {currentStep === 1 && (
+        <Card>
+          <CardHeader><CardTitle>Stage 1: Setup</CardTitle></CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-4 md:grid-cols-[1fr_auto]">
+              <div className="space-y-2">
+                <Label htmlFor="employee-commuting-site">Site</Label>
+                <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
+                  <SelectTrigger id="employee-commuting-site">
+                    <SelectValue placeholder="Organisation-wide / no site" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Organisation-wide / No site</SelectItem>
+                    {sites
+                      .filter((site) => site.site_id != null && (site.site_name ?? "").trim().length > 0)
+                      .map((site) => (
+                        <SelectItem key={site.site_id ?? ""} value={String(site.site_id)}>
+                          {site.site_name}
+                        </SelectItem>
                       ))}
-                    </tbody>
-                  </table>
+                  </SelectContent>
+                </Select>
+                <div className="text-xs text-muted-foreground">
+                  The selected site is used in the downloaded file name and applied to imported rows.
                 </div>
               </div>
+              <div className="flex items-end">
+                <Button variant="outline" onClick={downloadTemplate} disabled={loading}>
+                  Download Template
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2 rounded-md border p-4">
+              <div className="font-medium">Scaling Basis</div>
+              <Label htmlFor="employee-count">Employees to scale to</Label>
+              <Input
+                id="employee-count"
+                type="number"
+                min="1"
+                step="1"
+                value={employeeCount}
+                onChange={(e) => setEmployeeCount(e.target.value)}
+                placeholder="Enter employee count"
+                disabled={disableScaling}
+              />
+              <p className="text-xs text-muted-foreground">
+                This is the full workforce count used for pro-rata scaling. Each person is counted once even if they have multiple commute rows or commute by more than one mode.
+                {summary?.employee_headcount ? ` Job Setup employee count: ${summary.employee_headcount}.` : ""}
+              </p>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={disableScaling}
+                  onChange={(e) => setDisableScaling(e.target.checked)}
+                />
+                Do not scale (use raw workbook data)
+              </label>
+            </div>
+
+            <div className="flex justify-end">
+              <Button onClick={() => setCurrentStep(2)}>Continue to Add Data →</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Stage 2: Add Data */}
+      {currentStep === 2 && (
+        <Card>
+          <CardHeader><CardTitle>Stage 2: Add Data</CardTitle></CardHeader>
+          <CardContent className="space-y-5">
+            <div className="text-sm text-muted-foreground">
+              Upload a completed commuting workbook, or add employee rows directly below when a survey workbook is not available.
+              Imported rows are written into Job Data with the appropriate employee commuting source.
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-[1fr_auto_auto]">
+              <div className="space-y-2">
+                <Label htmlFor="employee-commuting-upload">Completed Workbook (.xlsx)</Label>
+                <Input
+                  id="employee-commuting-upload"
+                  type="file"
+                  accept=".xlsx"
+                  onChange={(e) => {
+                    setUploadFile(e.target.files?.[0] ?? null);
+                    setPreview(null);
+                    setError("");
+                    setStatus("");
+                  }}
+                />
+              </div>
+              <div className="flex items-end">
+                <Button variant="outline" onClick={previewUpload} disabled={loading || !uploadFile}>
+                  Preview Upload
+                </Button>
+              </div>
+              <div className="flex items-end">
+                <Button
+                  onClick={commitUpload}
+                  disabled={
+                    loading ||
+                    !uploadFile ||
+                    !preview ||
+                    preview.ready_count === 0 ||
+                    preview.unresolved_count > 0
+                  }
+                >
+                  Import to Job Data
+                </Button>
+              </div>
+            </div>
+
+            {loading && uploadPhase ? (
+              <UploadProgressBar value={uploadProgress} label={`${uploadPhase} ${uploadProgress > 0 ? `(${uploadProgress}%)` : ""}`} />
             ) : null}
-          </div>
-        ) : null}
+
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={replaceExisting}
+                onChange={(e) => setReplaceExisting(e.target.checked)}
+              />
+              Replace previous commuting import for this site selection
+            </label>
+
+            {preview ? (
+              <div className="space-y-4 rounded-md border p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="font-medium">Preview Summary</div>
+                    <div className="text-sm text-muted-foreground">
+                      {preview.site_label.replaceAll("_", " ")} â€¢ {preview.template_version}
+                    </div>
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    Ready rows: {preview.ready_count} | Unresolved rows: {preview.unresolved_count}
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-5">
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs uppercase text-muted-foreground">Parsed Rows</div>
+                    <div className="mt-1 text-xl font-semibold">{preview.parsed_count}</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs uppercase text-muted-foreground">Ready Rows</div>
+                    <div className="mt-1 text-xl font-semibold">{preview.ready_count}</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs uppercase text-muted-foreground">Unresolved Rows</div>
+                    <div className="mt-1 text-xl font-semibold">{preview.unresolved_count}</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs uppercase text-muted-foreground">Distinct Employees</div>
+                    <div className="mt-1 text-xl font-semibold">{preview.commuting_response_count ?? "—"}</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs uppercase text-muted-foreground">Preview tCO₂e</div>
+                    <div className="mt-1 text-xl font-semibold">
+                      {formatNumber(preview.total_tco2e, 4)}
+                    </div>
+                  </div>
+                </div>
+
+                {disableScaling ? (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    Scaling disabled — using raw workbook data as entered ({preview.commuting_response_count ?? 0} distinct employees).
+                  </div>
+                ) : preview.employee_headcount && preview.commuting_response_count && preview.commuting_scale_factor && preview.commuting_scale_factor > 1 ? (
+                  <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                    Scaled to {preview.employee_headcount} employees from {preview.commuting_response_count} distinct employees.
+                    Applied factor: {preview.commuting_scale_factor.toFixed(2)}x.
+                  </div>
+                ) : null}
+
+                {preview.unit_fallback_count && preview.unit_fallback_count > 0 ? (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    Unit fallback applied to {preview.unit_fallback_count} row{preview.unit_fallback_count === 1 ? "" : "s"}.
+                    This usually means the workbook unit and the factor lookup unit differed, so the alternate distance unit was used.
+                  </div>
+                ) : null}
+
+                {preview.unresolved_rows.length > 0 ? (
+                  <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
+                    <div className="mb-2 font-medium text-destructive">Unresolved Rows</div>
+                    <div className="space-y-2 text-sm">
+                      {preview.unresolved_rows.map((row, idx) => (
+                        <div key={`${row.sheet}-${row.row_number}-${idx}`} className="rounded border bg-background p-2">
+                          <div className="font-medium">
+                            {row.sheet} row {row.row_number}
+                            {row.employee_name ? ` â€¢ ${row.employee_name}` : ""}
+                          </div>
+                          <div className="text-muted-foreground">{row.reason}</div>
+                          {row.original_id ? <div className="font-mono text-xs">{row.original_id}</div> : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {preview.ready_rows.length > 0 ? (
+                  <div className="rounded-md border">
+                    <div className="border-b px-3 py-2 text-sm font-medium">
+                      Ready Rows
+                      {preview.ready_rows.length > 60 ? (
+                        <span className="font-normal text-muted-foreground"> (showing first 60 of {preview.ready_rows.length})</span>
+                      ) : null}
+                    </div>
+                    <div className="max-h-72 overflow-auto">
+                      <table className="w-full text-sm">
+                        <thead className="sticky top-0 bg-background">
+                          <tr className="border-b text-left">
+                            <th className="px-3 py-2">Row</th>
+                            <th className="px-3 py-2">Type</th>
+                            <th className="px-3 py-2">Employee / Team</th>
+                            <th className="px-3 py-2">Original ID</th>
+                            <th className="px-3 py-2">Report Label</th>
+                            <th className="px-3 py-2 text-right">Qty</th>
+                            <th className="px-3 py-2">Unit</th>
+                            <th className="px-3 py-2 text-right">tCO₂e</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {preview.ready_rows.slice(0, 60).map((row) => (
+                            <tr key={`${row.row_type}-${row.row_number}-${row.original_id}`} className="border-b">
+                              <td className="px-3 py-2">{row.row_number}</td>
+                              <td className="px-3 py-2 capitalize">{row.row_type}</td>
+                              <td className="px-3 py-2">{row.employee_name || "Unspecified"}</td>
+                              <td className="px-3 py-2 font-mono">{row.original_id}</td>
+                              <td className="px-3 py-2">{row.report_label || ""}</td>
+                              <td className="px-3 py-2 text-right">
+                                {formatNumber(row.qty, 4)}
+                              </td>
+                              <td className="px-3 py-2">{row.uom || ""}</td>
+                              <td className="px-3 py-2 text-right">
+                                {formatNumber(row.calc_tco2e, 6)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <details className="rounded-md border p-4">
+              <summary className="cursor-pointer font-medium">Direct Employee Data Entry</summary>
+              <div className="mt-4 space-y-4">
+                <div className="text-sm text-muted-foreground">
+                  Add commuting or working-from-home rows directly here when a survey workbook is not available.
+                  Saved entries flow into reporting alongside the workbook import.
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="manual-row-type">Row type</Label>
+                    <Select value={manualRowType} onValueChange={(value) => setManualRowType(value as "commuting" | "wfh")}>
+                      <SelectTrigger id="manual-row-type">
+                        <SelectValue placeholder="Choose row type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="commuting">Commuting</SelectItem>
+                        <SelectItem value="wfh">Working from home</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="manual-employee">Employee / Team</Label>
+                    <Input
+                      id="manual-employee"
+                      value={manualEmployeeName}
+                      onChange={(e) => setManualEmployeeName(e.target.value)}
+                      placeholder="e.g. Jane Smith or Sales team"
+                    />
+                  </div>
+                </div>
+
+                {manualRowType === "commuting" ? (
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="manual-mode">Commute Mode</Label>
+                      <Select value={manualModeValue} onValueChange={setManualModeValue}>
+                        <SelectTrigger id="manual-mode">
+                          <SelectValue placeholder="Select mode" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Car - Petrol">Car - Petrol</SelectItem>
+                          <SelectItem value="Car - Diesel">Car - Diesel</SelectItem>
+                          <SelectItem value="Car - Hybrid">Car - Hybrid</SelectItem>
+                          <SelectItem value="Car - Electric">Car - Electric</SelectItem>
+                          <SelectItem value="Motorbike">Motorbike</SelectItem>
+                          <SelectItem value="Taxi">Taxi</SelectItem>
+                          <SelectItem value="Bus">Bus</SelectItem>
+                          <SelectItem value="Rail">Rail</SelectItem>
+                          <SelectItem value="Ferry">Ferry</SelectItem>
+                          <SelectItem value="Walking">Walking</SelectItem>
+                          <SelectItem value="Cycling">Cycling</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="manual-service">Vehicle / Service Type</Label>
+                      <Input
+                        id="manual-service"
+                        value={manualServiceValue}
+                        onChange={(e) => setManualServiceValue(e.target.value)}
+                        placeholder="Average, Small, Regular, etc"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="manual-unit">Distance Unit</Label>
+                      <Select value={manualUnitValue} onValueChange={setManualUnitValue}>
+                        <SelectTrigger id="manual-unit">
+                          <SelectValue placeholder="Select unit" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="miles">miles</SelectItem>
+                          <SelectItem value="km">km</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="manual-annual-days">Annual WFH Days</Label>
+                      <Input
+                        id="manual-annual-days"
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={manualAnnualDays}
+                        onChange={(e) => setManualAnnualDays(e.target.value)}
+                        placeholder="e.g. 120"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="manual-hours-per-day">Hours Per Day</Label>
+                      <Input
+                        id="manual-hours-per-day"
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={manualHoursPerDay}
+                        onChange={(e) => setManualHoursPerDay(e.target.value)}
+                        placeholder="e.g. 7.5"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {manualRowType === "commuting" ? (
+                  <div className="grid gap-4 md:grid-cols-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="manual-one-way-distance">One-Way Distance</Label>
+                      <Input
+                        id="manual-one-way-distance"
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={manualOneWayDistance}
+                        onChange={(e) => setManualOneWayDistance(e.target.value)}
+                        placeholder="e.g. 18"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="manual-office-days">Office Days / Week</Label>
+                      <Input
+                        id="manual-office-days"
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={manualOfficeDays}
+                        onChange={(e) => setManualOfficeDays(e.target.value)}
+                        placeholder="e.g. 3"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="manual-weeks-per-year">Weeks / Year</Label>
+                      <Input
+                        id="manual-weeks-per-year"
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={manualWeeksPerYear}
+                        onChange={(e) => setManualWeeksPerYear(e.target.value)}
+                        placeholder="e.g. 46"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="manual-annual-distance">Annual Distance</Label>
+                      <Input
+                        id="manual-annual-distance"
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={manualAnnualDistance}
+                        onChange={(e) => setManualAnnualDistance(e.target.value)}
+                        placeholder="Optional override"
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                {editingDirectSourceId !== null ? (
+                  <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                    Editing saved direct entry #{editingDirectSourceId}. Update the fields below, then save the changes back into the register.
+                  </div>
+                ) : null}
+
+                <div className="grid gap-4 md:grid-cols-[1fr_auto_auto]">
+                  <div className="space-y-2">
+                    <Label htmlFor="manual-notes">Notes</Label>
+                    <Input
+                      id="manual-notes"
+                      value={manualNotes}
+                      onChange={(e) => setManualNotes(e.target.value)}
+                      placeholder="Optional context for the audit trail"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      variant="outline"
+                      onClick={editingDirectSourceId !== null ? cancelEditDirectEntry : addManualEntryDraft}
+                      disabled={loading}
+                    >
+                      {editingDirectSourceId !== null ? "Cancel Edit" : "Add Draft Row"}
+                    </Button>
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      onClick={editingDirectSourceId !== null ? saveEditedDirectEntry : saveManualEntries}
+                      disabled={loading || (!editingDirectSourceId && manualEntries.length === 0)}
+                    >
+                      {editingDirectSourceId !== null ? "Update Saved Entry" : "Save Direct Entries"}
+                    </Button>
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={manualReplaceExisting}
+                    onChange={(e) => setManualReplaceExisting(e.target.checked)}
+                  />
+                  Replace previous direct commuting entries for this site selection
+                </label>
+
+                {manualEntries.length > 0 ? (
+                  <div className="rounded-md border">
+                    <div className="border-b px-3 py-2 text-sm font-medium">Draft Direct Rows ({manualEntries.length})</div>
+                    <div className="max-h-64 overflow-auto">
+                      <table className="w-full text-sm">
+                        <thead className="sticky top-0 bg-background">
+                          <tr className="border-b text-left">
+                            <th className="px-3 py-2">Type</th>
+                            <th className="px-3 py-2">Employee / Team</th>
+                            <th className="px-3 py-2">Details</th>
+                            <th className="px-3 py-2 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {manualEntries.map((row) => (
+                            <tr key={row.row_id} className="border-b">
+                              <td className="px-3 py-2 capitalize">{row.row_type}</td>
+                              <td className="px-3 py-2">{row.employee_name}</td>
+                              <td className="px-3 py-2 text-muted-foreground">
+                                {row.row_type === "commuting"
+                                  ? `${row.mode_value || "Commute"}${row.service_value ? ` â€¢ ${row.service_value}` : ""}${row.unit_value ? ` â€¢ ${row.unit_value}` : ""}`
+                                  : `WFH ${row.annual_days || "?"} days, ${row.hours_per_day || "?"} hrs/day`}
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setManualEntries((current) => current.filter((item) => item.row_id !== row.row_id))}
+                                >
+                                  Remove
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </details>
+
+            <div className="flex justify-between">
+              <Button variant="outline" onClick={() => setCurrentStep(1)}>← Back to Setup</Button>
+              <Button onClick={() => setCurrentStep(3)}>Continue to Job Data →</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Stage 3: Job Data */}
+      {currentStep === 3 && (
+        <Card>
+          <CardHeader><CardTitle>Stage 3: Job Data</CardTitle></CardHeader>
+          <CardContent className="space-y-5">
+            <div className="space-y-2">
+              <div className="font-medium">Imported Workbook Rows</div>
+              {importedRows.length > 0 ? (
+                <div className="rounded-md border">
+                  <div className="max-h-64 overflow-auto">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-background">
+                        <tr className="border-b text-left">
+                          <th className="px-3 py-2">Employee / Team</th>
+                          <th className="px-3 py-2">Site</th>
+                          <th className="px-3 py-2">Factor ID</th>
+                          <th className="px-3 py-2">Report Label</th>
+                          <th className="px-3 py-2 text-right">Qty</th>
+                          <th className="px-3 py-2">Unit</th>
+                          <th className="px-3 py-2 text-right">tCO₂e</th>
+                          <th className="px-3 py-2">Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importedRows.map((row) => (
+                          <tr key={row.row_id} className="border-b align-top">
+                            <td className="px-3 py-2">{row.employee_name || "-"}</td>
+                            <td className="px-3 py-2">{row.site_name || "Organisation-wide / No site"}</td>
+                            <td className="px-3 py-2 font-mono text-xs">{row.original_id || "-"}</td>
+                            <td className="px-3 py-2">{row.report_label || "-"}</td>
+                            <td className="px-3 py-2 text-right">{row.qty != null ? formatNumber(row.qty, 4) : "-"}</td>
+                            <td className="px-3 py-2">{row.uom || "-"}</td>
+                            <td className="px-3 py-2 text-right">{formatNumber(row.calc_tco2e, 4)}</td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground">
+                              {row.data_source ? <div>{row.data_source}</div> : null}
+                              {row.unit_warning ? <div className="text-amber-700">{row.unit_warning}</div> : null}
+                              {row.uses_emissions_fallback ? <div className="text-blue-700">Emissions fallback used</div> : null}
+                              {row.notes ? <div>{row.notes}</div> : null}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground">No imported workbook rows found yet.</div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="font-medium">Saved Direct Entries</div>
+              {directEntries.length > 0 ? (
+                <div className="rounded-md border">
+                  <div className="max-h-64 overflow-auto">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-background">
+                        <tr className="border-b text-left">
+                          <th className="px-3 py-2">Employee / Team</th>
+                          <th className="px-3 py-2">Site</th>
+                          <th className="px-3 py-2">Source</th>
+                          <th className="px-3 py-2">Factor ID</th>
+                          <th className="px-3 py-2 text-right">Qty</th>
+                          <th className="px-3 py-2">Unit</th>
+                          <th className="px-3 py-2 text-right">tCO₂e</th>
+                          <th className="px-3 py-2 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {directEntries.map((row) => (
+                          <tr key={row.source_id} className="border-b">
+                            <td className="px-3 py-2">{row.employee_name || row.source_name}</td>
+                            <td className="px-3 py-2">{row.site_name || "Organisation-wide / No site"}</td>
+                            <td className="px-3 py-2">
+                              <div className="font-medium">{row.source_subtype || "direct"}</div>
+                              <div className="text-xs text-muted-foreground">{row.source_name}</div>
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="font-mono text-xs">{row.original_id || "-"}</div>
+                            </td>
+                            <td className="px-3 py-2 text-right">{row.qty != null ? formatNumber(row.qty, 4) : "-"}</td>
+                            <td className="px-3 py-2">{row.uom || ""}</td>
+                            <td className="px-3 py-2 text-right">{formatNumber(row.calc_tco2e, 4)}</td>
+                            <td className="px-3 py-2 text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button variant="outline" size="sm" onClick={() => startEditDirectEntry(row)}>
+                                  Edit
+                                </Button>
+                                <Button variant="ghost" size="sm" onClick={() => removeDirectEntry(row.source_id, row.employee_name || row.source_name)}>
+                                  Delete
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground">No direct entries saved yet.</div>
+              )}
+            </div>
+
+            <div className="flex justify-start">
+              <Button variant="outline" onClick={() => setCurrentStep(2)}>← Back to Add Data</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
