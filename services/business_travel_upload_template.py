@@ -11,7 +11,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from core.database import get_conn
-from services.dataset_selector import get_monthly_headers, get_reporting_period_display
+from services.dataset_selector import get_monthly_headers, get_reporting_period_display, get_scope_primary_datasets
 from services.download_filenames import build_download_filename
 from services.fetch_existing_data import fetch_existing_scope_entries
 
@@ -149,7 +149,10 @@ def _load_reference_rows_from_csv() -> list[dict[str, Any]]:
     return factors
 
 
-def _load_reference_rows_from_dataset(reporting_year: int | None = None) -> list[dict[str, Any]]:
+def _load_reference_rows_from_dataset(
+    dataset_id: int | None = None,
+    reporting_year: int | None = None,
+) -> list[dict[str, Any]]:
     with get_conn() as con:
         params: list[object] = []
         where_parts = [
@@ -157,7 +160,14 @@ def _load_reference_rows_from_dataset(reporting_year: int | None = None) -> list
             "LOWER(TRIM(COALESCE(fl.scope, ''))) = 'scope 3'",
             "LOWER(TRIM(COALESCE(fl.category, fl.level_1, ''))) = 'business travel'",
         ]
-        if reporting_year is not None:
+        # Scope to the job's single resolved dataset whenever we have one --
+        # several datasets can share the same year, and without this filter
+        # every matching factor is pulled from each of them, duplicating
+        # every row in the downloaded template once per extra dataset.
+        if dataset_id is not None:
+            where_parts.append("fl.dataset_id = ?")
+            params.append(int(dataset_id))
+        elif reporting_year is not None:
             where_parts.append("COALESCE(fl.year, d.year) = ?")
             params.append(int(reporting_year))
 
@@ -230,8 +240,11 @@ def _serialize_reference_row(row: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def _load_reference_rows(reporting_year: int | None = None) -> list[dict[str, Any]]:
-    factors = _load_reference_rows_from_dataset(reporting_year=reporting_year)
+def _load_reference_rows(
+    dataset_id: int | None = None,
+    reporting_year: int | None = None,
+) -> list[dict[str, Any]]:
+    factors = _load_reference_rows_from_dataset(dataset_id=dataset_id, reporting_year=reporting_year)
     if factors:
         return factors
 
@@ -388,7 +401,11 @@ def generate_business_travel_upload_template(
         selected_site_name = site_name or (selected_site.get("site_name") if selected_site else "")
         existing_data = fetch_existing_scope_entries(job_id)
 
-    factors = _load_reference_rows(int(reporting_year) if str(reporting_year).strip() else None)
+    scope3_dataset_id = get_scope_primary_datasets(int(job_id)).get("Scope 3")
+    factors = _load_reference_rows(
+        dataset_id=scope3_dataset_id,
+        reporting_year=int(reporting_year) if str(reporting_year).strip() else None,
+    )
     monthly_headers = get_monthly_headers(job_id)
     headers = ["Scope", "Category", "Report Label", "ID", "UOM"] + monthly_headers + ["Qty", "Data Source", "Notes"]
 
