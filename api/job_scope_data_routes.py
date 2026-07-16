@@ -2283,20 +2283,18 @@ def repoint_scope_data_row(
             if not before:
                 raise HTTPException(status_code=404, detail="Row snapshot unavailable")
 
-            published_review = con.execute(
-                """
-                SELECT 1
-                FROM report_reviews
-                WHERE job_id = %s
-                  AND published_at IS NOT NULL
-                LIMIT 1
-                """,
+            job_status_row = con.execute(
+                "SELECT status FROM jobs WHERE job_id = %s",
                 [int(job_id)],
             ).fetchone()
-            if published_review:
+            job_status = str((job_status_row or [None])[0] or "").strip().lower()
+            if job_status in ("completed", "closed"):
                 raise HTTPException(
                     status_code=409,
-                    detail="This job has already been published, so row repointing is blocked to protect the published report.",
+                    detail=(
+                        "This job's status is Completed/Closed, so row repointing is blocked to protect "
+                        "the delivered report. Change the job status back to Open to make retrospective changes."
+                    ),
                 )
 
             if "original_id" not in payload:

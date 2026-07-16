@@ -2955,7 +2955,8 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                         <div className="text-muted-foreground">Choose a factor below.</div>
                       )}
                       <div className="mt-2 text-xs text-muted-foreground">
-                        Repointing is blocked for published jobs to protect the published report.
+                        Repointing is blocked while this job&apos;s status is Completed or Closed. Change the job
+                        status back to Open to make retrospective changes.
                       </div>
                     </div>
                   </CardContent>
