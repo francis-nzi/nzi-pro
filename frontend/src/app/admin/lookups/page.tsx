@@ -591,7 +591,17 @@ export default function LookupsPage() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4">
-              <CardTitle>{activeTable.label}</CardTitle>
+              <div className="space-y-1">
+                <CardTitle>{activeTable.label}</CardTitle>
+                {activeTable.key === "portfolios_lookup" ? (
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span>Need to create a portfolio owner first?</span>
+                    <Button asChild variant="link" className="h-auto p-0 text-xs font-medium text-[#1c5026]">
+                      <Link href="/clients/new?status=Portfolio%20Owner">Create Portfolio Owner</Link>
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
               <Button onClick={() => setIsAddDialogOpen(true)}>
                 Add {activeTable.key === "currency_lookup" ? "Currency" : singularLabel(activeTable.label)}
               </Button>
