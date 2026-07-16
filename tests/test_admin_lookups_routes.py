@@ -100,3 +100,4 @@ def test_portfolios_lookup_create_and_update_support_owner_link(monkeypatch):
     assert create_result["ok"] is True
     assert update_result["ok"] is True
     assert any("portfolio_owner_client_db_id" in sql for sql, _ in fake.executed)
+    assert any("UPDATE clients SET status = %s" in sql for sql, _ in fake.executed)

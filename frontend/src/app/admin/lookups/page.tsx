@@ -37,6 +37,7 @@ type PortfolioOwnerOption = {
   client_name: string;
   portfolio?: string | null;
   crm_owner?: string | null;
+  status?: string | null;
 };
 
 const LOOKUP_TABLES = [
@@ -154,7 +155,7 @@ export default function LookupsPage() {
 
   const loadPortfolioOwners = useCallback(async () => {
     try {
-      const res = await fetch(`${baseUrl}/clients?status=Portfolio%20Owner&include_archived=true&limit=500`);
+      const res = await fetch(`${baseUrl}/clients?include_archived=false&limit=500&sort_by=client`);
       if (!res.ok) return;
       const json = await res.json() as { items?: PortfolioOwnerOption[] };
       setPortfolioOwnerOptions(json.items ?? []);
@@ -704,7 +705,7 @@ export default function LookupsPage() {
                                 <SelectItem value="__none__">No owner linked</SelectItem>
                                 {portfolioOwnerOptions.map((owner) => (
                                   <SelectItem key={owner.client_db_id} value={String(owner.client_db_id)}>
-                                    {owner.client_name}
+                                    {owner.client_name}{owner.status ? ` (${owner.status})` : ""}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -891,11 +892,14 @@ export default function LookupsPage() {
                       <SelectItem value="__none__">No owner linked</SelectItem>
                       {portfolioOwnerOptions.map((owner) => (
                         <SelectItem key={owner.client_db_id} value={String(owner.client_db_id)}>
-                          {owner.client_name}
+                          {owner.client_name}{owner.status ? ` (${owner.status})` : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="text-xs text-slate-500">
+                    Pick any active client here. When you save, the selected client is promoted to Portfolio Owner.
+                  </p>
                 </div>
               </div>
             ) : activeTable.key === "currency_lookup" ? (

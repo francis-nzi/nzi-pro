@@ -502,6 +502,11 @@ def create_lookup_item(
                         "INSERT INTO portfolios_lookup (org_id, name, portfolio_owner_client_db_id, is_active) VALUES (NULL, %s, %s, %s)",
                         [name, portfolio_owner_client_db_id, body.get("is_active", True)],
                     )
+                    if portfolio_owner_client_db_id is not None:
+                        con.execute(
+                            "UPDATE clients SET status = %s WHERE db_id = %s AND COALESCE(org_id, '') = %s",
+                            ["Portfolio Owner", portfolio_owner_client_db_id, org_match],
+                        )
                 else:
                     existing = con.execute(
                         f"""
@@ -677,6 +682,11 @@ def update_lookup_item(
                 )
                 updates.append("portfolio_owner_client_db_id = %s")
                 params.append(owner_id)
+                if owner_id is not None:
+                    con.execute(
+                        "UPDATE clients SET status = %s WHERE db_id = %s AND COALESCE(org_id, '') = %s",
+                        ["Portfolio Owner", owner_id, org_match],
+                    )
 
             if not updates:
                 return {"ok": True, "message": "No fields to update"}
