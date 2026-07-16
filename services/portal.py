@@ -1034,6 +1034,7 @@ def portal_dashboard_jobs(client_db_id: int, *, con=None) -> list[dict[str, Any]
             LIMIT 1
         ) rv ON TRUE
         WHERE j.client_db_id = %s
+          AND COALESCE(j.portal_visible, TRUE) = TRUE
         ORDER BY display_year DESC NULLS LAST, j.job_id DESC
         """,
         [int(client_db_id)],

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
+  Briefcase,
   CheckCircle2,
   ChevronDown,
   ExternalLink,
@@ -23,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { jobFamilyBadgeClassName } from "@/lib/job-family";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -90,7 +92,7 @@ type PortalAccess = {
   notes: string | null;
 };
 
-type PortalTab = "access" | "users" | "navigation" | "files" | "history";
+type PortalTab = "access" | "users" | "navigation" | "jobs" | "files" | "history";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -513,6 +515,144 @@ function ClientPortalFilesSection({ clientId, baseUrl }: { clientId: number; bas
   );
 }
 
+// ── Portal Jobs Section ───────────────────────────────────────────────────────
+
+type ClientPortalJob = {
+  job_id: number;
+  job_number: string | null;
+  title: string | null;
+  reporting_year: number | null;
+  status: string | null;
+  job_type?: string | null;
+  job_family?: string | null;
+  portal_visible: boolean;
+};
+
+function ClientPortalJobsSection({ clientId, baseUrl }: { clientId: number; baseUrl: string }) {
+  const [jobs, setJobs] = useState<ClientPortalJob[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingIds, setSavingIds] = useState<Set<number>>(new Set());
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/jobs?limit=200`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json() as { items: ClientPortalJob[] };
+        setJobs(data.items ?? []);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [baseUrl, clientId]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function setVisibility(jobIds: number[], visible: boolean) {
+    setSavingIds(prev => new Set([...prev, ...jobIds]));
+    setJobs(js => js.map(j => jobIds.includes(j.job_id) ? { ...j, portal_visible: visible } : j));
+    try {
+      await fetch(`${baseUrl}/clients/${clientId}/portal-jobs`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_ids: jobIds, portal_visible: visible }),
+      });
+    } finally {
+      setSavingIds(prev => {
+        const next = new Set(prev);
+        jobIds.forEach(id => next.delete(id));
+        return next;
+      });
+    }
+  }
+
+  const visibleCount = jobs.filter(j => j.portal_visible).length;
+  const allVisible = jobs.length > 0 && visibleCount === jobs.length;
+  const someVisible = visibleCount > 0 && visibleCount < jobs.length;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Briefcase className="h-4 w-4" />
+          Portal Jobs
+          {!loading && (
+            <span className="text-xs font-normal text-muted-foreground ml-1">
+              {visibleCount} of {jobs.length} visible to client
+            </span>
+          )}
+        </CardTitle>
+        <CardDescription>
+          Control which jobs the client can see in their NZInsights portal (dashboard, reporting data, actions and files).
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="py-6 text-sm text-center text-muted-foreground">Loading jobs…</div>
+        ) : jobs.length === 0 ? (
+          <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+            No jobs found for this client yet.
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-md border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50">
+                  <th className="w-8 px-3 py-2.5 text-center">
+                    <input
+                      type="checkbox"
+                      checked={allVisible}
+                      ref={el => { if (el) el.indeterminate = someVisible; }}
+                      onChange={() => void setVisibility(jobs.map(j => j.job_id), !allVisible)}
+                      className="h-4 w-4 rounded border-gray-300 text-green-600 cursor-pointer"
+                      title={allVisible ? "Hide all jobs from portal" : "Show all jobs on portal"}
+                    />
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500">Job</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500">Reporting Period</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {jobs.map(job => (
+                  <tr key={job.job_id} className={`hover:bg-gray-50/50 ${!job.portal_visible ? "opacity-60" : ""}`}>
+                    <td className="px-3 py-2.5 text-center">
+                      <input
+                        type="checkbox"
+                        checked={job.portal_visible}
+                        disabled={savingIds.has(job.job_id)}
+                        onChange={() => void setVisibility([job.job_id], !job.portal_visible)}
+                        className="h-4 w-4 rounded border-gray-300 text-green-600 cursor-pointer"
+                        title={job.portal_visible ? "Hide from portal" : "Show on portal"}
+                      />
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium text-gray-900">{job.job_number ?? `Job #${job.job_id}`}</span>
+                        {job.job_type && (
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${jobFamilyBadgeClassName(job.job_family)}`}>
+                            {job.job_type}
+                          </span>
+                        )}
+                      </div>
+                      {job.title && <div className="text-xs text-gray-400 truncate max-w-[260px]">{job.title}</div>}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-gray-500">{job.reporting_year ?? "—"}</td>
+                    <td className="px-3 py-2.5">
+                      <Badge variant="outline" className="text-xs">{job.status ?? "—"}</Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
@@ -737,17 +877,17 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
     setNavSaving(true);
     setError("");
     try {
+      // Only send nav_config -- every other field on this payload is
+      // Optional server-side and falls back to whatever is already stored,
+      // so there's no risk of clobbering unsaved edits made on the Access
+      // tab (previously this resent portalAccess's last-loaded snapshot of
+      // those fields, which could silently overwrite them).
       const res = await fetch(`${baseUrl}/clients/${clientId}/portal-access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          is_enabled: portalAccess?.is_enabled ?? false,
-          access_expires_at: portalAccess?.access_expires_at ?? null,
-          payment_status: portalAccess?.payment_status ?? "unpaid",
-          payment_reference: portalAccess?.payment_reference ?? null,
           nav_config: editNavConfig,
-          notes: portalAccess?.notes ?? null,
         }),
       });
       if (!res.ok) {
@@ -810,7 +950,7 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
 
       {/* Tab bar */}
       <div className="flex border-b border-gray-200 gap-0">
-        {(["access", "users", "navigation", "files", "history"] as PortalTab[]).map(tab => (
+        {(["access", "users", "navigation", "jobs", "files", "history"] as PortalTab[]).map(tab => (
           <button
             key={tab}
             onClick={() => { setActiveTab(tab); setStatusMsg(""); }}
@@ -1141,6 +1281,11 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
             </Button>
           </CardContent>
         </Card>
+      )}
+
+      {/* Jobs tab */}
+      {activeTab === "jobs" && (
+        <ClientPortalJobsSection clientId={clientId} baseUrl={baseUrl} />
       )}
 
       {/* Files tab */}

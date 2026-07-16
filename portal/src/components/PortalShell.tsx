@@ -100,12 +100,17 @@ export default function PortalShell({
   const isDashboard = pathname === "/dashboard" || pathname === "/";
   const sidebarBg = "#1a3a2a";
 
-  const visibleNav = useMemo(() => ALL_NAV_ITEMS.filter((item) => {
-    const cfg = navConfig as Record<string, boolean>;
-    if (!navLoaded) return true;
-    if (Object.keys(navConfig).length === 0) return true;
-    return cfg[item.key] !== false;
-  }), [navConfig, navLoaded]);
+  const visibleNav = useMemo(() => {
+    // Don't flash every item (including ones that should stay hidden) while
+    // /portal/auth/me is still in flight -- show nothing until nav_config
+    // has actually loaded.
+    if (!navLoaded) return [];
+    return ALL_NAV_ITEMS.filter((item) => {
+      const cfg = navConfig as Record<string, boolean>;
+      if (Object.keys(navConfig).length === 0) return true;
+      return cfg[item.key] !== false;
+    });
+  }, [navConfig, navLoaded]);
   const visibleNavTabs = useMemo(() => visibleNav.map((item) => item.tab), [visibleNav]);
 
   useEffect(() => {

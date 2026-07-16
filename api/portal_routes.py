@@ -39,13 +39,15 @@ router = APIRouter(tags=["portal"])
 
 def _assert_job_belongs_to_client(job_id: int, client_db_id: int, con) -> None:
     row = con.execute(
-        "SELECT client_db_id FROM jobs WHERE job_id = %s",
+        "SELECT client_db_id, portal_visible FROM jobs WHERE job_id = %s",
         [int(job_id)],
     ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Job not found")
     if int(row[0]) != int(client_db_id):
         raise HTTPException(status_code=403, detail="Access denied")
+    if row[1] is False:
+        raise HTTPException(status_code=404, detail="Job not found")
 
 
 # ---------------------------------------------------------------------------
@@ -692,6 +694,7 @@ def _portal_load_jobs(con, client_db_id: int):
         FROM jobs j
         LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
         WHERE j.client_db_id = %s
+          AND COALESCE(j.portal_visible, TRUE) = TRUE
         ORDER BY dashboard_year ASC NULLS LAST
         """,
         [int(client_db_id)],
@@ -1304,6 +1307,7 @@ def portal_status_bar(current_user: dict = Depends(portal_user_dep)):
             JOIN report_reviews rr ON rr.review_id = rrc.review_id
             JOIN jobs j ON j.job_id = rr.job_id
             WHERE j.client_db_id = %s
+              AND COALESCE(j.portal_visible, TRUE) = TRUE
               AND rrc.author_type = 'client'
               AND rrc.status = 'open'
             LIMIT 20
@@ -1319,6 +1323,7 @@ def portal_status_bar(current_user: dict = Depends(portal_user_dep)):
             FROM report_reviews rr
             JOIN jobs j ON j.job_id = rr.job_id
             WHERE j.client_db_id = %s
+              AND COALESCE(j.portal_visible, TRUE) = TRUE
               AND rr.status IN ('sent_for_review', 'changes_requested')
               AND rr.portal_version_id IS NOT NULL
             ORDER BY rr.sent_for_review_at DESC
@@ -1416,6 +1421,7 @@ def portal_actions_library(current_user: dict = Depends(portal_user_dep)):
             FROM job_report_actions a
             JOIN jobs j ON j.job_id = a.job_id
             WHERE j.client_db_id = %s
+              AND COALESCE(j.portal_visible, TRUE) = TRUE
               AND a.action_option_id IS NOT NULL
               AND COALESCE(a.status, 'open') != 'cancelled'
             """,
@@ -1624,6 +1630,7 @@ def portal_list_actions(current_user: dict = Depends(portal_user_dep)):
             JOIN jobs j ON j.job_id = a.job_id
             LEFT JOIN client_contacts cc ON cc.contact_id = a.owner_contact_id
             WHERE j.client_db_id = %s
+              AND COALESCE(j.portal_visible, TRUE) = TRUE
             ORDER BY
                 CASE COALESCE(a.status, 'open')
                     WHEN 'in_progress' THEN 1
@@ -1866,6 +1873,7 @@ def portal_files(current_user: dict = Depends(portal_user_dep)):
             FROM job_files jf
             JOIN jobs j ON j.job_id = jf.job_id
             WHERE j.client_db_id = %s
+              AND COALESCE(j.portal_visible, TRUE) = TRUE
               AND jf.portal_visible = TRUE
               AND (jf.portal_expires_at IS NULL OR jf.portal_expires_at > NOW())
             ORDER BY jf.uploaded_at DESC NULLS LAST
@@ -1917,7 +1925,11 @@ def portal_file_download(file_id: int, current_user: dict = Depends(portal_user_
                    jf.storage_provider, jf.mime_type
             FROM job_files jf
             JOIN jobs j ON j.job_id = jf.job_id
-            WHERE jf.file_id = %s AND j.client_db_id = %s
+            WHERE jf.file_id = %s
+              AND j.client_db_id = %s
+              AND COALESCE(j.portal_visible, TRUE) = TRUE
+              AND jf.portal_visible = TRUE
+              AND (jf.portal_expires_at IS NULL OR jf.portal_expires_at > NOW())
             """,
             [file_id, client_db_id],
         ).fetchone()

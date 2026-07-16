@@ -475,6 +475,7 @@ def client_jobs(
                     f"""
                     SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
                            j.job_type, {("j.job_group" if has_job_group else "NULL::text AS job_group")}, {("j.job_family" if has_job_family else "NULL::text AS job_family")}, j.is_crp, j.reporting_period_end::text AS reporting_period_end,
+                           j.portal_visible,
                            jp.data_collection_due::text AS data_collection_due, jp.data_collection_completed_at::text AS data_collection_completed_at,
                            jp.first_draft_due::text AS first_draft_due, jp.first_draft_completed_at::text AS first_draft_completed_at,
                            jp.final_report_due::text AS final_report_due, jp.final_report_completed_at::text AS final_report_completed_at
@@ -502,6 +503,7 @@ def client_jobs(
                     f"""
                     SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
                            j.job_type, {("j.job_group" if has_job_group else "NULL::text AS job_group")}, {("j.job_family" if has_job_family else "NULL::text AS job_family")}, j.is_crp, j.reporting_period_end::text AS reporting_period_end,
+                           j.portal_visible,
                            jp.data_collection_due::text AS data_collection_due, jp.data_collection_completed_at::text AS data_collection_completed_at,
                            jp.first_draft_due::text AS first_draft_due, jp.first_draft_completed_at::text AS first_draft_completed_at,
                            jp.final_report_due::text AS final_report_due, jp.final_report_completed_at::text AS final_report_completed_at
@@ -602,6 +604,7 @@ def client_jobs(
                     "is_crp": _bool_or_false(r.get("is_crp")),
                     "milestone_status": overall_milestone_status,
                     "total_emissions": total_emissions_by_job.get(job_id),
+                    "portal_visible": True if _is_missing(r.get("portal_visible")) else _bool_or_false(r.get("portal_visible")),
                 }
             )
 

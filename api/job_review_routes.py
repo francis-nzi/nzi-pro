@@ -1008,3 +1008,30 @@ def update_portal_access(
         notes=payload.notes,
     )
     return {"ok": True, "access": record}
+
+
+class SetPortalJobVisibilityPayload(BaseModel):
+    job_ids: list[int] = Field(..., min_length=1)
+    portal_visible: bool
+
+
+@router.patch("/clients/{client_db_id}/portal-jobs")
+def set_portal_job_visibility(
+    client_db_id: int,
+    payload: SetPortalJobVisibilityPayload = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    """Bulk show/hide jobs on the client portal. Used for both single-row
+    toggles (one-item job_ids list) and "select all" from the admin Jobs tab.
+    """
+    assert_client_access(_user, int(client_db_id))
+    with get_conn() as con:
+        con.execute(
+            """
+            UPDATE jobs
+            SET portal_visible = %s
+            WHERE job_id = ANY(%s) AND client_db_id = %s
+            """,
+            [bool(payload.portal_visible), list(payload.job_ids), int(client_db_id)],
+        )
+    return {"ok": True, "job_ids": payload.job_ids, "portal_visible": payload.portal_visible}
