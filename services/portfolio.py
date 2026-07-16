@@ -29,6 +29,28 @@ def _safe_float(value: Any) -> float:
         return 0.0
 
 
+def _table_columns(con, table_name: str) -> set[str]:
+    try:
+        rows = con.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = CURRENT_SCHEMA()
+              AND table_name = %s
+            """,
+            [table_name],
+        ).fetchall()
+    except Exception:
+        return set()
+    return {str(row[0]).strip().lower() for row in rows or [] if row and row[0] is not None}
+
+
+def _col_expr(columns: set[str], column_name: str, source_expr: str | None = None, alias: str | None = None) -> str:
+    target = alias or column_name
+    source = source_expr or column_name
+    return f"{source} AS {target}" if column_name.lower() in columns else f"NULL AS {target}"
+
+
 def _to_iso(value: Any) -> str | None:
     if value is None:
         return None
@@ -214,16 +236,49 @@ def _risk_level(score: int) -> str:
 
 
 def build_portfolio_overview(con, owner_client_db_id: int) -> dict[str, Any]:
+    client_columns = _table_columns(con, "clients")
+    job_plan_columns = _table_columns(con, "job_plan")
+    job_plan_join = "LEFT JOIN job_plan jp ON jp.job_id = j.job_id" if job_plan_columns else ""
     owner_row_raw = con.execute(
-        """
+        f"""
         SELECT
-            db_id, client_name, industry, description_long, website, year_end_month, company_reg, sic_code,
-            headquarters, addr_line1, addr_line2, addr_city, addr_region, addr_postcode, addr_country,
-            logo_url, crm_owner, client_manager, status, portfolio, net_zero_year, interim_year,
-            interim_s1_pct, interim_s2_pct, interim_s3_pct, benchmark_year, benchmark_period_start,
-            benchmark_period_end, benchmark_scope_1_tco2e, benchmark_scope_2_tco2e,
-            benchmark_scope_3_tco2e, benchmark_total_tco2e, created_at, updated_at, engagement_start_date,
-            engagement_end_date, touchpoint_cadence
+            db_id,
+            client_name,
+            industry,
+            description_long,
+            website,
+            year_end_month,
+            company_reg,
+            sic_code,
+            headquarters,
+            addr_line1,
+            addr_line2,
+            addr_city,
+            addr_region,
+            addr_postcode,
+            addr_country,
+            logo_url,
+            crm_owner,
+            client_manager,
+            status,
+            portfolio,
+            {_col_expr(client_columns, "net_zero_year")},
+            {_col_expr(client_columns, "interim_year")},
+            {_col_expr(client_columns, "interim_s1_pct")},
+            {_col_expr(client_columns, "interim_s2_pct")},
+            {_col_expr(client_columns, "interim_s3_pct")},
+            {_col_expr(client_columns, "benchmark_year")},
+            {_col_expr(client_columns, "benchmark_period_start")},
+            {_col_expr(client_columns, "benchmark_period_end")},
+            {_col_expr(client_columns, "benchmark_scope_1_tco2e")},
+            {_col_expr(client_columns, "benchmark_scope_2_tco2e")},
+            {_col_expr(client_columns, "benchmark_scope_3_tco2e")},
+            {_col_expr(client_columns, "benchmark_total_tco2e")},
+            {_col_expr(client_columns, "created_at")},
+            {_col_expr(client_columns, "updated_at")},
+            {_col_expr(client_columns, "engagement_start_date")},
+            {_col_expr(client_columns, "engagement_end_date")},
+            {_col_expr(client_columns, "touchpoint_cadence")}
         FROM clients
         WHERE db_id = %s
         """,
@@ -349,15 +404,15 @@ def build_portfolio_overview(con, owner_client_db_id: int) -> dict[str, Any]:
             j.reporting_year,
             j.created_at,
             j.updated_at,
-            jp.data_collection_due,
-            jp.data_collection_completed_at,
-            jp.first_draft_due,
-            jp.first_draft_completed_at,
-            jp.final_report_due,
-            jp.final_report_completed_at
+            {_col_expr(job_plan_columns, "data_collection_due", "jp.data_collection_due", "data_collection_due")},
+            {_col_expr(job_plan_columns, "data_collection_completed_at", "jp.data_collection_completed_at", "data_collection_completed_at")},
+            {_col_expr(job_plan_columns, "first_draft_due", "jp.first_draft_due", "first_draft_due")},
+            {_col_expr(job_plan_columns, "first_draft_completed_at", "jp.first_draft_completed_at", "first_draft_completed_at")},
+            {_col_expr(job_plan_columns, "final_report_due", "jp.final_report_due", "final_report_due")},
+            {_col_expr(job_plan_columns, "final_report_completed_at", "jp.final_report_completed_at", "final_report_completed_at")}
         FROM jobs j
         LEFT JOIN clients c ON c.db_id = j.client_db_id
-        LEFT JOIN job_plan jp ON jp.job_id = j.job_id
+        {job_plan_join}
         WHERE j.client_db_id IN ({client_placeholders})
         ORDER BY COALESCE(j.updated_at, j.created_at) DESC NULLS LAST, j.job_id DESC
         """,
