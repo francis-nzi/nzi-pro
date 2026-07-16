@@ -155,7 +155,9 @@ export default function LookupsPage() {
 
   const loadPortfolioOwners = useCallback(async () => {
     try {
-      const res = await fetch(`${baseUrl}/clients?include_archived=false&limit=500&sort_by=client`);
+      const res = await fetch(`${baseUrl}/clients?status=Portfolio%20Owner&include_archived=true&limit=200`, {
+        credentials: "include",
+      });
       if (!res.ok) return;
       const json = await res.json() as { items?: PortfolioOwnerOption[] };
       setPortfolioOwnerOptions(json.items ?? []);
