@@ -996,6 +996,12 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         factor: rowEditorSelectedFactor.factor,
         ghg_unit: rowEditorSelectedFactor.ghg_unit,
         uom: rowEditorSelectedFactor.uom,
+        report_label: rowEditorSelectedFactor.report_label || null,
+        level_1: rowEditorSelectedFactor.level_1 ?? null,
+        level_2: rowEditorSelectedFactor.level_2 ?? null,
+        level_3: rowEditorSelectedFactor.level_3 ?? null,
+        level_4: rowEditorSelectedFactor.level_4 ?? null,
+        column_text: rowEditorSelectedFactor.column_text ?? null,
         site_id: siteId,
         category: rowEditorCategory.trim() || null,
         data_source: rowEditorDataSource.trim() || "Company Data",
@@ -2987,7 +2993,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                   getActionProps={() => ({
                     label: "Use This Factor",
                   })}
-                  onSelectFactor={setRowEditorSelectedFactor}
+                  onSelectFactor={(factor) => {
+                    setRowEditorSelectedFactor(factor);
+                    setRowEditorCategory(factor.category || "");
+                  }}
                   isFactorSelected={(factor) =>
                     Boolean(
                       rowEditorSelectedFactor &&
