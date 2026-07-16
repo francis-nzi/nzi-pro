@@ -32,6 +32,13 @@ type LookupItem = {
   [key: string]: string | number | boolean | null | undefined;
 };
 
+type PortfolioOwnerOption = {
+  client_db_id: number;
+  client_name: string;
+  portfolio?: string | null;
+  crm_owner?: string | null;
+};
+
 const LOOKUP_TABLES = [
   { key: "job_types", label: "Job Types", idCol: "job_type_id", nameCol: "name" },
   { key: "job_statuses_lookup", label: "Job Statuses", idCol: "status_id", nameCol: "name" },
@@ -78,6 +85,8 @@ export default function LookupsPage() {
   const [fileTypeDisplayName, setFileTypeDisplayName] = useState("");
   const [fileTypeStorageFolder, setFileTypeStorageFolder] = useState("client-provided");
   const [fileTypeSortOrder, setFileTypeSortOrder] = useState("0");
+  const [portfolioOwnerOptions, setPortfolioOwnerOptions] = useState<PortfolioOwnerOption[]>([]);
+  const [newPortfolioOwnerId, setNewPortfolioOwnerId] = useState("");
   
   // Edit state
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -88,6 +97,7 @@ export default function LookupsPage() {
   const [editFileTypeKey, setEditFileTypeKey] = useState("");
   const [editFileTypeStorageFolder, setEditFileTypeStorageFolder] = useState("");
   const [editFileTypeSortOrder, setEditFileTypeSortOrder] = useState("");
+  const [editPortfolioOwnerId, setEditPortfolioOwnerId] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const activeTable = useMemo(
     () => LOOKUP_TABLES.find((table) => table.key === activeTab) ?? LOOKUP_TABLES[0],
@@ -117,6 +127,12 @@ export default function LookupsPage() {
     return String(item[nameCol] ?? "");
   }
 
+  function portfolioOwnerLabel(ownerId?: string | number | null): string {
+    const id = ownerId == null || ownerId === "" ? null : Number(ownerId);
+    if (id == null || Number.isNaN(id)) return "";
+    return portfolioOwnerOptions.find((option) => option.client_db_id === id)?.client_name ?? "";
+  }
+
   const loadItems = useCallback(async (tableName: string) => {
     setLoading(true);
     setStatus("");
@@ -135,11 +151,28 @@ export default function LookupsPage() {
     }
   }, [baseUrl]);
 
+  const loadPortfolioOwners = useCallback(async () => {
+    try {
+      const res = await fetch(`${baseUrl}/clients?status=Portfolio%20Owner&include_archived=true&limit=500`);
+      if (!res.ok) return;
+      const json = await res.json() as { items?: PortfolioOwnerOption[] };
+      setPortfolioOwnerOptions(json.items ?? []);
+    } catch {
+      setPortfolioOwnerOptions([]);
+    }
+  }, [baseUrl]);
+
   useEffect(() => {
     setItems([]); // Clear items when switching tabs
     setEditingId(null);
     loadItems(activeTab);
   }, [activeTab, loadItems]);
+
+  useEffect(() => {
+    if (activeTab === "portfolios_lookup") {
+      void loadPortfolioOwners();
+    }
+  }, [activeTab, loadPortfolioOwners]);
 
   async function addItem() {
     if (!newItemName.trim()) {
@@ -149,9 +182,11 @@ export default function LookupsPage() {
 
     setStatus("Adding...");
     try {
-      const payload: Record<string, string | number | boolean> = { name: newItemName.trim(), is_active: true };
+      const payload: Record<string, string | number | boolean | null> = { name: newItemName.trim(), is_active: true };
       if (activeTab === "job_types") {
         payload.job_group = newJobTypeGroup || "crp";
+      } else if (activeTab === "portfolios_lookup") {
+        payload.portfolio_owner_client_db_id = newPortfolioOwnerId && newPortfolioOwnerId !== "__none__" ? Number(newPortfolioOwnerId) : null;
       }
       const res = await fetch(`${baseUrl}/admin/lookups/${activeTab}`, {
         method: "POST",
@@ -166,6 +201,7 @@ export default function LookupsPage() {
       setStatus("Item added!");
       setNewItemName("");
       setNewJobTypeGroup("crp");
+      setNewPortfolioOwnerId("");
       setIsAddDialogOpen(false);
       loadItems(activeTab);
       setTimeout(() => setStatus(""), 3000);
@@ -319,6 +355,9 @@ export default function LookupsPage() {
     } else if (table.key === "job_types") {
       setEditName(itemNameValue(item, table.nameCol));
       setEditJobTypeGroup(String(item.job_group ?? item.job_family ?? "crp").toLowerCase());
+    } else if (table.key === "portfolios_lookup") {
+      setEditName(itemNameValue(item, table.nameCol));
+      setEditPortfolioOwnerId(item.portfolio_owner_client_db_id == null ? "" : String(item.portfolio_owner_client_db_id));
     } else {
       setEditName(itemNameValue(item, table.nameCol));
       setEditRatePct("");
@@ -333,6 +372,9 @@ export default function LookupsPage() {
     }
     if (table.key !== "job_types") {
       setEditJobTypeGroup("crp");
+    }
+    if (table.key !== "portfolios_lookup") {
+      setEditPortfolioOwnerId("");
     }
   }
 
@@ -391,6 +433,7 @@ export default function LookupsPage() {
     setEditFileTypeStorageFolder("");
     setEditFileTypeSortOrder("");
     setEditJobTypeGroup("crp");
+    setEditPortfolioOwnerId("");
   }
 
   async function saveEdit(tableName: string, itemId: number) {
@@ -402,7 +445,7 @@ export default function LookupsPage() {
     setSavingEdit(true);
     setStatus("Saving...");
     try {
-      const payload: Record<string, string | number> =
+      const payload: Record<string, string | number | null> =
         tableName === "currency_lookup"
           ? { currency_name: editName.trim(), symbol: editCurrencySymbol.trim() }
           : { name: editName.trim() };
@@ -436,6 +479,9 @@ export default function LookupsPage() {
       if (tableName === "job_types") {
         payload.job_group = editJobTypeGroup || "crp";
       }
+      if (tableName === "portfolios_lookup") {
+        payload.portfolio_owner_client_db_id = editPortfolioOwnerId && editPortfolioOwnerId !== "__none__" ? Number(editPortfolioOwnerId) : null;
+      }
 
       const res = await fetch(`${baseUrl}/admin/lookups/${tableName}/${itemId}`, {
         method: "PATCH",
@@ -455,6 +501,7 @@ export default function LookupsPage() {
       setEditFileTypeKey("");
       setEditFileTypeStorageFolder("");
       setEditFileTypeSortOrder("");
+      setEditPortfolioOwnerId("");
       loadItems(tableName);
       setTimeout(() => setStatus(""), 3000);
     } catch (e) {
@@ -637,6 +684,21 @@ export default function LookupsPage() {
                               </SelectContent>
                             </Select>
                           )}
+                          {activeTable.key === "portfolios_lookup" && (
+                            <Select value={editPortfolioOwnerId || "__none__"} onValueChange={setEditPortfolioOwnerId}>
+                              <SelectTrigger className="w-64">
+                                <SelectValue placeholder="No owner linked" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">No owner linked</SelectItem>
+                                {portfolioOwnerOptions.map((owner) => (
+                                  <SelectItem key={owner.client_db_id} value={String(owner.client_db_id)}>
+                                    {owner.client_name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
                           <Button
                             size="sm"
                             onClick={() => saveEdit(activeTable.key, itemIdValue(item, activeTable.idCol))}
@@ -675,6 +737,11 @@ export default function LookupsPage() {
                             {activeTable.key === "currency_lookup" && (
                               <div className="text-sm text-muted-foreground">
                                 Symbol: {String(item.symbol ?? "") || "-"}
+                              </div>
+                            )}
+                            {activeTable.key === "portfolios_lookup" && (
+                              <div className="text-sm text-muted-foreground">
+                                Owner: {portfolioOwnerLabel(item.portfolio_owner_client_db_id) || "No owner linked"}
                               </div>
                             )}
                             {item.is_active !== undefined && (
@@ -787,6 +854,37 @@ export default function LookupsPage() {
                       placeholder="0"
                     />
                   </div>
+                </div>
+              </div>
+            ) : activeTable.key === "portfolios_lookup" ? (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="newItemName">Portfolio Name</Label>
+                  <Input
+                    id="newItemName"
+                    value={newItemName}
+                    onChange={(e) => setNewItemName(e.target.value)}
+                    placeholder="Acme Group"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") addItem();
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="newPortfolioOwnerId">Portfolio Owner</Label>
+                  <Select value={newPortfolioOwnerId || "__none__"} onValueChange={setNewPortfolioOwnerId}>
+                    <SelectTrigger id="newPortfolioOwnerId">
+                      <SelectValue placeholder="No owner linked" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No owner linked</SelectItem>
+                      {portfolioOwnerOptions.map((owner) => (
+                        <SelectItem key={owner.client_db_id} value={String(owner.client_db_id)}>
+                          {owner.client_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             ) : activeTable.key === "currency_lookup" ? (

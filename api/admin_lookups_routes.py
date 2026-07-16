@@ -486,6 +486,12 @@ def create_lookup_item(
 
                 if table_name == "portfolios_lookup":
                     # Portfolios are global — check by name only, insert with org_id=NULL
+                    portfolio_owner_client_db_id = body.get("portfolio_owner_client_db_id")
+                    portfolio_owner_client_db_id = (
+                        int(portfolio_owner_client_db_id)
+                        if portfolio_owner_client_db_id not in (None, "", "null")
+                        else None
+                    )
                     existing = con.execute(
                         "SELECT 1 FROM portfolios_lookup WHERE lower(name) = lower(%s) LIMIT 1",
                         [name],
@@ -493,8 +499,8 @@ def create_lookup_item(
                     if existing:
                         raise HTTPException(status_code=409, detail=f"Portfolio '{name}' already exists")
                     con.execute(
-                        "INSERT INTO portfolios_lookup (org_id, name, is_active) VALUES (NULL, %s, %s)",
-                        [name, body.get("is_active", True)],
+                        "INSERT INTO portfolios_lookup (org_id, name, portfolio_owner_client_db_id, is_active) VALUES (NULL, %s, %s, %s)",
+                        [name, portfolio_owner_client_db_id, body.get("is_active", True)],
                     )
                 else:
                     existing = con.execute(
@@ -662,6 +668,15 @@ def update_lookup_item(
                 params.append(job_group or None)
                 updates.append("job_family = %s")
                 params.append(job_group or None)
+            if table_name == "portfolios_lookup" and "portfolio_owner_client_db_id" in body:
+                owner_id = body.get("portfolio_owner_client_db_id")
+                owner_id = (
+                    int(owner_id)
+                    if owner_id not in (None, "", "null")
+                    else None
+                )
+                updates.append("portfolio_owner_client_db_id = %s")
+                params.append(owner_id)
 
             if not updates:
                 return {"ok": True, "message": "No fields to update"}
