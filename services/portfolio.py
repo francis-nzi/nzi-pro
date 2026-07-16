@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, timezone
+import logging
 from typing import Any
 
 from services.emissions_reporting import exact_job_total_emissions
+
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_text(value: Any) -> str:
@@ -235,6 +239,71 @@ def _risk_level(score: int) -> str:
     return "stable"
 
 
+def _empty_portfolio_overview(owner_client_db_id: int, owner_name: str | None = None, portfolio_key: str | None = None) -> dict[str, Any]:
+    owner_label = _safe_text(owner_name) or f"Portfolio owner {owner_client_db_id}"
+    resolved_portfolio_key = _safe_text(portfolio_key) or owner_label or f"portfolio-{owner_client_db_id}"
+    return {
+        "ok": True,
+        "portfolio_key": resolved_portfolio_key,
+        "owner": {
+            "client_db_id": int(owner_client_db_id),
+            "client_name": owner_label,
+            "industry": None,
+            "description_long": None,
+            "website": None,
+            "year_end_month": None,
+            "company_reg": None,
+            "sic_code": None,
+            "headquarters": None,
+            "addr_line1": None,
+            "addr_line2": None,
+            "addr_city": None,
+            "addr_region": None,
+            "addr_postcode": None,
+            "addr_country": None,
+            "logo_url": None,
+            "crm_owner": None,
+            "client_manager": None,
+            "status": "Portfolio Owner",
+            "portfolio": resolved_portfolio_key,
+            "net_zero_year": None,
+            "benchmark_year": None,
+            "benchmark_total_tco2e": None,
+            "created_at": None,
+            "updated_at": None,
+        },
+        "summary": {
+            "total_clients": 0,
+            "active_clients": 0,
+            "portfolio_owner_clients": 0,
+            "total_contacts": 0,
+            "total_jobs": 0,
+            "open_jobs": 0,
+            "overdue_jobs": 0,
+            "total_emissions": 0.0,
+            "recent_notes": 0,
+        },
+        "risk": {
+            "critical_clients": 0,
+            "watch_clients": 0,
+            "stale_clients": 0,
+            "no_contact_clients": 0,
+            "no_recent_activity_clients": 0,
+            "overdue_jobs": 0,
+            "due_soon_jobs": 0,
+            "upcoming_jobs": 0,
+        },
+        "client_status_breakdown": [],
+        "annual_emissions": [],
+        "risk_clients": [],
+        "attention_jobs": [],
+        "clients": [],
+        "jobs": [],
+        "recent_notes": [],
+        "contacts": [],
+    }
+
+
 def _build_portfolio_overview_fallback(con, owner_client_db_id: int) -> dict[str, Any]:
     owner_row_raw = con.execute(
         """
@@ -463,4 +532,10 @@ def _build_portfolio_overview_fallback(con, owner_client_db_id: int) -> dict[str
 
 
 def build_portfolio_overview(con, owner_client_db_id: int) -> dict[str, Any]:
-    return _build_portfolio_overview_fallback(con, owner_client_db_id)
+    try:
+        return _build_portfolio_overview_fallback(con, owner_client_db_id)
+    except ValueError:
+        raise
+    except Exception:
+        logger.exception("Failed to build portfolio overview for owner_client_db_id=%s", owner_client_db_id)
+        return _empty_portfolio_overview(owner_client_db_id)

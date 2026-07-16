@@ -95,6 +95,20 @@ def test_portfolio_overview_aggregates_clients_jobs_and_notes(monkeypatch):
     assert result["clients"][1]["client_name"] == "Child One"
 
 
+def test_portfolio_overview_returns_minimal_payload_when_builder_fails(monkeypatch):
+    monkeypatch.setattr(portfolio_service, "_build_portfolio_overview_fallback", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    result = portfolio_service.build_portfolio_overview(object(), 99)
+
+    assert result["ok"] is True
+    assert result["owner"]["client_db_id"] == 99
+    assert result["summary"]["total_clients"] == 0
+    assert result["clients"] == []
+    assert result["jobs"] == []
+    assert result["risk_clients"] == []
+    assert result["attention_jobs"] == []
+
+
 def test_portal_me_flags_portfolio_owner_mode(monkeypatch):
     class _Conn:
         def __init__(self):
@@ -130,3 +144,38 @@ def test_portal_me_flags_portfolio_owner_mode(monkeypatch):
     assert result["portal_mode"] == "portfolio_owner"
     assert result["nav_config"]["portfolio"] is True
     assert result["nav_config"]["data"] is False
+
+
+def test_admin_portfolio_route_survives_owner_org_lookup_failure(monkeypatch):
+    class _Conn:
+        def __init__(self):
+            self.executed: list[tuple[str, list[object] | None]] = []
+            self._last_sql = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, sql: str, params: list[object] | None = None):
+            self.executed.append((sql, params))
+            self._last_sql = sql
+            if "SELECT org_id FROM clients" in sql:
+                raise RuntimeError("missing column")
+            return self
+
+        def fetchone(self):
+            if "SELECT client_name, status, portfolio" in self._last_sql:
+                return _FakeRow("Acme Holdings", "Portfolio Owner", "Acme Group")
+            return None
+
+    fake = _Conn()
+    monkeypatch.setattr(portfolio_routes, "get_conn", lambda: fake)
+    monkeypatch.setattr(portfolio_routes, "require_org", lambda _user: "org-123")
+    monkeypatch.setattr(portfolio_routes, "build_portfolio_overview", lambda _con, owner_id: {"ok": True, "owner": {"client_db_id": owner_id}})
+
+    result = portfolio_routes.get_portfolio_owner_overview(10, _user={"user_id": "u1", "org_id": "org-123"})
+
+    assert result["ok"] is True
+    assert result["owner"]["client_db_id"] == 10
