@@ -21,6 +21,13 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _ensure_client_files_table(con) -> None:
+    """Keep client_files schema resilient across local and upgraded environments.
+
+    CREATE TABLE IF NOT EXISTS is a no-op against an already-existing table,
+    so any column added here after the table was first created in production
+    must also be backfilled via ALTER TABLE ... ADD COLUMN IF NOT EXISTS
+    (mirrors the same pattern already used for job_files).
+    """
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS client_files (
@@ -42,6 +49,17 @@ def _ensure_client_files_table(con) -> None:
         )
         """
     )
+    for _stmt in [
+        "ALTER TABLE client_files ADD COLUMN IF NOT EXISTS storage_provider VARCHAR DEFAULT 'local'",
+        "ALTER TABLE client_files ADD COLUMN IF NOT EXISTS external_item_id VARCHAR",
+        "ALTER TABLE client_files ADD COLUMN IF NOT EXISTS external_web_url TEXT",
+        "ALTER TABLE client_files ADD COLUMN IF NOT EXISTS external_path TEXT",
+        "ALTER TABLE client_files ADD COLUMN IF NOT EXISTS notes TEXT",
+    ]:
+        try:
+            con.execute(_stmt)
+        except Exception:
+            pass
 
 
 def _safe_client_filename(client_id: int, filename: str) -> str:

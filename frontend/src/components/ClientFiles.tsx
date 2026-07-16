@@ -181,8 +181,16 @@ export default function ClientFiles({
         }
       );
       if (!res.ok) {
-        const err = await res.json<{ detail?: string }>();
-        throw new Error(err.detail || "Upload failed");
+        let message = `Upload failed (${res.status})`;
+        try {
+          const parsed = JSON.parse(res.rawText || "") as { detail?: string };
+          if (typeof parsed?.detail === "string" && parsed.detail) {
+            message = parsed.detail;
+          }
+        } catch {
+          if (res.rawText) message = res.rawText.slice(0, 300);
+        }
+        throw new Error(message);
       }
       setUploadStatus("File uploaded successfully!");
       setUploadFile(null);
