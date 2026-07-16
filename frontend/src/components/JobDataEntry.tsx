@@ -235,6 +235,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     client_db_id?: number | null;
     addr_country?: string | null;
     billing_addr_country?: string | null;
+    status?: string | null;
   } | null>(null);
   const [sites, setSites] = useState<Site[]>([]);
   const [methodologyCountry, setMethodologyCountry] = useState<string>("UK");
@@ -2954,10 +2955,12 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                       ) : (
                         <div className="text-muted-foreground">Choose a factor below.</div>
                       )}
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        Repointing is blocked while this job&apos;s status is Completed or Closed. Change the job
-                        status back to Open to make retrospective changes.
-                      </div>
+                      {["completed", "closed"].includes(String(jobData?.status || "").trim().toLowerCase()) && (
+                        <div className="mt-2 text-xs text-amber-700">
+                          Repointing is blocked while this job&apos;s status is Completed or Closed. Change the job
+                          status back to Open to make retrospective changes.
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -3004,7 +3007,14 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
             <Button variant="outline" onClick={closeRowEditorModal} disabled={rowEditorSaving}>
               Cancel
             </Button>
-            <Button onClick={saveRowEditor} disabled={rowEditorSaving || !rowEditorRow}>
+            <Button
+              onClick={saveRowEditor}
+              disabled={
+                rowEditorSaving ||
+                !rowEditorRow ||
+                ["completed", "closed"].includes(String(jobData?.status || "").trim().toLowerCase())
+              }
+            >
               {rowEditorSaving ? "Saving..." : "Save Repoint"}
             </Button>
           </DialogFooter>
