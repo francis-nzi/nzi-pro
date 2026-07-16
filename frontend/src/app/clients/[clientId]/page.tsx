@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import ClientDashboard from "@/components/ClientDashboard";
-import { jobFamilyBadgeClassName } from "@/lib/job-family";
+import ClientJobsTable from "@/components/ClientJobsTable";
 import CallPrepPanel from "@/components/CallPrepPanel";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import PageHeader from "@/components/PageHeader";
@@ -108,6 +108,7 @@ type ClientJobsResponse = {
     job_number: string | null;
     title: string | null;
     reporting_year: number | null;
+    reporting_period_end?: string | null;
     status: string | null;
     job_type?: string | null;
     job_family?: string | null;
@@ -400,7 +401,7 @@ function ClientDetailPageContent() {
     setJobsLoading(true);
     setJobsError("");
     try {
-      const jobsRes = await fetch(`${baseUrl}/clients/${clientId}/jobs?limit=50&offset=0`, { credentials: "include" });
+      const jobsRes = await fetch(`${baseUrl}/clients/${clientId}/jobs?limit=200&offset=0`, { credentials: "include" });
       if (jobsRes.ok) {
         const data = (await jobsRes.json()) as ClientJobsResponse;
         setJobs(data.items ?? []);
@@ -1838,107 +1839,65 @@ function ClientDetailPageContent() {
 
     return (
       <div className="space-y-6">
-        {/* Row 1: Jobs + Financial */}
-        <div className="grid gap-6 md:grid-cols-2">
-          {/* Active Jobs Card */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-base font-semibold">Active Jobs & Milestone Progress</CardTitle>
-              <Badge variant="outline" className="border-green-200 bg-green-50 text-green-800">
-                {activeJobsCount} active
-              </Badge>
-            </CardHeader>
-            <CardContent className="pt-4">
-              {jobsLoading && jobs.length === 0 ? (
-                <div className="py-8 text-center text-sm text-muted-foreground animate-pulse">Loading jobs...</div>
-              ) : jobsError ? (
-                <div className="py-8 text-center text-sm text-destructive">Error loading jobs: {jobsError}</div>
-              ) : jobs.length === 0 ? (
-                <div className="py-8 text-center text-sm text-muted-foreground">
-                  No active carbon reporting jobs found. Click &ldquo;+ Add Job&rdquo; above to get started!
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {jobs.map((j) => {
-                    const risk = j.milestone_status === "Overdue" ? "Overdue" : j.milestone_status === "Due" ? "Due" : "Healthy";
-                    const riskClass = risk === "Overdue" ? "bg-rose-100 text-rose-800" : risk === "Due" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800";
-                    return (
-                      <Link
-                        key={j.job_id}
-                        href={`/jobs/${j.job_id}`}
-                        className="flex items-center justify-between py-3 hover:bg-slate-50 rounded-lg px-2 transition-colors"
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-slate-900">{j.job_number ?? `Job #${j.job_id}`}</span>
-                            {j.job_type && (
-                              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${jobFamilyBadgeClassName(j.job_family)}`}>
-                                {j.job_type}
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-xs text-muted-foreground flex items-center gap-2">
-                            <span>Reporting period: {j.reporting_year || "N/A"}</span>
-                            <span>•</span>
-                            <StatusBadge status={j.status} />
-                          </div>
-                        </div>
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${riskClass}`}>{risk}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+        {/* Active Jobs table — full width */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-base font-semibold">Active Jobs & Milestone Progress</CardTitle>
+            <Badge variant="outline" className="border-green-200 bg-green-50 text-green-800">
+              {activeJobsCount} active
+            </Badge>
+          </CardHeader>
+          <CardContent className="pt-4">
+            <ClientJobsTable jobs={jobs} loading={jobsLoading} error={jobsError} />
+          </CardContent>
+        </Card>
 
-          {/* Financial Summary Card */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-base font-semibold">Financial & Billing Status</CardTitle>
-              <Badge variant={unpaidInvoiceCount > 0 ? "destructive" : "outline"} className="border-orange-200">
-                {unpaidInvoiceCount} open invoices
-              </Badge>
-            </CardHeader>
-            <CardContent className="pt-4">
-              <div className="grid grid-cols-2 gap-4 pb-4 border-b border-slate-100">
-                <div>
-                  <div className="text-xs text-muted-foreground uppercase">Outstanding Balance</div>
-                  <div className="text-2xl font-bold tracking-tight text-slate-950 mt-1">
-                    {currencyFmt.format(outstandingInvoicesTotal)}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs text-muted-foreground uppercase">Realization Rate</div>
-                  <div className="text-2xl font-bold tracking-tight text-emerald-700 mt-1">
-                    {Number(financialSummary?.analysis.realization_pct || 100).toFixed(1)}%
-                  </div>
+        {/* Financial Summary Card — full width */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-base font-semibold">Financial & Billing Status</CardTitle>
+            <Badge variant={unpaidInvoiceCount > 0 ? "destructive" : "outline"} className="border-orange-200">
+              {unpaidInvoiceCount} open invoices
+            </Badge>
+          </CardHeader>
+          <CardContent className="pt-4">
+            <div className="grid grid-cols-2 gap-4 pb-4 border-b border-slate-100">
+              <div>
+                <div className="text-xs text-muted-foreground uppercase">Outstanding Balance</div>
+                <div className="text-2xl font-bold tracking-tight text-slate-950 mt-1">
+                  {currencyFmt.format(outstandingInvoicesTotal)}
                 </div>
               </div>
-              <div className="pt-4 space-y-2 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Total Quotes:</span>
-                  <span className="font-semibold text-slate-800">{quotes.length} quotes</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Logged Consultant Time:</span>
-                  <span className="font-semibold text-slate-800">
-                    {Number(financialSummary?.analysis.logged_hours || 0).toFixed(1)} hours
-                  </span>
-                </div>
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setSection("financial")}
-                    className="text-xs text-[#1c5026] hover:underline font-medium"
-                  >
-                    Open Financials →
-                  </button>
+              <div className="text-right">
+                <div className="text-xs text-muted-foreground uppercase">Realization Rate</div>
+                <div className="text-2xl font-bold tracking-tight text-emerald-700 mt-1">
+                  {Number(financialSummary?.analysis.realization_pct || 100).toFixed(1)}%
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+            <div className="pt-4 space-y-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Total Quotes:</span>
+                <span className="font-semibold text-slate-800">{quotes.length} quotes</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Logged Consultant Time:</span>
+                <span className="font-semibold text-slate-800">
+                  {Number(financialSummary?.analysis.logged_hours || 0).toFixed(1)} hours
+                </span>
+              </div>
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSection("financial")}
+                  className="text-xs text-[#1c5026] hover:underline font-medium"
+                >
+                  Open Financials →
+                </button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Row 2: Client Portal Access + CRM Owner quick-info */}
         <div className="grid gap-6 md:grid-cols-2">

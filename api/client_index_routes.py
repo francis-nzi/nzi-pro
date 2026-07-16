@@ -594,6 +594,7 @@ def client_jobs(
                     "job_number": None if _is_missing(r.get("job_number")) else r.get("job_number"),
                     "title": None if _is_missing(r.get("title")) else r.get("title"),
                     "reporting_year": _reporting_year_from_row(r),
+                    "reporting_period_end": None if _is_missing(r.get("reporting_period_end")) else str(r.get("reporting_period_end")),
                     "status": None if _is_missing(r.get("status")) else r.get("status"),
                     "job_type": None if _is_missing(r.get("job_type")) else r.get("job_type"),
                     "job_group": None if _is_missing(r.get("job_group")) else r.get("job_group") or r.get("job_family"),
