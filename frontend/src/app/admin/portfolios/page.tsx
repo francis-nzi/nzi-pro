@@ -90,10 +90,19 @@ export default function PortfoliosAdminPage() {
                   </p>
                 </div>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[360px]">
-                <StatPill label="Owners" value={owners.length.toString()} icon={Building2} />
-                <StatPill label="Visible" value={filteredOwners.length.toString()} icon={Users} />
-                <StatPill label="Selected" value={selectedOwner ? "1" : "0"} icon={Sparkles} />
+              <div className="flex flex-col gap-3 lg:min-w-[360px]">
+                <div className="flex flex-wrap justify-start gap-3 lg:justify-end">
+                  <Button asChild className="rounded-full bg-[#1c5026] text-white hover:bg-[#153f1e]">
+                    <Link href="/clients/new?status=Portfolio%20Owner">
+                      Add Portfolio Owner
+                    </Link>
+                  </Button>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <StatPill label="Owners" value={owners.length.toString()} icon={Building2} />
+                  <StatPill label="Visible" value={filteredOwners.length.toString()} icon={Users} />
+                  <StatPill label="Selected" value={selectedOwner ? "1" : "0"} icon={Sparkles} />
+                </div>
               </div>
             </div>
           </div>

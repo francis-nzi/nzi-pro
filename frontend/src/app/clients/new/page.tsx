@@ -90,6 +90,7 @@ export default function NewClientPage() {
   const [portfolio, setPortfolio] = useState("NZI");
   const [crmOwner, setCrmOwner] = useState("");
   const [currency, setCurrency] = useState("GBP");
+  const [clientStatus, setClientStatus] = useState("Active");
 
   // Address
   const [addrLine1, setAddrLine1] = useState("");
@@ -366,6 +367,13 @@ export default function NewClientPage() {
     loadLookups();
   }, [loadLookups]);
 
+  useEffect(() => {
+    const status = new URLSearchParams(window.location.search).get("status");
+    if (status && status.trim()) {
+      setClientStatus(status.trim());
+    }
+  }, []);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
@@ -422,7 +430,7 @@ export default function NewClientPage() {
             portfolio: portfolio || null,
             crm_owner: crmOwner || null,
             currency: (currency || "GBP").toUpperCase(),
-            status: "Active",
+            status: clientStatus,
             create_site_from_address: createSiteFromAddress,
             net_zero_year: netZeroYear ? Number(netZeroYear) : null,
             net_zero_target_reduction_pct: netZeroTargetReductionPct
