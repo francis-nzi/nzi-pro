@@ -127,8 +127,9 @@ export default function LookupsPage() {
     return String(item[nameCol] ?? "");
   }
 
-  function portfolioOwnerLabel(ownerId?: string | number | null): string {
-    const id = ownerId == null || ownerId === "" ? null : Number(ownerId);
+  function portfolioOwnerLabel(ownerId?: string | number | boolean | null): string {
+    if (ownerId == null || ownerId === "" || typeof ownerId === "boolean") return "";
+    const id = Number(ownerId);
     if (id == null || Number.isNaN(id)) return "";
     return portfolioOwnerOptions.find((option) => option.client_db_id === id)?.client_name ?? "";
   }
