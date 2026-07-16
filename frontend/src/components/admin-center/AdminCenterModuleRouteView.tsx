@@ -29,6 +29,7 @@ const modulePages = {
   lookups: dynamic(() => import("@/app/admin/lookups/page"), { ssr: false }),
   "milestone-templates": dynamic(() => import("@/app/admin/milestone-templates/page"), { ssr: false }),
   "missing-data": dynamic(() => import("@/app/admin/missing-data/page"), { ssr: false }),
+  portfolios: dynamic(() => import("@/app/admin/portfolios/page"), { ssr: false }),
   organisations: dynamic(() => import("@/app/admin/organisations/page"), { ssr: false }),
   settings: dynamic(() => import("@/app/admin/settings/page"), { ssr: false }),
   suppliers: dynamic(() => import("@/app/admin/suppliers/page"), { ssr: false }),

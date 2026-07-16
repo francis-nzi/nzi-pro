@@ -46,6 +46,7 @@ const ADMIN_CENTER_DOMAINS = [
 
 const ADMIN_CENTER_LINKS = [
   { label: "Organisation Management", href: "/admin-center/organisations", domain: "People & Access" },
+  { label: "Portfolio Owners", href: "/admin-center/portfolios", domain: "People & Access" },
   { label: "Team Management",         href: "/admin-center/team",          domain: "People & Access" },
   { label: "Lookups",                 href: "/admin-center/lookups",       domain: "Reference Data" },
   { label: "Job Items",               href: "/admin-center/job-items",     domain: "Reference Data" },
