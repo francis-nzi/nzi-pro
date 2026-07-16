@@ -204,7 +204,7 @@ export default function FactorBrowserCard({
                         <Button
                           size="sm"
                           onClick={() => onSelectFactor(factor)}
-                          disabled={action.disabled || selected}
+                          disabled={action.disabled}
                           variant={action.variant || (selected ? "outline" : "default")}
                           className="w-full md:w-auto"
                         >
