@@ -120,11 +120,26 @@ def _job_attention_label(days_until_due: int | None) -> str:
     return "on track"
 
 
-def _portfolio_key(owner_row: dict[str, Any]) -> str:
-    portfolio = _safe_text(owner_row.get("portfolio"))
-    if portfolio:
-        return portfolio
-    return _safe_text(owner_row.get("client_name")) or f"portfolio-{owner_row.get('db_id')}"
+def _resolve_owner_portfolio_name(con, owner_client_db_id: int) -> str | None:
+    """The portfolio name linked to this owner in Admin Center -> Lookups -> Portfolios.
+
+    This is the single source of truth for portfolio membership -- a client's
+    own `clients.portfolio` text field (or its client_name) is never used as a
+    fallback, since both can silently match unrelated clients (e.g. every
+    client defaults its portfolio field to "NZI").
+    """
+    row = con.execute(
+        """
+        SELECT name
+        FROM portfolios_lookup
+        WHERE portfolio_owner_client_db_id = %s
+          AND COALESCE(is_active, TRUE) = TRUE
+        ORDER BY portfolio_id ASC
+        LIMIT 1
+        """,
+        [int(owner_client_db_id)],
+    ).fetchone()
+    return _safe_text(row[0]) if row and row[0] else None
 
 
 def _portfolio_note_rows(con, client_ids: list[int]) -> list[dict[str, Any]]:
@@ -307,7 +322,7 @@ def _empty_portfolio_overview(owner_client_db_id: int, owner_name: str | None = 
 def _build_portfolio_overview_fallback(con, owner_client_db_id: int) -> dict[str, Any]:
     owner_row_raw = con.execute(
         """
-        SELECT db_id, client_name, status, portfolio, created_at, updated_at
+        SELECT db_id, client_name, status, portfolio, NULL, NULL
         FROM clients
         WHERE db_id = %s
         """,
@@ -324,13 +339,15 @@ def _build_portfolio_overview_fallback(con, owner_client_db_id: int) -> dict[str
         "created_at": _to_iso(owner_row_raw[4]),
         "updated_at": _to_iso(owner_row_raw[5]),
     }
-    portfolio_key = _portfolio_key(owner)
+    portfolio_key = _resolve_owner_portfolio_name(con, owner_client_db_id)
+    if not portfolio_key:
+        return _empty_portfolio_overview(owner_client_db_id, owner_name=owner["client_name"])
 
     child_rows_raw = con.execute(
         """
-        SELECT db_id, client_name, status, portfolio, created_at, updated_at
+        SELECT db_id, client_name, status, portfolio, NULL, NULL
         FROM clients
-        WHERE lower(COALESCE(portfolio, client_name)) = lower(%s)
+        WHERE lower(portfolio) = lower(%s)
           AND db_id <> %s
           AND lower(COALESCE(status, '')) <> 'archived'
         ORDER BY lower(COALESCE(client_name, '')) ASC, db_id ASC
@@ -369,11 +386,11 @@ def _build_portfolio_overview_fallback(con, owner_client_db_id: int) -> dict[str
             j.status,
             j.reporting_year,
             j.created_at,
-            j.updated_at
+            NULL
         FROM jobs j
         LEFT JOIN clients c ON c.db_id = j.client_db_id
         WHERE j.client_db_id IN ({client_placeholders})
-        ORDER BY COALESCE(j.updated_at, j.created_at) DESC NULLS LAST, j.job_id DESC
+        ORDER BY j.created_at DESC NULLS LAST, j.job_id DESC
         """,
         portfolio_client_ids,
     ).fetchall()

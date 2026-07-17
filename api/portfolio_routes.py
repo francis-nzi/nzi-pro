@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.auth import _current_user
-from api.portal_auth_routes import portal_user_dep
+from api.permissions import assert_permission
 from core.database import get_conn
 from services.portfolio import build_portfolio_overview
 from services.tenancy import org_context, require_org
@@ -31,6 +31,7 @@ def get_portfolio_owner_overview(
     owner_client_db_id: int,
     _user: dict[str, str] = Depends(_current_user),
 ):
+    assert_permission(_user, "clients.view")
     with get_conn() as con:
         org_id = require_org(_user)
         owner_org_id = _owner_org_id(con, owner_client_db_id)
@@ -41,22 +42,3 @@ def get_portfolio_owner_overview(
                 return build_portfolio_overview(con, owner_client_db_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc) or "Portfolio owner not found") from exc
-
-
-@router.get("/portal/portfolio-dashboard")
-def get_portal_portfolio_dashboard(
-    current_user: dict = Depends(portal_user_dep),
-):
-    owner_client_db_id = int(current_user["client_db_id"])
-    with get_conn() as con:
-        owner_row = con.execute(
-            "SELECT status, org_id FROM clients WHERE db_id = %s",
-            [owner_client_db_id],
-        ).fetchone()
-        if not owner_row:
-            raise HTTPException(status_code=404, detail="Client not found")
-        if str(owner_row[0] or "").strip().lower() != "portfolio owner":
-            raise HTTPException(status_code=403, detail="This portal is only available to portfolio owners")
-        org_id = str(owner_row[1]) if owner_row[1] else None
-        with org_context(org_id):
-            return build_portfolio_overview(con, owner_client_db_id)

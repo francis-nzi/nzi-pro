@@ -708,6 +708,141 @@ def update_lookup_item(
 
 
 # =========================
+# PORTFOLIO OWNER WORKFLOW
+# =========================
+# Membership is derived from portfolios_lookup (the source of truth for which
+# client owns which portfolio) joined against clients.portfolio -- see
+# services.portfolio._resolve_owner_portfolio_name for the matching logic
+# shared with the client-portal/admin dashboards.
+
+@router.get("/portfolios")
+def list_portfolios(_user: dict = Depends(_current_user)):
+    """Every portfolio with its owner and live member count, plus any
+    'Portfolio Owner' clients that were promoted by hand and never linked to
+    a portfolio (so the admin UI can flag them instead of silently ignoring)."""
+    with get_conn() as con:
+        rows = con.execute(
+            """
+            SELECT pl.portfolio_id, pl.name, pl.is_active,
+                   c.db_id, c.client_name, c.status,
+                   (
+                     SELECT COUNT(*) FROM clients m
+                     WHERE lower(m.portfolio) = lower(pl.name)
+                       AND m.db_id <> COALESCE(c.db_id, -1)
+                       AND lower(COALESCE(m.status, '')) <> 'archived'
+                   )
+            FROM portfolios_lookup pl
+            LEFT JOIN clients c ON c.db_id = pl.portfolio_owner_client_db_id
+            ORDER BY pl.name ASC
+            """
+        ).fetchall()
+        portfolios = [
+            {
+                "portfolio_id": int(r[0]),
+                "name": r[1],
+                "is_active": bool(r[2]) if r[2] is not None else True,
+                "owner": (
+                    {"client_db_id": int(r[3]), "client_name": r[4], "status": r[5]}
+                    if r[3] is not None else None
+                ),
+                "member_count": int(r[6] or 0),
+            }
+            for r in rows or []
+        ]
+
+        unlinked_rows = con.execute(
+            """
+            SELECT db_id, client_name
+            FROM clients
+            WHERE lower(COALESCE(status, '')) = 'portfolio owner'
+              AND db_id NOT IN (
+                SELECT portfolio_owner_client_db_id FROM portfolios_lookup
+                WHERE portfolio_owner_client_db_id IS NOT NULL
+              )
+            ORDER BY client_name ASC
+            """
+        ).fetchall()
+        unlinked_owners = [{"client_db_id": int(r[0]), "client_name": r[1]} for r in unlinked_rows or []]
+
+    return {"ok": True, "portfolios": portfolios, "unlinked_owners": unlinked_owners}
+
+
+def _resolve_portfolio(con, portfolio_id: int) -> tuple[str, dict | None]:
+    row = con.execute(
+        """
+        SELECT pl.name, c.db_id, c.client_name, c.status
+        FROM portfolios_lookup pl
+        LEFT JOIN clients c ON c.db_id = pl.portfolio_owner_client_db_id
+        WHERE pl.portfolio_id = %s
+        """,
+        [int(portfolio_id)],
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Portfolio not found")
+    owner = {"client_db_id": int(row[1]), "client_name": row[2], "status": row[3]} if row[1] is not None else None
+    return row[0], owner
+
+
+@router.get("/portfolios/{portfolio_id}/members")
+def get_portfolio_members(portfolio_id: int, _user: dict = Depends(_current_user)):
+    with get_conn() as con:
+        name, owner = _resolve_portfolio(con, portfolio_id)
+        owner_id = owner["client_db_id"] if owner else None
+        rows = con.execute(
+            """
+            SELECT db_id, client_name, status, industry, crm_owner
+            FROM clients
+            WHERE lower(portfolio) = lower(%s)
+              AND db_id <> COALESCE(%s, -1)
+              AND lower(COALESCE(status, '')) <> 'archived'
+            ORDER BY lower(COALESCE(client_name, '')) ASC
+            """,
+            [name, owner_id],
+        ).fetchall()
+        members = [
+            {"client_db_id": int(r[0]), "client_name": r[1], "status": r[2], "industry": r[3], "crm_owner": r[4]}
+            for r in rows or []
+        ]
+    return {"ok": True, "portfolio_id": int(portfolio_id), "name": name, "owner": owner, "members": members}
+
+
+@router.post("/portfolios/{portfolio_id}/members")
+def add_portfolio_members(
+    portfolio_id: int,
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    client_ids = [int(cid) for cid in (body.get("client_ids") or [])]
+    if not client_ids:
+        raise HTTPException(status_code=400, detail="client_ids is required")
+    with get_conn() as con:
+        name, _owner = _resolve_portfolio(con, portfolio_id)
+        con.execute(
+            "UPDATE clients SET portfolio = %s WHERE db_id = ANY(%s)",
+            [name, client_ids],
+        )
+    return {"ok": True, "portfolio_id": int(portfolio_id), "client_ids": client_ids}
+
+
+@router.delete("/portfolios/{portfolio_id}/members")
+def remove_portfolio_members(
+    portfolio_id: int,
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    client_ids = [int(cid) for cid in (body.get("client_ids") or [])]
+    if not client_ids:
+        raise HTTPException(status_code=400, detail="client_ids is required")
+    with get_conn() as con:
+        name, _owner = _resolve_portfolio(con, portfolio_id)
+        con.execute(
+            "UPDATE clients SET portfolio = NULL WHERE db_id = ANY(%s) AND lower(portfolio) = lower(%s)",
+            [client_ids, name],
+        )
+    return {"ok": True, "portfolio_id": int(portfolio_id), "client_ids": client_ids}
+
+
+# =========================
 # SUPPLIERS
 # =========================
 
