@@ -105,23 +105,6 @@ def _must_accept_tac(auth_data: dict) -> bool:
     return str(auth_data.get("accepted_tac_version") or "").strip() != PORTAL_CLIENT_TAC_VERSION
 
 
-def _portal_nav_for_mode(mode: str, base_nav: dict[str, Any] | None = None) -> dict[str, bool]:
-    nav = dict(base_nav or {})
-    if mode == "portfolio_owner":
-        defaults = {
-            "dashboard": True,
-            "portfolio": True,
-            "reports": True,
-            "files": True,
-            "governance": True,
-            "data": False,
-            "actions": False,
-            "insights": False,
-        }
-        return {**defaults, **nav}
-    return nav
-
-
 # ---------------------------------------------------------------------------
 # Recovery-code helpers
 # ---------------------------------------------------------------------------
@@ -700,8 +683,6 @@ def portal_me(current_user: dict = Depends(_portal_onboarding_user)):
     nav_config = access_record.get("nav_config", {})
     client_status = str(client_row[1] or "") if client_row else ""
     portal_mode = "portfolio_owner" if client_status.strip().lower() == "portfolio owner" else "client"
-    if portal_mode == "portfolio_owner":
-        nav_config = _portal_nav_for_mode(portal_mode)
 
     if current_user.get("is_staff"):
         # Staff preview a client's portal using the same nav_config a real
