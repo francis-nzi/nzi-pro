@@ -983,6 +983,11 @@ def get_portal_access(
     with get_conn() as con:
         ensure_portal_schema(con)
         record = get_client_portal_access(int(client_db_id), con=con)
+        client_row = con.execute(
+            "SELECT status FROM clients WHERE db_id = %s",
+            [int(client_db_id)],
+        ).fetchone()
+    record["client_status"] = str(client_row[0] or "") if client_row else ""
     return {"ok": True, "access": record}
 
 

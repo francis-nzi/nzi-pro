@@ -91,6 +91,7 @@ type PortalAccess = {
   payment_reference: string | null;
   nav_config: Record<string, boolean>;
   notes: string | null;
+  client_status?: string;
 };
 
 type PortalTab = "access" | "users" | "navigation" | "jobs" | "files" | "history";
@@ -943,7 +944,8 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
     void loadAccess();
   }
 
-  const NAV_ITEMS: { key: string; label: string }[] = [
+  const isPortfolioOwner = (portalAccess?.client_status ?? "").trim().toLowerCase() === "portfolio owner";
+  const ALL_NAV_ITEMS: { key: string; label: string }[] = [
     { key: "dashboard", label: "Dashboard" },
     { key: "portfolio", label: "Portfolio" },
     { key: "data",      label: "Data" },
@@ -953,6 +955,11 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
     { key: "files",     label: "Files" },
     { key: "governance",label: "Governance" },
   ];
+  // Portfolio is only relevant for clients whose status is "Portfolio Owner" --
+  // hide the toggle for everyone else so it can't be turned on by accident.
+  const NAV_ITEMS = isPortfolioOwner
+    ? ALL_NAV_ITEMS
+    : ALL_NAV_ITEMS.filter(item => item.key !== "portfolio");
 
   return (
     <div className="space-y-6">
