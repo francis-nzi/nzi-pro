@@ -684,23 +684,6 @@ def portal_accept_tac(current_user: dict = Depends(_portal_onboarding_user)):
 
 @router.get("/portal/auth/me")
 def portal_me(current_user: dict = Depends(_portal_onboarding_user)):
-    if current_user.get("is_staff"):
-        return {
-            "ok": True,
-            "user": {
-                "portal_user_id": None,
-                "client_db_id": current_user["client_db_id"],
-                "email": current_user["email"],
-                "full_name": current_user["full_name"],
-                "is_staff": True,
-            },
-            "must_accept_tac": False,
-            "mfa_setup_required": False,
-            "portal_mode": "staff",
-        }
-
-    must_accept = _must_accept_tac(current_user)
-    mfa_setup_required = not bool(current_user.get("mfa_enabled"))
     client_db_id = int(current_user["client_db_id"])
 
     with get_conn() as con:
@@ -719,6 +702,29 @@ def portal_me(current_user: dict = Depends(_portal_onboarding_user)):
     portal_mode = "portfolio_owner" if client_status.strip().lower() == "portfolio owner" else "client"
     if portal_mode == "portfolio_owner":
         nav_config = _portal_nav_for_mode(portal_mode)
+
+    if current_user.get("is_staff"):
+        # Staff preview a client's portal using the same nav_config a real
+        # client login would get, so what's toggled off in the admin is
+        # actually reflected during preview instead of always showing
+        # every section.
+        return {
+            "ok": True,
+            "user": {
+                "portal_user_id": None,
+                "client_db_id": client_db_id,
+                "email": current_user["email"],
+                "full_name": current_user["full_name"],
+                "is_staff": True,
+            },
+            "must_accept_tac": False,
+            "mfa_setup_required": False,
+            "nav_config": nav_config,
+            "portal_mode": "staff",
+        }
+
+    must_accept = _must_accept_tac(current_user)
+    mfa_setup_required = not bool(current_user.get("mfa_enabled"))
 
     return {
         "ok": True,
