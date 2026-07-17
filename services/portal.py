@@ -183,6 +183,7 @@ def ensure_portal_schema(con) -> None:
 
 _DEFAULT_NAV_CONFIG = {
     "dashboard": True,
+    "portfolio": False,
     "data": True,
     "reports": True,
     "actions": True,

@@ -945,6 +945,7 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
 
   const NAV_ITEMS: { key: string; label: string }[] = [
     { key: "dashboard", label: "Dashboard" },
+    { key: "portfolio", label: "Portfolio" },
     { key: "data",      label: "Data" },
     { key: "reports",   label: "Reports" },
     { key: "actions",   label: "Actions" },

@@ -24,6 +24,7 @@ type PortalUser = {
 
 type NavConfig = {
   dashboard?: boolean;
+  portfolio?: boolean;
   data?: boolean;
   reports?: boolean;
   actions?: boolean;
