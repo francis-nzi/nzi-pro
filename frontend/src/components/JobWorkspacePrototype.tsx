@@ -349,7 +349,7 @@ function WorkspacePanels({
         ) : null}
         {activeSubtab === "job-only-factors" ? (
           <PlaceholderCard
-            title="Job-Only Factors"
+            title="Client Factors"
             text="Job-specific factor overrides and one-off factors can be previewed here."
             body="We can wire the existing custom factor picker into this slot after the shell is settled."
           />

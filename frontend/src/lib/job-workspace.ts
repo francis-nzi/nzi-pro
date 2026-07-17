@@ -95,7 +95,7 @@ export const JOB_WORKSPACE_GROUPS: JobWorkspaceGroup[] = [
       { key: "business-travel", label: "Business Travel" },
       { key: "upload", label: "Data Upload" },
       { key: "custom-dataset", label: "Custom Dataset" },
-      { key: "custom-factors", label: "Job-Only Factors" },
+      { key: "custom-factors", label: "Client Factors" },
       { key: "spend-data", label: "Spend Data" },
       { key: "notes", label: "Notes" },
     ],

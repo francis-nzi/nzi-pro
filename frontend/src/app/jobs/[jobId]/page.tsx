@@ -62,7 +62,7 @@ const JobCustomDataset = dynamic(() => import("@/components/JobCustomDataset"), 
   loading: () => <LazyTabPanel title="Custom Dataset" description="Loading custom dataset tools..." />,
 });
 const JobCustomFactors = dynamic(() => import("@/components/JobCustomFactors"), {
-  loading: () => <LazyTabPanel title="Job-Only Factors" description="Loading job-only factors..." />,
+  loading: () => <LazyTabPanel title="Client Factors" description="Loading client factors..." />,
 });
 const JobSourceRegister = dynamic(() => import("@/components/JobSourceRegister"), {
   loading: () => <LazyTabPanel title="Source Register" description="Loading register data..." />,

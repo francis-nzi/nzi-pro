@@ -22,7 +22,7 @@ const DATA_SECTIONS: Record<string, { label: string; entityType?: string }> = {
   "asset-register":     { label: "Asset Register",      entityType: "job_scope_row" },
   "business-travel":    { label: "Business Travel",     entityType: "job_scope_row,job_emission_register_import" },
   "custom-dataset":     { label: "Custom Dataset" },
-  "custom-factors":     { label: "Job-Only Factors",   entityType: "job_custom_factor" },
+  "custom-factors":     { label: "Client Factors",   entityType: "job_custom_factor" },
   "spend-data":         { label: "Spend Data",          entityType: "spend_entry,job_scope_row" },
   notes:                { label: "Notes" },
 };

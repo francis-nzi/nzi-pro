@@ -831,6 +831,55 @@ def _load_custom_factor_year_values(con, factor_ids: list[int]) -> dict[int, dic
     return out
 
 
+def _load_job_custom_factor_year_values(con, factor_ids: list[int]) -> dict[int, dict[int, float]]:
+    """Same as _load_custom_factor_year_values but for job_custom_factor_year_values."""
+    out: dict[int, dict[int, float]] = {int(fid): {} for fid in factor_ids}
+    if not factor_ids:
+        return out
+
+    try:
+        table_exists = bool(
+            con.execute(
+                """
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_name = 'job_custom_factor_year_values'
+                LIMIT 1
+                """
+            ).fetchone()
+        )
+    except Exception:
+        logger.debug("Failed to detect table existence; defaulting to False", exc_info=True)
+        table_exists = False
+
+    if not table_exists:
+        return out
+
+    placeholders = ",".join(["%s"] * len(factor_ids))
+    df = con.execute(
+        f"""
+        SELECT factor_id, year, factor
+        FROM job_custom_factor_year_values
+        WHERE factor_id IN ({placeholders})
+        ORDER BY factor_id, year
+        """,
+        factor_ids,
+    ).df()
+
+    if df is None or df.empty:
+        return out
+
+    for _, row in df.iterrows():
+        fid = _safe_int(row.get("factor_id"))
+        year = _safe_int(row.get("year"))
+        factor = _safe_float(row.get("factor"))
+        if fid is None or year is None or factor is None:
+            continue
+        out.setdefault(int(fid), {})[int(year)] = float(factor)
+
+    return out
+
+
 def _scope_data_fallback_metrics(row: dict[str, Any]) -> dict[str, Any]:
     """Return a minimal, safe emissions payload when the resolver cannot run.
 
@@ -2801,7 +2850,7 @@ def get_template_factors(
                     logger.warning("custom_factors load skipped due to error", exc_info=True)
 
             # ---------------------------------------------------------------
-            # 1b) Job-scoped custom factors - only for this job
+            # 1b) Client factors (formerly "job-only") - any job for this client
             # ---------------------------------------------------------------
             try:
                 has_job_custom_factors = bool(
@@ -2818,14 +2867,14 @@ def get_template_factors(
                 logger.debug("Unable to detect job custom factor state; defaulting to False", exc_info=True)
                 has_job_custom_factors = False
 
-            if has_job_custom_factors:
+            if has_job_custom_factors and job_client_db_id is not None:
                 try:
                     jcf_where = [
-                        "job_id = %s",
+                        "client_db_id = %s",
                         "(archived = FALSE OR archived IS NULL)",
                         "COALESCE(is_active, TRUE) = TRUE",
                     ]
-                    jcf_params: list = [int(job_id)]
+                    jcf_params: list = [int(job_client_db_id)]
 
                     if scope and scope.strip():
                         jcf_where.append("scope = %s")
@@ -2863,15 +2912,31 @@ def get_template_factors(
 
                     if jcf_df is not None and not jcf_df.empty:
                         jcf_df = jcf_df.where(jcf_df.notna(), None)
+                        jcf_factor_ids = [
+                            int(v)
+                            for v in jcf_df["factor_id"].tolist()
+                            if _safe_int(v) is not None
+                        ]
+                        jcf_year_map = _load_job_custom_factor_year_values(con, jcf_factor_ids)
+
                         for _, row in jcf_df.iterrows():
                             factor_id = _safe_int(row.get("factor_id"))
                             if factor_id is None:
                                 continue
-                            factor_value = _safe_float(row.get("factor"))
+
+                            years: dict[int, float] = {}
+                            legacy_year = _safe_int(row.get("factor_year"))
+                            legacy_factor = _safe_float(row.get("factor"))
+                            if legacy_year is not None and legacy_factor is not None:
+                                years[legacy_year] = legacy_factor
+                            years.update(jcf_year_map.get(int(factor_id), {}))
+
+                            factor_value, factor_year = _choose_factor_for_year(years, job_reporting_year)
                             if factor_value is None:
                                 continue
 
-                            custom_id = str(row.get("custom_id") or "").strip() or f"JCF-{job_id}-{factor_id}"
+                            origin_job_id = _safe_int(row.get("job_id")) or int(job_id)
+                            custom_id = str(row.get("custom_id") or "").strip() or f"JCF-{origin_job_id}-{factor_id}"
                             report_label_val = str(row.get("report_label") or "").strip() or str(row.get("description") or "").strip() or custom_id
                             category_val = str(row.get("category") or "").strip() or str(row.get("scope") or "").strip()
 
@@ -2892,10 +2957,10 @@ def get_template_factors(
                                     "level_4": None,
                                     "column_text": None,
                                     "is_custom": True,
-                                    "source": row.get("source") or "Job custom factor",
+                                    "source": row.get("source") or "Client factor",
                                     "custom_factor_id": int(factor_id),
-                                    "factor_year": _safe_int(row.get("factor_year")),
-                                    "job_id": int(job_id),
+                                    "factor_year": int(factor_year) if factor_year is not None else None,
+                                    "job_id": origin_job_id,
                                     "is_global": False,
                                     "client_db_id": job_client_db_id,
                                 }
@@ -3054,13 +3119,13 @@ def get_template_factors(
                                 category_seen.add(category_value)
                                 category_options.append(category_value)
 
-                if has_job_custom_factors:
+                if has_job_custom_factors and job_client_db_id is not None:
                     jcf_category_where = [
-                        "job_id = %s",
+                        "client_db_id = %s",
                         "(archived = FALSE OR archived IS NULL)",
                         "COALESCE(is_active, TRUE) = TRUE",
                     ]
-                    jcf_category_params: list = [int(job_id)]
+                    jcf_category_params: list = [int(job_client_db_id)]
                     if scope and scope.strip():
                         jcf_category_where.append("scope = %s")
                         jcf_category_params.append(scope.strip())

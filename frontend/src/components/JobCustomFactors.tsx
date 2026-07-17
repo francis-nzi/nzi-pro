@@ -21,10 +21,9 @@ import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
 
 type JobCustomFactor = {
   factor_id: number;
-  job_id: number;
+  job_id: number | null;
   job_number?: string | null;
   job_title?: string | null;
-  reporting_year?: number | null;
   custom_id?: string | null;
   country?: string | null;
   scope: string;
@@ -36,6 +35,7 @@ type JobCustomFactor = {
   source?: string | null;
   factor?: number | null;
   factor_year?: number | null;
+  factors_by_year?: Record<string, number>;
   is_active?: boolean;
   archived?: boolean;
   created_by?: string | null;
@@ -59,6 +59,33 @@ function cleanText(value?: string | null): string {
 function errorMessage(err: unknown, fallback: string): string {
   if (err instanceof Error && err.message) return err.message;
   return fallback;
+}
+
+function yearsFromFactor(item: JobCustomFactor, fallbackYear: number): Record<number, string> {
+  const out: Record<number, string> = {};
+  const byYear = item.factors_by_year;
+  if (byYear && typeof byYear === "object" && Object.keys(byYear).length > 0) {
+    Object.entries(byYear).forEach(([yearKey, value]) => {
+      const y = Number(yearKey);
+      if (Number.isFinite(y) && typeof value === "number") out[y] = String(value);
+    });
+    return out;
+  }
+  const year = item.factor_year ?? fallbackYear;
+  out[year] = typeof item.factor === "number" ? String(item.factor) : "";
+  return out;
+}
+
+function parseYearFactors(input: Record<number, string>): Record<string, number> {
+  const out: Record<string, number> = {};
+  Object.entries(input).forEach(([yearKey, raw]) => {
+    const year = Number(yearKey);
+    if (!Number.isFinite(year)) return;
+    const value = Number(String(raw).trim());
+    if (!Number.isFinite(value) || String(raw).trim() === "") return;
+    out[String(year)] = value;
+  });
+  return out;
 }
 
 export default function JobCustomFactors({
@@ -98,12 +125,13 @@ export default function JobCustomFactors({
   const [category, setCategory] = useState("");
   const [uom, setUom] = useState("");
   const [ghgUnit, setGhgUnit] = useState("kg CO2e");
-  const [source, setSource] = useState("Job-only factor");
-  const [factor, setFactor] = useState("");
-  const [factorYear, setFactorYear] = useState(String(defaultFactorYear));
+  const [source, setSource] = useState("Client factor");
   const [isActive, setIsActive] = useState(true);
+  const [yearFactors, setYearFactors] = useState<Record<number, string>>({ [defaultFactorYear]: "" });
+  const [yearToAdd, setYearToAdd] = useState("");
 
   const hasUnsavedChanges = useMemo(() => {
+    const yearHasValue = Object.values(yearFactors).some((v) => v.trim());
     return Boolean(
       editingFactor ||
         customId.trim() ||
@@ -114,12 +142,11 @@ export default function JobCustomFactors({
         category.trim() ||
         uom.trim() ||
         ghgUnit.trim() !== "kg CO2e" ||
-        source.trim() !== "Job-only factor" ||
-        factor.trim() ||
-        factorYear.trim() !== String(defaultFactorYear) ||
+        source.trim() !== "Client factor" ||
+        yearHasValue ||
         !isActive
     );
-  }, [editingFactor, customId, country, scope, description, reportLabel, category, uom, ghgUnit, source, factor, factorYear, isActive, defaultFactorYear]);
+  }, [editingFactor, customId, country, scope, description, reportLabel, category, uom, ghgUnit, source, yearFactors, isActive]);
 
   useUnsavedChangesGuard(hasUnsavedChanges);
 
@@ -178,13 +205,13 @@ export default function JobCustomFactors({
       const res = await apiFetch(`/jobs/${jobId}/custom-factors?${params.toString()}`);
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        throw new Error(`Failed to load job-only factors: ${res.status}${text ? ` - ${text}` : ""}`);
+        throw new Error(`Failed to load client factors: ${res.status}${text ? ` - ${text}` : ""}`);
       }
 
       const json = await res.json();
       setFactors(Array.isArray(json?.items) ? json.items : []);
     } catch (e) {
-      setStatus(errorMessage(e, "Failed to load job-only factors"));
+      setStatus(errorMessage(e, "Failed to load client factors"));
     } finally {
       setLoading(false);
     }
@@ -195,7 +222,7 @@ export default function JobCustomFactors({
   }, [loadFactors]);
 
   useEffect(() => {
-    setFactorYear(String(defaultFactorYear));
+    setYearFactors((prev) => (Object.keys(prev).length > 0 ? prev : { [defaultFactorYear]: "" }));
   }, [defaultFactorYear]);
 
   function clearForm() {
@@ -208,10 +235,10 @@ export default function JobCustomFactors({
     setCategory("");
     setUom("");
     setGhgUnit("kg CO2e");
-    setSource("Job-only factor");
-    setFactor("");
-    setFactorYear(String(defaultFactorYear));
+    setSource("Client factor");
     setIsActive(true);
+    setYearFactors({ [defaultFactorYear]: "" });
+    setYearToAdd("");
   }
 
   function startEdit(item: JobCustomFactor) {
@@ -224,17 +251,45 @@ export default function JobCustomFactors({
     setCategory(cleanText(item.category));
     setUom(cleanText(item.uom));
     setGhgUnit(cleanText(item.ghg_unit) || "kg CO2e");
-    setSource(cleanText(item.source) || "Job-only factor");
-    setFactor(typeof item.factor === "number" ? String(item.factor) : "");
-    setFactorYear(String(item.factor_year ?? defaultFactorYear));
+    setSource(cleanText(item.source) || "Client factor");
     setIsActive(Boolean(item.is_active ?? true));
+    setYearFactors(yearsFromFactor(item, defaultFactorYear));
+    setYearToAdd("");
+  }
+
+  const formYears = useMemo(() => {
+    return Object.keys(yearFactors)
+      .map(Number)
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b);
+  }, [yearFactors]);
+
+  function addYearField() {
+    const year = Number(String(yearToAdd).trim());
+    if (!Number.isFinite(year) || year < 1900 || year > 2200) {
+      setStatus("Enter a valid year (1900-2200)");
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(yearFactors, year)) {
+      setStatus(`Year ${year} is already added.`);
+      return;
+    }
+    setYearFactors((prev) => ({ ...prev, [year]: "" }));
+    setYearToAdd("");
+  }
+
+  function removeYearField(year: number) {
+    setYearFactors((prev) => {
+      const next = { ...prev };
+      delete next[year];
+      return next;
+    });
   }
 
   async function saveFactor() {
     const descriptionText = cleanText(description);
     const scopeText = cleanText(scope);
-    const factorNumber = Number(String(factor).trim());
-    const factorYearNumber = Number(String(factorYear).trim());
+    const factorsByYear = parseYearFactors(yearFactors);
 
     if (!descriptionText) {
       setStatus("Description is required");
@@ -244,17 +299,13 @@ export default function JobCustomFactors({
       setStatus("Scope is required");
       return;
     }
-    if (!Number.isFinite(factorNumber)) {
-      setStatus("Factor value is required");
-      return;
-    }
-    if (!Number.isFinite(factorYearNumber)) {
-      setStatus("Factor year is required");
+    if (Object.keys(factorsByYear).length === 0) {
+      setStatus("At least one year's factor value is required");
       return;
     }
 
     setLoading(true);
-    setStatus(editingFactor ? "Updating job-only factor..." : "Creating job-only factor...");
+    setStatus(editingFactor ? "Updating client factor..." : "Creating client factor...");
     try {
       const body = {
         custom_id: customId.trim() || null,
@@ -265,9 +316,8 @@ export default function JobCustomFactors({
         category: cleanText(category) || null,
         uom: cleanText(uom) || null,
         ghg_unit: cleanText(ghgUnit) || null,
-        source: cleanText(source) || "Job-only factor",
-        factor: factorNumber,
-        factor_year: factorYearNumber,
+        source: cleanText(source) || "Client factor",
+        factors_by_year: factorsByYear,
         is_active: isActive,
       };
 
@@ -286,12 +336,12 @@ export default function JobCustomFactors({
         throw new Error(`Save failed (${res.status})${text ? `: ${text}` : ""}`);
       }
 
-      setStatus(editingFactor ? "Job-only factor updated" : "Job-only factor created");
+      setStatus(editingFactor ? "Client factor updated" : "Client factor created");
       clearForm();
       await loadFactors();
       setTimeout(() => setStatus(""), 2500);
     } catch (e) {
-      setStatus(errorMessage(e, "Failed to save job-only factor"));
+      setStatus(errorMessage(e, "Failed to save client factor"));
     } finally {
       setLoading(false);
     }
@@ -299,15 +349,15 @@ export default function JobCustomFactors({
 
   async function toggleArchive(item: JobCustomFactor, archived: boolean) {
     const confirmed = await confirmAction({
-      title: `${archived ? "Archive" : "Restore"} job-only factor?`,
-      description: `${archived ? "Archive" : "Restore"} "${item.report_label || item.description}" for this job?`,
+      title: `${archived ? "Archive" : "Restore"} client factor?`,
+      description: `${archived ? "Archive" : "Restore"} "${item.report_label || item.description}"? ${archived ? "It will no longer be selectable in any job for this client." : "It will become selectable again in any job for this client."}`,
       confirmLabel: archived ? "Archive" : "Restore",
       destructive: archived,
     });
     if (!confirmed) return;
 
     setLoading(true);
-    setStatus(archived ? "Archiving job-only factor..." : "Restoring job-only factor...");
+    setStatus(archived ? "Archiving client factor..." : "Restoring client factor...");
     try {
       const res = await apiFetch(`/jobs/${jobId}/custom-factors/${item.factor_id}/archive`, {
         method: "PATCH",
@@ -319,10 +369,10 @@ export default function JobCustomFactors({
         throw new Error(`Archive failed (${res.status})${text ? `: ${text}` : ""}`);
       }
       await loadFactors();
-      setStatus(archived ? "Job-only factor archived" : "Job-only factor restored");
+      setStatus(archived ? "Client factor archived" : "Client factor restored");
       setTimeout(() => setStatus(""), 2500);
     } catch (e) {
-      setStatus(errorMessage(e, "Failed to update job-only factor archive state"));
+      setStatus(errorMessage(e, "Failed to update client factor archive state"));
     } finally {
       setLoading(false);
     }
@@ -349,18 +399,29 @@ export default function JobCustomFactors({
     });
   }, [factors, search]);
 
+  function yearSummary(item: JobCustomFactor): string {
+    const byYear = item.factors_by_year;
+    if (byYear && Object.keys(byYear).length > 0) {
+      const years = Object.keys(byYear).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+      if (years.length === 1) return String(years[0]);
+      return `${years[0]}-${years[years.length - 1]} (${years.length} years)`;
+    }
+    return String(item.factor_year ?? reportingYear ?? defaultFactorYear);
+  }
+
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Job-Only Factors</CardTitle>
+          <CardTitle>Client Factors</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
-            Use this for one-off factors that belong to this job only. If the factor should be reused
-            across every job for this client, add it in Reusable Conversion Factors instead. Once saved,
-            job-only factors appear automatically in the job Data Entry factor picker and stay scoped to
-            this job.
+            Custom factors created here are shared across every job for this client -- including jobs from
+            previous years -- not just the job you created them in. If a factor should be reused across
+            every client in the system, add it in Reusable Conversion Factors instead. Give a factor a
+            value for each year it applies to; a job will use the value for its own reporting year, falling
+            back to the nearest earlier year if that exact year isn&apos;t set.
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
@@ -407,7 +468,7 @@ export default function JobCustomFactors({
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
             <Card>
               <CardHeader>
-                <CardTitle>{editingFactor ? "Edit Job-Only Factor" : "Add Job-Only Factor"}</CardTitle>
+                <CardTitle>{editingFactor ? "Edit Client Factor" : "Add Client Factor"}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-2">
@@ -431,30 +492,18 @@ export default function JobCustomFactors({
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="jobCustomScope">Scope *</Label>
-                    <Select value={scope} onValueChange={setScope}>
-                      <SelectTrigger id="jobCustomScope">
-                        <SelectValue placeholder="Select scope" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Scope 1">Scope 1</SelectItem>
-                        <SelectItem value="Scope 2">Scope 2</SelectItem>
-                        <SelectItem value="Scope 3">Scope 3</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="jobCustomYear">Factor Year *</Label>
-                    <Input
-                      id="jobCustomYear"
-                      type="number"
-                      value={factorYear}
-                      onChange={(e) => setFactorYear(e.target.value)}
-                      placeholder={String(defaultFactorYear)}
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="jobCustomScope">Scope *</Label>
+                  <Select value={scope} onValueChange={setScope}>
+                    <SelectTrigger id="jobCustomScope">
+                      <SelectValue placeholder="Select scope" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Scope 1">Scope 1</SelectItem>
+                      <SelectItem value="Scope 2">Scope 2</SelectItem>
+                      <SelectItem value="Scope 3">Scope 3</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">
@@ -463,7 +512,7 @@ export default function JobCustomFactors({
                     id="jobCustomDescription"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Describe the one-off job-only factor..."
+                    placeholder="Describe the client factor..."
                     rows={2}
                   />
                 </div>
@@ -518,29 +567,69 @@ export default function JobCustomFactors({
                   />
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="jobCustomFactor">Factor *</Label>
-                    <Input
-                      id="jobCustomFactor"
-                      type="number"
-                      step="0.000001"
-                      value={factor}
-                      onChange={(e) => setFactor(e.target.value)}
-                      placeholder="0.000000"
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={isActive}
-                        onChange={(e) => setIsActive(e.target.checked)}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label>Factor Value by Year *</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        className="h-8 w-28"
+                        placeholder="Year"
+                        value={yearToAdd}
+                        onChange={(e) => setYearToAdd(e.target.value)}
                       />
-                      Active
-                    </label>
+                      <Button type="button" variant="outline" className="h-8" onClick={addYearField}>
+                        Add year
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex items-end justify-end gap-2">
+                  <div className="text-xs text-muted-foreground">
+                    This job&apos;s reporting year ({defaultFactorYear}) is pre-filled. Add more years if
+                    this factor should carry a different value in other years.
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 rounded-md border p-3">
+                    {formYears.map((year) => (
+                      <div key={year} className="flex items-center gap-2">
+                        <Label htmlFor={`jcf_year_${year}`} className="w-12 text-xs">
+                          {year}
+                        </Label>
+                        <Input
+                          id={`jcf_year_${year}`}
+                          type="number"
+                          step="0.000001"
+                          value={yearFactors[year] || ""}
+                          onChange={(e) =>
+                            setYearFactors((prev) => ({ ...prev, [year]: e.target.value }))
+                          }
+                          placeholder="0.000000"
+                          className="h-8 text-xs"
+                        />
+                        {formYears.length > 1 ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-8 px-2"
+                            onClick={() => removeYearField(year)}
+                            title="Remove year"
+                          >
+                            ×
+                          </Button>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={isActive}
+                      onChange={(e) => setIsActive(e.target.checked)}
+                    />
+                    Active
+                  </label>
+                  <div className="flex gap-2">
                     <Button
                       type="button"
                       variant="outline"
@@ -550,7 +639,7 @@ export default function JobCustomFactors({
                       Clear
                     </Button>
                     <Button type="button" onClick={saveFactor} disabled={loading}>
-                      {editingFactor ? "Update Job-Only Factor" : "Save Job-Only Factor"}
+                      {editingFactor ? "Update Client Factor" : "Save Client Factor"}
                     </Button>
                   </div>
                 </div>
@@ -559,12 +648,12 @@ export default function JobCustomFactors({
 
             <Card>
               <CardHeader>
-                <CardTitle>Job-Only Factors in Use ({filteredFactors.length})</CardTitle>
+                <CardTitle>Client Factors in Use ({filteredFactors.length})</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="text-xs text-muted-foreground">
-                  Job: {jobNumber || `#${jobId}`} {clientName ? `| ${clientName}` : ""} | Reporting year:{" "}
-                  {reportingYear ?? defaultFactorYear}
+                  Viewing from job: {jobNumber || `#${jobId}`} {clientName ? `| ${clientName}` : ""} |
+                  Reporting year: {reportingYear ?? defaultFactorYear}
                 </div>
 
                 <div className="max-h-[36rem] overflow-auto rounded-md border">
@@ -572,7 +661,7 @@ export default function JobCustomFactors({
                     <div className="p-4 text-sm text-muted-foreground">Loading factors...</div>
                   ) : filteredFactors.length === 0 ? (
                     <div className="p-4 text-sm text-muted-foreground">
-                      No job-only factors found yet.
+                      No client factors found yet.
                     </div>
                   ) : (
                     <div className="space-y-2 p-3">
@@ -582,26 +671,26 @@ export default function JobCustomFactors({
                             <div className="space-y-1">
                               <div className="flex flex-wrap items-center gap-2">
                                 <span className="font-medium">
-                                  {item.report_label || item.description || item.custom_id || "Job-only factor"}
+                                  {item.report_label || item.description || item.custom_id || "Client factor"}
                                 </span>
                                 <Badge variant={item.archived ? "secondary" : "default"}>
                                   {item.archived ? "Archived" : "Active"}
                                 </Badge>
                                 <Badge variant="outline">{item.scope}</Badge>
-                                <Badge variant="outline">{item.factor_year ?? reportingYear ?? defaultFactorYear}</Badge>
+                                <Badge variant="outline">{yearSummary(item)}</Badge>
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                <span className="font-mono">{item.custom_id || `JCF-${jobId}-${item.factor_id}`}</span>
+                                <span className="font-mono">{item.custom_id || `JCF-${item.job_id ?? jobId}-${item.factor_id}`}</span>
                                 {" "} | {item.category || "Uncategorized"} | {item.country || "Country not set"}
+                                {item.job_number ? ` | Created in job ${item.job_number}` : ""}
                               </div>
                               <div className="text-sm text-muted-foreground">
                                 {item.description}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                Factor: <span className="font-mono">{item.factor?.toFixed(6) ?? "-"}</span>{" "}
-                                | UOM: <span className="font-mono">{item.uom || "-"}</span>{" "}
+                                UOM: <span className="font-mono">{item.uom || "-"}</span>{" "}
                                 | GHG: <span className="font-mono">{item.ghg_unit || "-"}</span>{" "}
-                                | Source: <span className="font-mono">{item.source || "Job-only factor"}</span>
+                                | Source: <span className="font-mono">{item.source || "Client factor"}</span>
                               </div>
                             </div>
 

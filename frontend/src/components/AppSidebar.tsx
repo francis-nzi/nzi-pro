@@ -142,7 +142,7 @@ const JOB_NAV_GROUPS: JobNavGroup[] = [
       { key: "business-travel",    label: "Business Travel",    href: (j) => `/jobs/${j}/data-entry/business-travel` },
       { key: "upload",             label: "Data Upload",        href: (j) => `/jobs/${j}?tab=upload` },
       { key: "custom-dataset",     label: "Custom Dataset",     href: (j) => `/jobs/${j}/data-entry/custom-dataset` },
-      { key: "custom-factors",     label: "Job-Only Factors",   href: (j) => `/jobs/${j}/data-entry/custom-factors` },
+      { key: "custom-factors",     label: "Client Factors",   href: (j) => `/jobs/${j}/data-entry/custom-factors` },
       { key: "spend-data",         label: "Spend Data",         href: (j) => `/jobs/${j}/data-entry/spend-data` },
       { key: "notes",              label: "Notes",              href: (j) => `/jobs/${j}/data-entry/notes` },
     ],
