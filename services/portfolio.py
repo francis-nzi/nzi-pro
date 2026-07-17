@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
 import logging
 from typing import Any
@@ -217,7 +217,7 @@ def _portfolio_note_rows(con, client_ids: list[int]) -> list[dict[str, Any]]:
             WHERE e.client_db_id IN ({placeholders})
               AND lower(COALESCE(e.event_type, '')) = 'note'
               AND COALESCE(e.archived, FALSE) = FALSE
-            ORDER BY COALESCE(e.event_at, e.created_at) DESC NULLS LAST, e.event_id DESC
+            ORDER BY e.created_at DESC NULLS LAST, e.event_id DESC
             LIMIT 25
             """,
             client_ids,
@@ -319,6 +319,10 @@ def _empty_portfolio_overview(owner_client_db_id: int, owner_name: str | None = 
     }
 
 
+_TERMINAL_JOB_STATUSES = {"completed", "closed"}
+_STALE_ACTIVITY_DAYS = 90
+
+
 def _build_portfolio_overview_fallback(con, owner_client_db_id: int) -> dict[str, Any]:
     owner_row_raw = con.execute(
         """
@@ -386,9 +390,12 @@ def _build_portfolio_overview_fallback(con, owner_client_db_id: int) -> dict[str
             j.status,
             j.reporting_year,
             j.created_at,
-            NULL
+            jp.data_collection_due, jp.data_collection_completed_at,
+            jp.first_draft_due, jp.first_draft_completed_at,
+            jp.final_report_due, jp.final_report_completed_at
         FROM jobs j
         LEFT JOIN clients c ON c.db_id = j.client_db_id
+        LEFT JOIN job_plan jp ON jp.job_id = j.job_id
         WHERE j.client_db_id IN ({client_placeholders})
         ORDER BY j.created_at DESC NULLS LAST, j.job_id DESC
         """,
@@ -408,21 +415,45 @@ def _build_portfolio_overview_fallback(con, owner_client_db_id: int) -> dict[str
         client_db_id = int(row[1])
         client_name = _safe_text(row[2])
         status = _safe_text(row[5]) or "Unknown"
+        is_terminal = status.lower() in _TERMINAL_JOB_STATUSES
         total = 0.0
         try:
             total = float(exact_job_total_emissions(con, job_id) or 0.0)
         except Exception:
             total = 0.0
+
+        milestones = [
+            ("Data collection", row[8], row[9]),
+            ("First draft", row[10], row[11]),
+            ("Final report", row[12], row[13]),
+        ]
+        milestone_status = _overall_status([_milestone_status(due, done) for _, due, done in milestones])
+
+        next_due_at = None
+        next_due_label = None
+        days_until_next_due = None
+        for label, due, done in milestones:
+            due_date = _parse_date(due)
+            if due_date is None or done is not None:
+                continue
+            days = (due_date - date.today()).days
+            if days_until_next_due is None or days < days_until_next_due:
+                days_until_next_due = days
+                next_due_at = _to_iso(due)
+                next_due_label = label
+        attention_status = "none" if is_terminal else _job_attention_label(days_until_next_due)
+
         client_entry = client_stats.setdefault(
             client_db_id,
             {"job_count": 0, "open_jobs": 0, "overdue_jobs": 0, "total_emissions": 0.0, "latest_job_at": None},
         )
         client_entry["job_count"] += 1
-        client_entry["open_jobs"] += 0 if status.lower() in {"completed", "closed", "cancelled"} else 1
+        client_entry["open_jobs"] += 0 if is_terminal else 1
+        client_entry["overdue_jobs"] += 1 if attention_status == "overdue" else 0
         client_entry["total_emissions"] += total
         if row[6] is not None:
             annual_totals[int(row[6])] += total
-        latest_job_at = row[8] or row[7]
+        latest_job_at = row[7]
         if latest_job_at:
             current_latest = client_entry["latest_job_at"]
             if current_latest is None or str(latest_job_at) > str(current_latest):
@@ -437,48 +468,132 @@ def _build_portfolio_overview_fallback(con, owner_client_db_id: int) -> dict[str
                 "status": status,
                 "reporting_year": _safe_int(row[6]),
                 "created_at": _to_iso(row[7]),
-                "updated_at": _to_iso(row[8]),
-                "data_collection_due": None,
-                "data_collection_completed_at": None,
-                "first_draft_due": None,
-                "first_draft_completed_at": None,
-                "final_report_due": None,
-                "final_report_completed_at": None,
+                "updated_at": None,
+                "data_collection_due": _to_iso(row[8]),
+                "data_collection_completed_at": _to_iso(row[9]),
+                "first_draft_due": _to_iso(row[10]),
+                "first_draft_completed_at": _to_iso(row[11]),
+                "final_report_due": _to_iso(row[12]),
+                "final_report_completed_at": _to_iso(row[13]),
                 "total_emissions": round(total, 2),
-                "milestone_status": "none",
-                "next_due_at": None,
-                "next_due_label": None,
-                "days_until_next_due": None,
-                "attention_status": "unscheduled",
+                "milestone_status": milestone_status,
+                "next_due_at": next_due_at,
+                "next_due_label": next_due_label,
+                "days_until_next_due": days_until_next_due,
+                "attention_status": attention_status,
             }
         )
-        if status.lower() not in {"completed", "closed", "cancelled"}:
-            attention_jobs.append({**jobs[-1], "attention_status": "upcoming"})
+        if not is_terminal:
+            attention_jobs.append(jobs[-1])
+
+    contact_rows = con.execute(
+        f"""
+        SELECT contact_id, client_db_id, full_name, job_title, email, phone, is_primary
+        FROM client_contacts
+        WHERE client_db_id IN ({client_placeholders})
+        ORDER BY client_db_id, is_primary DESC, full_name ASC
+        """,
+        portfolio_client_ids,
+    ).fetchall()
+    contacts = [
+        {
+            "contact_id": int(row[0]),
+            "client_db_id": int(row[1]),
+            "full_name": _safe_text(row[2]) or None,
+            "job_title": _safe_text(row[3]) or None,
+            "email": _safe_text(row[4]) or None,
+            "phone": _safe_text(row[5]) or None,
+            "is_primary": bool(row[6]),
+        }
+        for row in contact_rows or []
+    ]
+    contact_count_by_client: Counter = Counter(c["client_db_id"] for c in contacts)
+
+    note_stats_rows = con.execute(
+        f"""
+        SELECT client_db_id, COUNT(*), MAX(created_at)
+        FROM (
+            SELECT client_db_id, created_at FROM client_notes
+            WHERE client_db_id IN ({client_placeholders}) AND COALESCE(archived, FALSE) = FALSE
+            UNION ALL
+            SELECT client_db_id, created_at FROM crm_events
+            WHERE client_db_id IN ({client_placeholders})
+              AND lower(COALESCE(event_type, '')) = 'note'
+              AND COALESCE(archived, FALSE) = FALSE
+        ) combined
+        GROUP BY client_db_id
+        """,
+        [*portfolio_client_ids, *portfolio_client_ids],
+    ).fetchall()
+    note_count_by_client: dict[int, int] = {}
+    last_note_at_by_client: dict[int, Any] = {}
+    for cid, count, last_at in note_stats_rows or []:
+        note_count_by_client[int(cid)] = int(count)
+        last_note_at_by_client[int(cid)] = last_at
+
+    def _is_stale(client_db_id: int, latest_job_at_iso: Any) -> bool:
+        last_job = _parse_date(latest_job_at_iso)
+        last_note = _parse_date(last_note_at_by_client.get(client_db_id))
+        candidates = [d for d in (last_job, last_note) if d is not None]
+        if not candidates:
+            return True
+        return (date.today() - max(candidates)).days > _STALE_ACTIVITY_DAYS
 
     client_rows: list[dict[str, Any]] = []
     for client in portfolio_clients:
-        stats = client_stats.get(int(client["client_db_id"]), {})
+        cid = int(client["client_db_id"])
+        stats = client_stats.get(cid, {})
         client_rows.append(
             {
                 **client,
-                "contact_count": 0,
+                "contact_count": contact_count_by_client.get(cid, 0),
                 "job_count": int(stats.get("job_count") or 0),
                 "open_jobs": int(stats.get("open_jobs") or 0),
                 "overdue_jobs": int(stats.get("overdue_jobs") or 0),
                 "total_emissions": round(float(stats.get("total_emissions") or 0.0), 2),
                 "latest_job_at": _to_iso(stats.get("latest_job_at")),
-                "recent_notes": 0,
+                "recent_notes": note_count_by_client.get(cid, 0),
             }
         )
 
     risk_clients: list[dict[str, Any]] = []
+    critical_clients = 0
+    watch_clients = 0
+    no_contact_clients = 0
+    no_recent_activity_clients = 0
     for client in client_rows:
+        cid = int(client["client_db_id"])
         open_jobs = int(client.get("open_jobs") or 0)
-        score = open_jobs * 10
-        level = "watch" if score else "stable"
+        overdue_jobs = int(client.get("overdue_jobs") or 0)
+        no_contacts = int(client.get("contact_count") or 0) == 0
+        stale = _is_stale(cid, client.get("latest_job_at"))
+        if no_contacts:
+            no_contact_clients += 1
+        if stale:
+            no_recent_activity_clients += 1
+
+        score = overdue_jobs * 35 + open_jobs * 5
+        risk_factors = []
+        if overdue_jobs:
+            risk_factors.append("overdue jobs")
+        if no_contacts:
+            score += 20
+            risk_factors.append("no contacts")
+        if stale:
+            score += 25
+            risk_factors.append("no recent activity")
+        level = _risk_level(score)
+        if level == "critical":
+            critical_clients += 1
+        elif level == "watch":
+            watch_clients += 1
+
+        last_job_date = _parse_date(client.get("latest_job_at"))
+        days_since_last_job = (date.today() - last_job_date).days if last_job_date else None
+
         risk_clients.append(
             {
-                "client_db_id": client["client_db_id"],
+                "client_db_id": cid,
                 "client_name": client["client_name"],
                 "status": client.get("status"),
                 "industry": client.get("industry"),
@@ -489,14 +604,18 @@ def _build_portfolio_overview_fallback(con, owner_client_db_id: int) -> dict[str
                 "recent_notes": client.get("recent_notes"),
                 "contact_count": client.get("contact_count"),
                 "latest_job_at": client.get("latest_job_at"),
-                "days_since_last_job": None,
+                "days_since_last_job": days_since_last_job,
                 "risk_score": score,
                 "risk_level": level,
-                "risk_factors": ["open jobs"] if score else [],
+                "risk_factors": risk_factors,
             }
         )
-    watch_clients = sum(1 for item in risk_clients if item["risk_level"] == "watch")
-    active_attention_jobs = len(attention_jobs)
+
+    overdue_job_count = sum(1 for job in attention_jobs if job["attention_status"] == "overdue")
+    due_soon_job_count = sum(1 for job in attention_jobs if job["attention_status"] == "due soon")
+    upcoming_job_count = len(attention_jobs) - overdue_job_count - due_soon_job_count
+    recent_notes = _portfolio_note_rows(con, portfolio_client_ids)
+    total_recent_notes = sum(note_count_by_client.values())
 
     return {
         "ok": True,
@@ -506,22 +625,22 @@ def _build_portfolio_overview_fallback(con, owner_client_db_id: int) -> dict[str
             "total_clients": len(client_rows),
             "active_clients": sum(1 for client in client_rows if _safe_text(client.get("status")).lower() == "active"),
             "portfolio_owner_clients": sum(1 for client in client_rows if _safe_text(client.get("status")).lower() == "portfolio owner"),
-            "total_contacts": 0,
+            "total_contacts": len(contacts),
             "total_jobs": len(jobs),
-            "open_jobs": sum(1 for job in jobs if _safe_text(job.get("status")).lower() not in {"completed", "closed", "cancelled"}),
-            "overdue_jobs": 0,
+            "open_jobs": sum(1 for job in jobs if _safe_text(job.get("status")).lower() not in _TERMINAL_JOB_STATUSES),
+            "overdue_jobs": overdue_job_count,
             "total_emissions": round(sum(job.get("total_emissions") or 0.0 for job in jobs), 2),
-            "recent_notes": 0,
+            "recent_notes": total_recent_notes,
         },
         "risk": {
-            "critical_clients": 0,
+            "critical_clients": critical_clients,
             "watch_clients": watch_clients,
-            "stale_clients": sum(1 for client in client_rows if int(client.get("job_count") or 0) > 0),
-            "no_contact_clients": len(client_rows),
-            "no_recent_activity_clients": len(client_rows),
-            "overdue_jobs": active_attention_jobs,
-            "due_soon_jobs": active_attention_jobs,
-            "upcoming_jobs": active_attention_jobs,
+            "stale_clients": no_recent_activity_clients,
+            "no_contact_clients": no_contact_clients,
+            "no_recent_activity_clients": no_recent_activity_clients,
+            "overdue_jobs": overdue_job_count,
+            "due_soon_jobs": due_soon_job_count,
+            "upcoming_jobs": upcoming_job_count,
         },
         "client_status_breakdown": [
             {"status": status, "count": count}
@@ -543,8 +662,8 @@ def _build_portfolio_overview_fallback(con, owner_client_db_id: int) -> dict[str
         "attention_jobs": attention_jobs,
         "clients": client_rows,
         "jobs": jobs[:18],
-        "recent_notes": [],
-        "contacts": [],
+        "recent_notes": recent_notes,
+        "contacts": contacts,
     }
 
 
