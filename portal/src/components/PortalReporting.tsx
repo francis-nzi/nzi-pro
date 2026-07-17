@@ -81,7 +81,7 @@ export default function PortalReporting() {
   const latestYear = years[years.length - 1];
   const benchmarkYear = years[0];
   const displayYears = Array.from(new Set([benchmarkYear, ...years.slice(-4)]));
-  const prevYear = years.length >= 2 ? years[years.length - 2] : null;
+  const hasComparison = years.length > 1;
   const showBenchmarkNote = years.length > 4;
 
   const allScopes = new Set<string>();
@@ -118,7 +118,7 @@ export default function PortalReporting() {
             {yr}{yr === benchmarkYear && showBenchmarkNote ? " ★" : ""}
           </th>
         ))}
-        <th className="text-right p-2 border text-xs font-medium text-gray-600">Change</th>
+        <th className="text-right p-2 border text-xs font-medium text-gray-600">Change vs Benchmark</th>
       </>
     );
   }
@@ -138,10 +138,10 @@ export default function PortalReporting() {
           <div className="mt-2 text-2xl font-bold tabular-nums">{fmt(getVal(by_scope, latestYear, "total"))} tCO₂e</div>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div className="text-xs text-gray-500 uppercase tracking-wide font-medium">Year-over-Year Change</div>
+          <div className="text-xs text-gray-500 uppercase tracking-wide font-medium">Change vs Benchmark ({benchmarkYear})</div>
           <div className="mt-2 text-2xl font-bold">
-            {prevYear ? (() => {
-              const pct = yoyPct(getVal(by_scope, latestYear, "total"), getVal(by_scope, prevYear, "total"));
+            {hasComparison ? (() => {
+              const pct = yoyPct(getVal(by_scope, latestYear, "total"), getVal(by_scope, benchmarkYear, "total"));
               if (pct === null) return <span>—</span>;
               return <span className={pct > 0 ? "text-red-600" : "text-green-600"}>{pct > 0 ? "+" : ""}{pct.toFixed(1)}%</span>;
             })() : <span>—</span>}
@@ -209,7 +209,7 @@ export default function PortalReporting() {
                             return <td key={yr} className="text-right p-2 border text-xs tabular-nums">{v > 0 ? fmt(v) : "—"}</td>;
                           })}
                           <td className="text-right p-2 border text-xs">
-                            {prevYear ? <ChangeCell cur={getScopeCatVal(latestYear, scope, cat)} prev={getScopeCatVal(prevYear, scope, cat)} /> : "—"}
+                            {hasComparison ? <ChangeCell cur={getScopeCatVal(latestYear, scope, cat)} prev={getScopeCatVal(benchmarkYear, scope, cat)} /> : "—"}
                           </td>
                         </tr>
                       ))}
@@ -221,7 +221,7 @@ export default function PortalReporting() {
                           return <td key={yr} className="text-right p-2 border text-xs tabular-nums">{v > 0 ? fmt(v) : "—"}</td>;
                         })}
                         <td className="text-right p-2 border text-xs">
-                          {prevYear ? <ChangeCell cur={getVal(by_scope, latestYear, scope)} prev={getVal(by_scope, prevYear, scope)} /> : "—"}
+                          {hasComparison ? <ChangeCell cur={getVal(by_scope, latestYear, scope)} prev={getVal(by_scope, benchmarkYear, scope)} /> : "—"}
                         </td>
                       </tr>
                     </>
@@ -235,7 +235,7 @@ export default function PortalReporting() {
                     return <td key={yr} className="text-right p-2 border text-xs tabular-nums">{v > 0 ? fmt(v) : "—"}</td>;
                   })}
                   <td className="text-right p-2 border text-xs">
-                    {prevYear ? <ChangeCell cur={getVal(by_scope, latestYear, "total")} prev={getVal(by_scope, prevYear, "total")} /> : "—"}
+                    {hasComparison ? <ChangeCell cur={getVal(by_scope, latestYear, "total")} prev={getVal(by_scope, benchmarkYear, "total")} /> : "—"}
                   </td>
                 </tr>
               </tbody>
@@ -263,7 +263,7 @@ export default function PortalReporting() {
                         return <td key={yr} className="text-right p-2 border text-xs tabular-nums">{v > 0 ? fmt(v) : "—"}</td>;
                       })}
                       <td className="text-right p-2 border text-xs">
-                        {prevYear ? <ChangeCell cur={getVal(by_activity, latestYear, cat)} prev={getVal(by_activity, prevYear, cat)} /> : "—"}
+                        {hasComparison ? <ChangeCell cur={getVal(by_activity, latestYear, cat)} prev={getVal(by_activity, benchmarkYear, cat)} /> : "—"}
                       </td>
                     </tr>
                   ))}
@@ -274,7 +274,7 @@ export default function PortalReporting() {
                       return <td key={yr} className="text-right p-2 border text-xs tabular-nums">{v > 0 ? fmt(v) : "—"}</td>;
                     })}
                     <td className="text-right p-2 border text-xs">
-                      {prevYear ? <ChangeCell cur={getVal(by_activity, latestYear, "total")} prev={getVal(by_activity, prevYear, "total")} /> : "—"}
+                      {hasComparison ? <ChangeCell cur={getVal(by_activity, latestYear, "total")} prev={getVal(by_activity, benchmarkYear, "total")} /> : "—"}
                     </td>
                   </tr>
                 </tbody>
@@ -303,7 +303,7 @@ export default function PortalReporting() {
                         return <td key={yr} className="text-right p-2 border text-xs tabular-nums">{v > 0 ? fmt(v) : "—"}</td>;
                       })}
                       <td className="text-right p-2 border text-xs">
-                        {prevYear ? <ChangeCell cur={getVal(by_site, latestYear, site)} prev={getVal(by_site, prevYear, site)} /> : "—"}
+                        {hasComparison ? <ChangeCell cur={getVal(by_site, latestYear, site)} prev={getVal(by_site, benchmarkYear, site)} /> : "—"}
                       </td>
                     </tr>
                   ))}
@@ -314,7 +314,7 @@ export default function PortalReporting() {
                       return <td key={yr} className="text-right p-2 border text-xs tabular-nums">{v > 0 ? fmt(v) : "—"}</td>;
                     })}
                     <td className="text-right p-2 border text-xs">
-                      {prevYear ? <ChangeCell cur={getVal(by_site, latestYear, "total")} prev={getVal(by_site, prevYear, "total")} /> : "—"}
+                      {hasComparison ? <ChangeCell cur={getVal(by_site, latestYear, "total")} prev={getVal(by_site, benchmarkYear, "total")} /> : "—"}
                     </td>
                   </tr>
                 </tbody>
@@ -375,7 +375,7 @@ export default function PortalReporting() {
                         {yr}{yr === benchmarkYear && showBenchmarkNote ? " ★" : ""}
                       </th>
                     ))}
-                    <th className="text-right p-2 border text-xs font-medium text-gray-600">Change</th>
+                    <th className="text-right p-2 border text-xs font-medium text-gray-600">Change vs Benchmark</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -404,7 +404,7 @@ export default function PortalReporting() {
                               return <td key={yr} className="text-right p-2 border text-xs tabular-nums">{v > 0 ? fmt(v) : "—"}</td>;
                             })}
                             <td className="text-right p-2 border text-xs">
-                              {prevYear ? <ChangeCell cur={dVal(scope, cat, act, latestYear)} prev={dVal(scope, cat, act, prevYear)} /> : "—"}
+                              {hasComparison ? <ChangeCell cur={dVal(scope, cat, act, latestYear)} prev={dVal(scope, cat, act, benchmarkYear)} /> : "—"}
                             </td>
                           </tr>
                         );
@@ -421,7 +421,7 @@ export default function PortalReporting() {
                               return <td key={yr} className="text-right p-2 border text-xs tabular-nums font-semibold">{v > 0 ? fmt(v) : "—"}</td>;
                             })}
                             <td className="text-right p-2 border text-xs font-semibold">
-                              {prevYear ? <ChangeCell cur={catTotal(scope, cat, latestYear)} prev={catTotal(scope, cat, prevYear!)} /> : "—"}
+                              {hasComparison ? <ChangeCell cur={catTotal(scope, cat, latestYear)} prev={catTotal(scope, cat, benchmarkYear)} /> : "—"}
                             </td>
                           </tr>
                         );
@@ -437,7 +437,7 @@ export default function PortalReporting() {
                           return <td key={yr} className="text-right p-2 border text-xs tabular-nums font-bold">{v > 0 ? fmt(v) : "—"}</td>;
                         })}
                         <td className="text-right p-2 border text-xs font-bold">
-                          {prevYear ? <ChangeCell cur={scopeTotal(scope, latestYear)} prev={scopeTotal(scope, prevYear!)} /> : "—"}
+                          {hasComparison ? <ChangeCell cur={scopeTotal(scope, latestYear)} prev={scopeTotal(scope, benchmarkYear)} /> : "—"}
                         </td>
                       </tr>
                     );
@@ -453,7 +453,7 @@ export default function PortalReporting() {
                       return <td key={yr} className="text-right p-2 border text-xs tabular-nums font-bold">{v > 0 ? fmt(v) : "—"}</td>;
                     })}
                     <td className="text-right p-2 border text-xs font-bold">
-                      {prevYear ? <ChangeCell cur={grandTotal(latestYear)} prev={grandTotal(prevYear!)} /> : "—"}
+                      {hasComparison ? <ChangeCell cur={grandTotal(latestYear)} prev={grandTotal(benchmarkYear)} /> : "—"}
                     </td>
                   </tr>
                 </tbody>

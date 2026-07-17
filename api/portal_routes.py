@@ -1067,8 +1067,9 @@ def portal_reporting_data(current_user: dict = Depends(portal_user_dep)):
                 )
 
             if scope_df is None or scope_df.empty:
-                avail = sorted({_portal_safe_year(y) for y in jobs_df["dashboard_year"].dropna().unique() if _portal_safe_year(y)})
-                return {**empty_resp, "years": avail}
+                # No data has been entered for any of this client's jobs yet --
+                # don't surface empty reporting years (e.g. a newly created job).
+                return empty_resp
 
             resolver_cache: dict[int, Any] = {}
             emissions_vals: list[float] = []
@@ -1143,15 +1144,21 @@ def portal_reporting_data(current_user: dict = Depends(portal_user_dep)):
                         "emissions": round(float(dr["emissions"]), 2),
                     })
 
+            # Drop years with no real data (e.g. a newly created job with no
+            # entries yet still gets a scaffolded row totalling 0) so they
+            # don't show up as an empty column or get treated as "latest".
+            year_totals = {row["year"]: round(float(row.get("total") or 0.0), 2) for row in by_scope}
+            years_with_data = [yr for yr in years if year_totals.get(yr, 0.0) > 0]
+
             return {
                 "client_db_id": client_db_id,
                 "client_name": str(client_row[0] or ""),
-                "years": years,
-                "by_scope": by_scope,
-                "by_scope_category": by_scope_category,
-                "by_activity": by_activity,
-                "by_site": by_site,
-                "by_activity_detail": by_activity_detail,
+                "years": years_with_data,
+                "by_scope": [row for row in by_scope if row["year"] in years_with_data],
+                "by_scope_category": [row for row in by_scope_category if row["year"] in years_with_data],
+                "by_activity": [row for row in by_activity if row["year"] in years_with_data],
+                "by_site": [row for row in by_site if row["year"] in years_with_data],
+                "by_activity_detail": [row for row in by_activity_detail if row["year"] in years_with_data],
             }
 
 
