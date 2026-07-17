@@ -25,6 +25,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { jobFamilyBadgeClassName } from "@/lib/job-family";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -656,6 +657,7 @@ function ClientPortalJobsSection({ clientId, baseUrl }: { clientId: number; base
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
+  const confirmAction = useConfirmDialog();
   const [activeTab, setActiveTab] = useState<PortalTab>("access");
   const [portalUsers, setPortalUsers] = useState<PortalUser[]>([]);
   const [history, setHistory] = useState<PortalHistoryItem[]>([]);
@@ -913,6 +915,34 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
     ? Math.ceil((new Date(portalAccess.access_expires_at).getTime() - Date.now()) / 86_400_000)
     : null;
 
+  // Detect unsaved edits on the Access/Navigation tabs so Refresh can warn
+  // before silently discarding them (it previously just reloaded from the
+  // server unconditionally, wiping out any toggle the user hadn't saved yet).
+  const navDirty = JSON.stringify(editNavConfig) !== JSON.stringify(portalAccess?.nav_config ?? {});
+  const loadedExpiry = portalAccess?.access_expires_at ? portalAccess.access_expires_at.slice(0, 16) : "";
+  const accessDirty = Boolean(portalAccess) && (
+    editEnabled !== portalAccess!.is_enabled ||
+    editExpiry !== loadedExpiry ||
+    editPaymentStatus !== portalAccess!.payment_status ||
+    editPaymentRef !== (portalAccess!.payment_reference ?? "") ||
+    editNotes !== (portalAccess!.notes ?? "")
+  );
+  const hasUnsavedPortalSettings = navDirty || accessDirty;
+
+  async function handleRefreshClick() {
+    if (hasUnsavedPortalSettings) {
+      const confirmed = await confirmAction({
+        title: "Discard unsaved changes?",
+        description: "You have unsaved changes on the Access or Navigation tab. Refreshing reloads settings from the server and will discard them.",
+        confirmLabel: "Discard and refresh",
+        destructive: true,
+      });
+      if (!confirmed) return;
+    }
+    void load();
+    void loadAccess();
+  }
+
   const NAV_ITEMS: { key: string; label: string }[] = [
     { key: "dashboard", label: "Dashboard" },
     { key: "data",      label: "Data" },
@@ -934,7 +964,7 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
             Manage portal access, users, navigation and published reports.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => { void load(); void loadAccess(); }} className="flex items-center gap-1.5 text-xs">
+        <Button variant="outline" size="sm" onClick={() => void handleRefreshClick()} className="flex items-center gap-1.5 text-xs">
           <RefreshCw className="h-3.5 w-3.5" />
           Refresh
         </Button>
