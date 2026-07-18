@@ -1,0 +1,230 @@
+{% extends "report_base.html" %}
+
+{% block title %}{{ job_data.client_name }} - Life Cycle Assessment Report{% endblock %}
+
+{% block body_class %}lca-report{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .bar-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 6px 0;
+    }
+    .bar-label {
+        width: 220px;
+        font-size: 9.5pt;
+        flex-shrink: 0;
+    }
+    .bar-track {
+        flex: 1;
+        height: 10px;
+        background: var(--surface-soft);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+    .bar-fill {
+        height: 100%;
+        background: var(--brand-green);
+        border-radius: 6px;
+    }
+    .bar-fill.readiness {
+        background: var(--brand-navy);
+    }
+    .bar-value {
+        width: 90px;
+        text-align: right;
+        font-size: 9.5pt;
+        color: var(--text-muted);
+        flex-shrink: 0;
+    }
+    .readiness-score-badge {
+        display: inline-block;
+        font-size: 22pt;
+        font-weight: 700;
+        color: var(--brand-navy);
+    }
+    .status-pill {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 999px;
+        background: var(--surface-soft);
+        border: 1px solid var(--border-soft);
+        font-size: 9.5pt;
+        font-weight: 600;
+        color: var(--text-main);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<section class="title-page">
+    <div class="title-page-content">
+        {% if job_data.client_logo_url %}
+        <div class="title-logo"><img class="logo-image" src="{{ job_data.client_logo_url }}" alt="{{ job_data.client_name }}"></div>
+        {% endif %}
+        <h1 class="title-main">Life Cycle Assessment Report</h1>
+        <div class="title-subtitle">{{ job_data.client_name }}</div>
+        <div class="title-info-box">
+            <table class="title-info-table">
+                <tr><td class="label">Job Number</td><td>{{ job_data.job_number or '-' }}</td></tr>
+                <tr><td class="label">Report Date</td><td>{{ generation_date }}</td></tr>
+                <tr><td class="label">Assessment(s)</td><td>{{ assessments | length }}</td></tr>
+                {% for a in assessments %}
+                <tr><td class="label">{% if loop.first %}Product{% endif %}</td><td>{{ a.goal_scope.name }}{% if a.goal_scope.sku %} ({{ a.goal_scope.sku }}){% endif %}</td></tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+</section>
+
+<div class="page-break"></div>
+
+{% for a in assessments %}
+{% if not loop.first %}<div class="page-break"></div>{% endif %}
+
+<section class="report-section">
+    <h2 class="report-section-title">{{ a.goal_scope.name }}{% if a.goal_scope.sku %} &mdash; {{ a.goal_scope.sku }}{% endif %}</h2>
+    {% if assessments | length > 1 %}
+    <div class="report-section-subtitle">Model {{ loop.index }} of {{ assessments | length }}</div>
+    {% endif %}
+
+    <h3>Executive Summary</h3>
+    <div class="intensity-metrics-grid">
+        <div class="intensity-metric-card">
+            <div class="metric-label">Total Footprint</div>
+            <div class="metric-value">{{ a.impact_assessment.total_tco2e|round(4) }} tCO&#8322;e</div>
+        </div>
+        <div class="intensity-metric-card">
+            <div class="metric-label">Functional Unit</div>
+            <div class="metric-value" style="font-size: 14pt;">{{ a.goal_scope.functional_unit }}</div>
+        </div>
+        <div class="intensity-metric-card">
+            <div class="metric-label">Data Readiness</div>
+            <div class="metric-value" style="font-size: 14pt;">{{ a.readiness.score if a.readiness else 0 }}/100</div>
+        </div>
+    </div>
+    <p>
+        This assessment covers <strong>{{ a.goal_scope.lifecycle_boundary | replace('_', ' ') | title }}</strong>
+        ({{ a.goal_scope.included_modules | map('lca_module_label') | join(', ') }}) in accordance with
+        {{ a.goal_scope.standard or 'the applicable standard' }}.
+        {% if a.readiness %}Data readiness is currently rated <strong>{{ a.readiness.status_label }}</strong>.{% endif %}
+        {{ a.inventory_analysis.rows_count }} inventory line{{ 's' if a.inventory_analysis.rows_count != 1 else '' }}
+        {% if a.inventory_analysis.placeholder_rows %}(plus {{ a.inventory_analysis.placeholder_rows }} placeholder/assembly-grouping line{{ 's' if a.inventory_analysis.placeholder_rows != 1 else '' }}){% endif %}
+        contribute to this result.
+    </p>
+
+    <h3>Dashboard &mdash; Emissions by Lifecycle Module</h3>
+    {% if a.impact_assessment.module_breakdown %}
+    <div class="no-break">
+        {% for row in a.impact_assessment.module_breakdown %}
+        <div class="bar-row">
+            <div class="bar-label">{{ row.module_code | lca_module_label }}</div>
+            <div class="bar-track"><div class="bar-fill" style="width: {{ row.share_pct }}%;"></div></div>
+            <div class="bar-value">{{ row.share_pct|round(1) }}%</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="chart-placeholder">No emissions calculated yet for this assessment.</div>
+    {% endif %}
+
+    <h3>Dashboard &mdash; Emissions by Material Category</h3>
+    {% if a.impact_assessment.category_breakdown %}
+    <div class="no-break">
+        {% for row in a.impact_assessment.category_breakdown %}
+        <div class="bar-row">
+            <div class="bar-label">{{ row.material_category_id | lca_category_label }}</div>
+            <div class="bar-track"><div class="bar-fill" style="width: {{ row.share_pct }}%;"></div></div>
+            <div class="bar-value">{{ row.share_pct|round(1) }}%</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="chart-placeholder">No categorized line items yet.</div>
+    {% endif %}
+
+    <h3>Mass Reconciliation</h3>
+    <table class="data-table">
+        <tr><th>Confirmed Quantity</th><th>Captured Mass (A1)</th><th>Gap</th></tr>
+        <tr>
+            <td>{{ a.mass_reconciliation.confirmed_quantity if a.mass_reconciliation.confirmed_quantity is not none else '-' }} {{ a.mass_reconciliation.confirmed_quantity_unit }}</td>
+            <td>{{ a.mass_reconciliation.captured_mass_kg|round(3) }} kg</td>
+            <td>{{ a.mass_reconciliation.mass_gap_kg|round(3) if a.mass_reconciliation.mass_gap_kg is not none else '-' }} kg</td>
+        </tr>
+    </table>
+
+    <div class="page-break-before"></div>
+    <h3>Readiness Tracker</h3>
+    <div class="info-box">
+        <span class="readiness-score-badge">{{ a.readiness.score if a.readiness else 0 }}/100</span>
+        &nbsp;&nbsp;<span class="status-pill">{{ a.readiness.status_label if a.readiness else 'Not calculated' }}</span>
+    </div>
+    {% if a.readiness and a.readiness.checks %}
+    <div class="no-break">
+        {% for check in a.readiness.checks %}
+        <div class="bar-row">
+            <div class="bar-label">{{ check.label }} ({{ check.weight | int }} pts)</div>
+            <div class="bar-track"><div class="bar-fill readiness" style="width: {{ (check.sub_score * 100) | round(1) }}%;"></div></div>
+            <div class="bar-value">{{ check.points }} / {{ check.weight | int }}</div>
+        </div>
+        <p class="footer-note" style="margin: 0 0 10px 230px;">{{ check.detail }}</p>
+        {% endfor %}
+    </div>
+    {% endif %}
+    <div class="methodology-note">
+        Readiness is an advisory data-quality signal &mdash; it does not gate or override the assessment's review status.
+    </div>
+
+    <h3>Hotspot Line Items</h3>
+    {% if a.hotspots %}
+    <table class="data-table">
+        <tr><th>Line Item</th><th>Module</th><th>Category</th><th class="text-right">Emissions (tCO&#8322;e)</th><th>Data Quality</th></tr>
+        {% for h in a.hotspots %}
+        <tr>
+            <td>{{ h.line_label }}</td>
+            <td>{{ h.module_code | lca_module_label }}</td>
+            <td>{{ h.material_category_id | lca_category_label }}</td>
+            <td class="text-right">{{ h.emissions_tco2e|round(4) }}</td>
+            <td>{{ 'Estimated / gap-filled' if h.is_gap_filled else (h.data_quality | replace('_',' ') | title) }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <div class="chart-placeholder">No hotspot line items yet.</div>
+    {% endif %}
+
+    <div class="page-break-before"></div>
+    <h3>Methodology Notes</h3>
+    <div class="methodology-details methodology-list">
+        <ul>
+            <li><strong>Standard:</strong> {{ a.goal_scope.standard or 'Not specified' }}</li>
+            <li><strong>Lifecycle boundary:</strong> {{ a.goal_scope.lifecycle_boundary | replace('_', ' ') | title }} ({{ a.goal_scope.included_modules | map('lca_module_label') | join(', ') }})</li>
+            <li><strong>Geography:</strong> {{ a.goal_scope.geography or 'Not specified' }}</li>
+            <li><strong>Reference year:</strong> {{ a.goal_scope.reference_year or 'Not specified' }}</li>
+            <li><strong>Review status:</strong> {{ a.goal_scope.review_status | replace('_', ' ') | title }}</li>
+            <li><strong>Data quality:</strong> {{ a.data_quality.primary_data_rows }} primary-data line(s), {{ a.data_quality.secondary_data_rows }} secondary/estimated line(s) ({{ a.data_quality.gap_filled_pct }}% gap-filled)</li>
+        </ul>
+        {% if a.goal_scope.assumptions %}
+        <div class="narrative-box"><h3>Assumptions</h3><p>{{ a.goal_scope.assumptions }}</p></div>
+        {% endif %}
+        {% if a.goal_scope.data_sources_note %}
+        <div class="narrative-box"><h3>Data Sources Note</h3><p>{{ a.goal_scope.data_sources_note }}</p></div>
+        {% endif %}
+    </div>
+
+    <h3>References</h3>
+    {% set sources = a.inventory_analysis.rows | selectattr('factor_source_label') | map(attribute='factor_source_label') | unique | list %}
+    {% if sources %}
+    <ul class="methodology-list">
+        {% for s in sources %}<li>{{ s }}</li>{% endfor %}
+    </ul>
+    {% else %}
+    <div class="footer-note">No emission factor sources recorded yet.</div>
+    {% endif %}
+</section>
+{% endfor %}
+
+{% endblock %}

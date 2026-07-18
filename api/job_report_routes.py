@@ -97,6 +97,33 @@ def _table_columns(con, table_name: str) -> set[str]:
 def _factor_category_expr(con) -> str:
     return "fl.category" if "category" in _table_columns(con, "factor_lookup") else "NULL::text"
 
+
+def _resolve_job_family(con, job_id: int) -> str:
+    """jobs.job_family isn't guaranteed to exist as a denormalized column in
+    every environment (job_management_routes.py guards every write to it with
+    a column-existence check) -- the canonical source is job_types.job_family
+    via jobs.job_type_id. get_job_data()'s job_family field only checks the
+    (possibly-absent) jobs column, so callers that need a reliable answer
+    (e.g. LCA/PCF report routing) should use this instead."""
+    jobs_cols = _table_columns(con, "jobs")
+    select_parts = []
+    if "job_family" in jobs_cols:
+        select_parts.append("NULLIF(j.job_family, '')")
+    if "job_group" in jobs_cols:
+        select_parts.append("NULLIF(j.job_group, '')")
+    select_parts.append("NULLIF(jt.job_family, '')")
+    select_parts.append("NULLIF(jt.job_group, '')")
+    row = con.execute(
+        f"""
+        SELECT COALESCE({', '.join(select_parts)})
+        FROM jobs j
+        LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id
+        WHERE j.job_id = %s
+        """,
+        [int(job_id)],
+    ).fetchone()
+    return str(row[0] or "").strip().lower() if row else ""
+
 # Guards so DDL migrations run only once per process lifetime, not on every request.
 _glossary_schema_seeded: bool = False
 _report_versions_schema_seeded: bool = False
@@ -255,6 +282,16 @@ def _resolve_builtin_template_name(selection: dict | None) -> str:
     ):
         return "interactive_report.html"
 
+    # LCA/PCF templates use the dedicated lifecycle-assessment layout.
+    if (
+        ("lca" in hint)
+        or ("pcf" in hint)
+        or ("lifecycle assessment" in hint)
+        or ("lifecycle_assessment" in hint)
+        or ("product carbon footprint" in hint)
+    ):
+        return "lca_report.html"
+
     # Only explicitly professional templates should use the professional layout.
     if "professional" in hint:
         return "professional_report.html"
@@ -280,6 +317,11 @@ def _use_forced_builtin_template(selection: dict | None) -> bool:
         or ("ppn_006" in hint)
         or ("ppn 006" in hint)
         or ("ppn06/21" in hint)
+        or ("lca" in hint)
+        or ("pcf" in hint)
+        or ("lifecycle assessment" in hint)
+        or ("lifecycle_assessment" in hint)
+        or ("product carbon footprint" in hint)
     )
 
 
@@ -3887,6 +3929,13 @@ def generate_job_report(
         if not job_data:
             raise HTTPException(status_code=404, detail="Job not found")
 
+        with get_conn() as con:
+            job_family = _resolve_job_family(con, int(job_id))
+        if job_family in ("lca", "pcf"):
+            from api.lca_report_routes import generate_lca_pdf_report
+
+            return generate_lca_pdf_report(int(job_id), _user)
+
         save_version = bool(payload.save_version) if payload else False
         if not save_version:
             with get_conn() as con:
@@ -4272,6 +4321,13 @@ def generate_html_report(
         job_data = get_job_data(job_id)
         if not job_data:
             raise HTTPException(status_code=404, detail="Job not found")
+
+        with get_conn() as con:
+            job_family = _resolve_job_family(con, int(job_id))
+        if job_family in ("lca", "pcf"):
+            from api.lca_report_routes import generate_lca_html_report
+
+            return generate_lca_html_report(int(job_id), _user)
 
         if not save_version:
             with get_conn() as con:

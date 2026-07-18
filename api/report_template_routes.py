@@ -110,6 +110,14 @@ _DEFAULT_REPORT_TEMPLATES: tuple[dict[str, Any], ...] = (
         "description": "Standard Carbon Reduction Plan template for UK government contracts",
         "variables": _DEFAULT_CRP_STANDARD_VARIABLES,
     },
+    {
+        "template_key": "lca_pcf_standard",
+        "template_name": "LCA / PCF Assessment Report",
+        "template_type": "lca_pcf",
+        "report_type": "lifecycle_assessment",
+        "description": "Life Cycle Assessment / Product Carbon Footprint report -- Cover, Executive Summary, Dashboard, Readiness Tracker, Hotspots, Methodology, References",
+        "variables": (),
+    },
 )
 
 
@@ -2688,6 +2696,90 @@ def _auto_assign_default_crp_template(con, job_id: int, actor_email: str) -> tup
     return template_id, version_id
 
 
+def _auto_assign_default_lca_template(con, job_id: int, actor_email: str) -> tuple[int, int] | None:
+    """Auto-assign the LCA/PCF report template for lca/pcf job_family jobs
+    with no existing assignment. Mirrors _auto_assign_default_crp_template's
+    shape but with no peer-job/benchmark logic -- there is only one LCA/PCF
+    template today."""
+    already = con.execute(
+        "SELECT template_id, version_id FROM job_report_template_assignments WHERE job_id = %s",
+        [int(job_id)],
+    ).fetchone()
+    if already and already[0] is not None and already[1] is not None:
+        return int(already[0]), int(already[1])
+
+    # jobs.job_family isn't guaranteed to exist as a denormalized column in
+    # every environment -- the canonical source is job_types.job_family via
+    # jobs.job_type_id (see job_management_routes.py's _col_exists guards).
+    jobs_cols = _get_table_columns(con, "jobs")
+    family_parts = []
+    if "job_family" in jobs_cols:
+        family_parts.append("NULLIF(j.job_family, '')")
+    if "job_group" in jobs_cols:
+        family_parts.append("NULLIF(j.job_group, '')")
+    family_parts.append("NULLIF(jt.job_family, '')")
+    family_parts.append("NULLIF(jt.job_group, '')")
+    family_row = con.execute(
+        f"""
+        SELECT COALESCE({', '.join(family_parts)})
+        FROM jobs j
+        LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id
+        WHERE j.job_id = %s
+        """,
+        [int(job_id)],
+    ).fetchone()
+    if not family_row or str(family_row[0] or "").strip().lower() not in ("lca", "pcf"):
+        return None
+
+    tpl = con.execute(
+        """
+        SELECT template_id
+        FROM report_templates
+        WHERE LOWER(template_key) = 'lca_pcf_standard'
+          AND is_active = TRUE
+          AND COALESCE(archived, FALSE) = FALSE
+          AND COALESCE(is_global, TRUE) = TRUE
+        ORDER BY template_id
+        LIMIT 1
+        """
+    ).fetchone()
+    if not tpl:
+        return None
+
+    template_id = int(tpl[0])
+    vrow = con.execute(
+        """
+        SELECT version_id
+        FROM report_template_versions
+        WHERE template_id = %s
+        ORDER BY version_number DESC
+        LIMIT 1
+        """,
+        [template_id],
+    ).fetchone()
+    if not vrow or vrow[0] is None:
+        return None
+
+    version_id = int(vrow[0])
+    org_id = _get_job_org_id(con, int(job_id))
+    con.execute(
+        """
+        INSERT INTO job_report_template_assignments
+          (org_id, job_id, template_id, version_id, assigned_at, assigned_by)
+        VALUES (%s, %s, %s, %s, NOW(), %s)
+        ON CONFLICT (job_id)
+        DO UPDATE SET
+          org_id = EXCLUDED.org_id,
+          template_id = EXCLUDED.template_id,
+          version_id = EXCLUDED.version_id,
+          assigned_at = NOW(),
+          assigned_by = EXCLUDED.assigned_by
+        """,
+        [org_id, int(job_id), template_id, version_id, actor_email or "system:auto-template"],
+    )
+    return template_id, version_id
+
+
 def _resolve_effective_version_id(con, job_id: int, template_id: int, version_id: int | None) -> int | None:
     """Resolve version by explicit value or job assignment fallback."""
     effective = int(version_id) if version_id is not None else None
@@ -3048,6 +3140,15 @@ def get_job_report_template_assignment(job_id: int, _user: dict = Depends(_curre
                 )
             except Exception:
                 logger.debug("Ignoring default template auto-assignment failure", exc_info=True)
+
+            try:
+                _auto_assign_default_lca_template(
+                    con,
+                    int(job_id),
+                    _user.get("email", "system:auto-template"),
+                )
+            except Exception:
+                logger.debug("Ignoring default LCA/PCF template auto-assignment failure", exc_info=True)
 
             assignment_cols = _get_table_columns(con, "job_report_template_assignments")
             template_cols = _get_table_columns(con, "report_templates")

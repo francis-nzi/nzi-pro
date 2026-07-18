@@ -1170,84 +1170,95 @@ def recalculate_assessment(job_id: int, assessment_id: int, _user: dict[str, str
         raise HTTPException(status_code=500, detail=f"Failed to recalculate assessment: {e}")
 
 
+def _build_lca_report_payload(con, job_id: int, assessment_id: int, user: dict[str, str]) -> dict[str, Any] | None:
+    """Assemble the full report payload for one assessment: goal/scope, inventory,
+    impact (module/category breakdown), mass reconciliation, hotspots, readiness
+    (Phase 2), and data-quality stats. Shared by the JSON report endpoint below
+    and the PDF/HTML report renderer in api/lca_report_routes.py."""
+    assessment = _assessment_row(con, int(job_id), int(assessment_id))
+    if not assessment:
+        return None
+    summary = _recalculate_assessment(con, int(assessment_id), user)
+    lines_df = con.execute(
+        """
+        SELECT line_item_id, module_code, line_label, quantity, unit, factor_value, factor_unit,
+               factor_source_label, factor_source_url, is_gap_filled, gap_fill_method, data_quality, is_placeholder
+        FROM lca_line_items WHERE assessment_id = %s ORDER BY module_code, line_item_id
+        """,
+        [int(assessment_id)],
+    ).df()
+    lines: list[dict[str, Any]] = []
+    if lines_df is not None and not lines_df.empty:
+        for _, r in lines_df.iterrows():
+            lines.append(
+                {
+                    "line_item_id": int(r.get("line_item_id")),
+                    "module_code": r.get("module_code"),
+                    "line_label": r.get("line_label"),
+                    "quantity": safe_float(r.get("quantity")),
+                    "unit": r.get("unit"),
+                    "factor_value": safe_float(r.get("factor_value")),
+                    "factor_unit": r.get("factor_unit"),
+                    "factor_source_label": r.get("factor_source_label"),
+                    "factor_source_url": r.get("factor_source_url"),
+                    "is_gap_filled": bool(r.get("is_gap_filled") or False),
+                    "gap_fill_method": r.get("gap_fill_method"),
+                    "data_quality": r.get("data_quality"),
+                    "is_placeholder": bool(r.get("is_placeholder") or False),
+                }
+            )
+    real_lines = [ln for ln in lines if not ln["is_placeholder"]]
+    gap_count = sum(1 for ln in real_lines if ln["is_gap_filled"])
+    total_rows = len(real_lines)
+
+    return {
+        "job_id": int(job_id),
+        "assessment_id": int(assessment_id),
+        "generated_at": datetime.utcnow().isoformat(),
+        "goal_scope": {
+            "name": assessment["name"],
+            "sku": assessment["sku"],
+            "description": assessment["description"],
+            "functional_unit": f"{assessment['functional_unit_value']} {assessment['functional_unit_unit']}",
+            "lifecycle_boundary": assessment["lifecycle_boundary"],
+            "included_modules": assessment["included_modules"],
+            "standard": assessment["standard"],
+            "reference_year": assessment["reference_year"],
+            "geography": assessment["geography"],
+            "assumptions": assessment["assumptions"],
+            "data_sources_note": assessment["data_sources_note"],
+            "review_status": assessment["review_status"],
+        },
+        "inventory_analysis": {"rows_count": total_rows, "placeholder_rows": len(lines) - total_rows, "rows": lines},
+        "impact_assessment": {
+            "method": "Global Warming Potential (GWP 100)",
+            "unit": "tCO2e",
+            "total_tco2e": summary["total_tco2e"],
+            "module_breakdown": summary["module_breakdown"],
+            "category_breakdown": summary["category_breakdown"],
+        },
+        "mass_reconciliation": summary["mass_reconciliation"],
+        "hotspots": summary["hotspots"],
+        "readiness": summary["readiness"],
+        "data_quality": {
+            "gap_filled_rows": gap_count,
+            "primary_data_rows": sum(1 for ln in real_lines if str(ln.get("data_quality") or "").lower() == "primary"),
+            "secondary_data_rows": sum(1 for ln in real_lines if str(ln.get("data_quality") or "").lower() != "primary"),
+            "gap_filled_pct": round((gap_count / total_rows * 100.0) if total_rows else 0.0, 2),
+        },
+    }
+
+
 @router.get("/jobs/{job_id}/lca/assessments/{assessment_id}/report")
 def assessment_report(job_id: int, assessment_id: int, _user: dict[str, str] = Depends(_current_user)):
     assert_permission(_user, "jobs.view")
     assert_job_access(_user, int(job_id))
     try:
         with get_conn(autocommit=False) as con:
-            assessment = _assessment_row(con, int(job_id), int(assessment_id))
-            if not assessment:
+            payload = _build_lca_report_payload(con, int(job_id), int(assessment_id), _user)
+            if not payload:
                 raise HTTPException(status_code=404, detail="LCA assessment not found")
-            summary = _recalculate_assessment(con, int(assessment_id), _user)
-            lines_df = con.execute(
-                """
-                SELECT line_item_id, module_code, line_label, quantity, unit, factor_value, factor_unit,
-                       factor_source_label, factor_source_url, is_gap_filled, gap_fill_method, data_quality, is_placeholder
-                FROM lca_line_items WHERE assessment_id = %s ORDER BY module_code, line_item_id
-                """,
-                [int(assessment_id)],
-            ).df()
-            lines: list[dict[str, Any]] = []
-            if lines_df is not None and not lines_df.empty:
-                for _, r in lines_df.iterrows():
-                    lines.append(
-                        {
-                            "line_item_id": int(r.get("line_item_id")),
-                            "module_code": r.get("module_code"),
-                            "line_label": r.get("line_label"),
-                            "quantity": safe_float(r.get("quantity")),
-                            "unit": r.get("unit"),
-                            "factor_value": safe_float(r.get("factor_value")),
-                            "factor_unit": r.get("factor_unit"),
-                            "factor_source_label": r.get("factor_source_label"),
-                            "factor_source_url": r.get("factor_source_url"),
-                            "is_gap_filled": bool(r.get("is_gap_filled") or False),
-                            "gap_fill_method": r.get("gap_fill_method"),
-                            "data_quality": r.get("data_quality"),
-                            "is_placeholder": bool(r.get("is_placeholder") or False),
-                        }
-                    )
-            real_lines = [ln for ln in lines if not ln["is_placeholder"]]
-            gap_count = sum(1 for ln in real_lines if ln["is_gap_filled"])
-            total_rows = len(real_lines)
-
-            return {
-                "job_id": int(job_id),
-                "assessment_id": int(assessment_id),
-                "generated_at": datetime.utcnow().isoformat(),
-                "goal_scope": {
-                    "name": assessment["name"],
-                    "sku": assessment["sku"],
-                    "description": assessment["description"],
-                    "functional_unit": f"{assessment['functional_unit_value']} {assessment['functional_unit_unit']}",
-                    "lifecycle_boundary": assessment["lifecycle_boundary"],
-                    "included_modules": assessment["included_modules"],
-                    "standard": assessment["standard"],
-                    "reference_year": assessment["reference_year"],
-                    "geography": assessment["geography"],
-                    "assumptions": assessment["assumptions"],
-                    "data_sources_note": assessment["data_sources_note"],
-                    "review_status": assessment["review_status"],
-                },
-                "inventory_analysis": {"rows_count": total_rows, "placeholder_rows": len(lines) - total_rows, "rows": lines},
-                "impact_assessment": {
-                    "method": "Global Warming Potential (GWP 100)",
-                    "unit": "tCO2e",
-                    "total_tco2e": summary["total_tco2e"],
-                    "module_breakdown": summary["module_breakdown"],
-                    "category_breakdown": summary["category_breakdown"],
-                },
-                "mass_reconciliation": summary["mass_reconciliation"],
-                "hotspots": summary["hotspots"],
-                "readiness": summary["readiness"],
-                "data_quality": {
-                    "gap_filled_rows": gap_count,
-                    "primary_data_rows": sum(1 for ln in real_lines if str(ln.get("data_quality") or "").lower() == "primary"),
-                    "secondary_data_rows": sum(1 for ln in real_lines if str(ln.get("data_quality") or "").lower() != "primary"),
-                    "gap_filled_pct": round((gap_count / total_rows * 100.0) if total_rows else 0.0, 2),
-                },
-            }
+            return payload
     except HTTPException:
         raise
     except Exception as e:
