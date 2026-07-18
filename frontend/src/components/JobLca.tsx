@@ -156,7 +156,33 @@ type LcaComponent = {
   archived: boolean;
 };
 
-type WorkflowStageKey = "goal-scope" | "inventory" | "factor-mapping" | "gap-filling" | "impact" | "reporting";
+type Scenario = {
+  scenario_id: number;
+  name: string;
+  description?: string | null;
+  is_baseline: boolean;
+  created_at?: string | null;
+};
+
+type MultiplierRule = {
+  multiplier_id: number;
+  module_code: string;
+  material_category_id?: number | null;
+  component_id?: number | null;
+  multiplier: number;
+};
+
+type ScenarioComparisonRow = {
+  scenario_id: number;
+  name: string;
+  is_baseline: boolean;
+  total_tco2e: number;
+  module_breakdown: Array<{ module_code: string; emissions_tco2e: number; share_pct: number }>;
+  delta_vs_baseline_tco2e: number | null;
+  delta_vs_baseline_pct: number | null;
+};
+
+type WorkflowStageKey = "goal-scope" | "inventory" | "factor-mapping" | "gap-filling" | "impact" | "scenarios" | "reporting";
 
 const LIFECYCLE_BOUNDARIES = [
   { value: "cradle_to_gate", label: "Cradle to gate (A1-A3)" },
@@ -228,6 +254,18 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [newComponentUnit, setNewComponentUnit] = useState("kg");
   const [newComponentCountry, setNewComponentCountry] = useState("");
   const [newComponentSupplier, setNewComponentSupplier] = useState("");
+
+  // Scenarios (Phase 3: what-if multiplier engine)
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string>("");
+  const [multipliers, setMultipliers] = useState<MultiplierRule[]>([]);
+  const [comparison, setComparison] = useState<ScenarioComparisonRow[]>([]);
+  const [newScenarioName, setNewScenarioName] = useState("");
+  const [newScenarioDescription, setNewScenarioDescription] = useState("");
+  const [ruleModule, setRuleModule] = useState("A1");
+  const [ruleCategory, setRuleCategory] = useState<string>("");
+  const [ruleComponent, setRuleComponent] = useState<string>("");
+  const [ruleMultiplier, setRuleMultiplier] = useState("1.0");
 
   async function apiFetch(path: string, init?: RequestInit) {
     return fetch(`${baseUrl}${path}`, { credentials: "include", ...init });
@@ -324,12 +362,71 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function loadScenarios(assessmentId: string) {
+    if (!assessmentId) {
+      setScenarios([]);
+      setSelectedScenarioId("");
+      return;
+    }
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/lca/assessments/${assessmentId}/scenarios`);
+      if (!res.ok) return;
+      const json = await res.json();
+      const list: Scenario[] = Array.isArray(json?.items) ? json.items : [];
+      setScenarios(list);
+      setSelectedScenarioId((prev) => {
+        if (prev && list.some((s) => String(s.scenario_id) === prev)) return prev;
+        const firstNonBaseline = list.find((s) => !s.is_baseline);
+        return firstNonBaseline ? String(firstNonBaseline.scenario_id) : "";
+      });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function loadMultipliers(scenarioId: string) {
+    if (!scenarioId) {
+      setMultipliers([]);
+      return;
+    }
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/lca/scenarios/${scenarioId}/multipliers`);
+      if (!res.ok) return;
+      const json = await res.json();
+      setMultipliers(Array.isArray(json?.items) ? json.items : []);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function loadComparison(assessmentId: string) {
+    if (!assessmentId) {
+      setComparison([]);
+      return;
+    }
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/lca/assessments/${assessmentId}/scenario-comparison`);
+      if (!res.ok) return;
+      const json = await res.json();
+      setComparison(Array.isArray(json?.scenarios) ? json.scenarios : []);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   useEffect(() => {
     void loadAssessmentDetail(selectedAssessmentId);
     void loadItems(selectedAssessmentId);
     void loadDatasetSelection(selectedAssessmentId);
+    void loadScenarios(selectedAssessmentId);
+    void loadComparison(selectedAssessmentId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAssessmentId]);
+
+  useEffect(() => {
+    void loadMultipliers(selectedScenarioId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedScenarioId]);
 
   async function createAssessment() {
     if (!newName.trim()) {
@@ -551,6 +648,99 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     }
   }
 
+  async function createScenario() {
+    if (!selectedAssessmentId) return;
+    if (!newScenarioName.trim()) {
+      setStatus("Scenario name is required.");
+      return;
+    }
+    setStatus("Creating scenario...");
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/lca/assessments/${selectedAssessmentId}/scenarios`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newScenarioName.trim(), description: newScenarioDescription.trim() }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed to create scenario (${res.status})${t ? `: ${t}` : ""}`);
+      }
+      const json = await res.json();
+      setNewScenarioName("");
+      setNewScenarioDescription("");
+      await loadScenarios(selectedAssessmentId);
+      await loadComparison(selectedAssessmentId);
+      if (json?.scenario_id) setSelectedScenarioId(String(json.scenario_id));
+      setStatus("Scenario created.");
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    }
+  }
+
+  async function deleteScenario(scenarioId: number) {
+    if (!selectedAssessmentId) return;
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/lca/scenarios/${scenarioId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed to delete scenario (${res.status})${t ? `: ${t}` : ""}`);
+      }
+      await loadScenarios(selectedAssessmentId);
+      await loadComparison(selectedAssessmentId);
+      setStatus("Scenario deleted.");
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    }
+  }
+
+  async function addMultiplierRule() {
+    if (!selectedScenarioId) {
+      setStatus("Select a scenario first.");
+      return;
+    }
+    setStatus("Adding multiplier rule...");
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/lca/scenarios/${selectedScenarioId}/multipliers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          module_code: ruleModule,
+          material_category_id: ruleCategory || null,
+          component_id: ruleComponent || null,
+          multiplier: Number(ruleMultiplier || 1),
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed to add multiplier rule (${res.status})${t ? `: ${t}` : ""}`);
+      }
+      setRuleCategory("");
+      setRuleComponent("");
+      setRuleMultiplier("1.0");
+      await loadMultipliers(selectedScenarioId);
+      await loadComparison(selectedAssessmentId);
+      setStatus("Multiplier rule added.");
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    }
+  }
+
+  async function deleteMultiplierRule(multiplierId: number) {
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/lca/multipliers/${multiplierId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`Failed to delete multiplier rule (${res.status})`);
+      await loadMultipliers(selectedScenarioId);
+      await loadComparison(selectedAssessmentId);
+      setStatus("Multiplier rule removed.");
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    }
+  }
+
   async function generateReport() {
     if (!selectedAssessmentId) {
       setStatus("Select an assessment first.");
@@ -720,6 +910,16 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     return "Verified-ready";
   }
 
+  const selectedScenario = scenarios.find((s) => String(s.scenario_id) === selectedScenarioId) || null;
+  const assessmentComponents = useMemo(() => {
+    const seen = new Map<number, string>();
+    for (const row of items) {
+      if (row.component_id && !seen.has(row.component_id)) seen.set(row.component_id, row.line_label);
+    }
+    return Array.from(seen.entries()).map(([component_id, label]) => ({ component_id, label }));
+  }, [items]);
+  const componentLabel = (id: number) => assessmentComponents.find((c) => c.component_id === id)?.label || `Component ${id}`;
+
   const hasRows = items.some((r) => !r.is_placeholder);
   const hasMappedFactors = items.some((r) => Number(r.factor_value || 0) > 0 && !r.is_gap_filled);
   const hasGapFilled = items.some((r) => Boolean(r.is_gap_filled));
@@ -731,7 +931,8 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     { key: "factor-mapping", title: "3. Factor Mapping", done: hasMappedFactors || items.length === 0 },
     { key: "gap-filling", title: "4. Data Gap Filling", done: hasGapFilled || items.length === 0 },
     { key: "impact", title: "5. Impact Assessment", done: hasImpactResults },
-    { key: "reporting", title: "6. Reporting", done: Boolean(report) },
+    { key: "scenarios", title: "6. Scenarios", done: scenarios.some((s) => !s.is_baseline) },
+    { key: "reporting", title: "7. Reporting", done: Boolean(report) },
   ];
   const activeIdx = workflow.findIndex((w) => w.key === activeWorkflowStage);
   function isStageUnlocked(idx: number) {
@@ -1178,9 +1379,146 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
         </Card>
       ) : null}
 
+      {activeWorkflowStage === "scenarios" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Stage 6: Scenarios</CardTitle>
+            <div className="text-xs text-muted-foreground">
+              Model &quot;what if&quot; changes -- e.g. Recycled Metals or Low Carbon Operations -- as multipliers on the baseline, compared side by side.
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-md border p-3">
+              <div className="mb-2 text-sm font-medium">Compare Scenarios</div>
+              {comparison.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No scenarios yet.</div>
+              ) : (
+                <div className="space-y-1 text-sm">
+                  {comparison.map((c) => (
+                    <div key={c.scenario_id} className="flex items-center justify-between gap-2 rounded border px-2 py-1">
+                      <span className="flex items-center gap-2">
+                        {c.name}
+                        {c.is_baseline ? <Badge variant="outline">Baseline</Badge> : null}
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <span>{c.total_tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO₂e</span>
+                        {!c.is_baseline && c.delta_vs_baseline_pct !== null ? (
+                          <Badge variant={c.delta_vs_baseline_pct <= 0 ? "secondary" : "destructive"}>
+                            {c.delta_vs_baseline_pct > 0 ? "+" : ""}
+                            {c.delta_vs_baseline_pct.toFixed(1)}%
+                          </Badge>
+                        ) : null}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="rounded-md border p-3 space-y-2">
+                <div className="text-sm font-medium">Scenarios</div>
+                <div className="space-y-1">
+                  {scenarios.map((s) => (
+                    <div
+                      key={s.scenario_id}
+                      className={`flex items-center justify-between gap-2 rounded border px-2 py-1 text-sm cursor-pointer ${
+                        String(s.scenario_id) === selectedScenarioId ? "border-primary" : ""
+                      }`}
+                      onClick={() => setSelectedScenarioId(String(s.scenario_id))}
+                    >
+                      <span className="flex items-center gap-2">
+                        {s.name}
+                        {s.is_baseline ? <Badge variant="outline">Baseline</Badge> : null}
+                      </span>
+                      {!s.is_baseline ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void deleteScenario(s.scenario_id);
+                          }}
+                        >
+                          Delete
+                        </Button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+                <div className="space-y-2 border-t pt-2">
+                  <Input placeholder="New scenario name (e.g. Recycled Metals)" value={newScenarioName} onChange={(e) => setNewScenarioName(e.target.value)} />
+                  <Input placeholder="Description (optional)" value={newScenarioDescription} onChange={(e) => setNewScenarioDescription(e.target.value)} />
+                  <Button variant="outline" onClick={createScenario}>+ New Scenario</Button>
+                </div>
+              </div>
+
+              <div className="rounded-md border p-3 space-y-2">
+                <div className="text-sm font-medium">
+                  Multiplier Rules {selectedScenario ? `-- ${selectedScenario.name}` : ""}
+                </div>
+                {!selectedScenario ? (
+                  <div className="text-sm text-muted-foreground">Select a non-baseline scenario to edit its rules.</div>
+                ) : selectedScenario.is_baseline ? (
+                  <div className="text-sm text-muted-foreground">The baseline scenario has no rules -- it&apos;s the as-measured reference.</div>
+                ) : (
+                  <>
+                    <div className="space-y-1">
+                      {multipliers.length === 0 ? (
+                        <div className="text-sm text-muted-foreground">No rules yet -- this scenario currently matches baseline.</div>
+                      ) : (
+                        multipliers.map((m) => (
+                          <div key={m.multiplier_id} className="flex items-center justify-between gap-2 rounded border px-2 py-1 text-xs">
+                            <span>
+                              {moduleLabel(m.module_code)}
+                              {m.component_id ? ` | Component: ${componentLabel(m.component_id)}` : m.material_category_id ? ` | Category: ${categoryName(m.material_category_id)}` : " | All materials"}
+                              {" -> "}
+                              {m.multiplier}x
+                            </span>
+                            <Button size="sm" variant="outline" onClick={() => deleteMultiplierRule(m.multiplier_id)}>Remove</Button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <div className="grid gap-2 border-t pt-2 sm:grid-cols-2">
+                      <Select value={ruleModule} onValueChange={setRuleModule}>
+                        <SelectTrigger><SelectValue placeholder="Module" /></SelectTrigger>
+                        <SelectContent>
+                          {modules.map((m) => (
+                            <SelectItem key={m.module_code} value={m.module_code}>{m.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input placeholder="Multiplier (e.g. 0.3 = 70% less)" value={ruleMultiplier} onChange={(e) => setRuleMultiplier(e.target.value)} />
+                      <Select value={ruleCategory} onValueChange={(v) => { setRuleCategory(v); setRuleComponent(""); }}>
+                        <SelectTrigger><SelectValue placeholder="Category (optional -- module-wide if blank)" /></SelectTrigger>
+                        <SelectContent>
+                          {categories.map((c) => (
+                            <SelectItem key={c.category_id} value={String(c.category_id)}>{c.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select value={ruleComponent} onValueChange={(v) => { setRuleComponent(v); setRuleCategory(""); }}>
+                        <SelectTrigger><SelectValue placeholder="Or a specific component (more specific wins)" /></SelectTrigger>
+                        <SelectContent>
+                          {assessmentComponents.map((c) => (
+                            <SelectItem key={c.component_id} value={String(c.component_id)}>{c.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button variant="outline" onClick={addMultiplierRule}>+ Add Rule</Button>
+                  </>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {activeWorkflowStage === "reporting" ? (
         <Card>
-          <CardHeader><CardTitle>Stage 6: Reporting</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Stage 7: Reporting</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="flex justify-end">
               <Button variant="outline" onClick={generateReport}>Generate Report Payload</Button>

@@ -60,6 +60,45 @@ def compute_line_emissions_tco2e(quantity: float, factor_value: float, factor_un
     return raw * factor_unit_to_tonnes_multiplier(factor_unit)
 
 
+def apply_scenario_multipliers(
+    lines: list[dict[str, Any]],
+    multiplier_rules: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Scale each line's factor_value by its scenario's "more specific wins" rule.
+
+    For a line's module_code, the best matching rule is: a component_id
+    match (if the line has a component), else a material_category_id match
+    (if the line has a category and no component rule matched), else a
+    module-wide rule (both component_id and material_category_id NULL on
+    the rule), else no match -- multiplier 1.0 (baseline, unaffected).
+    Scaling factor_value (rather than the final emissions number) keeps
+    this a pure pre-processing step ahead of the already-verified
+    summarize_assessment, which is left completely untouched.
+    """
+    by_module: dict[str, list[dict[str, Any]]] = {}
+    for rule in multiplier_rules:
+        by_module.setdefault(str(rule.get("module_code") or ""), []).append(rule)
+
+    adjusted: list[dict[str, Any]] = []
+    for line in lines:
+        rules = by_module.get(str(line.get("module_code") or ""), [])
+        multiplier = 1.0
+        component_id = line.get("component_id")
+        category_id = line.get("material_category_id")
+
+        component_rule = next((r for r in rules if component_id is not None and r.get("component_id") == component_id), None)
+        category_rule = next((r for r in rules if category_id is not None and r.get("component_id") is None and r.get("material_category_id") == category_id), None)
+        module_rule = next((r for r in rules if r.get("component_id") is None and r.get("material_category_id") is None), None)
+        matched = component_rule or category_rule or module_rule
+        if matched is not None:
+            multiplier = safe_float(matched.get("multiplier"), 1.0)
+
+        new_line = dict(line)
+        new_line["factor_value"] = safe_float(line.get("factor_value")) * multiplier
+        adjusted.append(new_line)
+    return adjusted
+
+
 def summarize_assessment(
     lines: list[dict[str, Any]],
     confirmed_quantity: float | None,

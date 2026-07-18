@@ -11,7 +11,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, UploadFile, 
 from api.auth import _current_user
 from api.permissions import assert_job_access, assert_permission
 from core.database import get_conn
-from services.lca_engine import compute_readiness, safe_float, summarize_assessment
+from services.lca_engine import apply_scenario_multipliers, compute_readiness, safe_float, summarize_assessment
 
 router = APIRouter(tags=["lca"])
 
@@ -249,7 +249,7 @@ def _list_available_datasets(con) -> list[dict[str, Any]]:
 def _load_line_items_for_calc(con, assessment_id: int) -> list[dict[str, Any]]:
     df = con.execute(
         """
-        SELECT line_item_id, module_code, line_label, material_category_id, quantity, unit,
+        SELECT line_item_id, component_id, module_code, line_label, material_category_id, quantity, unit,
                factor_value, factor_unit, is_gap_filled, is_placeholder, data_quality,
                mapped_factor_source, factor_match_confidence
         FROM lca_line_items
@@ -265,6 +265,7 @@ def _load_line_items_for_calc(con, assessment_id: int) -> list[dict[str, Any]]:
         rows.append(
             {
                 "line_item_id": int(r.get("line_item_id") or 0),
+                "component_id": _int_or_none(r.get("component_id")),
                 "module_code": str(r.get("module_code") or ""),
                 "line_label": str(r.get("line_label") or "Unnamed line"),
                 "material_category_id": _int_or_none(r.get("material_category_id")),
@@ -1438,3 +1439,370 @@ async def upload_bom_file(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to import BOM file: {e}")
+
+
+# ---------------------------------------------------------------------
+# Phase 3: scenario / what-if multiplier engine
+# ---------------------------------------------------------------------
+
+
+def _scenario_row(con, job_id: int, scenario_id: int) -> dict[str, Any] | None:
+    row = con.execute(
+        """
+        SELECT s.scenario_id, s.assessment_id, s.name, s.description, s.is_baseline
+        FROM lca_scenarios s
+        JOIN lca_assessments a ON a.assessment_id = s.assessment_id
+        WHERE s.scenario_id = %s AND a.job_id = %s
+        """,
+        [int(scenario_id), int(job_id)],
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "scenario_id": int(row[0]),
+        "assessment_id": int(row[1]),
+        "name": row[2],
+        "description": row[3],
+        "is_baseline": bool(row[4]),
+    }
+
+
+def _load_scenario_multiplier_rules(con, scenario_id: int) -> list[dict[str, Any]]:
+    df = con.execute(
+        "SELECT module_code, material_category_id, component_id, multiplier FROM lca_scenario_multipliers WHERE scenario_id = %s",
+        [int(scenario_id)],
+    ).df()
+    rules: list[dict[str, Any]] = []
+    if df is not None and not df.empty:
+        for _, r in df.iterrows():
+            rules.append(
+                {
+                    "module_code": r.get("module_code"),
+                    "material_category_id": _int_or_none(r.get("material_category_id")),
+                    "component_id": _int_or_none(r.get("component_id")),
+                    "multiplier": safe_float(r.get("multiplier"), 1.0),
+                }
+            )
+    return rules
+
+
+@router.get("/jobs/{job_id}/lca/assessments/{assessment_id}/scenarios")
+def list_scenarios(job_id: int, assessment_id: int, _user: dict[str, str] = Depends(_current_user)):
+    assert_permission(_user, "jobs.view")
+    assert_job_access(_user, int(job_id))
+    try:
+        with get_conn() as con:
+            if not _assessment_row(con, int(job_id), int(assessment_id)):
+                raise HTTPException(status_code=404, detail="LCA assessment not found")
+            df = con.execute(
+                "SELECT scenario_id, name, description, is_baseline, created_at FROM lca_scenarios WHERE assessment_id = %s ORDER BY is_baseline DESC, scenario_id",
+                [int(assessment_id)],
+            ).df()
+            items: list[dict[str, Any]] = []
+            if df is not None and not df.empty:
+                for _, r in df.iterrows():
+                    items.append(
+                        {
+                            "scenario_id": int(r.get("scenario_id")),
+                            "name": r.get("name"),
+                            "description": r.get("description"),
+                            "is_baseline": bool(r.get("is_baseline")),
+                            "created_at": str(r.get("created_at")) if r.get("created_at") else None,
+                        }
+                    )
+            return {"assessment_id": int(assessment_id), "items": items}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list scenarios: {e}")
+
+
+@router.post("/jobs/{job_id}/lca/assessments/{assessment_id}/scenarios")
+def create_scenario(job_id: int, assessment_id: int, body: dict = Body(...), _user: dict[str, str] = Depends(_current_user)):
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+    name = str(body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    try:
+        with get_conn(autocommit=False) as con:
+            if not _assessment_row(con, int(job_id), int(assessment_id)):
+                raise HTTPException(status_code=404, detail="LCA assessment not found")
+            row = con.execute(
+                """
+                INSERT INTO lca_scenarios (assessment_id, name, description, is_baseline, created_by)
+                VALUES (%s, %s, %s, FALSE, %s) RETURNING scenario_id
+                """,
+                [int(assessment_id), name, str(body.get("description") or "").strip() or None, _actor(_user)],
+            ).fetchone()
+            return {"ok": True, "scenario_id": int(row[0])}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create scenario: {e}")
+
+
+@router.patch("/jobs/{job_id}/lca/scenarios/{scenario_id}")
+def update_scenario(job_id: int, scenario_id: int, body: dict = Body(...), _user: dict[str, str] = Depends(_current_user)):
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+    try:
+        with get_conn(autocommit=False) as con:
+            scenario = _scenario_row(con, int(job_id), int(scenario_id))
+            if not scenario:
+                raise HTTPException(status_code=404, detail="Scenario not found")
+            updates: list[str] = []
+            params: list[Any] = []
+            if "name" in body:
+                name = str(body.get("name") or "").strip()
+                if not name:
+                    raise HTTPException(status_code=400, detail="name cannot be empty")
+                updates.append("name = %s")
+                params.append(name)
+            if "description" in body:
+                updates.append("description = %s")
+                params.append(str(body.get("description") or "").strip() or None)
+            if not updates:
+                return {"ok": True}
+            params.append(int(scenario_id))
+            con.execute(f"UPDATE lca_scenarios SET {', '.join(updates)} WHERE scenario_id = %s", params)
+            return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update scenario: {e}")
+
+
+@router.delete("/jobs/{job_id}/lca/scenarios/{scenario_id}")
+def delete_scenario(job_id: int, scenario_id: int, _user: dict[str, str] = Depends(_current_user)):
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+    try:
+        with get_conn(autocommit=False) as con:
+            scenario = _scenario_row(con, int(job_id), int(scenario_id))
+            if not scenario:
+                raise HTTPException(status_code=404, detail="Scenario not found")
+            if scenario["is_baseline"]:
+                raise HTTPException(status_code=400, detail="Cannot delete the baseline scenario")
+            con.execute("DELETE FROM lca_scenarios WHERE scenario_id = %s", [int(scenario_id)])
+            return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete scenario: {e}")
+
+
+@router.get("/jobs/{job_id}/lca/scenarios/{scenario_id}/multipliers")
+def list_multipliers(job_id: int, scenario_id: int, _user: dict[str, str] = Depends(_current_user)):
+    assert_permission(_user, "jobs.view")
+    assert_job_access(_user, int(job_id))
+    try:
+        with get_conn() as con:
+            if not _scenario_row(con, int(job_id), int(scenario_id)):
+                raise HTTPException(status_code=404, detail="Scenario not found")
+            multiplier_ids_df = con.execute(
+                "SELECT multiplier_id, module_code, material_category_id, component_id, multiplier FROM lca_scenario_multipliers WHERE scenario_id = %s ORDER BY multiplier_id",
+                [int(scenario_id)],
+            ).df()
+            items: list[dict[str, Any]] = []
+            if multiplier_ids_df is not None and not multiplier_ids_df.empty:
+                for _, r in multiplier_ids_df.iterrows():
+                    items.append(
+                        {
+                            "multiplier_id": int(r.get("multiplier_id")),
+                            "module_code": r.get("module_code"),
+                            "material_category_id": _int_or_none(r.get("material_category_id")),
+                            "component_id": _int_or_none(r.get("component_id")),
+                            "multiplier": safe_float(r.get("multiplier"), 1.0),
+                        }
+                    )
+            return {"scenario_id": int(scenario_id), "items": items}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list multipliers: {e}")
+
+
+@router.post("/jobs/{job_id}/lca/scenarios/{scenario_id}/multipliers")
+def create_multiplier(job_id: int, scenario_id: int, body: dict = Body(...), _user: dict[str, str] = Depends(_current_user)):
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+    module_code = str(body.get("module_code") or "").strip().upper()
+    if not module_code:
+        raise HTTPException(status_code=400, detail="module_code is required")
+    try:
+        with get_conn(autocommit=False) as con:
+            scenario = _scenario_row(con, int(job_id), int(scenario_id))
+            if not scenario:
+                raise HTTPException(status_code=404, detail="Scenario not found")
+            if scenario["is_baseline"]:
+                raise HTTPException(status_code=400, detail="Cannot add multiplier rules to the baseline scenario")
+            if module_code not in _valid_module_codes(con):
+                raise HTTPException(status_code=400, detail=f"Unknown module_code: {module_code}")
+            category_raw = str(body.get("material_category_id") or "").strip()
+            component_raw = str(body.get("component_id") or "").strip()
+            row = con.execute(
+                """
+                INSERT INTO lca_scenario_multipliers (scenario_id, module_code, material_category_id, component_id, multiplier)
+                VALUES (%s, %s, %s, %s, %s) RETURNING multiplier_id
+                """,
+                [
+                    int(scenario_id), module_code,
+                    int(category_raw) if category_raw.isdigit() else None,
+                    int(component_raw) if component_raw.isdigit() else None,
+                    safe_float(body.get("multiplier"), 1.0),
+                ],
+            ).fetchone()
+            return {"ok": True, "multiplier_id": int(row[0])}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create multiplier: {e}")
+
+
+def _multiplier_scenario(con, job_id: int, multiplier_id: int) -> dict[str, Any] | None:
+    row = con.execute(
+        """
+        SELECT m.multiplier_id, s.is_baseline
+        FROM lca_scenario_multipliers m
+        JOIN lca_scenarios s ON s.scenario_id = m.scenario_id
+        JOIN lca_assessments a ON a.assessment_id = s.assessment_id
+        WHERE m.multiplier_id = %s AND a.job_id = %s
+        """,
+        [int(multiplier_id), int(job_id)],
+    ).fetchone()
+    if not row:
+        return None
+    return {"multiplier_id": int(row[0]), "is_baseline": bool(row[1])}
+
+
+@router.patch("/jobs/{job_id}/lca/multipliers/{multiplier_id}")
+def update_multiplier(job_id: int, multiplier_id: int, body: dict = Body(...), _user: dict[str, str] = Depends(_current_user)):
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+    try:
+        with get_conn(autocommit=False) as con:
+            existing = _multiplier_scenario(con, int(job_id), int(multiplier_id))
+            if not existing:
+                raise HTTPException(status_code=404, detail="Multiplier rule not found")
+            if existing["is_baseline"]:
+                raise HTTPException(status_code=400, detail="Cannot edit multiplier rules on the baseline scenario")
+            updates: list[str] = []
+            params: list[Any] = []
+            if "module_code" in body:
+                module_code = str(body.get("module_code") or "").strip().upper()
+                if module_code not in _valid_module_codes(con):
+                    raise HTTPException(status_code=400, detail=f"Unknown module_code: {module_code}")
+                updates.append("module_code = %s")
+                params.append(module_code)
+            if "material_category_id" in body:
+                raw = str(body.get("material_category_id") or "").strip()
+                updates.append("material_category_id = %s")
+                params.append(int(raw) if raw.isdigit() else None)
+            if "component_id" in body:
+                raw = str(body.get("component_id") or "").strip()
+                updates.append("component_id = %s")
+                params.append(int(raw) if raw.isdigit() else None)
+            if "multiplier" in body:
+                updates.append("multiplier = %s")
+                params.append(safe_float(body.get("multiplier"), 1.0))
+            if not updates:
+                return {"ok": True}
+            params.append(int(multiplier_id))
+            con.execute(f"UPDATE lca_scenario_multipliers SET {', '.join(updates)} WHERE multiplier_id = %s", params)
+            return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update multiplier: {e}")
+
+
+@router.delete("/jobs/{job_id}/lca/multipliers/{multiplier_id}")
+def delete_multiplier(job_id: int, multiplier_id: int, _user: dict[str, str] = Depends(_current_user)):
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+    try:
+        with get_conn(autocommit=False) as con:
+            existing = _multiplier_scenario(con, int(job_id), int(multiplier_id))
+            if not existing:
+                raise HTTPException(status_code=404, detail="Multiplier rule not found")
+            con.execute("DELETE FROM lca_scenario_multipliers WHERE multiplier_id = %s", [int(multiplier_id)])
+            return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete multiplier: {e}")
+
+
+@router.get("/jobs/{job_id}/lca/assessments/{assessment_id}/scenario-comparison")
+def scenario_comparison(job_id: int, assessment_id: int, _user: dict[str, str] = Depends(_current_user)):
+    assert_permission(_user, "jobs.view")
+    assert_job_access(_user, int(job_id))
+    try:
+        with get_conn(autocommit=False) as con:
+            assessment = _assessment_row(con, int(job_id), int(assessment_id))
+            if not assessment:
+                raise HTTPException(status_code=404, detail="LCA assessment not found")
+            lines = _load_line_items_for_calc(con, int(assessment_id))
+            confirmed_quantity = assessment["confirmed_quantity"]
+            confirmed_unit = assessment["confirmed_quantity_unit"]
+
+            scenarios_df = con.execute(
+                "SELECT scenario_id, name, is_baseline FROM lca_scenarios WHERE assessment_id = %s ORDER BY is_baseline DESC, scenario_id",
+                [int(assessment_id)],
+            ).df()
+
+            results: list[dict[str, Any]] = []
+            baseline_total: float | None = None
+            mass_reconciliation: dict[str, Any] | None = None
+            if scenarios_df is not None and not scenarios_df.empty:
+                for _, srow in scenarios_df.iterrows():
+                    scenario_id = int(srow.get("scenario_id"))
+                    is_baseline = bool(srow.get("is_baseline"))
+                    scenario_lines = lines if is_baseline else apply_scenario_multipliers(
+                        lines, _load_scenario_multiplier_rules(con, scenario_id)
+                    )
+                    summary = summarize_assessment(scenario_lines, confirmed_quantity, confirmed_unit)
+                    con.execute(
+                        """
+                        INSERT INTO lca_result_snapshots (
+                          assessment_id, scenario_id, calculated_by, total_tco2e, module_breakdown, hotspots, mass_reconciliation, notes
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        [
+                            int(assessment_id), scenario_id, _actor(_user), summary["total_tco2e"],
+                            json.dumps(summary["module_breakdown"]), json.dumps(summary["hotspots"]),
+                            json.dumps(summary["mass_reconciliation"]), "Scenario comparison",
+                        ],
+                    )
+                    if is_baseline:
+                        baseline_total = summary["total_tco2e"]
+                        mass_reconciliation = summary["mass_reconciliation"]
+                    results.append(
+                        {
+                            "scenario_id": scenario_id,
+                            "name": srow.get("name"),
+                            "is_baseline": is_baseline,
+                            "total_tco2e": summary["total_tco2e"],
+                            "module_breakdown": summary["module_breakdown"],
+                        }
+                    )
+
+            for r in results:
+                if baseline_total:
+                    r["delta_vs_baseline_tco2e"] = round(r["total_tco2e"] - baseline_total, 6)
+                    r["delta_vs_baseline_pct"] = round((r["total_tco2e"] - baseline_total) / baseline_total * 100.0, 2)
+                else:
+                    r["delta_vs_baseline_tco2e"] = None
+                    r["delta_vs_baseline_pct"] = None
+
+            return {
+                "assessment_id": int(assessment_id),
+                "scenarios": results,
+                "mass_reconciliation": mass_reconciliation or {},
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to compare scenarios: {e}")
