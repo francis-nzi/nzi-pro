@@ -1056,14 +1056,17 @@ def _replacement_dependency_summary(con, stale_factor_ids: list[int]) -> dict[st
             except Exception:
                 pass
 
-    if _table_exists(con, "lca_inventory_items"):
+    if _table_exists(con, "lca_line_items"):
         row = con.execute(
-            f"SELECT COUNT(*) FROM lca_inventory_items WHERE mapped_factor_db_id IN ({placeholders})",
+            f"""
+            SELECT COUNT(*) FROM lca_line_items
+            WHERE mapped_factor_source = 'factor_lookup' AND mapped_factor_id IN ({placeholders})
+            """,
             stale_factor_ids,
         ).fetchone()
         count = int(row[0] or 0)
         if count:
-            summary["lca_inventory_items"] = count
+            summary["lca_line_items"] = count
 
     return {k: v for k, v in summary.items() if v}
 
@@ -1290,9 +1293,12 @@ def _apply_factor_rows(
                                 [stale_ids],
                             )
                             referenced_ids.update(int(r[0]) for r in cur.fetchall() if r and r[0] is not None)
-                        if _table_exists(con, "lca_inventory_items"):
+                        if _table_exists(con, "lca_line_items"):
                             cur.execute(
-                                "SELECT DISTINCT mapped_factor_db_id FROM lca_inventory_items WHERE mapped_factor_db_id = ANY(%s)",
+                                """
+                                SELECT DISTINCT mapped_factor_id FROM lca_line_items
+                                WHERE mapped_factor_source = 'factor_lookup' AND mapped_factor_id = ANY(%s)
+                                """,
                                 [stale_ids],
                             )
                             referenced_ids.update(int(r[0]) for r in cur.fetchall() if r and r[0] is not None)
