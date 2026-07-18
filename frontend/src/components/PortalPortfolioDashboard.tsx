@@ -45,6 +45,7 @@ type PortfolioOverview = {
     open_jobs: number;
     overdue_jobs: number;
     total_emissions: number;
+    reports_issued: number;
     recent_notes: number;
   };
   risk: {
@@ -293,10 +294,11 @@ export default function PortalPortfolioDashboard({
                 </p>
               </div>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               {metricCard({ icon: <Users className="h-4 w-4" />, label: "Clients", value: data.summary.total_clients, sub: `${data.summary.active_clients} active` })}
               {metricCard({ icon: <Briefcase className="h-4 w-4" />, label: "Open Jobs", value: data.summary.open_jobs, sub: `${data.summary.overdue_jobs} overdue milestones` })}
               {metricCard({ icon: <TrendingUp className="h-4 w-4" />, label: "Emissions", value: tco2e(data.summary.total_emissions), sub: "total under management" })}
+              {metricCard({ icon: <Briefcase className="h-4 w-4" />, label: "Reports Issued", value: data.summary.reports_issued, sub: "final versions" })}
               {metricCard({ icon: <MessageSquare className="h-4 w-4" />, label: "Notes", value: data.summary.recent_notes, sub: "recent client and job notes" })}
             </div>
           </div>

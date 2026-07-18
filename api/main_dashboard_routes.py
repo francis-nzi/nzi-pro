@@ -659,6 +659,30 @@ def get_dashboard_overview(
                     total_datasets = con.execute("SELECT COUNT(*) FROM datasets").fetchone()[0]
             else:
                 total_datasets = 0
+
+            # Final report versions issued for the same dashboard scope.
+            reports_issued = 0
+            try:
+                report_year = int(year)
+                reports_issued = con.execute(
+                    f"""
+                    SELECT COUNT(DISTINCT j.job_id)
+                    FROM jobs j
+                    LEFT JOIN clients c ON c.db_id = j.client_db_id
+                    JOIN job_report_versions jrv ON jrv.job_id = j.job_id
+                    WHERE LOWER(COALESCE(jrv.status, '')) = 'final'
+                      AND COALESCE(
+                            EXTRACT(YEAR FROM jrv.finalized_at),
+                            EXTRACT(YEAR FROM jrv.generated_at),
+                            j.reporting_year
+                          ) = ?
+                      {job_where}
+                    """,
+                    [report_year, *job_params],
+                ).fetchone()[0]
+            except Exception:
+                logger.debug("Failed to load dashboard issued report count; defaulting to 0", exc_info=True)
+                reports_issued = 0
             
             # Available years for year selector
             try:
@@ -1062,6 +1086,7 @@ def get_dashboard_overview(
                     "total_emissions": round(total_emissions, 1),
                     "active_jobs": int(active_jobs),
                     "total_datasets": int(total_datasets),
+                    "reports_issued": int(reports_issued),
                     "yoy_change": round(yoy_change, 1) if yoy_change is not None else None
                 },
                 "job_status_breakdown": status_breakdown,
@@ -1087,13 +1112,14 @@ def get_dashboard_overview(
             "crm_options": [],
             "year_trend": [],
             "industry_breakdown": [],
-            "metrics": {
-                "total_clients": 0,
-                "total_emissions": 0.0,
-                "active_jobs": 0,
-                "total_datasets": 0,
-                "yoy_change": None,
-            },
+                "metrics": {
+                    "total_clients": 0,
+                    "total_emissions": 0.0,
+                    "active_jobs": 0,
+                    "total_datasets": 0,
+                    "reports_issued": 0,
+                    "yoy_change": None,
+                },
             "job_status_breakdown": [],
             "top_emitting_clients": [],
             "recent_activity": [],

@@ -42,6 +42,7 @@ export type OverviewData = {
     total_emissions: number;
     active_jobs: number;
     total_datasets: number;
+    reports_issued: number;
     yoy_change: number | null;
   };
   job_status_breakdown: Array<{ status: string; count: number }>;

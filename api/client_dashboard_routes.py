@@ -796,6 +796,32 @@ def get_client_dashboard(
                         previous = float(yearly_emissions[selected_idx - 1]['total'])
                         if previous > 0:
                             yoy_change = ((current - previous) / previous) * 100
+
+            reports_issued = 0
+            report_year = _safe_year_value(selected_year)
+            if report_year is None:
+                report_year = _safe_year_value(current_metrics.get("year"))
+            if report_year is not None and job_ids:
+                try:
+                    job_placeholders = ",".join(["%s"] * len(job_ids))
+                    report_row = con.execute(
+                        f"""
+                        SELECT COUNT(*)
+                        FROM job_report_versions jrv
+                        JOIN jobs j ON j.job_id = jrv.job_id
+                        WHERE j.job_id IN ({job_placeholders})
+                          AND LOWER(COALESCE(jrv.status, '')) = 'final'
+                          AND COALESCE(
+                                EXTRACT(YEAR FROM jrv.finalized_at),
+                                EXTRACT(YEAR FROM jrv.generated_at),
+                                j.reporting_year
+                              ) = %s
+                        """,
+                        [*job_ids, int(report_year)],
+                    ).fetchone()
+                    reports_issued = int(report_row[0]) if report_row and report_row[0] is not None else 0
+                except Exception:
+                    reports_issued = 0
             
             intensity_metrics = []
             if selected_year is not None:
@@ -826,7 +852,7 @@ def get_client_dashboard(
                 'client_db_id': int(client_db_id),
                 'selected_year': selected_year,
                 'available_years': available_years,
-                'current_metrics': current_metrics,
+                'current_metrics': {**current_metrics, 'reports_issued': reports_issued},
                 'yoy_change': round(yoy_change, 1) if yoy_change is not None else None,
                 'yearly_emissions': yearly_emissions,
                 'yearly_top_categories': yearly_top_categories,

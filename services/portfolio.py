@@ -296,6 +296,7 @@ def _empty_portfolio_overview(owner_client_db_id: int, owner_name: str | None = 
             "open_jobs": 0,
             "overdue_jobs": 0,
             "total_emissions": 0.0,
+            "reports_issued": 0,
             "recent_notes": 0,
         },
         "risk": {
@@ -616,6 +617,21 @@ def _build_portfolio_overview_fallback(con, owner_client_db_id: int) -> dict[str
     upcoming_job_count = len(attention_jobs) - overdue_job_count - due_soon_job_count
     recent_notes = _portfolio_note_rows(con, portfolio_client_ids)
     total_recent_notes = sum(note_count_by_client.values())
+    reports_issued = 0
+    try:
+        report_row = con.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM job_report_versions jrv
+            JOIN jobs j ON j.job_id = jrv.job_id
+            WHERE j.client_db_id IN ({client_placeholders})
+              AND LOWER(COALESCE(jrv.status, '')) = 'final'
+            """,
+            portfolio_client_ids,
+        ).fetchone()
+        reports_issued = int(report_row[0]) if report_row and report_row[0] is not None else 0
+    except Exception:
+        reports_issued = 0
 
     return {
         "ok": True,
@@ -630,6 +646,7 @@ def _build_portfolio_overview_fallback(con, owner_client_db_id: int) -> dict[str
             "open_jobs": sum(1 for job in jobs if _safe_text(job.get("status")).lower() not in _TERMINAL_JOB_STATUSES),
             "overdue_jobs": overdue_job_count,
             "total_emissions": round(sum(job.get("total_emissions") or 0.0 for job in jobs), 2),
+            "reports_issued": reports_issued,
             "recent_notes": total_recent_notes,
         },
         "risk": {

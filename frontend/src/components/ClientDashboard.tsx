@@ -18,6 +18,7 @@ type DashboardData = {
     scope2: number;
     scope3: number;
     year: number | null;
+    reports_issued?: number;
   };
   yoy_change: number | null;
   yearly_emissions: Array<{
@@ -299,8 +300,8 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
           <div className="h-10 w-36 rounded-md border bg-muted/30 animate-pulse" />
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, idx) => (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, idx) => (
             <Card key={idx}>
               <CardContent className="space-y-3 pt-6 text-right">
                 <div className="ml-auto h-4 w-24 rounded bg-muted/40 animate-pulse" />
@@ -400,7 +401,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
             <div className="space-y-0.5">
               <div className="text-sm text-muted-foreground">Intensity Metric</div>
               <div className="text-3xl font-semibold leading-none tabular-nums">
-                {employeeIntensityMetric ? Number(employeeIntensityMetric.intensity || 0).toFixed(1) : "-"}
+                {employeeIntensityMetric ? formatEmissions(Number(employeeIntensityMetric.intensity || 0)) : "-"}
               </div>
               <div className="text-xs leading-tight text-muted-foreground">
                 {employeeIntensityMetric?.label || "No intensity data"}
@@ -419,6 +420,15 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
               <div className="text-xs leading-tight text-muted-foreground">
                 {data.net_zero_progress ? `${data.net_zero_progress.years_to_target} years to target` : "Target not set"}
               </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5 text-right">
+            <div className="space-y-0.5">
+              <div className="text-sm text-muted-foreground">Reports Issued</div>
+              <div className="text-3xl font-semibold leading-none tabular-nums">{Number(data.current_metrics.reports_issued || 0)}</div>
+              <div className="text-xs leading-tight text-muted-foreground">final versions</div>
             </div>
           </CardContent>
         </Card>
