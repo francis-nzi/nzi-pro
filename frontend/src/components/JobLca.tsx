@@ -51,6 +51,29 @@ type AssessmentDetail = Assessment & {
   geography?: string | null;
   assumptions?: string | null;
   data_sources_note?: string | null;
+  readiness_score?: number | null;
+  readiness_breakdown?: ReadinessCheck[];
+};
+
+type ReadinessCheck = {
+  key: string;
+  label: string;
+  weight: number;
+  sub_score: number;
+  points: number;
+  detail: string;
+};
+
+type Readiness = { score: number; status_label: string; checks: ReadinessCheck[] };
+
+type FactorCandidate = {
+  db_id: number;
+  label: string;
+  uom?: string | null;
+  factor: number;
+  source?: string | null;
+  region?: string | null;
+  confidence: number;
 };
 
 type LcaModule = {
@@ -84,6 +107,8 @@ type LineItem = {
   origin_country?: string | null;
   factor_value: number;
   factor_unit?: string | null;
+  mapped_factor_source?: string | null;
+  factor_match_confidence?: number | null;
   data_quality?: string;
   is_gap_filled?: boolean;
   is_placeholder?: boolean;
@@ -103,6 +128,7 @@ type Summary = {
   items_count: number;
   placeholder_count: number;
   gap_filled_count: number;
+  readiness?: Readiness;
 };
 
 type ReportPayload = {
@@ -115,6 +141,7 @@ type ReportPayload = {
   inventory_analysis: { rows_count: number; placeholder_rows: number };
   impact_assessment: { total_tco2e: number };
   data_quality: { gap_filled_pct: number; primary_data_rows: number };
+  readiness?: Readiness;
 };
 
 type LcaComponent = {
@@ -155,6 +182,8 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [items, setItems] = useState<LineItem[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [report, setReport] = useState<ReportPayload | null>(null);
+  const [reviewCandidates, setReviewCandidates] = useState<Record<number, FactorCandidate[]>>({});
+  const [confidenceThreshold, setConfidenceThreshold] = useState<number>(0.45);
 
   const [lcaDatasets, setLcaDatasets] = useState<DatasetOption[]>([]);
   const [selectedDatasetIds, setSelectedDatasetIds] = useState<number[]>([]);
@@ -417,6 +446,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
       setLinePlaceholder(false);
       await loadItems(selectedAssessmentId);
       await loadAssessments();
+      await loadAssessmentDetail(selectedAssessmentId);
       setStatus("Line item added and assessment recalculated.");
     } catch (e) {
       setError((e as Error).message);
@@ -434,9 +464,52 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
         body: JSON.stringify({ apply_top_match: true }),
       });
       if (!res.ok) throw new Error(`Failed to map factor (${res.status})`);
+      const data = await res.json();
+      setConfidenceThreshold(Number(data.confidence_threshold ?? 0.45));
+      setReviewCandidates((prev) => {
+        const next = { ...prev };
+        if (data.auto_applied) {
+          delete next[lineItemId];
+        } else {
+          next[lineItemId] = data.candidates || [];
+        }
+        return next;
+      });
       await loadItems(selectedAssessmentId);
       await loadAssessments();
-      setStatus("Best-matched factor applied.");
+      await loadAssessmentDetail(selectedAssessmentId);
+      setStatus(
+        data.auto_applied
+          ? "Best-matched factor applied."
+          : (data.candidates || []).length
+            ? "No confident match found -- pick a candidate below to apply it manually."
+            : "No candidate factors found for this line."
+      );
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    }
+  }
+
+  async function applyCandidate(lineItemId: number, factorDbId: number) {
+    if (!selectedAssessmentId) return;
+    setStatus("Applying selected factor...");
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/lca/line-items/${lineItemId}/map-factor`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ factor_db_id: factorDbId }),
+      });
+      if (!res.ok) throw new Error(`Failed to apply factor (${res.status})`);
+      setReviewCandidates((prev) => {
+        const next = { ...prev };
+        delete next[lineItemId];
+        return next;
+      });
+      await loadItems(selectedAssessmentId);
+      await loadAssessments();
+      await loadAssessmentDetail(selectedAssessmentId);
+      setStatus("Selected factor applied.");
     } catch (e) {
       setError((e as Error).message);
       setStatus("");
@@ -455,6 +528,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
       if (!res.ok) throw new Error(`Failed to gap-fill (${res.status})`);
       await loadItems(selectedAssessmentId);
       await loadAssessments();
+      await loadAssessmentDetail(selectedAssessmentId);
       setStatus("Gap-filled factor applied.");
     } catch (e) {
       setError((e as Error).message);
@@ -469,6 +543,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
       if (!res.ok) throw new Error(`Failed to delete item (${res.status})`);
       await loadItems(selectedAssessmentId);
       await loadAssessments();
+      await loadAssessmentDetail(selectedAssessmentId);
       setStatus("Line item removed.");
     } catch (e) {
       setError((e as Error).message);
@@ -521,10 +596,11 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
       const json = await res.json();
       await loadItems(selectedAssessmentId);
       await loadAssessments();
+      await loadAssessmentDetail(selectedAssessmentId);
       setBomFile(null);
       setStatus(
         `BOM imported. Inserted ${json?.inserted ?? 0}, mapped ${json?.mapped ?? 0}, gap-filled ${json?.gap_filled ?? 0}, ` +
-          `skipped ${json?.skipped ?? 0}, new library components ${json?.components_created ?? 0}.`
+          `needs review ${json?.needs_review ?? 0}, skipped ${json?.skipped ?? 0}, new library components ${json?.components_created ?? 0}.`
       );
     } catch (e) {
       setError((e as Error).message);
@@ -627,6 +703,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
       setLibraryOpen(false);
       await loadItems(selectedAssessmentId);
       await loadAssessments();
+      await loadAssessmentDetail(selectedAssessmentId);
       setStatus("Component(s) added to the assessment.");
     } catch (e) {
       setError((e as Error).message);
@@ -636,6 +713,12 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
 
   const categoryName = (id?: number | null) => categories.find((c) => c.category_id === id)?.name || `Category ${id}`;
   const moduleLabel = (code: string) => modules.find((m) => m.module_code === code)?.label || code;
+  function readinessStatusLabel(score: number) {
+    if (score < 40) return "Draft -- significant gaps";
+    if (score < 70) return "Developing";
+    if (score < 90) return "Good -- minor gaps";
+    return "Verified-ready";
+  }
 
   const hasRows = items.some((r) => !r.is_placeholder);
   const hasMappedFactors = items.some((r) => Number(r.factor_value || 0) > 0 && !r.is_gap_filled);
@@ -694,6 +777,31 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
               Boundary: {assessment?.lifecycle_boundary?.replace(/_/g, " ") || "-"}
             </div>
           </div>
+          {assessment && typeof assessment.readiness_score === "number" ? (
+            <div className="rounded-md border p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="text-sm font-medium">Readiness (advisory -- does not gate review status)</div>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-semibold">{assessment.readiness_score.toFixed(0)}/100</span>
+                  <Badge variant="outline">{readinessStatusLabel(assessment.readiness_score)}</Badge>
+                </div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-5">
+                {(assessment.readiness_breakdown || []).map((c) => (
+                  <div key={c.key} className="space-y-1" title={c.detail}>
+                    <div className="text-xs text-muted-foreground">{c.label}</div>
+                    <div className="h-1.5 w-full rounded-full bg-muted">
+                      <div
+                        className="h-1.5 rounded-full bg-primary"
+                        style={{ width: `${Math.round(c.sub_score * 100)}%` }}
+                      />
+                    </div>
+                    <div className="text-xs">{Math.round(c.sub_score * 100)}%</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {bomFile ? <UploadProgressBar value={bomUploadProgress} label="Uploading BOM..." /> : null}
           <div className="grid gap-2 md:grid-cols-3">
             {workflow.map((w) => (
@@ -963,28 +1071,54 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
             {items.length === 0 ? (
               <div className="text-sm text-muted-foreground">No line items yet.</div>
             ) : (
-              items.map((row) => (
-                <div key={row.line_item_id} className={`rounded-md border p-3 ${row.is_placeholder ? "opacity-60" : ""}`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <div className="font-medium">
-                        {row.line_label} {row.is_placeholder ? <Badge variant="secondary" className="ml-1">Placeholder</Badge> : null}
+              items.map((row) => {
+                const candidates = reviewCandidates[row.line_item_id] || [];
+                const needsReview = !row.mapped_factor_source && typeof row.factor_match_confidence === "number";
+                return (
+                  <div key={row.line_item_id} className={`rounded-md border p-3 ${row.is_placeholder ? "opacity-60" : ""}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="font-medium flex items-center gap-1">
+                          {row.line_label}
+                          {row.is_placeholder ? <Badge variant="secondary">Placeholder</Badge> : null}
+                          {needsReview ? <Badge variant="destructive">Needs review</Badge> : null}
+                          {row.mapped_factor_source && typeof row.factor_match_confidence === "number" ? (
+                            <Badge variant="outline">{Math.round(row.factor_match_confidence * 100)}% confidence</Badge>
+                          ) : null}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {moduleLabel(row.module_code)} | {row.material_category_id ? categoryName(row.material_category_id) : "Uncategorized"} |
+                          {" "}Qty {Number(row.quantity || 0).toLocaleString()} {row.unit || "-"} |
+                          {" "}Factor {Number(row.factor_value || 0).toLocaleString()} {row.factor_unit || ""} |
+                          {" "}{row.is_gap_filled ? "Gap-filled" : "Direct/Matched"}
+                        </div>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {moduleLabel(row.module_code)} | {row.material_category_id ? categoryName(row.material_category_id) : "Uncategorized"} |
-                        {" "}Qty {Number(row.quantity || 0).toLocaleString()} {row.unit || "-"} |
-                        {" "}Factor {Number(row.factor_value || 0).toLocaleString()} {row.factor_unit || ""} |
-                        {" "}{row.is_gap_filled ? "Gap-filled" : "Direct/Matched"}
+                      <div className="flex gap-2">
+                        <Button variant="outline" onClick={() => mapFactor(row.line_item_id)}>Auto Map Factor</Button>
+                        <Button variant="outline" onClick={() => gapFill(row.line_item_id)}>Gap Fill</Button>
+                        <Button variant="outline" onClick={() => removeItem(row.line_item_id)}>Delete</Button>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" onClick={() => mapFactor(row.line_item_id)}>Auto Map Factor</Button>
-                      <Button variant="outline" onClick={() => gapFill(row.line_item_id)}>Gap Fill</Button>
-                      <Button variant="outline" onClick={() => removeItem(row.line_item_id)}>Delete</Button>
-                    </div>
+                    {candidates.length > 0 ? (
+                      <div className="mt-3 space-y-1 rounded-md border bg-muted/30 p-2">
+                        <div className="text-xs text-muted-foreground">
+                          No candidate reached the {Math.round(confidenceThreshold * 100)}% auto-apply threshold -- pick one to apply manually:
+                        </div>
+                        {candidates.map((c) => (
+                          <div key={c.db_id} className="flex items-center justify-between gap-2 text-xs">
+                            <span>
+                              {c.label} ({Math.round(c.confidence * 100)}% confidence, {c.factor} {c.uom})
+                            </span>
+                            <Button size="sm" variant="outline" onClick={() => applyCandidate(row.line_item_id, c.db_id)}>
+                              Use this match
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </CardContent>
         </Card>

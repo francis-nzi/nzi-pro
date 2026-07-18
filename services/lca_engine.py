@@ -182,3 +182,120 @@ def summarize_assessment(
         "placeholder_count": placeholder_count,
         "gap_filled_count": gap_filled_count,
     }
+
+
+# (key, label, weight out of 100)
+READINESS_CHECKS: list[tuple[str, str, float]] = [
+    ("mass_balance", "Mass balance within tolerance", 25.0),
+    ("line_coverage", "Lines with real quantities", 15.0),
+    ("category_coverage", "Lines with a material category", 15.0),
+    ("factor_confidence", "Lines with a trustworthy factor", 30.0),
+    ("module_coverage", "Included modules with data", 15.0),
+]
+
+
+def _readiness_status_label(score: float) -> str:
+    if score < 40:
+        return "Draft — significant gaps"
+    if score < 70:
+        return "Developing"
+    if score < 90:
+        return "Good — minor gaps"
+    return "Verified-ready"
+
+
+def compute_readiness(
+    lines: list[dict[str, Any]],
+    summary: dict[str, Any],
+    included_modules: list[str],
+    confidence_threshold: float,
+) -> dict[str, Any]:
+    """Weighted, advisory readiness/data-quality score (0-100).
+
+    Mirrors the real Britannia Fire "Readiness Tracker" pattern -- mass
+    balance, % of lines with real weights, factors sourced, modules
+    covered -- as a signal of how defensible an assessment currently is.
+    This is informational only: it never gates or overrides the
+    user-controlled `review_status` field on lca_assessments.
+    """
+    non_placeholder = [row for row in lines if not row.get("is_placeholder")]
+    total_lines = len(lines)
+    non_placeholder_count = len(non_placeholder)
+
+    sub_scores: dict[str, float] = {}
+    details: dict[str, str] = {}
+
+    mass = summary.get("mass_reconciliation") or {}
+    confirmed_quantity = mass.get("confirmed_quantity")
+    mass_gap = mass.get("mass_gap_kg")
+    if not confirmed_quantity:
+        sub_scores["mass_balance"] = 0.0
+        details["mass_balance"] = "Confirmed quantity not set"
+    else:
+        gap_ratio = abs(safe_float(mass_gap)) / confirmed_quantity
+        sub_scores["mass_balance"] = max(0.0, min(1.0, 1.0 - gap_ratio))
+        details["mass_balance"] = f"{mass.get('captured_mass_kg', 0)}kg captured vs {confirmed_quantity}kg confirmed"
+
+    if total_lines == 0:
+        sub_scores["line_coverage"] = 0.0
+        details["line_coverage"] = "No line items yet"
+    else:
+        sub_scores["line_coverage"] = non_placeholder_count / total_lines
+        details["line_coverage"] = f"{non_placeholder_count}/{total_lines} lines have real quantities"
+
+    if non_placeholder_count == 0:
+        sub_scores["category_coverage"] = 0.0
+        sub_scores["factor_confidence"] = 0.0
+        details["category_coverage"] = "No categorized lines yet"
+        details["factor_confidence"] = "No mapped lines yet"
+    else:
+        categorized = sum(1 for row in non_placeholder if row.get("material_category_id") is not None)
+        sub_scores["category_coverage"] = categorized / non_placeholder_count
+        details["category_coverage"] = f"{categorized}/{non_placeholder_count} lines categorized"
+
+        trustworthy = 0
+        for row in non_placeholder:
+            source = row.get("mapped_factor_source")
+            if not source:
+                continue
+            if source != "factor_lookup":
+                trustworthy += 1
+                continue
+            confidence = row.get("factor_match_confidence")
+            if confidence is None or safe_float(confidence) >= confidence_threshold:
+                trustworthy += 1
+        sub_scores["factor_confidence"] = trustworthy / non_placeholder_count
+        details["factor_confidence"] = f"{trustworthy}/{non_placeholder_count} lines have a trustworthy factor"
+
+    modules_in_scope = [m for m in (included_modules or []) if m]
+    if not modules_in_scope:
+        sub_scores["module_coverage"] = 0.0
+        details["module_coverage"] = "No modules in scope"
+    else:
+        modules_with_data = {row.get("module_code") for row in non_placeholder if row.get("module_code")}
+        covered = sum(1 for m in modules_in_scope if m in modules_with_data)
+        sub_scores["module_coverage"] = covered / len(modules_in_scope)
+        details["module_coverage"] = f"{covered}/{len(modules_in_scope)} in-scope modules have data"
+
+    checks = []
+    total_score = 0.0
+    for key, label, weight in READINESS_CHECKS:
+        sub = sub_scores.get(key, 0.0)
+        points = round(sub * weight, 2)
+        total_score += points
+        checks.append(
+            {
+                "key": key,
+                "label": label,
+                "weight": weight,
+                "sub_score": round(sub, 4),
+                "points": points,
+                "detail": details.get(key, ""),
+            }
+        )
+
+    return {
+        "score": round(total_score, 1),
+        "status_label": _readiness_status_label(total_score),
+        "checks": checks,
+    }
