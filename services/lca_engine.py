@@ -67,13 +67,16 @@ def apply_scenario_multipliers(
     """Scale each line's factor_value by its scenario's "more specific wins" rule.
 
     For a line's module_code, the best matching rule is: a component_id
-    match (if the line has a component), else a material_category_id match
-    (if the line has a category and no component rule matched), else a
-    module-wide rule (both component_id and material_category_id NULL on
-    the rule), else no match -- multiplier 1.0 (baseline, unaffected).
-    Scaling factor_value (rather than the final emissions number) keeps
-    this a pure pre-processing step ahead of the already-verified
-    summarize_assessment, which is left completely untouched.
+    match (product lines) or activity_id match (service lines) -- if the
+    line has one --, else a material_category_id match (product lines
+    only; service lines have no separate category-within-module level,
+    since the Scope 3 category *is* the module for services), else a
+    module-wide rule (component_id/activity_id/material_category_id all
+    NULL on the rule), else no match -- multiplier 1.0 (baseline,
+    unaffected). Scaling factor_value (rather than the final emissions
+    number) keeps this a pure pre-processing step ahead of the
+    already-verified summarize_assessment, which is left completely
+    untouched.
     """
     by_module: dict[str, list[dict[str, Any]]] = {}
     for rule in multiplier_rules:
@@ -84,12 +87,14 @@ def apply_scenario_multipliers(
         rules = by_module.get(str(line.get("module_code") or ""), [])
         multiplier = 1.0
         component_id = line.get("component_id")
+        activity_id = line.get("activity_id")
         category_id = line.get("material_category_id")
 
         component_rule = next((r for r in rules if component_id is not None and r.get("component_id") == component_id), None)
-        category_rule = next((r for r in rules if category_id is not None and r.get("component_id") is None and r.get("material_category_id") == category_id), None)
-        module_rule = next((r for r in rules if r.get("component_id") is None and r.get("material_category_id") is None), None)
-        matched = component_rule or category_rule or module_rule
+        activity_rule = next((r for r in rules if activity_id is not None and r.get("activity_id") == activity_id), None)
+        category_rule = next((r for r in rules if category_id is not None and r.get("component_id") is None and r.get("activity_id") is None and r.get("material_category_id") == category_id), None)
+        module_rule = next((r for r in rules if r.get("component_id") is None and r.get("activity_id") is None and r.get("material_category_id") is None), None)
+        matched = component_rule or activity_rule or category_rule or module_rule
         if matched is not None:
             multiplier = safe_float(matched.get("multiplier"), 1.0)
 
@@ -103,6 +108,7 @@ def summarize_assessment(
     lines: list[dict[str, Any]],
     confirmed_quantity: float | None,
     confirmed_quantity_unit: str | None,
+    assessment_type: str = "product",
 ) -> dict[str, Any]:
     """Pure aggregation over an assessment's line items.
 
@@ -110,6 +116,12 @@ def summarize_assessment(
     matching the real-world convention of flattening a multi-level BOM
     export) are excluded from every calculation below but still counted
     separately so the API layer can report them for data-quality purposes.
+
+    mass_reconciliation genuinely doesn't apply to service assessments
+    (activity x quantity, not material x mass) -- it's None rather than a
+    computed dict when assessment_type == "service", so every consumer
+    (recalculate, frontend Impact panel, report template) has one branch
+    point ("is this None?") instead of several.
     """
     module_totals: dict[str, float] = {}
     category_totals: dict[int, dict[str, float]] = {}
@@ -192,6 +204,16 @@ def summarize_assessment(
 
     confirmed_qty = safe_float(confirmed_quantity, 0.0) if confirmed_quantity is not None else None
     mass_gap = (confirmed_qty - captured_mass) if confirmed_qty is not None else None
+    mass_reconciliation = (
+        None
+        if assessment_type == "service"
+        else {
+            "confirmed_quantity": confirmed_qty,
+            "confirmed_quantity_unit": str(confirmed_quantity_unit or "kg"),
+            "captured_mass_kg": round(captured_mass, 6),
+            "mass_gap_kg": round(mass_gap, 6) if mass_gap is not None else None,
+        }
+    )
 
     return {
         "total_tco2e": round(total, 6),
@@ -211,12 +233,7 @@ def summarize_assessment(
             }
             for x in hotspot_items
         ],
-        "mass_reconciliation": {
-            "confirmed_quantity": confirmed_qty,
-            "confirmed_quantity_unit": str(confirmed_quantity_unit or "kg"),
-            "captured_mass_kg": round(captured_mass, 6),
-            "mass_gap_kg": round(mass_gap, 6) if mass_gap is not None else None,
-        },
+        "mass_reconciliation": mass_reconciliation,
         "items_count": len(line_results),
         "placeholder_count": placeholder_count,
         "gap_filled_count": gap_filled_count,
@@ -230,6 +247,16 @@ READINESS_CHECKS: list[tuple[str, str, float]] = [
     ("category_coverage", "Lines with a material category", 15.0),
     ("factor_confidence", "Lines with a trustworthy factor", 30.0),
     ("module_coverage", "Included modules with data", 15.0),
+]
+
+# Service assessments have no mass concept -- the mass_balance weight (25)
+# is redistributed proportionally across the remaining 4 checks so they
+# still sum to 100 (each old weight * 100/75).
+SERVICE_READINESS_CHECKS: list[tuple[str, str, float]] = [
+    ("line_coverage", "Lines with real quantities", 20.0),
+    ("category_coverage", "Lines linked to a library activity", 20.0),
+    ("factor_confidence", "Lines with a trustworthy factor", 40.0),
+    ("module_coverage", "Scope 3 categories with data", 20.0),
 ]
 
 
@@ -248,6 +275,7 @@ def compute_readiness(
     summary: dict[str, Any],
     included_modules: list[str],
     confidence_threshold: float,
+    assessment_type: str = "product",
 ) -> dict[str, Any]:
     """Weighted, advisory readiness/data-quality score (0-100).
 
@@ -256,7 +284,13 @@ def compute_readiness(
     covered -- as a signal of how defensible an assessment currently is.
     This is informational only: it never gates or overrides the
     user-controlled `review_status` field on lca_assessments.
+
+    Service assessments (assessment_type="service") drop the mass-balance
+    check (mass doesn't apply to activity x quantity) and use activity_id
+    presence instead of material_category_id for the "category" coverage
+    check -- see SERVICE_READINESS_CHECKS.
     """
+    is_service = assessment_type == "service"
     non_placeholder = [row for row in lines if not row.get("is_placeholder")]
     total_lines = len(lines)
     non_placeholder_count = len(non_placeholder)
@@ -264,16 +298,17 @@ def compute_readiness(
     sub_scores: dict[str, float] = {}
     details: dict[str, str] = {}
 
-    mass = summary.get("mass_reconciliation") or {}
-    confirmed_quantity = mass.get("confirmed_quantity")
-    mass_gap = mass.get("mass_gap_kg")
-    if not confirmed_quantity:
-        sub_scores["mass_balance"] = 0.0
-        details["mass_balance"] = "Confirmed quantity not set"
-    else:
-        gap_ratio = abs(safe_float(mass_gap)) / confirmed_quantity
-        sub_scores["mass_balance"] = max(0.0, min(1.0, 1.0 - gap_ratio))
-        details["mass_balance"] = f"{mass.get('captured_mass_kg', 0)}kg captured vs {confirmed_quantity}kg confirmed"
+    if not is_service:
+        mass = summary.get("mass_reconciliation") or {}
+        confirmed_quantity = mass.get("confirmed_quantity")
+        mass_gap = mass.get("mass_gap_kg")
+        if not confirmed_quantity:
+            sub_scores["mass_balance"] = 0.0
+            details["mass_balance"] = "Confirmed quantity not set"
+        else:
+            gap_ratio = abs(safe_float(mass_gap)) / confirmed_quantity
+            sub_scores["mass_balance"] = max(0.0, min(1.0, 1.0 - gap_ratio))
+            details["mass_balance"] = f"{mass.get('captured_mass_kg', 0)}kg captured vs {confirmed_quantity}kg confirmed"
 
     if total_lines == 0:
         sub_scores["line_coverage"] = 0.0
@@ -285,12 +320,17 @@ def compute_readiness(
     if non_placeholder_count == 0:
         sub_scores["category_coverage"] = 0.0
         sub_scores["factor_confidence"] = 0.0
-        details["category_coverage"] = "No categorized lines yet"
+        details["category_coverage"] = "No categorized lines yet" if not is_service else "No lines linked to a library activity yet"
         details["factor_confidence"] = "No mapped lines yet"
     else:
-        categorized = sum(1 for row in non_placeholder if row.get("material_category_id") is not None)
-        sub_scores["category_coverage"] = categorized / non_placeholder_count
-        details["category_coverage"] = f"{categorized}/{non_placeholder_count} lines categorized"
+        if is_service:
+            categorized = sum(1 for row in non_placeholder if row.get("activity_id") is not None)
+            sub_scores["category_coverage"] = categorized / non_placeholder_count
+            details["category_coverage"] = f"{categorized}/{non_placeholder_count} lines linked to a library activity"
+        else:
+            categorized = sum(1 for row in non_placeholder if row.get("material_category_id") is not None)
+            sub_scores["category_coverage"] = categorized / non_placeholder_count
+            details["category_coverage"] = f"{categorized}/{non_placeholder_count} lines categorized"
 
         trustworthy = 0
         for row in non_placeholder:
@@ -309,16 +349,17 @@ def compute_readiness(
     modules_in_scope = [m for m in (included_modules or []) if m]
     if not modules_in_scope:
         sub_scores["module_coverage"] = 0.0
-        details["module_coverage"] = "No modules in scope"
+        details["module_coverage"] = "No modules in scope" if not is_service else "No Scope 3 categories in scope"
     else:
         modules_with_data = {row.get("module_code") for row in non_placeholder if row.get("module_code")}
         covered = sum(1 for m in modules_in_scope if m in modules_with_data)
         sub_scores["module_coverage"] = covered / len(modules_in_scope)
-        details["module_coverage"] = f"{covered}/{len(modules_in_scope)} in-scope modules have data"
+        noun = "in-scope Scope 3 categories" if is_service else "in-scope modules"
+        details["module_coverage"] = f"{covered}/{len(modules_in_scope)} {noun} have data"
 
     checks = []
     total_score = 0.0
-    for key, label, weight in READINESS_CHECKS:
+    for key, label, weight in (SERVICE_READINESS_CHECKS if is_service else READINESS_CHECKS):
         sub = sub_scores.get(key, 0.0)
         points = round(sub * weight, 2)
         total_score += points

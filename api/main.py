@@ -148,6 +148,7 @@ from api.internal_cron_routes import router as internal_cron_router
 from api.business_development_routes import router as business_development_router
 from api.lca_routes import router as lca_router
 from api.lca_components_routes import router as lca_components_router
+from api.lca_activities_routes import router as lca_activities_router
 from api.onedrive_routes import router as onedrive_router
 from api.spend_data_routes import router as spend_data_router
 from api.employee_commuting_routes import router as employee_commuting_router
@@ -354,6 +355,7 @@ app.include_router(internal_cron_router)
 app.include_router(business_development_router)
 app.include_router(lca_router)
 app.include_router(lca_components_router)
+app.include_router(lca_activities_router)
 app.include_router(onedrive_router)
 app.include_router(dataset_import_router)
 _safe_startup_log("OK", f"Custom fields router registered with {len(custom_fields_router.routes)} routes")

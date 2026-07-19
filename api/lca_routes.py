@@ -33,6 +33,22 @@ MODULE_KEYWORDS: dict[str, str] = {
     "C3": "waste processing recycling recovery",
     "C4": "disposal landfill incineration",
     "D": "recycling recovery reuse credit benefit",
+    # GHG Protocol Scope 3 categories (Phase 5, service assessments)
+    "S1": "purchased goods services procurement supplies",
+    "S2": "capital goods equipment machinery construction",
+    "S3": "fuel energy upstream well-to-tank transmission distribution losses",
+    "S4": "upstream transport freight logistics inbound shipping",
+    "S5": "waste disposal landfill recycling incineration",
+    "S6": "business travel flight rail car mileage hotel",
+    "S7": "employee commuting commute travel to work",
+    "S8": "leased assets upstream lease rental",
+    "S9": "downstream transport distribution outbound delivery",
+    "S10": "processing sold products intermediate",
+    "S11": "use phase sold products operational energy",
+    "S12": "end of life disposal treatment sold products",
+    "S13": "leased assets downstream lease rental",
+    "S14": "franchise franchisee",
+    "S15": "investment financed emissions equity debt",
 }
 
 
@@ -249,7 +265,7 @@ def _list_available_datasets(con) -> list[dict[str, Any]]:
 def _load_line_items_for_calc(con, assessment_id: int) -> list[dict[str, Any]]:
     df = con.execute(
         """
-        SELECT line_item_id, component_id, module_code, line_label, material_category_id, quantity, unit,
+        SELECT line_item_id, component_id, activity_id, module_code, line_label, material_category_id, quantity, unit,
                factor_value, factor_unit, is_gap_filled, is_placeholder, data_quality,
                mapped_factor_source, factor_match_confidence
         FROM lca_line_items
@@ -266,6 +282,7 @@ def _load_line_items_for_calc(con, assessment_id: int) -> list[dict[str, Any]]:
             {
                 "line_item_id": int(r.get("line_item_id") or 0),
                 "component_id": _int_or_none(r.get("component_id")),
+                "activity_id": _int_or_none(r.get("activity_id")),
                 "module_code": str(r.get("module_code") or ""),
                 "line_label": str(r.get("line_label") or "Unnamed line"),
                 "material_category_id": _int_or_none(r.get("material_category_id")),
@@ -290,16 +307,17 @@ def _load_line_items_for_calc(con, assessment_id: int) -> list[dict[str, Any]]:
 
 def _recalculate_assessment(con, assessment_id: int, user: dict[str, str]) -> dict[str, Any]:
     assessment_row = con.execute(
-        "SELECT confirmed_quantity, confirmed_quantity_unit, included_modules FROM lca_assessments WHERE assessment_id = %s",
+        "SELECT confirmed_quantity, confirmed_quantity_unit, included_modules, assessment_type FROM lca_assessments WHERE assessment_id = %s",
         [int(assessment_id)],
     ).fetchone()
     confirmed_quantity = safe_float(assessment_row[0]) if assessment_row and assessment_row[0] is not None else None
     confirmed_unit = assessment_row[1] if assessment_row else "kg"
     included_modules = _parse_json_list(assessment_row[2]) if assessment_row else []
+    assessment_type = str(assessment_row[3] or "product") if assessment_row else "product"
 
     lines = _load_line_items_for_calc(con, int(assessment_id))
-    summary = summarize_assessment(lines, confirmed_quantity, confirmed_unit)
-    readiness = compute_readiness(lines, summary, included_modules, CONFIDENCE_THRESHOLD)
+    summary = summarize_assessment(lines, confirmed_quantity, confirmed_unit, assessment_type=assessment_type)
+    readiness = compute_readiness(lines, summary, included_modules, CONFIDENCE_THRESHOLD, assessment_type=assessment_type)
     summary["readiness"] = readiness
 
     con.execute(
@@ -630,16 +648,29 @@ def create_lca_assessment(job_id: int, body: dict = Body(...), _user: dict[str, 
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
     assessment_type = str(body.get("assessment_type") or "product").strip()
-    if assessment_type != "product":
-        raise HTTPException(status_code=400, detail="Only assessment_type='product' is supported currently")
+    if assessment_type not in ("product", "service"):
+        raise HTTPException(status_code=400, detail="assessment_type must be 'product' or 'service'")
 
-    lifecycle_boundary = str(body.get("lifecycle_boundary") or "cradle_to_gate").strip()
-    default_modules = ["A1", "A2", "A3"] if lifecycle_boundary == "cradle_to_gate" else [
-        "A1", "A2", "A3", "A4", "A5", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "C1", "C2", "C3", "C4", "D",
-    ]
-    included_modules = body.get("included_modules")
-    if not isinstance(included_modules, list) or not included_modules:
-        included_modules = default_modules
+    if assessment_type == "service":
+        # Scope 3 category selection is a service-specific concept -- lifecycle
+        # boundary (cradle-to-gate/-grave) is a product-only notion, so it's
+        # not used to default included_modules here. No sensible "all 15
+        # apply" default either -- an empty list prompts the user to pick the
+        # categories relevant to this service in Goal & Scope.
+        # lifecycle_boundary is NOT NULL on lca_assessments; "custom" is
+        # already a recognized value for "not the standard product boundaries."
+        lifecycle_boundary = str(body.get("lifecycle_boundary") or "custom").strip()
+        included_modules = body.get("included_modules")
+        if not isinstance(included_modules, list):
+            included_modules = []
+    else:
+        lifecycle_boundary = str(body.get("lifecycle_boundary") or "cradle_to_gate").strip()
+        default_modules = ["A1", "A2", "A3"] if lifecycle_boundary == "cradle_to_gate" else [
+            "A1", "A2", "A3", "A4", "A5", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "C1", "C2", "C3", "C4", "D",
+        ]
+        included_modules = body.get("included_modules")
+        if not isinstance(included_modules, list) or not included_modules:
+            included_modules = default_modules
 
     try:
         with get_conn(autocommit=False) as con:
@@ -665,7 +696,7 @@ def create_lca_assessment(job_id: int, body: dict = Body(...), _user: dict[str, 
                     str(body.get("confirmed_quantity_unit") or "kg").strip(),
                     lifecycle_boundary,
                     json.dumps(included_modules),
-                    str(body.get("standard") or "ISO 14067").strip(),
+                    str(body.get("standard") or ("GHG Protocol Scope 3 Standard" if assessment_type == "service" else "ISO 14067")).strip(),
                     int(body.get("reference_year")) if str(body.get("reference_year") or "").strip().isdigit() else None,
                     str(body.get("geography") or "").strip() or None,
                     str(body.get("assumptions") or "").strip() or None,
@@ -807,6 +838,7 @@ def list_line_items(job_id: int, assessment_id: int, _user: dict[str, str] = Dep
                         {
                             "line_item_id": int(r.get("line_item_id")),
                             "component_id": _int_or_none(r.get("component_id")),
+                            "activity_id": _int_or_none(r.get("activity_id")),
                             "module_code": r.get("module_code"),
                             "line_label": r.get("line_label"),
                             "material_category_id": _int_or_none(r.get("material_category_id")),
@@ -875,6 +907,33 @@ def _fill_from_component(con, body: dict[str, Any]) -> dict[str, Any]:
     return filled
 
 
+def _fill_from_activity(con, body: dict[str, Any]) -> dict[str, Any]:
+    """If an activity_id is supplied, use it to default line_label/module_code
+    (Scope 3 category)/quantity/unit unless the caller explicitly overrides
+    those fields. Service-assessment equivalent of _fill_from_component."""
+    activity_id = body.get("activity_id")
+    if activity_id in (None, ""):
+        return body
+    row = con.execute(
+        """
+        SELECT description, default_module_code, default_quantity, default_unit
+        FROM lca_activities WHERE activity_id = %s
+        """,
+        [int(activity_id)],
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=400, detail="activity_id does not exist")
+    filled = dict(body)
+    filled.setdefault("line_label", row[0])
+    if row[1] and (not str(filled.get("module_code") or "").strip()):
+        filled["module_code"] = row[1]
+    if "quantity" not in filled or filled.get("quantity") in (None, ""):
+        filled["quantity"] = row[2]
+    if "unit" not in filled or filled.get("unit") in (None, ""):
+        filled["unit"] = row[3]
+    return filled
+
+
 @router.post("/jobs/{job_id}/lca/assessments/{assessment_id}/line-items")
 def create_line_item(job_id: int, assessment_id: int, body: dict = Body(...), _user: dict[str, str] = Depends(_current_user)):
     assert_permission(_user, "jobs.edit")
@@ -885,6 +944,7 @@ def create_line_item(job_id: int, assessment_id: int, body: dict = Body(...), _u
                 raise HTTPException(status_code=404, detail="LCA assessment not found")
             valid_modules = _valid_module_codes(con)
             body = _fill_from_component(con, body)
+            body = _fill_from_activity(con, body)
             module_code = str(body.get("module_code") or "").strip().upper()
             if module_code not in valid_modules:
                 raise HTTPException(status_code=400, detail=f"Invalid module_code: {module_code}")
@@ -895,18 +955,19 @@ def create_line_item(job_id: int, assessment_id: int, body: dict = Body(...), _u
             row = con.execute(
                 """
                 INSERT INTO lca_line_items (
-                  assessment_id, component_id, module_code, line_label, material_category_id, quantity, unit,
+                  assessment_id, component_id, activity_id, module_code, line_label, material_category_id, quantity, unit,
                   origin_country, transport_mode, distance_km, energy_kwh, end_of_life_route,
                   mapped_factor_source, mapped_factor_id, factor_value, factor_unit,
                   factor_source_label, factor_source_url, data_quality, is_gap_filled, gap_fill_method,
                   is_placeholder, notes, created_by, updated_by
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING line_item_id
                 """,
                 [
                     int(assessment_id),
                     int(body.get("component_id")) if str(body.get("component_id") or "").strip().isdigit() else None,
+                    int(body.get("activity_id")) if str(body.get("activity_id") or "").strip().isdigit() else None,
                     module_code, line_label,
                     int(body.get("material_category_id")) if str(body.get("material_category_id") or "").strip().isdigit() else None,
                     safe_float(body.get("quantity")), str(body.get("unit") or "kg").strip(),
@@ -915,7 +976,16 @@ def create_line_item(job_id: int, assessment_id: int, body: dict = Body(...), _u
                     safe_float(body.get("distance_km")) if body.get("distance_km") not in (None, "") else None,
                     safe_float(body.get("energy_kwh")) if body.get("energy_kwh") not in (None, "") else None,
                     str(body.get("end_of_life_route") or "").strip() or None,
-                    str(body.get("mapped_factor_source") or "manual").strip(),
+                    # Only default mapped_factor_source to "manual" when a real
+                    # factor_value was actually supplied -- `body.get(...) or
+                    # "manual"` previously defaulted to "manual" even when the
+                    # caller explicitly sent null/omitted the field, silently
+                    # mislabeling zero-factor (i.e. genuinely unmapped) lines
+                    # as manually-verified and inflating the readiness score's
+                    # factor-confidence check (mirrors the BOM-upload endpoint's
+                    # already-correct "manual" if explicit_factor > 0 else None).
+                    (str(body.get("mapped_factor_source")).strip() if body.get("mapped_factor_source")
+                     else ("manual" if safe_float(body.get("factor_value")) > 0 else None)),
                     int(body.get("mapped_factor_id")) if str(body.get("mapped_factor_id") or "").strip().isdigit() else None,
                     safe_float(body.get("factor_value")), str(body.get("factor_unit") or "kgCO2e/kg").strip(),
                     str(body.get("factor_source_label") or "").strip() or None,
@@ -963,7 +1033,7 @@ def update_line_item(job_id: int, line_item_id: int, body: dict = Body(...), _us
             edits: list[str] = []
             params: list[Any] = []
             numeric_fields = {"quantity", "distance_km", "energy_kwh", "factor_value"}
-            int_fields = {"component_id", "material_category_id", "mapped_factor_id"}
+            int_fields = {"component_id", "activity_id", "material_category_id", "mapped_factor_id"}
             bool_fields = {"is_gap_filled", "is_placeholder"}
             text_fields = {
                 "line_label", "unit", "origin_country", "transport_mode", "end_of_life_route",
@@ -1216,6 +1286,7 @@ def _build_lca_report_payload(con, job_id: int, assessment_id: int, user: dict[s
         "assessment_id": int(assessment_id),
         "generated_at": datetime.utcnow().isoformat(),
         "goal_scope": {
+            "assessment_type": assessment["assessment_type"],
             "name": assessment["name"],
             "sku": assessment["sku"],
             "description": assessment["description"],
@@ -1480,7 +1551,7 @@ def _scenario_row(con, job_id: int, scenario_id: int) -> dict[str, Any] | None:
 
 def _load_scenario_multiplier_rules(con, scenario_id: int) -> list[dict[str, Any]]:
     df = con.execute(
-        "SELECT module_code, material_category_id, component_id, multiplier FROM lca_scenario_multipliers WHERE scenario_id = %s",
+        "SELECT module_code, material_category_id, component_id, activity_id, multiplier FROM lca_scenario_multipliers WHERE scenario_id = %s",
         [int(scenario_id)],
     ).df()
     rules: list[dict[str, Any]] = []
@@ -1491,6 +1562,7 @@ def _load_scenario_multiplier_rules(con, scenario_id: int) -> list[dict[str, Any
                     "module_code": r.get("module_code"),
                     "material_category_id": _int_or_none(r.get("material_category_id")),
                     "component_id": _int_or_none(r.get("component_id")),
+                    "activity_id": _int_or_none(r.get("activity_id")),
                     "multiplier": safe_float(r.get("multiplier"), 1.0),
                 }
             )
@@ -1612,7 +1684,7 @@ def list_multipliers(job_id: int, scenario_id: int, _user: dict[str, str] = Depe
             if not _scenario_row(con, int(job_id), int(scenario_id)):
                 raise HTTPException(status_code=404, detail="Scenario not found")
             multiplier_ids_df = con.execute(
-                "SELECT multiplier_id, module_code, material_category_id, component_id, multiplier FROM lca_scenario_multipliers WHERE scenario_id = %s ORDER BY multiplier_id",
+                "SELECT multiplier_id, module_code, material_category_id, component_id, activity_id, multiplier FROM lca_scenario_multipliers WHERE scenario_id = %s ORDER BY multiplier_id",
                 [int(scenario_id)],
             ).df()
             items: list[dict[str, Any]] = []
@@ -1624,6 +1696,7 @@ def list_multipliers(job_id: int, scenario_id: int, _user: dict[str, str] = Depe
                             "module_code": r.get("module_code"),
                             "material_category_id": _int_or_none(r.get("material_category_id")),
                             "component_id": _int_or_none(r.get("component_id")),
+                            "activity_id": _int_or_none(r.get("activity_id")),
                             "multiplier": safe_float(r.get("multiplier"), 1.0),
                         }
                     )
@@ -1652,15 +1725,17 @@ def create_multiplier(job_id: int, scenario_id: int, body: dict = Body(...), _us
                 raise HTTPException(status_code=400, detail=f"Unknown module_code: {module_code}")
             category_raw = str(body.get("material_category_id") or "").strip()
             component_raw = str(body.get("component_id") or "").strip()
+            activity_raw = str(body.get("activity_id") or "").strip()
             row = con.execute(
                 """
-                INSERT INTO lca_scenario_multipliers (scenario_id, module_code, material_category_id, component_id, multiplier)
-                VALUES (%s, %s, %s, %s, %s) RETURNING multiplier_id
+                INSERT INTO lca_scenario_multipliers (scenario_id, module_code, material_category_id, component_id, activity_id, multiplier)
+                VALUES (%s, %s, %s, %s, %s, %s) RETURNING multiplier_id
                 """,
                 [
                     int(scenario_id), module_code,
                     int(category_raw) if category_raw.isdigit() else None,
                     int(component_raw) if component_raw.isdigit() else None,
+                    int(activity_raw) if activity_raw.isdigit() else None,
                     safe_float(body.get("multiplier"), 1.0),
                 ],
             ).fetchone()
@@ -1713,6 +1788,10 @@ def update_multiplier(job_id: int, multiplier_id: int, body: dict = Body(...), _
             if "component_id" in body:
                 raw = str(body.get("component_id") or "").strip()
                 updates.append("component_id = %s")
+                params.append(int(raw) if raw.isdigit() else None)
+            if "activity_id" in body:
+                raw = str(body.get("activity_id") or "").strip()
+                updates.append("activity_id = %s")
                 params.append(int(raw) if raw.isdigit() else None)
             if "multiplier" in body:
                 updates.append("multiplier = %s")
@@ -1773,7 +1852,7 @@ def scenario_comparison(job_id: int, assessment_id: int, _user: dict[str, str] =
                     scenario_lines = lines if is_baseline else apply_scenario_multipliers(
                         lines, _load_scenario_multiplier_rules(con, scenario_id)
                     )
-                    summary = summarize_assessment(scenario_lines, confirmed_quantity, confirmed_unit)
+                    summary = summarize_assessment(scenario_lines, confirmed_quantity, confirmed_unit, assessment_type=str(assessment.get("assessment_type") or "product"))
                     con.execute(
                         """
                         INSERT INTO lca_result_snapshots (

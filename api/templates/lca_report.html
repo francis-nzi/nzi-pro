@@ -73,7 +73,7 @@
                 <tr><td class="label">Report Date</td><td>{{ generation_date }}</td></tr>
                 <tr><td class="label">Assessment(s)</td><td>{{ assessments | length }}</td></tr>
                 {% for a in assessments %}
-                <tr><td class="label">{% if loop.first %}Product{% endif %}</td><td>{{ a.goal_scope.name }}{% if a.goal_scope.sku %} ({{ a.goal_scope.sku }}){% endif %}</td></tr>
+                <tr><td class="label">{% if loop.first %}{{ "Service" if a.goal_scope.assessment_type == 'service' else "Product" }}{% endif %}</td><td>{{ a.goal_scope.name }}{% if a.goal_scope.sku %} ({{ a.goal_scope.sku }}){% endif %}</td></tr>
                 {% endfor %}
             </table>
         </div>
@@ -107,16 +107,21 @@
         </div>
     </div>
     <p>
+        {% if a.goal_scope.assessment_type == 'service' %}
+        This assessment covers activities in <strong>{{ a.goal_scope.included_modules | map('lca_module_label') | join(', ') }}</strong>
+        (GHG Protocol Scope 3 categories) in accordance with {{ a.goal_scope.standard or 'the applicable standard' }}.
+        {% else %}
         This assessment covers <strong>{{ a.goal_scope.lifecycle_boundary | replace('_', ' ') | title }}</strong>
         ({{ a.goal_scope.included_modules | map('lca_module_label') | join(', ') }}) in accordance with
         {{ a.goal_scope.standard or 'the applicable standard' }}.
+        {% endif %}
         {% if a.readiness %}Data readiness is currently rated <strong>{{ a.readiness.status_label }}</strong>.{% endif %}
         {{ a.inventory_analysis.rows_count }} inventory line{{ 's' if a.inventory_analysis.rows_count != 1 else '' }}
         {% if a.inventory_analysis.placeholder_rows %}(plus {{ a.inventory_analysis.placeholder_rows }} placeholder/assembly-grouping line{{ 's' if a.inventory_analysis.placeholder_rows != 1 else '' }}){% endif %}
         contribute to this result.
     </p>
 
-    <h3>Dashboard &mdash; Emissions by Lifecycle Module</h3>
+    <h3>Dashboard &mdash; Emissions by {{ "Scope 3 Category" if a.goal_scope.assessment_type == 'service' else "Lifecycle Module" }}</h3>
     {% if a.impact_assessment.module_breakdown %}
     <div class="no-break">
         {% for row in a.impact_assessment.module_breakdown %}
@@ -131,6 +136,7 @@
     <div class="chart-placeholder">No emissions calculated yet for this assessment.</div>
     {% endif %}
 
+    {% if a.goal_scope.assessment_type != 'service' %}
     <h3>Dashboard &mdash; Emissions by Material Category</h3>
     {% if a.impact_assessment.category_breakdown %}
     <div class="no-break">
@@ -145,7 +151,9 @@
     {% else %}
     <div class="chart-placeholder">No categorized line items yet.</div>
     {% endif %}
+    {% endif %}
 
+    {% if a.mass_reconciliation %}
     <h3>Mass Reconciliation</h3>
     <table class="data-table">
         <tr><th>Confirmed Quantity</th><th>Captured Mass (A1)</th><th>Gap</th></tr>
@@ -155,6 +163,7 @@
             <td>{{ a.mass_reconciliation.mass_gap_kg|round(3) if a.mass_reconciliation.mass_gap_kg is not none else '-' }} kg</td>
         </tr>
     </table>
+    {% endif %}
 
     <div class="page-break-before"></div>
     <h3>Readiness Tracker</h3>
@@ -201,7 +210,11 @@
     <div class="methodology-details methodology-list">
         <ul>
             <li><strong>Standard:</strong> {{ a.goal_scope.standard or 'Not specified' }}</li>
+            {% if a.goal_scope.assessment_type == 'service' %}
+            <li><strong>Scope 3 categories in scope:</strong> {{ a.goal_scope.included_modules | map('lca_module_label') | join(', ') }}</li>
+            {% else %}
             <li><strong>Lifecycle boundary:</strong> {{ a.goal_scope.lifecycle_boundary | replace('_', ' ') | title }} ({{ a.goal_scope.included_modules | map('lca_module_label') | join(', ') }})</li>
+            {% endif %}
             <li><strong>Geography:</strong> {{ a.goal_scope.geography or 'Not specified' }}</li>
             <li><strong>Reference year:</strong> {{ a.goal_scope.reference_year or 'Not specified' }}</li>
             <li><strong>Review status:</strong> {{ a.goal_scope.review_status | replace('_', ' ') | title }}</li>

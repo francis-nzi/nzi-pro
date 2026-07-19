@@ -99,6 +99,7 @@ type DatasetOption = {
 type LineItem = {
   line_item_id: number;
   component_id?: number | null;
+  activity_id?: number | null;
   module_code: string;
   line_label: string;
   material_category_id?: number | null;
@@ -114,17 +115,19 @@ type LineItem = {
   is_placeholder?: boolean;
 };
 
+type MassReconciliation = {
+  confirmed_quantity: number | null;
+  confirmed_quantity_unit: string;
+  captured_mass_kg: number;
+  mass_gap_kg: number | null;
+};
+
 type Summary = {
   total_tco2e: number;
   module_breakdown: Array<{ module_code: string; emissions_tco2e: number; share_pct: number }>;
   category_breakdown: Array<{ material_category_id: number; mass_kg: number; emissions_tco2e: number; share_pct: number }>;
   hotspots: Array<{ line_item_id: number; module_code: string; line_label: string; emissions_tco2e: number; is_gap_filled: boolean }>;
-  mass_reconciliation: {
-    confirmed_quantity: number | null;
-    confirmed_quantity_unit: string;
-    captured_mass_kg: number;
-    mass_gap_kg: number | null;
-  };
+  mass_reconciliation: MassReconciliation | null;
   items_count: number;
   placeholder_count: number;
   gap_filled_count: number;
@@ -133,6 +136,7 @@ type Summary = {
 
 type ReportPayload = {
   goal_scope: {
+    assessment_type?: string;
     name: string;
     lifecycle_boundary: string;
     functional_unit: string;
@@ -156,6 +160,17 @@ type LcaComponent = {
   archived: boolean;
 };
 
+type LcaActivity = {
+  activity_id: number;
+  client_db_id: number | null;
+  activity_code?: string | null;
+  description: string;
+  default_module_code?: string | null;
+  default_quantity?: number | null;
+  default_unit: string;
+  archived: boolean;
+};
+
 type Scenario = {
   scenario_id: number;
   name: string;
@@ -169,6 +184,7 @@ type MultiplierRule = {
   module_code: string;
   material_category_id?: number | null;
   component_id?: number | null;
+  activity_id?: number | null;
   multiplier: number;
 };
 
@@ -219,6 +235,8 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [newName, setNewName] = useState("");
   const [newSku, setNewSku] = useState("");
   const [newBoundary, setNewBoundary] = useState<string>(effectiveFamily === "pcf" ? "cradle_to_gate" : "cradle_to_grave");
+  const [newAssessmentType, setNewAssessmentType] = useState<string>("product");
+  const [newServiceModules, setNewServiceModules] = useState<Set<string>>(new Set());
 
   // Manual line-item form
   const [lineModule, setLineModule] = useState("A1");
@@ -255,6 +273,16 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [newComponentCountry, setNewComponentCountry] = useState("");
   const [newComponentSupplier, setNewComponentSupplier] = useState("");
 
+  // Add-from-activity-library modal (service assessments -- mirrors the component library above)
+  const [libraryActivities, setLibraryActivities] = useState<LcaActivity[]>([]);
+  const [selectedActivityIds, setSelectedActivityIds] = useState<Set<number>>(new Set());
+  const [showNewActivityForm, setShowNewActivityForm] = useState(false);
+  const [newActivityCode, setNewActivityCode] = useState("");
+  const [newActivityDescription, setNewActivityDescription] = useState("");
+  const [newActivityModule, setNewActivityModule] = useState("");
+  const [newActivityQuantity, setNewActivityQuantity] = useState("");
+  const [newActivityUnit, setNewActivityUnit] = useState("unit");
+
   // Scenarios (Phase 3: what-if multiplier engine)
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>("");
@@ -265,6 +293,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [ruleModule, setRuleModule] = useState("A1");
   const [ruleCategory, setRuleCategory] = useState<string>("");
   const [ruleComponent, setRuleComponent] = useState<string>("");
+  const [ruleActivity, setRuleActivity] = useState<string>("");
   const [ruleMultiplier, setRuleMultiplier] = useState("1.0");
 
   async function apiFetch(path: string, init?: RequestInit) {
@@ -428,6 +457,20 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedScenarioId]);
 
+  useEffect(() => {
+    // Reset the manual line-item Module/Category select to a valid default
+    // when switching between a product and a service assessment -- "A1" (a
+    // product module) isn't a valid choice once the picker's options switch
+    // to Scope 3 categories, and vice versa.
+    if (assessment?.assessment_type === "service") {
+      setLineModule((prev) => (prev.startsWith("S") ? prev : "S1"));
+      setLineCategory("");
+    } else if (assessment) {
+      setLineModule((prev) => (prev.startsWith("S") ? "A1" : prev));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assessment?.assessment_type]);
+
   async function createAssessment() {
     if (!newName.trim()) {
       setStatus("Name is required.");
@@ -436,15 +479,17 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     setStatus("Creating assessment...");
     setError("");
     try {
+      const isNewService = newAssessmentType === "service";
       const res = await apiFetch(`/jobs/${jobId}/lca/assessments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: newName.trim(),
           sku: newSku.trim(),
-          assessment_type: "product",
-          lifecycle_boundary: newBoundary,
-          standard: effectiveFamily === "pcf" ? "ISO 14067" : "ISO 14040/14044",
+          assessment_type: newAssessmentType,
+          ...(isNewService
+            ? { included_modules: Array.from(newServiceModules), standard: "GHG Protocol Scope 3 Standard" }
+            : { lifecycle_boundary: newBoundary, standard: effectiveFamily === "pcf" ? "ISO 14067" : "ISO 14040/14044" }),
         }),
       });
       if (!res.ok) {
@@ -456,6 +501,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
       if (json?.assessment_id) setSelectedAssessmentId(String(json.assessment_id));
       setNewName("");
       setNewSku("");
+      setNewServiceModules(new Set());
       setStatus("Assessment created.");
     } catch (e) {
       setError((e as Error).message);
@@ -709,6 +755,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
           module_code: ruleModule,
           material_category_id: ruleCategory || null,
           component_id: ruleComponent || null,
+          activity_id: ruleActivity || null,
           multiplier: Number(ruleMultiplier || 1),
         }),
       });
@@ -718,6 +765,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
       }
       setRuleCategory("");
       setRuleComponent("");
+      setRuleActivity("");
       setRuleMultiplier("1.0");
       await loadMultipliers(selectedScenarioId);
       await loadComparison(selectedAssessmentId);
@@ -807,13 +855,17 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     }
     setLibrarySearch("");
     setSelectedComponentIds(new Set());
+    setSelectedActivityIds(new Set());
+    setLibraryModule((prev) => (isService ? (prev.startsWith("S") ? prev : "S1") : (prev.startsWith("S") ? "A1" : prev)));
     setLibraryOpen(true);
     setLibraryLoading(true);
     try {
-      const res = await apiFetch(`/clients/${assessment.client_db_id}/lca-components?include_global=true`);
+      const path = isService ? "lca-activities" : "lca-components";
+      const res = await apiFetch(`/clients/${assessment.client_db_id}/${path}?include_global=true`);
       if (res.ok) {
         const json = await res.json();
-        setLibraryComponents(Array.isArray(json?.items) ? json.items : []);
+        if (isService) setLibraryActivities(Array.isArray(json?.items) ? json.items : []);
+        else setLibraryComponents(Array.isArray(json?.items) ? json.items : []);
       }
     } finally {
       setLibraryLoading(false);
@@ -901,8 +953,87 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     }
   }
 
+  const filteredLibraryActivities = useMemo(() => {
+    const q = librarySearch.trim().toLowerCase();
+    if (!q) return libraryActivities;
+    return libraryActivities.filter((a) =>
+      [a.activity_code, a.description].filter(Boolean).some((v) => String(v).toLowerCase().includes(q))
+    );
+  }, [libraryActivities, librarySearch]);
+
+  function toggleLibraryActivity(id: number) {
+    setSelectedActivityIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function createLibraryActivity() {
+    if (!assessment?.client_db_id) return;
+    if (!newActivityDescription.trim()) {
+      setStatus("Activity description is required.");
+      return;
+    }
+    try {
+      const res = await apiFetch(`/clients/${assessment.client_db_id}/lca-activities`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          activity_code: newActivityCode.trim(),
+          description: newActivityDescription.trim(),
+          default_module_code: newActivityModule || null,
+          default_quantity: newActivityQuantity ? Number(newActivityQuantity) : null,
+          default_unit: newActivityUnit.trim() || "unit",
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed to create activity (${res.status})${t ? `: ${t}` : ""}`);
+      }
+      const listRes = await apiFetch(`/clients/${assessment.client_db_id}/lca-activities?include_global=true`);
+      if (listRes.ok) {
+        const json = await listRes.json();
+        setLibraryActivities(Array.isArray(json?.items) ? json.items : []);
+      }
+      setNewActivityCode("");
+      setNewActivityDescription("");
+      setNewActivityModule("");
+      setNewActivityQuantity("");
+      setShowNewActivityForm(false);
+      setStatus("Activity added to the library.");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function addSelectedActivities() {
+    if (!selectedAssessmentId || selectedActivityIds.size === 0) return;
+    setStatus(`Adding ${selectedActivityIds.size} line(s) from the activity library...`);
+    try {
+      for (const activityId of selectedActivityIds) {
+        await apiFetch(`/jobs/${jobId}/lca/assessments/${selectedAssessmentId}/line-items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ activity_id: activityId, module_code: libraryModule }),
+        });
+      }
+      setLibraryOpen(false);
+      await loadItems(selectedAssessmentId);
+      await loadAssessments();
+      await loadAssessmentDetail(selectedAssessmentId);
+      setStatus("Activity/activities added to the assessment.");
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    }
+  }
+
   const categoryName = (id?: number | null) => categories.find((c) => c.category_id === id)?.name || `Category ${id}`;
   const moduleLabel = (code: string) => modules.find((m) => m.module_code === code)?.label || code;
+  const isService = assessment?.assessment_type === "service";
+  const serviceModules = useMemo(() => modules.filter((m) => m.module_group === "scope3"), [modules]);
   function readinessStatusLabel(score: number) {
     if (score < 40) return "Draft -- significant gaps";
     if (score < 70) return "Developing";
@@ -919,6 +1050,14 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     return Array.from(seen.entries()).map(([component_id, label]) => ({ component_id, label }));
   }, [items]);
   const componentLabel = (id: number) => assessmentComponents.find((c) => c.component_id === id)?.label || `Component ${id}`;
+  const assessmentActivities = useMemo(() => {
+    const seen = new Map<number, string>();
+    for (const row of items) {
+      if (row.activity_id && !seen.has(row.activity_id)) seen.set(row.activity_id, row.line_label);
+    }
+    return Array.from(seen.entries()).map(([activity_id, label]) => ({ activity_id, label }));
+  }, [items]);
+  const activityLabel = (id: number) => assessmentActivities.find((a) => a.activity_id === id)?.label || `Activity ${id}`;
 
   const hasRows = items.some((r) => !r.is_placeholder);
   const hasMappedFactors = items.some((r) => Number(r.factor_value || 0) > 0 && !r.is_gap_filled);
@@ -1044,14 +1183,52 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                 <Input value={newSku} onChange={(e) => setNewSku(e.target.value)} placeholder="SKU-001" />
               </div>
               <div className="space-y-2">
-                <Label>Lifecycle Boundary</Label>
-                <Select value={newBoundary} onValueChange={setNewBoundary}>
+                <Label>Assessment Type</Label>
+                <Select value={newAssessmentType} onValueChange={setNewAssessmentType}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {LIFECYCLE_BOUNDARIES.map((b) => (<SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>))}
+                    <SelectItem value="product">Product (material x mass)</SelectItem>
+                    <SelectItem value="service">Service (activity x quantity, Scope 3)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+              {newAssessmentType === "service" ? (
+                <div className="space-y-2 lg:col-span-4">
+                  <Label>Scope 3 Categories In Scope</Label>
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {serviceModules.map((m) => {
+                      const checked = newServiceModules.has(m.module_code);
+                      return (
+                        <button
+                          key={m.module_code}
+                          type="button"
+                          className={`rounded-md border px-3 py-2 text-left text-xs ${checked ? "border-primary bg-primary/5" : ""}`}
+                          onClick={() =>
+                            setNewServiceModules((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(m.module_code)) next.delete(m.module_code);
+                              else next.add(m.module_code);
+                              return next;
+                            })
+                          }
+                        >
+                          {m.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label>Lifecycle Boundary</Label>
+                  <Select value={newBoundary} onValueChange={setNewBoundary}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {LIFECYCLE_BOUNDARIES.map((b) => (<SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="lg:col-span-4 flex justify-end">
                 <Button onClick={createAssessment}>Create Assessment</Button>
               </div>
@@ -1113,6 +1290,31 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                     />
                   </div>
                 </div>
+                {isService ? (
+                  <div className="space-y-2">
+                    <Label>Scope 3 Categories In Scope</Label>
+                    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                      {serviceModules.map((m) => {
+                        const checked = assessment.included_modules.includes(m.module_code);
+                        return (
+                          <button
+                            key={m.module_code}
+                            type="button"
+                            className={`rounded-md border px-3 py-2 text-left text-xs ${checked ? "border-primary bg-primary/5" : ""}`}
+                            onClick={() => {
+                              const next = checked
+                                ? assessment.included_modules.filter((c) => c !== m.module_code)
+                                : [...assessment.included_modules, m.module_code];
+                              saveAssessmentField({ included_modules: next });
+                            }}
+                          >
+                            {m.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
                 <div className="grid gap-4 lg:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Assumptions</Label>
@@ -1184,26 +1386,32 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
 
       {activeWorkflowStage === "inventory" ? (
         <div className="space-y-6">
-          <Card>
-            <CardHeader><CardTitle>Stage 2A: BOM Import</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              <div className="text-xs text-muted-foreground">
-                Supported columns: item/material/component, quantity/qty/weight, unit/uom, origin_country/country,
-                module/stage, component_code/part_code (links or creates a library component), factor/factor_value.
-                Rows with zero weight are kept as placeholder/assembly-grouping labels and excluded from the calculation.
-              </div>
-              <Input type="file" accept=".csv,.xlsx,.xls" onChange={(e) => setBomFile(e.target.files?.[0] ?? null)} />
-              <div className="flex justify-end"><Button onClick={importBom}>Import BOM + Auto Map</Button></div>
-            </CardContent>
-          </Card>
+          {!isService ? (
+            <Card>
+              <CardHeader><CardTitle>Stage 2A: BOM Import</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <div className="text-xs text-muted-foreground">
+                  Supported columns: item/material/component, quantity/qty/weight, unit/uom, origin_country/country,
+                  module/stage, component_code/part_code (links or creates a library component), factor/factor_value.
+                  Rows with zero weight are kept as placeholder/assembly-grouping labels and excluded from the calculation.
+                </div>
+                <Input type="file" accept=".csv,.xlsx,.xls" onChange={(e) => setBomFile(e.target.files?.[0] ?? null)} />
+                <div className="flex justify-end"><Button onClick={importBom}>Import BOM + Auto Map</Button></div>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card>
-            <CardHeader><CardTitle>Stage 2B: Add from Component Library</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Stage 2B: Add from {isService ? "Activity" : "Component"} Library</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               <div className="text-xs text-muted-foreground">
-                Reuse components already defined for this client (material, mass, origin, supplier) instead of retyping them.
+                {isService
+                  ? "Reuse activities already defined for this client (default Scope 3 category, quantity, unit) instead of retyping them."
+                  : "Reuse components already defined for this client (material, mass, origin, supplier) instead of retyping them."}
               </div>
-              <Button variant="outline" onClick={() => void openLibraryPicker()}>Browse Component Library</Button>
+              <Button variant="outline" onClick={() => void openLibraryPicker()}>
+                Browse {isService ? "Activity" : "Component"} Library
+              </Button>
             </CardContent>
           </Card>
 
@@ -1212,27 +1420,29 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
             <CardContent className="space-y-4">
               <div className="grid gap-4 lg:grid-cols-4">
                 <div className="space-y-2">
-                  <Label>Module</Label>
+                  <Label>{isService ? "Scope 3 Category" : "Module"}</Label>
                   <Select value={lineModule} onValueChange={setLineModule}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {modules.map((m) => (<SelectItem key={m.module_code} value={m.module_code}>{m.module_code} - {m.label}</SelectItem>))}
+                      {(isService ? serviceModules : modules).map((m) => (<SelectItem key={m.module_code} value={m.module_code}>{m.module_code} - {m.label}</SelectItem>))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2 lg:col-span-3">
                   <Label>Line Label</Label>
-                  <Input value={lineLabel} onChange={(e) => setLineLabel(e.target.value)} placeholder="e.g. Aluminium sheet" />
+                  <Input value={lineLabel} onChange={(e) => setLineLabel(e.target.value)} placeholder={isService ? "e.g. Economy flight, London-Berlin" : "e.g. Aluminium sheet"} />
                 </div>
-                <div className="space-y-2">
-                  <Label>Category</Label>
-                  <Select value={lineCategory} onValueChange={setLineCategory}>
-                    <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
-                    <SelectContent>
-                      {categories.map((c) => (<SelectItem key={c.category_id} value={String(c.category_id)}>{c.name}</SelectItem>))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {!isService ? (
+                  <div className="space-y-2">
+                    <Label>Category</Label>
+                    <Select value={lineCategory} onValueChange={setLineCategory}>
+                      <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                      <SelectContent>
+                        {categories.map((c) => (<SelectItem key={c.category_id} value={String(c.category_id)}>{c.name}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
                 <div className="space-y-2"><Label>Quantity</Label><Input type="number" value={lineQty} onChange={(e) => setLineQty(e.target.value)} /></div>
                 <div className="space-y-2"><Label>Unit</Label><Input value={lineUnit} onChange={(e) => setLineUnit(e.target.value)} placeholder="kg, kWh, km..." /></div>
                 <div className="space-y-2"><Label>Origin Country</Label><Input value={lineCountry} onChange={(e) => setLineCountry(e.target.value)} /></div>
@@ -1332,17 +1542,19 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
             <div className="text-sm">
               Total: <span className="font-semibold">{Number(summary?.total_tco2e || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO₂e</span>
             </div>
-            <div className="rounded-md border p-3">
-              <div className="mb-2 text-sm font-medium">Mass Reconciliation</div>
-              <div className="grid gap-2 text-sm md:grid-cols-3">
-                <div>Confirmed: {summary?.mass_reconciliation.confirmed_quantity ?? "-"} {summary?.mass_reconciliation.confirmed_quantity_unit}</div>
-                <div>Captured (A1): {summary?.mass_reconciliation.captured_mass_kg ?? 0} kg</div>
-                <div>Gap: {summary?.mass_reconciliation.mass_gap_kg ?? "-"} kg</div>
-              </div>
-            </div>
-            <div className="grid gap-3 lg:grid-cols-2">
+            {summary?.mass_reconciliation ? (
               <div className="rounded-md border p-3">
-                <div className="mb-2 text-sm font-medium">By Module</div>
+                <div className="mb-2 text-sm font-medium">Mass Reconciliation</div>
+                <div className="grid gap-2 text-sm md:grid-cols-3">
+                  <div>Confirmed: {summary.mass_reconciliation.confirmed_quantity ?? "-"} {summary.mass_reconciliation.confirmed_quantity_unit}</div>
+                  <div>Captured (A1): {summary.mass_reconciliation.captured_mass_kg ?? 0} kg</div>
+                  <div>Gap: {summary.mass_reconciliation.mass_gap_kg ?? "-"} kg</div>
+                </div>
+              </div>
+            ) : null}
+            <div className={`grid gap-3 ${isService ? "" : "lg:grid-cols-2"}`}>
+              <div className="rounded-md border p-3">
+                <div className="mb-2 text-sm font-medium">{isService ? "By Scope 3 Category" : "By Module"}</div>
                 <div className="space-y-1 text-sm">
                   {(summary?.module_breakdown || []).map((s) => (
                     <div key={s.module_code} className="flex justify-between">
@@ -1352,17 +1564,19 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                   ))}
                 </div>
               </div>
-              <div className="rounded-md border p-3">
-                <div className="mb-2 text-sm font-medium">By Material Category</div>
-                <div className="space-y-1 text-sm">
-                  {(summary?.category_breakdown || []).map((s) => (
-                    <div key={s.material_category_id} className="flex justify-between">
-                      <span>{categoryName(s.material_category_id)}</span>
-                      <span>{s.emissions_tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO₂e ({s.share_pct.toFixed(1)}%)</span>
-                    </div>
-                  ))}
+              {!isService ? (
+                <div className="rounded-md border p-3">
+                  <div className="mb-2 text-sm font-medium">By Material Category</div>
+                  <div className="space-y-1 text-sm">
+                    {(summary?.category_breakdown || []).map((s) => (
+                      <div key={s.material_category_id} className="flex justify-between">
+                        <span>{categoryName(s.material_category_id)}</span>
+                        <span>{s.emissions_tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO₂e ({s.share_pct.toFixed(1)}%)</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ) : null}
             </div>
             <div className="rounded-md border p-3">
               <div className="mb-2 text-sm font-medium">Hotspot Line Items</div>
@@ -1471,7 +1685,13 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                           <div key={m.multiplier_id} className="flex items-center justify-between gap-2 rounded border px-2 py-1 text-xs">
                             <span>
                               {moduleLabel(m.module_code)}
-                              {m.component_id ? ` | Component: ${componentLabel(m.component_id)}` : m.material_category_id ? ` | Category: ${categoryName(m.material_category_id)}` : " | All materials"}
+                              {m.activity_id
+                                ? ` | Activity: ${activityLabel(m.activity_id)}`
+                                : m.component_id
+                                  ? ` | Component: ${componentLabel(m.component_id)}`
+                                  : m.material_category_id
+                                    ? ` | Category: ${categoryName(m.material_category_id)}`
+                                    : isService ? " | All activities" : " | All materials"}
                               {" -> "}
                               {m.multiplier}x
                             </span>
@@ -1482,30 +1702,43 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                     </div>
                     <div className="grid gap-2 border-t pt-2 sm:grid-cols-2">
                       <Select value={ruleModule} onValueChange={setRuleModule}>
-                        <SelectTrigger><SelectValue placeholder="Module" /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder={isService ? "Scope 3 category" : "Module"} /></SelectTrigger>
                         <SelectContent>
-                          {modules.map((m) => (
+                          {(isService ? serviceModules : modules).map((m) => (
                             <SelectItem key={m.module_code} value={m.module_code}>{m.label}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                       <Input placeholder="Multiplier (e.g. 0.3 = 70% less)" value={ruleMultiplier} onChange={(e) => setRuleMultiplier(e.target.value)} />
-                      <Select value={ruleCategory} onValueChange={(v) => { setRuleCategory(v); setRuleComponent(""); }}>
-                        <SelectTrigger><SelectValue placeholder="Category (optional -- module-wide if blank)" /></SelectTrigger>
-                        <SelectContent>
-                          {categories.map((c) => (
-                            <SelectItem key={c.category_id} value={String(c.category_id)}>{c.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Select value={ruleComponent} onValueChange={(v) => { setRuleComponent(v); setRuleCategory(""); }}>
-                        <SelectTrigger><SelectValue placeholder="Or a specific component (more specific wins)" /></SelectTrigger>
-                        <SelectContent>
-                          {assessmentComponents.map((c) => (
-                            <SelectItem key={c.component_id} value={String(c.component_id)}>{c.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {isService ? (
+                        <Select value={ruleActivity} onValueChange={setRuleActivity}>
+                          <SelectTrigger><SelectValue placeholder="Optional -- a specific activity (more specific wins)" /></SelectTrigger>
+                          <SelectContent>
+                            {assessmentActivities.map((a) => (
+                              <SelectItem key={a.activity_id} value={String(a.activity_id)}>{a.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <>
+                          <Select value={ruleCategory} onValueChange={(v) => { setRuleCategory(v); setRuleComponent(""); }}>
+                            <SelectTrigger><SelectValue placeholder="Category (optional -- module-wide if blank)" /></SelectTrigger>
+                            <SelectContent>
+                              {categories.map((c) => (
+                                <SelectItem key={c.category_id} value={String(c.category_id)}>{c.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Select value={ruleComponent} onValueChange={(v) => { setRuleComponent(v); setRuleCategory(""); }}>
+                            <SelectTrigger><SelectValue placeholder="Or a specific component (more specific wins)" /></SelectTrigger>
+                            <SelectContent>
+                              {assessmentComponents.map((c) => (
+                                <SelectItem key={c.component_id} value={String(c.component_id)}>{c.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </>
+                      )}
                     </div>
                     <Button variant="outline" onClick={addMultiplierRule}>+ Add Rule</Button>
                   </>
@@ -1556,79 +1789,146 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
       <Dialog open={libraryOpen} onOpenChange={setLibraryOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Add from Component Library</DialogTitle>
-            <DialogDescription>Select components to add as line items in the chosen module.</DialogDescription>
+            <DialogTitle>Add from {isService ? "Activity" : "Component"} Library</DialogTitle>
+            <DialogDescription>
+              Select {isService ? "activities" : "components"} to add as line items in the chosen {isService ? "Scope 3 category" : "module"}.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="grid gap-2 md:grid-cols-2">
-              <Input value={librarySearch} onChange={(e) => setLibrarySearch(e.target.value)} placeholder="Search components..." />
+              <Input value={librarySearch} onChange={(e) => setLibrarySearch(e.target.value)} placeholder={`Search ${isService ? "activities" : "components"}...`} />
               <Select value={libraryModule} onValueChange={setLibraryModule}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {modules.map((m) => (<SelectItem key={m.module_code} value={m.module_code}>{m.module_code} - {m.label}</SelectItem>))}
+                  {(isService ? serviceModules : modules).map((m) => (<SelectItem key={m.module_code} value={m.module_code}>{m.module_code} - {m.label}</SelectItem>))}
                 </SelectContent>
               </Select>
             </div>
-            <Button type="button" variant="outline" size="sm" onClick={() => setShowNewComponentForm((v) => !v)}>
-              {showNewComponentForm ? "Cancel new component" : "+ New Component"}
-            </Button>
-            {showNewComponentForm ? (
-              <div className="grid gap-2 rounded-md border p-3 md:grid-cols-2">
-                <Input value={newComponentCode} onChange={(e) => setNewComponentCode(e.target.value)} placeholder="Component code (optional)" />
-                <Input value={newComponentDescription} onChange={(e) => setNewComponentDescription(e.target.value)} placeholder="Description *" />
-                <Select value={newComponentCategory} onValueChange={setNewComponentCategory}>
-                  <SelectTrigger><SelectValue placeholder="Material category" /></SelectTrigger>
-                  <SelectContent>
-                    {categories.map((c) => (<SelectItem key={c.category_id} value={String(c.category_id)}>{c.name}</SelectItem>))}
-                  </SelectContent>
-                </Select>
-                <div className="flex gap-2">
-                  <Input type="number" value={newComponentMass} onChange={(e) => setNewComponentMass(e.target.value)} placeholder="Default mass" />
-                  <Input value={newComponentUnit} onChange={(e) => setNewComponentUnit(e.target.value)} placeholder="Unit" className="w-20" />
+            {isService ? (
+              <>
+                <Button type="button" variant="outline" size="sm" onClick={() => setShowNewActivityForm((v) => !v)}>
+                  {showNewActivityForm ? "Cancel new activity" : "+ New Activity"}
+                </Button>
+                {showNewActivityForm ? (
+                  <div className="grid gap-2 rounded-md border p-3 md:grid-cols-2">
+                    <Input value={newActivityCode} onChange={(e) => setNewActivityCode(e.target.value)} placeholder="Activity code (optional)" />
+                    <Input value={newActivityDescription} onChange={(e) => setNewActivityDescription(e.target.value)} placeholder="Description *" />
+                    <Select value={newActivityModule} onValueChange={setNewActivityModule}>
+                      <SelectTrigger><SelectValue placeholder="Default Scope 3 category" /></SelectTrigger>
+                      <SelectContent>
+                        {serviceModules.map((m) => (<SelectItem key={m.module_code} value={m.module_code}>{m.label}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex gap-2">
+                      <Input type="number" value={newActivityQuantity} onChange={(e) => setNewActivityQuantity(e.target.value)} placeholder="Default quantity" />
+                      <Input value={newActivityUnit} onChange={(e) => setNewActivityUnit(e.target.value)} placeholder="Unit" className="w-20" />
+                    </div>
+                    <div className="md:col-span-2 flex justify-end">
+                      <Button type="button" size="sm" onClick={() => void createLibraryActivity()}>Save Activity</Button>
+                    </div>
+                  </div>
+                ) : null}
+                <div className="max-h-80 overflow-auto rounded-md border">
+                  {libraryLoading ? (
+                    <div className="p-4 text-center text-sm text-muted-foreground">Loading...</div>
+                  ) : filteredLibraryActivities.length === 0 ? (
+                    <div className="p-4 text-center text-sm text-muted-foreground">No activities found.</div>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <tbody className="divide-y divide-gray-100">
+                        {filteredLibraryActivities.map((a) => (
+                          <tr key={a.activity_id} className="cursor-pointer hover:bg-gray-50/70" onClick={() => toggleLibraryActivity(a.activity_id)}>
+                            <td className="w-8 px-3 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={selectedActivityIds.has(a.activity_id)}
+                                onChange={() => toggleLibraryActivity(a.activity_id)}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="font-medium text-slate-900">{a.description}</div>
+                              <div className="text-xs text-slate-500">
+                                {a.activity_code || "-"} | {a.default_module_code ? moduleLabel(a.default_module_code) : "No default category"} | {a.default_quantity ?? "-"} {a.default_unit}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
-                <Input value={newComponentCountry} onChange={(e) => setNewComponentCountry(e.target.value)} placeholder="Origin country" />
-                <Input value={newComponentSupplier} onChange={(e) => setNewComponentSupplier(e.target.value)} placeholder="Supplier name" />
-                <div className="md:col-span-2 flex justify-end">
-                  <Button type="button" size="sm" onClick={() => void createLibraryComponent()}>Save Component</Button>
+              </>
+            ) : (
+              <>
+                <Button type="button" variant="outline" size="sm" onClick={() => setShowNewComponentForm((v) => !v)}>
+                  {showNewComponentForm ? "Cancel new component" : "+ New Component"}
+                </Button>
+                {showNewComponentForm ? (
+                  <div className="grid gap-2 rounded-md border p-3 md:grid-cols-2">
+                    <Input value={newComponentCode} onChange={(e) => setNewComponentCode(e.target.value)} placeholder="Component code (optional)" />
+                    <Input value={newComponentDescription} onChange={(e) => setNewComponentDescription(e.target.value)} placeholder="Description *" />
+                    <Select value={newComponentCategory} onValueChange={setNewComponentCategory}>
+                      <SelectTrigger><SelectValue placeholder="Material category" /></SelectTrigger>
+                      <SelectContent>
+                        {categories.map((c) => (<SelectItem key={c.category_id} value={String(c.category_id)}>{c.name}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex gap-2">
+                      <Input type="number" value={newComponentMass} onChange={(e) => setNewComponentMass(e.target.value)} placeholder="Default mass" />
+                      <Input value={newComponentUnit} onChange={(e) => setNewComponentUnit(e.target.value)} placeholder="Unit" className="w-20" />
+                    </div>
+                    <Input value={newComponentCountry} onChange={(e) => setNewComponentCountry(e.target.value)} placeholder="Origin country" />
+                    <Input value={newComponentSupplier} onChange={(e) => setNewComponentSupplier(e.target.value)} placeholder="Supplier name" />
+                    <div className="md:col-span-2 flex justify-end">
+                      <Button type="button" size="sm" onClick={() => void createLibraryComponent()}>Save Component</Button>
+                    </div>
+                  </div>
+                ) : null}
+                <div className="max-h-80 overflow-auto rounded-md border">
+                  {libraryLoading ? (
+                    <div className="p-4 text-center text-sm text-muted-foreground">Loading...</div>
+                  ) : filteredLibraryComponents.length === 0 ? (
+                    <div className="p-4 text-center text-sm text-muted-foreground">No components found.</div>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <tbody className="divide-y divide-gray-100">
+                        {filteredLibraryComponents.map((c) => (
+                          <tr key={c.component_id} className="cursor-pointer hover:bg-gray-50/70" onClick={() => toggleLibraryComponent(c.component_id)}>
+                            <td className="w-8 px-3 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={selectedComponentIds.has(c.component_id)}
+                                onChange={() => toggleLibraryComponent(c.component_id)}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="font-medium text-slate-900">{c.description}</div>
+                              <div className="text-xs text-slate-500">
+                                {c.component_code || "-"} | {c.origin_country || "Origin not set"} | {c.default_unit_mass ?? "-"} {c.default_unit}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
-              </div>
-            ) : null}
-            <div className="max-h-80 overflow-auto rounded-md border">
-              {libraryLoading ? (
-                <div className="p-4 text-center text-sm text-muted-foreground">Loading...</div>
-              ) : filteredLibraryComponents.length === 0 ? (
-                <div className="p-4 text-center text-sm text-muted-foreground">No components found.</div>
-              ) : (
-                <table className="w-full text-sm">
-                  <tbody className="divide-y divide-gray-100">
-                    {filteredLibraryComponents.map((c) => (
-                      <tr key={c.component_id} className="cursor-pointer hover:bg-gray-50/70" onClick={() => toggleLibraryComponent(c.component_id)}>
-                        <td className="w-8 px-3 py-2 text-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedComponentIds.has(c.component_id)}
-                            onChange={() => toggleLibraryComponent(c.component_id)}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <div className="font-medium text-slate-900">{c.description}</div>
-                          <div className="text-xs text-slate-500">
-                            {c.component_code || "-"} | {c.origin_country || "Origin not set"} | {c.default_unit_mass ?? "-"} {c.default_unit}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+              </>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setLibraryOpen(false)}>Cancel</Button>
-            <Button onClick={() => void addSelectedComponents()} disabled={selectedComponentIds.size === 0}>
-              Add {selectedComponentIds.size || ""} Line{selectedComponentIds.size === 1 ? "" : "s"}
-            </Button>
+            {isService ? (
+              <Button onClick={() => void addSelectedActivities()} disabled={selectedActivityIds.size === 0}>
+                Add {selectedActivityIds.size || ""} Line{selectedActivityIds.size === 1 ? "" : "s"}
+              </Button>
+            ) : (
+              <Button onClick={() => void addSelectedComponents()} disabled={selectedComponentIds.size === 0}>
+                Add {selectedComponentIds.size || ""} Line{selectedComponentIds.size === 1 ? "" : "s"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
