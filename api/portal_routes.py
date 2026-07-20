@@ -1891,6 +1891,7 @@ def portal_files(current_user: dict = Depends(portal_user_dep)):
             "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS portal_visible BOOLEAN DEFAULT FALSE",
             "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS portal_description TEXT",
             "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS portal_expires_at TIMESTAMP",
+            "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS pinned BOOLEAN DEFAULT FALSE",
         ]:
             try:
                 con.execute(_stmt)
@@ -1910,7 +1911,8 @@ def portal_files(current_user: dict = Depends(portal_user_dep)):
                 jf.file_size,
                 jf.storage_provider,
                 jf.uploaded_at,
-                j.job_number
+                j.job_number,
+                jf.pinned
             FROM job_files jf
             JOIN jobs j ON j.job_id = jf.job_id
             WHERE j.client_db_id = %s
@@ -1943,6 +1945,7 @@ def portal_files(current_user: dict = Depends(portal_user_dep)):
                 "storage_provider": str(r[8] or "local"),
                 "uploaded_at": _dt(r[9]),
                 "job_number": str(r[10] or ""),
+                "pinned": bool(r[11]) if r[11] is not None else False,
             }
             for r in (rows or [])
         ],

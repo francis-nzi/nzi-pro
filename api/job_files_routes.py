@@ -62,6 +62,7 @@ def _ensure_job_files_table(con) -> None:
         "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS portal_visible BOOLEAN DEFAULT FALSE",
         "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS portal_description TEXT",
         "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS portal_expires_at TIMESTAMP",
+        "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS pinned BOOLEAN DEFAULT FALSE",
     ]:
         try:
             con.execute(_stmt)
@@ -363,7 +364,7 @@ def list_job_files(
                 SELECT file_id, job_id, row_id, file_type, file_name, file_path,
                        file_size, mime_type, description, uploaded_by, uploaded_at,
                        storage_provider, external_item_id, external_web_url, external_path,
-                       notes, portal_visible, portal_description, portal_expires_at
+                       notes, portal_visible, portal_description, portal_expires_at, pinned
                 FROM job_files
                 WHERE job_id = %s
             """
@@ -401,6 +402,7 @@ def list_job_files(
                         "portal_visible": bool(row["portal_visible"]) if "portal_visible" in row and row["portal_visible"] is not None else False,
                         "portal_description": row["portal_description"] if "portal_description" in row and row["portal_description"] is not None else None,
                         "portal_expires_at": str(row["portal_expires_at"]) if "portal_expires_at" in row and row["portal_expires_at"] is not None else None,
+                        "pinned": bool(row["pinned"]) if "pinned" in row and row["pinned"] is not None else False,
                     }
                 )
 
@@ -584,9 +586,10 @@ def update_job_file_portal_settings(
     portal_visible: Optional[bool] = Body(None),
     portal_description: Optional[str] = Body(None),
     portal_expires_at: Optional[str] = Body(None),
+    pinned: Optional[bool] = Body(None),
     _user: dict[str, str] = Depends(_current_user),
 ):
-    """Update portal visibility, description, and expiry for a file."""
+    """Update portal visibility, description, expiry, and pinned status for a file."""
     try:
         with get_conn() as con:
             _ensure_job_files_table(con)
@@ -611,6 +614,9 @@ def update_job_file_portal_settings(
                 else:
                     updates.append("portal_expires_at = %s")
                     params.append(portal_expires_at)
+            if pinned is not None:
+                updates.append("pinned = %s")
+                params.append(bool(pinned))
             if not updates:
                 return {"ok": True, "message": "No changes to update"}
 

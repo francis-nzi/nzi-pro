@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search } from "lucide-react";
+import { Search, Star } from "lucide-react";
 import { apiFetch } from "@/lib/auth";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -43,6 +44,7 @@ type PortalFile = {
   file_size: number | null;
   storage_provider: string;
   uploaded_at: string | null;
+  pinned: boolean;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -159,6 +161,14 @@ export default function PortalFiles() {
   });
 
   const isFiltered = q || filterJob !== "all" || filterYear !== "all" || filterType !== "all";
+  const pinned = files.filter((f) => f.pinned);
+
+  function handleDownload(file: PortalFile) {
+    setDownloading(d => ({ ...d, [file.file_id]: true }));
+    downloadPortalFile(file.file_id, file.file_name)
+      .catch(() => {})
+      .finally(() => setDownloading(d => ({ ...d, [file.file_id]: false })));
+  }
 
   if (loading) {
     return <SkeletonLoader rows={5} />;
@@ -179,6 +189,39 @@ export default function PortalFiles() {
 
   return (
     <div className="space-y-4">
+
+      {/* ── Deliverables (pinned) ── */}
+      {pinned.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-1.5 text-sm font-semibold">
+              <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+              Deliverables
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 pt-0">
+            {pinned.map((file) => {
+              const isDownloading = downloading[file.file_id] ?? false;
+              return (
+                <div key={file.file_id} className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
+                  <FileIcon className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <span className="truncate text-sm font-medium text-foreground">{file.file_name}</span>
+                    <div className="flex flex-wrap gap-x-3 text-[11px] text-muted-foreground">
+                      {file.reporting_year && <span>{file.reporting_year}</span>}
+                      {file.job_number && <span>{file.job_number}</span>}
+                    </div>
+                  </div>
+                  <Button variant="outline" size="sm" disabled={isDownloading} onClick={() => handleDownload(file)}>
+                    <ExternalLinkIcon className="h-3.5 w-3.5" />
+                    {isDownloading ? "…" : "Open"}
+                  </Button>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Filter bar ── */}
       <div className="space-y-2 rounded-xl border border-border bg-muted/40 p-3">
@@ -271,6 +314,7 @@ export default function PortalFiles() {
 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
+                    {file.pinned && <Star className="h-3.5 w-3.5 flex-shrink-0 fill-amber-400 text-amber-400" />}
                     <span className="truncate text-sm font-medium text-foreground">
                       {file.file_name}
                     </span>
@@ -297,12 +341,7 @@ export default function PortalFiles() {
                   variant="outline"
                   size="sm"
                   disabled={isDownloading}
-                  onClick={() => {
-                    setDownloading(d => ({ ...d, [file.file_id]: true }));
-                    downloadPortalFile(file.file_id, file.file_name)
-                      .catch(() => {})
-                      .finally(() => setDownloading(d => ({ ...d, [file.file_id]: false })));
-                  }}
+                  onClick={() => handleDownload(file)}
                   className="flex-shrink-0 gap-1.5"
                 >
                   <ExternalLinkIcon className="h-3.5 w-3.5" />

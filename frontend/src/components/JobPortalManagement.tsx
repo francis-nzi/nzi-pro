@@ -31,6 +31,7 @@ type PortalFile = {
   portal_visible: boolean;
   portal_description: string | null;
   portal_expires_at: string | null;
+  pinned: boolean;
 };
 
 type PortalUser = {
@@ -179,6 +180,12 @@ function PortalFilesSection({ jobId, baseUrl }: { jobId: number; baseUrl: string
     void patchPortal(file.file_id, { portal_visible: next });
   }
 
+  function togglePinned(file: PortalFile) {
+    const next = !file.pinned;
+    setFiles(fs => fs.map(f => f.file_id === file.file_id ? { ...f, pinned: next } : f));
+    void patchPortal(file.file_id, { pinned: next });
+  }
+
   function onDescChange(file: PortalFile, value: string) {
     setFiles(fs => fs.map(f => f.file_id === file.file_id ? { ...f, portal_description: value } : f));
     clearTimeout(descTimers.current[file.file_id]);
@@ -194,6 +201,7 @@ function PortalFilesSection({ jobId, baseUrl }: { jobId: number; baseUrl: string
   }
 
   const visibleCount = files.filter(f => f.portal_visible).length;
+  const pinnedCount = files.filter(f => f.pinned).length;
 
   if (loading) {
     return (
@@ -222,6 +230,7 @@ function PortalFilesSection({ jobId, baseUrl }: { jobId: number; baseUrl: string
         </div>
         <span className="text-xs text-gray-500">
           {visibleCount} of {files.length} visible to client
+          {pinnedCount > 0 && <> · {pinnedCount} pinned</>}
         </span>
       </div>
 
@@ -262,6 +271,19 @@ function PortalFilesSection({ jobId, baseUrl }: { jobId: number; baseUrl: string
                       <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-600 flex-shrink-0">
                         Expired
                       </span>
+                    )}
+                    {file.portal_visible && (
+                      <button
+                        onClick={() => togglePinned(file)}
+                        title={file.pinned ? "Unpin from client Deliverables" : "Pin to client Deliverables"}
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs flex-shrink-0 transition-colors ${
+                          file.pinned
+                            ? "bg-amber-100 text-amber-700 hover:bg-amber-200"
+                            : "bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600"
+                        }`}
+                      >
+                        {file.pinned ? "★ Pinned" : "☆ Pin"}
+                      </button>
                     )}
                     {isSaving && (
                       <span className="text-xs text-gray-400 flex-shrink-0">Saving…</span>
