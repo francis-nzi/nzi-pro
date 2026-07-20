@@ -183,6 +183,10 @@ type Site = {
   location: string | null;
   is_registered_office: boolean;
   vacated_date?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  geocode_source?: string | null;
+  geocode_precision?: string | null;
 };
 
 type CurrencyOption = {
@@ -280,10 +284,13 @@ export default function EditClientPage() {
   const [editingSite, setEditingSite] = useState<number | null>(null);
   const [vacatingSite, setVacatingSite] = useState<number | null>(null);
   const [vacatedDate, setVacatedDate] = useState<string>("");
+  const [geocoding, setGeocoding] = useState<boolean>(false);
   const [siteForm, setSiteForm] = useState({
     site_name: "",
     location: "",
     is_registered_office: false,
+    latitude: "",
+    longitude: "",
   });
 
   const loadSites = useCallback(async () => {
@@ -467,6 +474,14 @@ export default function EditClientPage() {
     };
   }, [baseUrl, clientId]);
 
+  function siteFormPayload() {
+    const { latitude, longitude, ...rest } = siteForm;
+    const payload: Record<string, unknown> = { ...rest };
+    if (latitude.trim()) payload.latitude = Number(latitude);
+    if (longitude.trim()) payload.longitude = Number(longitude);
+    return payload;
+  }
+
   async function handleAddSite() {
     try {
       const res = await fetch(`${baseUrl}/clients/${clientId}/sites`, {
@@ -475,13 +490,13 @@ export default function EditClientPage() {
           { "Content-Type": "application/json" },
           { page: "Clients", section: "Sites", container: "Add Site" }
         ),
-        body: JSON.stringify(siteForm),
+        body: JSON.stringify(siteFormPayload()),
       });
 
       if (!res.ok) throw new Error("Failed to add site");
 
       await loadSites();
-      setSiteForm({ site_name: "", location: "", is_registered_office: false });
+      setSiteForm({ site_name: "", location: "", is_registered_office: false, latitude: "", longitude: "" });
       setShowAddSite(false);
       toast.success("Site added");
     } catch (e) {
@@ -497,17 +512,39 @@ export default function EditClientPage() {
           { "Content-Type": "application/json" },
           { page: "Clients", section: "Sites", container: "Edit Site" }
         ),
-        body: JSON.stringify(siteForm),
+        body: JSON.stringify(siteFormPayload()),
       });
 
       if (!res.ok) throw new Error("Failed to update site");
 
       await loadSites();
-      setSiteForm({ site_name: "", location: "", is_registered_office: false });
+      setSiteForm({ site_name: "", location: "", is_registered_office: false, latitude: "", longitude: "" });
       setEditingSite(null);
       toast.success("Site updated");
     } catch (e) {
       toast.error((e as Error).message);
+    }
+  }
+
+  async function handleGeocodeSites() {
+    setGeocoding(true);
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/sites/geocode`, {
+        method: "POST",
+        headers: withAuditHeaders({}, { page: "Clients", section: "Sites", container: "Geocode Sites" }),
+      });
+      if (!res.ok) throw new Error("Failed to geocode sites");
+      const data = await res.json() as { attempted: number; geocoded: number; skipped: number };
+      await loadSites();
+      if (data.attempted === 0) {
+        toast.success("All sites already have coordinates");
+      } else {
+        toast.success(`Geocoded ${data.geocoded} of ${data.attempted} site(s)${data.skipped ? `, ${data.skipped} could not be resolved` : ""}`);
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setGeocoding(false);
     }
   }
 
@@ -543,13 +580,15 @@ export default function EditClientPage() {
       site_name: site.site_name ?? "",
       location: site.location ?? "",
       is_registered_office: site.is_registered_office,
+      latitude: site.latitude != null ? String(site.latitude) : "",
+      longitude: site.longitude != null ? String(site.longitude) : "",
     });
     setEditingSite(site.site_id);
     setShowAddSite(false);
   }
 
   function cancelSiteEdit() {
-    setSiteForm({ site_name: "", location: "", is_registered_office: false });
+    setSiteForm({ site_name: "", location: "", is_registered_office: false, latitude: "", longitude: "" });
     setEditingSite(null);
     setShowAddSite(false);
   }
@@ -1301,16 +1340,27 @@ export default function EditClientPage() {
               <CardHeader>
                 <div className="flex items-center justify-between gap-4">
                   <CardTitle>Active Sites ({activeSites.length})</CardTitle>
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      setShowAddSite(true);
-                      setEditingSite(null);
-                      setSiteForm({ site_name: "", location: "", is_registered_office: false });
-                    }}
-                  >
-                    + Add Site
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleGeocodeSites}
+                      disabled={geocoding}
+                      title="Look up coordinates for any active site without them yet, via OpenStreetMap"
+                    >
+                      {geocoding ? "Geocoding…" : "Geocode Sites"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setShowAddSite(true);
+                        setEditingSite(null);
+                        setSiteForm({ site_name: "", location: "", is_registered_office: false, latitude: "", longitude: "" });
+                      }}
+                    >
+                      + Add Site
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -1333,6 +1383,30 @@ export default function EditClientPage() {
                         onChange={(e) => setSiteForm({ ...siteForm, location: e.target.value })}
                         placeholder="London, UK"
                       />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="siteLatitude">Latitude (optional)</Label>
+                        <Input
+                          id="siteLatitude"
+                          type="number"
+                          step="any"
+                          value={siteForm.latitude}
+                          onChange={(e) => setSiteForm({ ...siteForm, latitude: e.target.value })}
+                          placeholder="Leave blank to auto-geocode"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="siteLongitude">Longitude (optional)</Label>
+                        <Input
+                          id="siteLongitude"
+                          type="number"
+                          step="any"
+                          value={siteForm.longitude}
+                          onChange={(e) => setSiteForm({ ...siteForm, longitude: e.target.value })}
+                          placeholder="Leave blank to auto-geocode"
+                        />
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <input
@@ -1400,6 +1474,14 @@ export default function EditClientPage() {
                               </div>
                               {site.location && (
                                 <div className="text-muted-foreground">{site.location}</div>
+                              )}
+                              {site.latitude != null && site.longitude != null ? (
+                                <div className="mt-0.5 text-xs text-muted-foreground">
+                                  {site.latitude.toFixed(4)}, {site.longitude.toFixed(4)}
+                                  {site.geocode_source === "manual" ? " (manual)" : site.geocode_precision === "city" ? " (city-level)" : ""}
+                                </div>
+                              ) : (
+                                <div className="mt-0.5 text-xs text-muted-foreground">Not geocoded yet</div>
                               )}
                             </div>
                             <div className="flex gap-1">

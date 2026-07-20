@@ -15,6 +15,7 @@ anthropic>=0.45.0
 openai>=1.0.0
 stripe>=11.0.0
 sentry-sdk>=2.20.0
+requests>=2.32.0
 
 # Report generation dependencies
 playwright>=1.40.0

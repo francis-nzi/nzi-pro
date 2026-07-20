@@ -703,12 +703,24 @@ def update_client_site(
                 "site_name": "site_name",
                 "location": "location",
                 "is_registered_office": "is_registered_office",
+                "latitude": "latitude",
+                "longitude": "longitude",
             }
 
             for field_name, col_name in field_mapping.items():
                 if field_name in body:
                     updates.append(f"{col_name} = ?")
                     params.append(body[field_name])
+
+            # A manually-entered lat/long always wins over (and marks over) any
+            # prior automatic geocode result, so the map reflects a human
+            # correction rather than looking like a stale automated guess.
+            if "latitude" in body or "longitude" in body:
+                updates.append("geocode_source = ?")
+                params.append("manual")
+                updates.append("geocode_precision = ?")
+                params.append("address")
+                updates.append("geocoded_at = NOW()")
 
             if updates:
                 params.extend([int(site_id), int(client_db_id), org_id])
@@ -740,6 +752,79 @@ def update_client_site(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update site: {e}")
+
+
+@router.post("/clients/{client_db_id}/sites/geocode")
+def geocode_client_sites(
+    request: Request,
+    client_db_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Batch-geocode this client's sites that don't have coordinates yet, via
+    Nominatim (services/geocoding.py). Admin/staff-triggered only -- never
+    called from a live client-portal request path, since Nominatim's public
+    instance is rate-limited to 1 request/second."""
+    from services.geocoding import geocode_location
+
+    try:
+        assert_permission(_user, "clients.sites.manage")
+        assert_client_access(_user, int(client_db_id))
+        org_id = require_org(_user)
+        with get_conn() as con:
+            _ensure_client_org_columns(con)
+            _ensure_client_sites_runtime_columns(con)
+            rows = con.execute(
+                """
+                SELECT site_id, location
+                FROM client_sites
+                WHERE client_db_id = ? AND org_id = ?
+                  AND latitude IS NULL
+                  AND location IS NOT NULL AND TRIM(location) != ''
+                """,
+                [int(client_db_id), org_id],
+            ).fetchall()
+
+            geocoded = 0
+            skipped = 0
+            results: list[dict[str, object]] = []
+            for i, (site_id, location) in enumerate(rows or []):
+                if i > 0:
+                    import time
+                    time.sleep(1)
+                hit = geocode_location(str(location))
+                if not hit:
+                    skipped += 1
+                    results.append({"site_id": int(site_id), "ok": False})
+                    continue
+                con.execute(
+                    """
+                    UPDATE client_sites
+                    SET latitude = ?, longitude = ?, geocode_source = 'nominatim',
+                        geocode_precision = ?, geocoded_at = NOW()
+                    WHERE site_id = ?
+                    """,
+                    [hit["latitude"], hit["longitude"], hit["precision"], int(site_id)],
+                )
+                geocoded += 1
+                results.append({"site_id": int(site_id), "ok": True, "precision": hit["precision"]})
+
+            if rows:
+                record_audit_event(
+                    con,
+                    request=request,
+                    actor=_user,
+                    action="bulk_geocode",
+                    entity_type="client_site",
+                    entity_id=None,
+                    client_id=int(client_db_id),
+                    metadata={"attempted": len(rows), "geocoded": geocoded, "skipped": skipped},
+                )
+
+            return {"ok": True, "attempted": len(rows), "geocoded": geocoded, "skipped": skipped, "results": results}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to geocode sites: {e}")
 
 
 @router.patch("/clients/{client_db_id}/sites/{site_id}/vacate")

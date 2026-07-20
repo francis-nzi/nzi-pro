@@ -55,6 +55,11 @@ const PortalFacilityLeaderboard = dynamic(() => import("@/components/PortalFacil
   loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading facility leaderboard...</div>,
 });
 
+const PortalGeoMap = dynamic(() => import("@/components/PortalGeoMap"), {
+  ssr: false,
+  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading facility locations...</div>,
+});
+
 type Job = {
   job_id: number;
   job_number: string;
@@ -330,6 +335,8 @@ function DashboardPageInner() {
                 </CardContent>
               </Card>
             )}
+
+            <PortalGeoMap />
 
             <PortalFacilityLeaderboard />
           </div>

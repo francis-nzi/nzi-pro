@@ -1162,6 +1162,40 @@ def portal_reporting_data(current_user: dict = Depends(portal_user_dep)):
             }
 
 
+@router.get("/portal/sites-geo")
+def portal_sites_geo(current_user: dict = Depends(portal_user_dep)):
+    """Site coordinates for the Geospatial Footprint Map. Kept separate from
+    /portal/reporting-data (which keys by_site on site_name only, sourced from
+    job rows) so this can join client_sites for coordinates without touching
+    that endpoint's existing, already-working aggregation."""
+    from services.sites import ensure_client_sites_runtime_columns
+
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        ensure_client_sites_runtime_columns(con)
+        rows = con.execute(
+            """
+            SELECT site_name, latitude, longitude, geocode_precision
+            FROM client_sites
+            WHERE client_db_id = %s
+              AND (archived = FALSE OR archived IS NULL)
+              AND vacated_date IS NULL
+            """,
+            [client_db_id],
+        ).fetchall()
+
+    sites = [
+        {
+            "site_name": r[0],
+            "latitude": float(r[1]) if r[1] is not None else None,
+            "longitude": float(r[2]) if r[2] is not None else None,
+            "geocode_precision": r[3],
+        }
+        for r in rows or []
+    ]
+    return {"sites": sites}
+
+
 # ---------------------------------------------------------------------------
 # Approval
 # ---------------------------------------------------------------------------

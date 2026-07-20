@@ -13,6 +13,11 @@ def ensure_client_sites_runtime_columns(con) -> None:
         "ALTER TABLE client_sites ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP",
         "ALTER TABLE client_sites ADD COLUMN IF NOT EXISTS archived_by VARCHAR",
         "ALTER TABLE client_sites ADD COLUMN IF NOT EXISTS vacated_date DATE",
+        "ALTER TABLE client_sites ADD COLUMN IF NOT EXISTS latitude NUMERIC",
+        "ALTER TABLE client_sites ADD COLUMN IF NOT EXISTS longitude NUMERIC",
+        "ALTER TABLE client_sites ADD COLUMN IF NOT EXISTS geocode_source VARCHAR",
+        "ALTER TABLE client_sites ADD COLUMN IF NOT EXISTS geocode_precision VARCHAR",
+        "ALTER TABLE client_sites ADD COLUMN IF NOT EXISTS geocoded_at TIMESTAMP",
     ]
     for ddl in statements:
         try:
@@ -140,7 +145,8 @@ def fetch_client_sites_payload(client_db_id: int, con=None) -> dict[str, object]
 
     rows = con.execute(
         """
-        SELECT site_id, site_name, location, is_registered_office, vacated_date, archived
+        SELECT site_id, site_name, location, is_registered_office, vacated_date, archived,
+               latitude, longitude, geocode_source, geocode_precision, geocoded_at
         FROM client_sites
         WHERE client_db_id = ?
         ORDER BY
@@ -156,7 +162,8 @@ def fetch_client_sites_payload(client_db_id: int, con=None) -> dict[str, object]
     vacated_sites: list[dict[str, object]] = []
 
     for row in rows or []:
-        site_id, site_name, location, is_registered_office, vacated_date, archived = row
+        (site_id, site_name, location, is_registered_office, vacated_date, archived,
+         latitude, longitude, geocode_source, geocode_precision, geocoded_at) = row
         site_data = {
             "site_id": int(site_id) if site_id is not None else None,
             "site_name": site_name,
@@ -164,6 +171,11 @@ def fetch_client_sites_payload(client_db_id: int, con=None) -> dict[str, object]
             "is_registered_office": bool(is_registered_office) if is_registered_office is not None else False,
             "vacated_date": str(vacated_date) if vacated_date is not None else None,
             "archived": bool(archived) if archived is not None else False,
+            "latitude": float(latitude) if latitude is not None else None,
+            "longitude": float(longitude) if longitude is not None else None,
+            "geocode_source": geocode_source,
+            "geocode_precision": geocode_precision,
+            "geocoded_at": str(geocoded_at) if geocoded_at is not None else None,
         }
         if vacated_date is None and not site_data["archived"]:
             active_sites.append(site_data)
