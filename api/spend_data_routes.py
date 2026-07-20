@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Any
 
 import pandas as pd
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
@@ -24,10 +24,19 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 from api.auth import _current_user
 from core.database import get_conn
+from services.audit_log import fetch_row_dict, record_audit_event
 from services.dataset_selector import get_applicable_datasets, get_scope_primary_datasets
 from services.download_filenames import build_download_filename
 
 router = APIRouter()
+
+
+def _job_spend_entry_snapshot(con, job_id: int, entry_id: int) -> dict[str, Any] | None:
+    return fetch_row_dict(
+        con,
+        "SELECT * FROM job_spend_entries WHERE entry_id = %s AND job_id = %s",
+        [int(entry_id), int(job_id)],
+    )
 
 
 def _ensure_spend_tables(con) -> None:
@@ -1142,10 +1151,11 @@ def update_spend_data(job_id: int, entry_id: int, body: dict = Body(...), _user:
 
 
 @router.delete("/jobs/{job_id}/spend-data/{entry_id}")
-def delete_spend_data(job_id: int, entry_id: int, _user: dict = Depends(_current_user)):
+def delete_spend_data(request: Request, job_id: int, entry_id: int, _user: dict = Depends(_current_user)):
     with get_conn() as con:
         _ensure_spend_tables(con)
         _job_client_id(con, int(job_id))
+        before = _job_spend_entry_snapshot(con, int(job_id), int(entry_id))
         con.execute(
             """
             UPDATE job_spend_entries
@@ -1154,7 +1164,59 @@ def delete_spend_data(job_id: int, entry_id: int, _user: dict = Depends(_current
             """,
             [int(entry_id), int(job_id)],
         )
+        after = _job_spend_entry_snapshot(con, int(job_id), int(entry_id))
+        record_audit_event(
+            con,
+            request=request,
+            actor=_user,
+            action="delete",
+            entity_type="job_spend_entry",
+            entity_id=int(entry_id),
+            job_id=int(job_id),
+            before=before,
+            after=after,
+        )
     return {"ok": True}
+
+
+@router.delete("/jobs/{job_id}/spend-data")
+def delete_all_spend_data(request: Request, job_id: int, _user: dict = Depends(_current_user)):
+    """Delete every active spend entry for a job, then reconcile job_scope_rows
+    immediately so the deletion is actually visible everywhere -- not just in
+    job_spend_entries, which a prior incident showed users reasonably assume
+    is the same thing as "the data is gone" on the Data Entry screen."""
+    with get_conn() as con:
+        _ensure_spend_tables(con)
+        _job_client_id(con, int(job_id))
+        entry_ids = [
+            int(r[0])
+            for r in con.execute(
+                "SELECT entry_id FROM job_spend_entries WHERE job_id=%s AND COALESCE(is_deleted, FALSE) = FALSE",
+                [int(job_id)],
+            ).fetchall()
+        ]
+        if entry_ids:
+            con.execute(
+                """
+                UPDATE job_spend_entries
+                SET is_deleted=TRUE, updated_at=NOW()
+                WHERE job_id=%s AND COALESCE(is_deleted, FALSE) = FALSE
+                """,
+                [int(job_id)],
+            )
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="bulk_delete",
+                entity_type="job_spend_entry",
+                entity_id=None,
+                job_id=int(job_id),
+                metadata={"count": len(entry_ids), "entry_ids": entry_ids},
+            )
+
+    sync_result = sync_spend_to_scope_data(int(job_id), {}, _user) if entry_ids else None
+    return {"ok": True, "deleted": len(entry_ids), "sync": sync_result}
 
 
 @router.post("/jobs/{job_id}/spend-data/{entry_id}/map")
@@ -1644,6 +1706,7 @@ async def preview_spend_upload(
 
 @router.post("/jobs/{job_id}/spend-data/upload-commit")
 async def commit_spend_upload(
+    request: Request,
     job_id: int,
     file: UploadFile = File(...),
     code_type: str = Query("nominal_code"),
@@ -1662,6 +1725,13 @@ async def commit_spend_upload(
         df = _parse_upload(data, file.filename or "upload.csv")
 
         if replace_existing:
+            replaced_ids = [
+                int(r[0])
+                for r in con.execute(
+                    "SELECT entry_id FROM job_spend_entries WHERE job_id=%s AND COALESCE(is_deleted, FALSE) = FALSE",
+                    [int(job_id)],
+                ).fetchall()
+            ]
             con.execute(
                 """
                 UPDATE job_spend_entries
@@ -1670,6 +1740,17 @@ async def commit_spend_upload(
                 """,
                 [int(job_id)],
             )
+            if replaced_ids:
+                record_audit_event(
+                    con,
+                    request=request,
+                    actor=_user,
+                    action="bulk_delete",
+                    entity_type="job_spend_entry",
+                    entity_id=None,
+                    job_id=int(job_id),
+                    metadata={"reason": "replace_existing on upload", "count": len(replaced_ids), "entry_ids": replaced_ids},
+                )
 
         inserted = 0
         auto_mapped = 0
@@ -1705,6 +1786,24 @@ async def commit_spend_upload(
             inserted += 1
             if saved.get("auto_mapped"):
                 auto_mapped += 1
+
+        record_audit_event(
+            con,
+            request=request,
+            actor=_user,
+            action="upload",
+            entity_type="job_spend_entry",
+            entity_id=None,
+            job_id=int(job_id),
+            metadata={
+                "inserted": inserted,
+                "auto_mapped": auto_mapped,
+                "unmapped": inserted - auto_mapped,
+                "id_mismatches": id_mismatches,
+                "replace_existing": replace_existing,
+                "filename": file.filename,
+            },
+        )
 
     return {
         "ok": True,

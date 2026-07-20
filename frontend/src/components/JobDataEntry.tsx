@@ -2178,6 +2178,14 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                 Linked → T&D
                               </div>
                             ) : null}
+                            {row.data_source === "Spend Data" ? (
+                              <div
+                                className="inline-flex rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-900"
+                                title="This row is generated from Spend Data — delete the source entry on the Spend Data screen to remove it permanently, or it will reappear on next sync."
+                              >
+                                Spend Data
+                              </div>
+                            ) : null}
                           </div>
                         </td>
                         {visibleColumns.qty && (

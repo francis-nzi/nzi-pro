@@ -119,7 +119,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
     warning_count?: number;
     id_mismatch_count?: number;
   } | null>(null);
-  const [replaceExisting, setReplaceExisting] = useState(false);
+  const [replaceExisting, setReplaceExisting] = useState(true);
   const [commitResult, setCommitResult] = useState<{ inserted: number; auto_mapped: number } | null>(null);
   const [syncResult, setSyncResult] = useState<{ created: number; updated: number; deactivated: number } | null>(null);
 
@@ -427,6 +427,28 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
       await loadData();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to delete spend row");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deleteAllRows() {
+    const confirmed = await confirmAction({
+      title: "Delete all spend data?",
+      description: `This will permanently delete all ${totalCount} spend row(s) for this job and remove any emissions data generated from them. This cannot be undone.`,
+      confirmLabel: "Delete All",
+      destructive: true,
+    });
+    if (!confirmed) return;
+    setLoading(true); setError(""); setStatus("");
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/spend-data`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`Failed to delete all spend data (${res.status})`);
+      const data = await res.json();
+      setStatus(`Deleted ${data?.deleted ?? 0} spend row(s) and reconciled emissions data.`);
+      await loadData();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to delete all spend data");
     } finally {
       setLoading(false);
     }
@@ -852,6 +874,14 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
             ) : hasRows ? (
               <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
                 ✓ All {mappedCount} rows are mapped and ready to push.
+              </div>
+            ) : null}
+
+            {hasRows ? (
+              <div className="flex justify-end">
+                <Button variant="destructive" size="sm" onClick={() => void deleteAllRows()} disabled={loading}>
+                  Delete All Spend Data ({totalCount})
+                </Button>
               </div>
             ) : null}
 
