@@ -9,6 +9,11 @@ import { apiFetch } from "@/lib/auth";
 import { formatEmissions } from "@/lib/format";
 import PortalShell from "@/components/PortalShell";
 import { BRAND } from "@/lib/brand";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { KpiCard } from "@/components/shared/KpiCard";
+import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
 
 const PortalReporting = dynamic(() => import("@/components/PortalReporting"), {
   ssr: false,
@@ -43,6 +48,11 @@ const PortalPortfolioDashboard = dynamic(() => import("@/components/PortalPortfo
 const PortalDashboardCharts = dynamic(() => import("@/components/PortalDashboardCharts"), {
   ssr: false,
   loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading charts...</div>,
+});
+
+const PortalFacilityLeaderboard = dynamic(() => import("@/components/PortalFacilityLeaderboard"), {
+  ssr: false,
+  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading facility leaderboard...</div>,
 });
 
 type Job = {
@@ -85,19 +95,17 @@ const REVIEW_LABELS: Record<string, string> = {
   approved: "Approved",
 };
 
-const REVIEW_COLOURS: Record<string, string> = {
-  not_sent: "bg-gray-100 text-gray-500",
-  draft: "bg-gray-100 text-gray-500",
-  sent_for_review: "bg-blue-100 text-blue-700",
-  changes_requested: "bg-amber-100 text-amber-700",
-  approved: "bg-green-100 text-green-700",
+const REVIEW_BADGE_VARIANT: Record<string, "secondary" | "warning" | "success"> = {
+  sent_for_review: "secondary",
+  changes_requested: "warning",
+  approved: "success",
 };
 
 function ReviewIcon({ status }: { status: string }) {
-  if (status === "approved") return <CheckCircle2 className="h-4 w-4 text-green-600" />;
-  if (status === "sent_for_review") return <FileText className="h-4 w-4 text-blue-600" />;
-  if (status === "changes_requested") return <MessageSquare className="h-4 w-4 text-amber-600" />;
-  return <Clock className="h-4 w-4 text-gray-400" />;
+  if (status === "approved") return <CheckCircle2 className="h-4 w-4 text-status-success" />;
+  if (status === "sent_for_review") return <FileText className="h-4 w-4 text-muted-foreground" />;
+  if (status === "changes_requested") return <MessageSquare className="h-4 w-4 text-status-warning" />;
+  return <Clock className="h-4 w-4 text-muted-foreground" />;
 }
 
 function formatTimestamp(raw: string | null | undefined): string {
@@ -126,33 +134,31 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
       {sorted.map(([year, job]) => {
         const label = REVIEW_LABELS[job.review_status] ?? "";
         return (
-          <div key={year} className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-4">
+          <Card key={year} className="flex flex-col gap-4 p-6 transition-shadow hover:shadow-md">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <div className="text-3xl font-bold text-gray-900 tabular-nums">{year || "—"}</div>
-                <div className="mt-1 text-sm text-gray-500 leading-tight">{job.title || "Carbon Report"}</div>
-                <div className="mt-1 text-xs text-gray-400">Job No: {job.job_number || "—"}</div>
-                <div className="mt-1 text-xs text-gray-400">
+                <div className="text-3xl font-bold tabular-nums text-foreground">{year || "—"}</div>
+                <div className="mt-1 text-sm leading-tight text-muted-foreground">{job.title || "Carbon Report"}</div>
+                <div className="mt-1 text-xs text-muted-foreground">Job No: {job.job_number || "—"}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
                   {job.snapshot_at ? `Last refreshed ${formatTimestamp(job.snapshot_at)}` : "No refresh recorded yet"}
                 </div>
               </div>
               <ReviewIcon status={job.review_status} />
             </div>
             {label && (
-              <span className={`self-start inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${REVIEW_COLOURS[job.review_status] ?? "bg-gray-100 text-gray-500"}`}>
+              <Badge variant={REVIEW_BADGE_VARIANT[job.review_status] ?? "outline"} className="self-start">
                 {label}
-              </span>
+              </Badge>
             )}
-            <Link
-              href={`/jobs/${job.job_id}/view`}
-              className="mt-auto flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-colors"
-              style={{ backgroundColor: BRAND }}
-            >
-              <ExternalLink className="h-4 w-4" />
-              View Report
-            </Link>
-            <div className="text-center text-xs text-gray-400">Opens the current report</div>
-          </div>
+            <Button asChild style={{ backgroundColor: BRAND }} className="mt-auto hover:opacity-90">
+              <Link href={`/jobs/${job.job_id}/view`}>
+                <ExternalLink className="h-4 w-4" />
+                View Report
+              </Link>
+            </Button>
+            <div className="text-center text-xs text-muted-foreground">Opens the current report</div>
+          </Card>
         );
       })}
     </div>
@@ -268,19 +274,15 @@ function DashboardPageInner() {
 
         {activeTab === "dashboard" && (
           <div className="space-y-6">
-            {metricsError && (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                Failed to load dashboard data: {metricsError}
-              </div>
-            )}
+            {metricsError && <ErrorPanel description={`Failed to load dashboard data: ${metricsError}`} />}
             {yearOptions.length > 0 && (
               <div className="flex items-center justify-end gap-2">
-                <span className="text-sm text-gray-500">Reporting Year:</span>
+                <span className="text-sm text-muted-foreground">Reporting Year:</span>
                 <select
                   value={selectedYear ?? ""}
                   disabled={metricsLoading}
                   onChange={e => void loadMetricsForYear(Number(e.target.value))}
-                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+                  className="rounded-lg border border-input px-3 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {yearOptions.map(yr => <option key={yr} value={yr}>{yr}</option>)}
                 </select>
@@ -288,42 +290,48 @@ function DashboardPageInner() {
             )}
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm text-right">
-                <div className="text-xs text-gray-500 leading-tight">Benchmark Emissions{metrics?.benchmark_metrics?.benchmark_year ? ` (${metrics.benchmark_metrics.benchmark_year})` : ""}</div>
-                <div className="mt-2 text-2xl font-semibold tabular-nums leading-none">{metrics?.benchmark_metrics?.total != null ? formatEmissions(metrics.benchmark_metrics.total) : "—"}</div>
-                <div className="mt-1 text-xs text-gray-400">tCO&#8322;e</div>
-              </div>
-              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm text-right">
-                <div className="text-xs text-gray-500 leading-tight">Current Year Emissions{displayYear ? ` (${displayYear})` : ""}</div>
-                <div className="mt-2 text-2xl font-semibold tabular-nums leading-none">{metricsLoading ? "..." : formatEmissions(total)}</div>
-                <div className="mt-1 text-xs text-gray-400">tCO&#8322;e</div>
-              </div>
-              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm text-right">
-                <div className="text-xs text-gray-500 leading-tight">Intensity Metric</div>
-                <div className="mt-2 text-2xl font-semibold tabular-nums leading-none">{intensityMetric ? Number(intensityMetric.intensity || 0).toFixed(1) : "—"}</div>
-                <div className="mt-1 text-xs text-gray-400">{intensityMetric?.label ?? "Not available"}</div>
-              </div>
-              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm text-right">
-                <div className="text-xs text-gray-500 leading-tight">Net Zero Target</div>
-                <div className="mt-2 text-2xl font-semibold tabular-nums leading-none">{metrics?.net_zero_progress?.net_zero_year ?? "—"}</div>
-                <div className="mt-1 text-xs text-gray-400">{metrics?.net_zero_progress ? `${metrics.net_zero_progress.years_to_target} years to target` : "Target not set"}</div>
-              </div>
+              <KpiCard
+                label={`Benchmark Emissions${metrics?.benchmark_metrics?.benchmark_year ? ` (${metrics.benchmark_metrics.benchmark_year})` : ""}`}
+                value={metrics?.benchmark_metrics?.total != null ? formatEmissions(metrics.benchmark_metrics.total) : "—"}
+                unit="tCO2e"
+              />
+              <KpiCard
+                label={`Current Year Emissions${displayYear ? ` (${displayYear})` : ""}`}
+                value={metricsLoading ? "..." : formatEmissions(total)}
+                unit="tCO2e"
+                trend={metrics?.yoy_change ?? undefined}
+              />
+              <KpiCard
+                label="Intensity Metric"
+                value={intensityMetric ? Number(intensityMetric.intensity || 0).toFixed(1) : "—"}
+                unit={intensityMetric?.label ?? "Not available"}
+              />
+              <KpiCard
+                label="Net Zero Target"
+                value={metrics?.net_zero_progress?.net_zero_year != null ? String(metrics.net_zero_progress.net_zero_year) : "—"}
+                unit={metrics?.net_zero_progress ? `${metrics.net_zero_progress.years_to_target}y to go` : "Target not set"}
+              />
             </div>
 
             {!metricsLoading && metrics && (
-              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-gray-700">Emissions Overview</h3>
-                  <button
+              <Card>
+                <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-semibold">Emissions Overview</CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => setChartView(v => v === "overview" ? "trends" : "overview")}
-                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
                   >
                     {chartView === "overview" ? "View Trends" : "View Overview"}
-                  </button>
-                </div>
-                <PortalDashboardCharts scopeData={scopeData} total={total} trendData={trendData} topCategoryData={topCategoryData} view={chartView} year={displayYear} />
-              </div>
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  <PortalDashboardCharts scopeData={scopeData} total={total} trendData={trendData} topCategoryData={topCategoryData} view={chartView} year={displayYear} />
+                </CardContent>
+              </Card>
             )}
+
+            <PortalFacilityLeaderboard />
           </div>
         )}
 
@@ -336,11 +344,12 @@ function DashboardPageInner() {
         {activeTab === "reports" && (
           <div>
             {jobsLoading ? (
-              <div className="text-sm text-gray-400">Loading...</div>
+              <SkeletonLoader rows={4} />
             ) : jobs.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-400">
-                No reports available yet. Your NZI contact will send your report for review when it is ready.
-              </div>
+              <EmptyStatePanel
+                title="No reports available yet"
+                description="Your NZI contact will send your report for review when it is ready."
+              />
             ) : (
               <ReportYearCards jobs={jobs} />
             )}

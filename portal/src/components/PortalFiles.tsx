@@ -1,7 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Search } from "lucide-react";
 import { apiFetch } from "@/lib/auth";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
 
 async function downloadPortalFile(fileId: number, fileName: string) {
   const res = await apiFetch(`/portal/files/${fileId}/download`);
@@ -100,18 +112,6 @@ function ExternalLinkIcon({ className }: { className?: string }) {
   );
 }
 
-// ── Search icon ───────────────────────────────────────────────────────────────
-
-function SearchIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-      strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  );
-}
-
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function PortalFiles() {
@@ -161,78 +161,86 @@ export default function PortalFiles() {
   const isFiltered = q || filterJob !== "all" || filterYear !== "all" || filterType !== "all";
 
   if (loading) {
-    return <div className="py-12 text-center text-sm text-gray-400">Loading files…</div>;
+    return <SkeletonLoader rows={5} />;
   }
 
   if (error) {
-    return (
-      <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-        Failed to load files: {error}
-      </div>
-    );
+    return <ErrorPanel description={`Failed to load files: ${error}`} />;
   }
 
   if (files.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-gray-300 p-12 text-center">
-        <FileIcon className="mx-auto h-10 w-10 text-gray-300" />
-        <p className="mt-3 text-sm font-medium text-gray-500">No files yet</p>
-        <p className="mt-1 text-xs text-gray-400">
-          Your NZI team will upload documents here as they become available.
-        </p>
-      </div>
+      <EmptyStatePanel
+        title="No files yet"
+        description="Your NZI team will upload documents here as they become available."
+      />
     );
   }
-
-  const selectCls = "rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 focus:border-orange-400 focus:outline-none focus:ring-1 focus:ring-orange-100";
 
   return (
     <div className="space-y-4">
 
       {/* ── Filter bar ── */}
-      <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 space-y-2">
+      <div className="space-y-2 rounded-xl border border-border bg-muted/40 p-3">
         {/* Search */}
         <div className="relative">
-          <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
-          <input
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search file name or description…"
-            className="w-full rounded-lg border border-gray-200 bg-white py-1.5 pl-8 pr-3 text-xs text-gray-700 placeholder-gray-400 focus:border-orange-400 focus:outline-none focus:ring-1 focus:ring-orange-100"
+            className="h-8 pl-8 text-xs"
           />
         </div>
 
         {/* Dropdowns row */}
-        <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex flex-wrap items-center gap-2">
           {jobOptions.length > 1 && (
-            <select value={filterJob} onChange={(e) => setFilterJob(e.target.value)} className={selectCls}>
-              <option value="all">All jobs</option>
-              {jobOptions.map(j => <option key={j.jobId} value={String(j.jobId)}>{j.label}</option>)}
-            </select>
+            <Select value={filterJob} onValueChange={setFilterJob}>
+              <SelectTrigger className="h-8 w-auto min-w-[10rem] text-xs">
+                <SelectValue placeholder="All jobs" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All jobs</SelectItem>
+                {jobOptions.map(j => <SelectItem key={j.jobId} value={String(j.jobId)}>{j.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
           )}
 
-          <select value={filterYear} onChange={(e) => setFilterYear(e.target.value)} className={selectCls}>
-            <option value="all">All years</option>
-            {years.map((y) => <option key={y} value={String(y)}>{y}</option>)}
-          </select>
+          <Select value={filterYear} onValueChange={setFilterYear}>
+            <SelectTrigger className="h-8 w-auto min-w-[8rem] text-xs">
+              <SelectValue placeholder="All years" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All years</SelectItem>
+              {years.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
+            </SelectContent>
+          </Select>
 
-          <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className={selectCls}>
-            <option value="all">All file types</option>
-            {fileTypes.map((t) => (
-              <option key={t} value={t}>{fileTypeLabel(t)}</option>
-            ))}
-          </select>
+          <Select value={filterType} onValueChange={setFilterType}>
+            <SelectTrigger className="h-8 w-auto min-w-[9rem] text-xs">
+              <SelectValue placeholder="All file types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All file types</SelectItem>
+              {fileTypes.map((t) => (
+                <SelectItem key={t} value={t}>{fileTypeLabel(t)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
           {isFiltered && (
-            <div className="flex items-center gap-2 ml-auto">
-              <span className="text-xs text-gray-500">{visible.length} of {files.length} files</span>
-              <button
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">{visible.length} of {files.length} files</span>
+              <Button
+                variant="link"
+                size="sm"
+                className="h-auto p-0 text-xs"
                 onClick={() => { setSearch(""); setFilterJob("all"); setFilterYear("all"); setFilterType("all"); }}
-                className="text-xs text-orange-600 hover:text-orange-700 underline"
               >
                 Clear filters
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -240,40 +248,44 @@ export default function PortalFiles() {
 
       {/* ── File list ── */}
       {visible.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 p-10 text-center">
-          <p className="text-sm text-gray-400">No files match your search.</p>
-          <button
-            onClick={() => { setSearch(""); setFilterType("all"); setFilterYear("all"); }}
-            className="mt-2 text-xs text-orange-600 hover:text-orange-700 underline"
-          >
-            Clear filters
-          </button>
-        </div>
+        <EmptyStatePanel
+          title="No files match your search"
+          description="Try adjusting or clearing your filters."
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setSearch(""); setFilterType("all"); setFilterYear("all"); }}
+            >
+              Clear filters
+            </Button>
+          }
+        />
       ) : (
-        <div className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white">
+        <div className="divide-y divide-border rounded-xl border border-border bg-card">
           {visible.map((file) => {
             const isDownloading = downloading[file.file_id] ?? false;
             return (
               <div key={file.file_id} className="flex items-start gap-4 px-5 py-4">
-                <FileIcon className="mt-0.5 h-5 w-5 flex-shrink-0 text-gray-400" />
+                <FileIcon className="mt-0.5 h-5 w-5 flex-shrink-0 text-muted-foreground" />
 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium text-gray-900 truncate">
+                    <span className="truncate text-sm font-medium text-foreground">
                       {file.file_name}
                     </span>
                     {file.file_type && (
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${fileTypeBadge(file.file_type)}`}>
+                      <Badge className={`ring-1 ring-inset ${fileTypeBadge(file.file_type)}`}>
                         {fileTypeLabel(file.file_type)}
-                      </span>
+                      </Badge>
                     )}
                   </div>
 
                   {file.description && (
-                    <p className="mt-0.5 text-xs text-gray-500">{file.description}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{file.description}</p>
                   )}
 
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-400">
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
                     {file.reporting_year && <span>{file.reporting_year} report year</span>}
                     {file.job_number && <span>{file.job_number}</span>}
                     {formatFileSize(file.file_size) && <span>{formatFileSize(file.file_size)}</span>}
@@ -281,7 +293,9 @@ export default function PortalFiles() {
                   </div>
                 </div>
 
-                <button
+                <Button
+                  variant="outline"
+                  size="sm"
                   disabled={isDownloading}
                   onClick={() => {
                     setDownloading(d => ({ ...d, [file.file_id]: true }));
@@ -289,11 +303,11 @@ export default function PortalFiles() {
                       .catch(() => {})
                       .finally(() => setDownloading(d => ({ ...d, [file.file_id]: false })));
                   }}
-                  className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-orange-300 hover:text-orange-600 disabled:opacity-50"
+                  className="flex-shrink-0 gap-1.5"
                 >
                   <ExternalLinkIcon className="h-3.5 w-3.5" />
                   {isDownloading ? "…" : "Open"}
-                </button>
+                </Button>
               </div>
             );
           })}

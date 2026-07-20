@@ -6,6 +6,11 @@ import {
   Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 import { apiFetch } from "@/lib/auth";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { KpiCard } from "@/components/shared/KpiCard";
+import { TrendChip } from "@/components/shared/TrendChip";
+import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
 
 type ScopeCategoryData = { [scope: string]: { [category: string]: number } };
 
@@ -50,9 +55,8 @@ function yoyPct(cur: number, prev: number): number | null {
 
 function ChangeCell({ cur, prev }: { cur: number; prev: number }) {
   const pct = yoyPct(cur, prev);
-  if (pct === null) return <span className="text-gray-400">—</span>;
-  const color = pct > 0 ? "text-red-600" : pct < 0 ? "text-green-600" : "text-gray-600";
-  return <span className={color}>{pct > 0 ? "+" : ""}{pct.toFixed(1)}%</span>;
+  if (pct === null) return <span className="text-muted-foreground">—</span>;
+  return <TrendChip value={pct} />;
 }
 
 type TabKey = "by-scope" | "by-activity" | "by-site";
@@ -71,13 +75,14 @@ export default function PortalReporting() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="py-12 text-center text-sm text-gray-400">Loading reporting data…</div>;
-  if (error) return <div className="py-8 text-center text-sm text-red-600">{error}</div>;
+  if (loading) return <SkeletonLoader rows={4} />;
+  if (error) return <ErrorPanel description={`Failed to load reporting data: ${error}`} />;
   if (!data || data.years.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-400">
-        No reporting data available yet.
-      </div>
+      <EmptyStatePanel
+        title="No reporting data available yet"
+        description="Emissions data will appear here once your first year of data has been reported."
+      />
     );
   }
 
@@ -137,57 +142,54 @@ export default function PortalReporting() {
     <div className="space-y-6">
       {/* KPI cards */}
       <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div className="text-xs text-gray-500 uppercase tracking-wide font-medium">Total Emissions ({latestYear})</div>
-          <div className="mt-2 text-2xl font-bold tabular-nums">{fmt(getVal(by_scope, latestYear, "total"))} tCO₂e</div>
-        </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div className="text-xs text-gray-500 uppercase tracking-wide font-medium">Change vs Benchmark ({benchmarkYear})</div>
-          <div className="mt-2 text-2xl font-bold">
-            {hasComparison ? (() => {
-              const pct = yoyPct(getVal(by_scope, latestYear, "total"), getVal(by_scope, benchmarkYear, "total"));
-              if (pct === null) return <span>—</span>;
-              return <span className={pct > 0 ? "text-red-600" : "text-green-600"}>{pct > 0 ? "+" : ""}{pct.toFixed(1)}%</span>;
-            })() : <span>—</span>}
-          </div>
-        </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div className="text-xs text-gray-500 uppercase tracking-wide font-medium">Years of Data</div>
-          <div className="mt-2 text-2xl font-bold">{years.length}</div>
-          <div className="mt-0.5 text-xs text-gray-400">{years[0]} – {latestYear}</div>
-        </div>
+        <KpiCard label={`Total Emissions (${latestYear})`} value={fmt(getVal(by_scope, latestYear, "total"))} unit="tCO2e" />
+        <KpiCard
+          label={`Change vs Benchmark (${benchmarkYear})`}
+          value={(() => {
+            if (!hasComparison) return "—";
+            const pct = yoyPct(getVal(by_scope, latestYear, "total"), getVal(by_scope, benchmarkYear, "total"));
+            return pct === null ? "—" : `${pct > 0 ? "+" : ""}${pct.toFixed(1)}%`;
+          })()}
+        />
+        <KpiCard label="Years of Data" value={String(years.length)} unit={`${years[0]} – ${latestYear}`} />
       </div>
 
       {/* Overview chart */}
-      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <div className="text-sm font-semibold text-gray-700 mb-4">Total Emissions by Year (tCO₂e)</div>
-        <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-            <XAxis dataKey="year" tick={{ fontSize: 12 }} />
-            <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)} />
-            <Tooltip formatter={(v) => `${fmt(Number(v ?? 0))} tCO₂e`} />
-            <Legend />
-            {sortedScopes.map((s, i) => (
-              <Bar key={s} dataKey={s} stackId="a" fill={SCOPE_COLORS[i % SCOPE_COLORS.length]} isAnimationActive={false} />
-            ))}
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold">Total Emissions by Year (tCO2e)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="year" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)} />
+              <Tooltip formatter={(v) => `${fmt(Number(v ?? 0))} tCO₂e`} />
+              <Legend />
+              {sortedScopes.map((s, i) => (
+                <Bar key={s} dataKey={s} stackId="a" fill={SCOPE_COLORS[i % SCOPE_COLORS.length]} isAnimationActive={false} />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
 
       {/* Detail tables */}
-      <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-        <div className="flex border-b border-gray-200">
-          {tabs.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`px-5 py-2.5 text-sm font-medium transition-colors ${activeTab === tab.key ? "border-b-2 border-orange-500 text-orange-600" : "text-gray-500 hover:text-gray-700"}`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+      <Card className="overflow-hidden p-0">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabKey)}>
+          <TabsList className="h-auto w-full justify-start rounded-none border-b border-border bg-transparent p-0">
+            {tabs.map(tab => (
+              <TabsTrigger
+                key={tab.key}
+                value={tab.key}
+                className="rounded-none border-b-2 border-transparent px-5 py-2.5 data-[state=active]:border-brand data-[state=active]:bg-transparent data-[state=active]:text-brand data-[state=active]:shadow-none"
+              >
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
 
         <div className="overflow-x-auto p-1">
           {activeTab === "by-scope" && (
@@ -327,8 +329,8 @@ export default function PortalReporting() {
           })()}
         </div>
 
-        {showBenchmarkNote && <p className="px-4 pb-3 text-xs text-gray-400">★ Benchmark year</p>}
-      </div>
+        {showBenchmarkNote && <p className="px-4 pb-3 text-xs text-muted-foreground">★ Benchmark year</p>}
+      </Card>
 
       {/* ── Year-over-Year Detailed Activity Breakdown ── */}
       {by_activity_detail && by_activity_detail.length > 0 && (() => {
@@ -363,9 +365,9 @@ export default function PortalReporting() {
         }
 
         return (
-          <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-            <div className="px-5 py-3 border-b border-gray-200">
-              <h3 className="text-sm font-semibold text-gray-700">Year-over-Year Detailed Activity Breakdown</h3>
+          <Card className="overflow-hidden p-0">
+            <div className="border-b border-border px-5 py-3">
+              <h3 className="text-sm font-semibold text-foreground">Year-over-Year Detailed Activity Breakdown</h3>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm border-collapse">
@@ -463,8 +465,8 @@ export default function PortalReporting() {
                 </tbody>
               </table>
             </div>
-            {showBenchmarkNote && <p className="px-4 pb-3 text-xs text-gray-400">★ Benchmark year</p>}
-          </div>
+            {showBenchmarkNote && <p className="px-4 pb-3 text-xs text-muted-foreground">★ Benchmark year</p>}
+          </Card>
         );
       })()}
     </div>
