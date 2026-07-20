@@ -1,14 +1,21 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { SectionHeading } from "@/components/SectionHeading";
+import { JsonLd } from "@/components/JsonLd";
+import { breadcrumbSchema } from "@/lib/schema";
 
 export const metadata = {
   title: "About",
   description: "About Net Zero International and the support we provide to organisations.",
+  alternates: { canonical: "/about" },
 };
+
+const breadcrumbs = breadcrumbSchema([{ name: "About", path: "/about" }]);
 
 export default function AboutPage() {
   return (
+    <>
+    <JsonLd data={breadcrumbs} />
     <div className="site-wrap">
       <section className="page-hero">
         <p className="eyebrow">About</p>
@@ -89,5 +96,6 @@ export default function AboutPage() {
         </div>
       </section>
     </div>
+    </>
   );
 }

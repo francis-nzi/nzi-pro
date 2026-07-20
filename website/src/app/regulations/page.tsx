@@ -2,28 +2,52 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { ArrowRight } from "lucide-react";
 import { SectionHeading } from "@/components/SectionHeading";
+import { JsonLd } from "@/components/JsonLd";
+import { breadcrumbSchema, faqPageSchema, serviceSchema } from "@/lib/schema";
 
 export const metadata: Metadata = {
   title: "Carbon Reporting & Regulations | UK, EU & Global Disclosure",
   description:
     "A plain-English guide to carbon reporting regulations — SECR, CSRD, CBAM, ISSB, the US SEC rule, California, Australia's ASRS and Singapore's ACRA — and how Net Zero International helps you respond.",
+  alternates: { canonical: "/regulations" },
 };
 
-const regions = [
+const service = serviceSchema({
+  name: "Reporting and Regulations Support",
+  serviceType: "Sustainability reporting and compliance advice",
+  path: "/regulations",
+  description:
+    "Plain-English guidance on SECR, PPN 006, CSRD, NHS Evergreen and the wider reporting landscape, and how organisations should respond.",
+  areaServed: ["United Kingdom"],
+});
+
+const breadcrumbs = breadcrumbSchema([{ name: "Reporting & Regulations", path: "/regulations" }]);
+
+type RegionItem = {
+  q: string;
+  a: string;
+  faqSchema?: boolean;
+  link?: { href: string; label: string };
+};
+
+const regions: { name: string; items: RegionItem[] }[] = [
   {
     name: "United Kingdom",
     items: [
       {
         q: "What are the mandatory reporting thresholds for SECR in the UK?",
         a: "SECR (Streamlined Energy and Carbon Reporting) applies to all quoted UK companies, and to large unquoted companies and LLPs. “Large” means meeting at least two of three tests: turnover of £36 million or more, a balance sheet total of £18 million or more, or 250 or more employees. Organisations using 40 MWh or less of energy a year are exempt from the detailed disclosure but must still state that they are a low energy user.",
+        faqSchema: true,
       },
       {
         q: "Who needs a Carbon Reduction Plan for UK public sector contracts?",
         a: "UK central government procurement requires bidders for major contracts (currently those above £5 million a year) to publish a Carbon Reduction Plan confirming a commitment to net zero by 2050 and reporting their emissions, under Cabinet Office procurement policy. Many wider public bodies, including the NHS, apply similar expectations. A compliant plan must cover the required emissions scopes and be published in the specified format.",
+        faqSchema: true,
       },
       {
         q: "How does the NHS Evergreen framework assess carbon footprint?",
         a: "NHS Evergreen is the NHS supplier sustainability assessment. It asks suppliers to self-assess their net zero maturity across areas such as carbon reduction plans, emissions reporting, and progress toward the NHS's net zero targets, and scores them across levels. The rating increasingly influences NHS procurement, so a credible carbon reduction plan and a solid emissions baseline are the foundation of a strong Evergreen submission.",
+        faqSchema: true,
       },
       {
         q: "What is the UK's SDR (Sustainability Disclosure Requirements)?",
@@ -41,6 +65,7 @@ const regions = [
       {
         q: "Does CSRD affect UK companies?",
         a: "The EU Corporate Sustainability Reporting Directive (CSRD) can apply to UK companies with significant operations, turnover or listed securities in the EU, as well as UK subsidiaries of in-scope EU groups. Scope and timelines were narrowed and delayed by the EU's 2025 “Omnibus” simplification package, so the exact obligations depend on your EU footprint and the current phase-in. UK groups with material EU activity should check their position rather than assume they are out of scope.",
+        faqSchema: true,
       },
       {
         q: "EU ETS",
@@ -90,9 +115,18 @@ const regions = [
   },
 ];
 
+const faqs = faqPageSchema(
+  "/regulations",
+  regions.flatMap((region) => region.items).filter((item) => item.faqSchema)
+);
+
 export default function RegulationsPage() {
   return (
-    <div className="site-wrap">
+    <>
+      <JsonLd data={service} />
+      <JsonLd data={breadcrumbs} />
+      <JsonLd data={faqs} />
+      <div className="site-wrap">
       <section className="page-hero">
         <p className="eyebrow">Reporting &amp; Regulations</p>
         <h1>Carbon reporting regulations, explained in plain English.</h1>
@@ -158,6 +192,7 @@ export default function RegulationsPage() {
           <Link href="/contact" className="related-link">Contact</Link>
         </div>
       </section>
-    </div>
+      </div>
+    </>
   );
 }

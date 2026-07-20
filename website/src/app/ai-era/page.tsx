@@ -1,13 +1,20 @@
 import { SectionHeading } from "@/components/SectionHeading";
+import { JsonLd } from "@/components/JsonLd";
+import { breadcrumbSchema } from "@/lib/schema";
 import { aiPrinciples } from "@/content/site";
 
 export const metadata = {
   title: "AI-ready content",
   description: "How structured content helps the Net Zero International site perform in search and answer engines.",
+  alternates: { canonical: "/ai-era" },
 };
+
+const breadcrumbs = breadcrumbSchema([{ name: "AI-ready content", path: "/ai-era" }]);
 
 export default function AiEraPage() {
   return (
+    <>
+    <JsonLd data={breadcrumbs} />
     <div className="site-wrap">
       <section className="page-hero">
         <p className="eyebrow">AI-ready content</p>
@@ -51,5 +58,6 @@ export default function AiEraPage() {
         </article>
       </section>
     </div>
+    </>
   );
 }

@@ -1,14 +1,21 @@
 import Link from "next/link";
 import { SectionHeading } from "@/components/SectionHeading";
+import { JsonLd } from "@/components/JsonLd";
+import { breadcrumbSchema } from "@/lib/schema";
 import { serviceCards, servicePages } from "@/content/site";
 
 export const metadata = {
   title: "Services",
   description: "Carbon reporting, carbon reduction plans, Scope 3 support, workshops and training.",
+  alternates: { canonical: "/services" },
 };
+
+const breadcrumbs = breadcrumbSchema([{ name: "Services", path: "/services" }]);
 
 export default function ServicesPage() {
   return (
+    <>
+    <JsonLd data={breadcrumbs} />
     <div className="site-wrap">
       <section className="page-hero">
         <p className="eyebrow">Services</p>
@@ -59,5 +66,6 @@ export default function ServicesPage() {
         </div>
       </section>
     </div>
+    </>
   );
 }

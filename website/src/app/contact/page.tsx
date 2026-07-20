@@ -1,14 +1,21 @@
 import Link from "next/link";
 import { ArrowRight, Mail, MessageSquare } from "lucide-react";
 import { SectionHeading } from "@/components/SectionHeading";
+import { JsonLd } from "@/components/JsonLd";
+import { breadcrumbSchema } from "@/lib/schema";
 
 export const metadata = {
   title: "Contact",
   description: "Contact Net Zero International about carbon reporting, Scope 3, workshops or training.",
+  alternates: { canonical: "/contact" },
 };
+
+const breadcrumbs = breadcrumbSchema([{ name: "Contact", path: "/contact" }]);
 
 export default function ContactPage() {
   return (
+    <>
+    <JsonLd data={breadcrumbs} />
     <div className="site-wrap">
       <section className="page-hero">
         <p className="eyebrow">Contact</p>
@@ -71,5 +78,6 @@ export default function ContactPage() {
         </div>
       </section>
     </div>
+    </>
   );
 }

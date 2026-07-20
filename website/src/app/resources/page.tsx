@@ -1,14 +1,21 @@
 import Link from "next/link";
 import { SectionHeading } from "@/components/SectionHeading";
+import { JsonLd } from "@/components/JsonLd";
+import { breadcrumbSchema } from "@/lib/schema";
 import { faqs, resourcePages } from "@/content/site";
 
 export const metadata = {
   title: "Resources",
   description: "Glossary and FAQs that help explain the Net Zero International services.",
+  alternates: { canonical: "/resources" },
 };
+
+const breadcrumbs = breadcrumbSchema([{ name: "Resources", path: "/resources" }]);
 
 export default function ResourcesPage() {
   return (
+    <>
+    <JsonLd data={breadcrumbs} />
     <div className="site-wrap">
       <section className="page-hero">
         <p className="eyebrow">Resources</p>
@@ -54,5 +61,6 @@ export default function ResourcesPage() {
         </div>
       </section>
     </div>
+    </>
   );
 }

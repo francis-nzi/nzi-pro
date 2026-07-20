@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Manrope, Roboto } from "next/font/google";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
+import { JsonLd } from "@/components/JsonLd";
+import { organizationSchema, websiteSchema } from "@/lib/schema";
 import "./globals.css";
 
 const bodyFont = Manrope({
@@ -22,11 +24,14 @@ export const metadata: Metadata = {
     template: "%s | Net Zero International",
   },
   description:
-    "Net Zero International helps organisations measure, report and reduce emissions through carbon accounting, carbon reduction plans, Scope 3 support, workshops and training.",
+    "Net Zero International helps organisations measure, report and reduce emissions through carbon accounting, carbon reduction plans, Scope 3 support, life cycle assessments, product carbon footprinting, CBAM reporting, workshops and CPD accredited training.",
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
     title: "Net Zero International",
     description:
-      "Carbon accounting, carbon reduction plans, Scope 3 support, workshops and CPD accredited training for organisations of all sizes.",
+      "Carbon accounting, carbon reduction plans, Scope 3 support, life cycle assessments, product carbon footprinting, CBAM reporting, workshops and CPD accredited training for organisations of all sizes.",
     url: "https://netzero.international",
     siteName: "Net Zero International",
     type: "website",
@@ -44,6 +49,8 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${bodyFont.variable} ${displayFont.variable}`}>
+        <JsonLd data={organizationSchema} />
+        <JsonLd data={websiteSchema} />
         <SiteHeader />
         <main>{children}</main>
         <SiteFooter />
