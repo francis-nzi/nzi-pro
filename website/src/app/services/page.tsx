@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SectionHeading } from "@/components/SectionHeading";
 import { JsonLd } from "@/components/JsonLd";
+import { ClosingCta } from "@/components/ClosingCta";
 import { breadcrumbSchema } from "@/lib/schema";
 import { serviceCards, servicePages } from "@/content/site";
 
@@ -65,6 +66,11 @@ export default function ServicesPage() {
           ))}
         </div>
       </section>
+
+      <ClosingCta
+        title="Not sure which service fits?"
+        description="Tell us what you're trying to achieve and we'll point you to the right one, or tell you honestly if we're not the right fit."
+      />
     </div>
     </>
   );

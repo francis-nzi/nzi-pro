@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { SectionHeading } from "@/components/SectionHeading";
 import { JsonLd } from "@/components/JsonLd";
+import { ClosingCta } from "@/components/ClosingCta";
 import { breadcrumbSchema } from "@/lib/schema";
 
 export const metadata = {
@@ -95,6 +96,11 @@ export default function AboutPage() {
           </article>
         </div>
       </section>
+
+      <ClosingCta
+        title="Not sure where you fit?"
+        description="Tell us about your organisation and we'll point you to the right starting point, whether that's a first carbon reduction plan or something more specific."
+      />
     </div>
     </>
   );

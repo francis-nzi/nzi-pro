@@ -1,9 +1,8 @@
-import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { ArrowRight } from "lucide-react";
 import { SectionHeading } from "@/components/SectionHeading";
 import { JsonLd } from "@/components/JsonLd";
+import { ClosingCta } from "@/components/ClosingCta";
 import { articleSchema, breadcrumbSchema, faqPageSchema } from "@/lib/schema";
 import { comparisonPages } from "@/content/comparisons";
 
@@ -80,20 +79,7 @@ export default async function ComparisonPage({
           <SectionHeading eyebrow="In practice" title={page.bodyTitle} description={page.body} />
         </section>
 
-        <section className="content-section">
-          <SectionHeading eyebrow="Next step" title="Ready to talk it through?" />
-          <Link href={page.ctaHref} className="btn btn-primary">
-            {page.ctaLabel} <ArrowRight size={16} />
-          </Link>
-
-          <div className="related-links">
-            {page.links.map((link) => (
-              <Link key={link.href} href={link.href} className="related-link">
-                {link.label}
-              </Link>
-            ))}
-          </div>
-        </section>
+        <ClosingCta ctaLabel={page.ctaLabel} ctaHref={page.ctaHref} relatedLinks={page.links} />
       </div>
     </>
   );

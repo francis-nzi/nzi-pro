@@ -1,8 +1,8 @@
 # Build Notes — Net Zero International marketing site
 
-Phase 0 (audit & baseline) — completed 2026-07-20. Phase 1 (all 8 items) — completed 2026-07-20 (see §6–§8). Phase 2 (new service pages + regulations rewrite) — completed 2026-07-20 (see §9). Real logo + brand colours + header font — completed 2026-07-20 (see §10). Phase 3 (JSON-LD + comparison cluster) — completed 2026-07-20 (see §11). Read alongside `NET_ZERO_INTERNATIONAL_CLAUDE_CODE_BUILD_BRIEF.md` in the repo root, which this file tracks against.
+Phase 0 (audit & baseline) — completed 2026-07-20. Phase 1 (all 8 items) — completed 2026-07-20 (see §6–§8). Phase 2 (new service pages + regulations rewrite) — completed 2026-07-20 (see §9). Real logo + brand colours + header font — completed 2026-07-20 (see §10). Phase 3 (JSON-LD + comparison cluster) — completed 2026-07-20 (see §11). Nav restructure (Workshops/Regulations/FAQ/Glossary added) + Phase 4 (performance) + Phase 5 (UI polish) — completed 2026-07-20 (see §12). Read alongside `NET_ZERO_INTERNATIONAL_CLAUDE_CODE_BUILD_BRIEF.md` in the repo root, which this file tracks against.
 
-Sections 1–5 below are the original Phase 0 findings, left as written at the time. §6–§8 cover Phase 1. §9 covers Phase 2. §10 covers the branding update. §11 covers Phase 3.
+Sections 1–5 below are the original Phase 0 findings, left as written at the time. §6–§8 cover Phase 1. §9 covers Phase 2. §10 covers the branding update. §11 covers Phase 3. §12 covers the nav restructure plus Phases 4–5.
 
 ---
 
@@ -228,3 +228,41 @@ The user supplied the real logo (`website/netzero-logo.png`) and asked for it to
 **Verification:** `npm run lint`/`npm run build` clean, 31 routes total (up from 24). Every JSON-LD block on every checked page was fetched and run through `JSON.parse` (not just grepped for presence) — all valid on `/`, `/regulations` (5 blocks), `/faq`, `/glossary`, `/nz-insights-pro`, `/cbam`, and `/resources/pcf-vs-lca` (5 blocks). The `/regulations` FAQPage schema's 4 questions were dumped and diffed against the visible page text — exact match. Lighthouse spot-checks on `/nz-insights-pro` and `/resources/pcf-vs-lca`: **Accessibility 100, Best Practices 100, SEO 100** on both.
 
 **Deliberately not done:** the `Person`/E-E-A-T schema mentioned in brief §3f (no named individual authors are used on this site, so there's no natural entity to attach it to yet); Rich Results Test / Schema.org validator submission (needs a live public URL, can't be done against `localhost`, recommend doing this once deployed); image/performance optimisation (Phase 4); further visual/design-system polish (Phase 5); the cutover checklist (Phase 6).
+
+---
+
+## 12. Nav restructure + Phase 4 (performance) + Phase 5 (UI polish) (2026-07-20)
+
+### Nav: Workshops, Regulations, FAQ, Glossary added
+
+The primary nav previously omitted these four (a deliberate "keep it lean" default from Phase 1, left open for a decision). Adding all four flat would have made it 12 top-level items — measured out at roughly 1550–1600px of required width against a 1160px `site-wrap`, so it would never have fit at any real desktop size, not even wrapped gracefully. Restructured into two dropdown groups instead of a flat list:
+
+- **Services** (dropdown): Carbon Reduction Plans, Scope 3, Life Cycle Assessments, Product Carbon Footprinting, CBAM, Workshops, Training, Regulations, plus a "Services overview" link to `/services` at the top of the panel.
+- **NZ Insights Pro** (standalone, unchanged).
+- **Resources** (dropdown): Glossary, FAQ, plus a "Resources overview" link to `/resources`.
+- **About**, **Contact** (standalone, unchanged).
+
+Implementation: `navLinks` in `site.ts` gained an optional `children` array per item. `SiteHeader.tsx` renders a `NavDropdown` sub-component for any item with children — a `<button aria-expanded aria-haspopup="true">` trigger that toggles a positioned panel, closing on outside-click, `Escape`, or route change (reusing the existing pathname-change-detection pattern already used for the mobile menu). Mobile doesn't need the dropdown mechanism at all: vertical space isn't the constraint horizontal nav has, so the mobile panel just lists every item with its children indented directly underneath, always visible, no extra toggle state.
+
+Verified with real screenshots (a scratch Puppeteer script, not just reading the code): single-line nav at 1000px/1024px/1280px, the Services dropdown panel rendering correctly with all 8 items, and the mobile panel showing all 12 items grouped and indented correctly. Lighthouse Accessibility held at 100 with the new interactive dropdown in place.
+
+### Phase 4 — Performance
+
+- **Fonts:** added explicit `display: "swap"` to both `next/font/google` configs (Manrope, Roboto) — belt-and-braces alongside `next/font`'s own layout-shift prevention.
+- **Long-cache headers:** added `next.config.ts` (didn't exist before) with a `headers()` function giving `favicon.ico`/`netzero-logo.png`/`netzero-mark.png` a one-year immutable `Cache-Control`, and `llms.txt` a one-hour cache so content edits still propagate reasonably fast. Verified with `curl -I` against the running production server that the headers actually apply, not just that the config is syntactically present. `/_next/static/*` chunks already had immutable long-cache headers by Next's own default, confirmed the same way.
+- **CSS audit:** wrote a small script cross-referencing every class selector in `globals.css` against every `className` used across `src/**/*.tsx`. Found exactly two dead classes, `.stat-card` and `.stats-grid`, leftover from the original scaffold and never actually used by any page. Removed them (including their appearances in shared/media-query selector groups, careful not to touch the other classes sharing those same rules). Re-ran the script after: 0 unused classes out of 65.
+- **Tree-shaking / SSG confirmed, not just assumed:** grepped for `lucide-react` imports across the codebase — all are named imports (`import { X, Y } from "lucide-react"`), none import the whole icon set. Build output shows all 31 routes as either `○ (Static)` or `● (SSG)` — no dynamic/server-rendered routes exist on this site.
+- **Lighthouse (mobile), re-measured:** a dedicated performance-only run gave `/` 97 and `/carbon-reduction-plans` 100, with TBT 40–60ms and zero CLS on both — clean, and consistent with the machine-noise caveat already on record in §8: a combined 4-category run on the same pages moments later showed 88/93 instead, purely from the extra audits adding CPU load during capture, not from anything in this codebase. Accessibility/Best Practices/SEO held at 100/100/100 in every configuration regardless. Treat the dedicated-run numbers (97/100) as the more representative ones, and re-confirm on Render or another idle machine before citing a hard number externally.
+
+### Phase 5 — UI polish
+
+- **Focus-visible rings:** the site had no custom focus styling at all before this, just whatever the browser default happened to render against a rounded-pill design system, which is inconsistent across browsers and doesn't match the brand. Added a single `:focus-visible` rule (2px solid `--accent`, 2px offset) across links, buttons and form elements — keyboard-only, doesn't show on mouse click, which is the current best-practice pattern (no extra JS needed, browsers already distinguish mouse vs. keyboard focus via `:focus-visible` natively).
+- **`prefers-reduced-motion`:** the site previously had `scroll-behavior: smooth` and several CSS transitions with zero accommodation for users who've asked their OS to reduce motion. Added the standard kill-switch media query: `scroll-behavior: auto` and near-zero animation/transition durations under `prefers-reduced-motion: reduce`.
+- **`aria-current="page"`:** added to every nav link (desktop flat links, dropdown triggers, and every mobile link and sub-link) when it matches the current route — wasn't there before; the active state was purely visual (a CSS class), invisible to screen readers.
+- **Closing CTA audit — a real content gap, not a checkbox item:** checked every page for the brief's "every page ends with a clear CTA" requirement and found six pages that didn't: `/about`, `/ai-era`, `/faq`, `/glossary`, `/resources`, `/services` all ended mid-content (a card grid or list) with no closing prompt. Built a small shared `ClosingCta` component (extracted from the block `ContentPage.tsx` already had, so the service pages, the comparison pages, and these six now all render the *same* component rather than five copies of similar-but-drifting JSX) and added it to all six, each with a short page-appropriate title/description rather than one generic block repeated verbatim six times. `Contact` was deliberately left alone — the whole page already is a CTA (mailto link + what-to-include checklist), a second generic one directly underneath would be redundant.
+- **Labelled form controls:** N/A — there is no `<form>` anywhere on the site yet (Contact is a `mailto:` link, not a form), so there's nothing to check here until Phase 2's "conversion support" stage (CRM integration / lead forms) referenced in the site strategy doc actually gets built.
+- **Colour contrast, alt text, hover states:** already covered in earlier phases (§8/§10 contrast checks, §10 image alt text, existing hover states on cards/links/buttons); re-confirmed via the same Lighthouse Accessibility=100 result across every page checked in this pass, so nothing regressed.
+
+**Verification:** `npm run lint`/`npm run build` clean throughout. All 23 non-parameterised routes fetched and confirmed 200. Heading order re-checked on every page touched by the CTA addition (`/about`, `/ai-era`, `/faq`, `/glossary`, `/resources`, `/services`) by inspecting the actual `<h1>`–`<h6>` tag sequence in the rendered HTML — sequential on all six, no skips introduced by the new `ClosingCta` section. Lighthouse spot-checked on `/`, `/about`, `/faq`, `/resources`: **Accessibility 100, Best Practices 100, SEO 100** on all four.
+
+**Deliberately not done:** Rich Results Test / Schema.org validator submission (still needs a live public URL); the cutover checklist (Phase 6, needs a decision on when cutover is actually happening); any new visual/photographic assets (hero imagery, team photos) — none exist yet to optimise or add.

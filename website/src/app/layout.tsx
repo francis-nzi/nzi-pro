@@ -9,12 +9,14 @@ import "./globals.css";
 const bodyFont = Manrope({
   subsets: ["latin"],
   variable: "--font-body",
+  display: "swap",
 });
 
 const displayFont = Roboto({
   subsets: ["latin"],
   weight: ["500", "700", "900"],
   variable: "--font-display",
+  display: "swap",
 });
 
 export const metadata: Metadata = {

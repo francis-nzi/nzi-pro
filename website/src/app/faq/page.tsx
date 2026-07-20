@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { SectionHeading } from "@/components/SectionHeading";
 import { JsonLd } from "@/components/JsonLd";
+import { ClosingCta } from "@/components/ClosingCta";
 import { breadcrumbSchema, faqPageSchema } from "@/lib/schema";
 import { faqs } from "@/content/site";
 
@@ -43,6 +44,11 @@ export default function FaqPage() {
             ))}
           </div>
         </section>
+
+        <ClosingCta
+          title="Still have a question?"
+          description="Send it over and we'll answer directly, no generic reply, no sales pitch."
+        />
       </div>
     </>
   );

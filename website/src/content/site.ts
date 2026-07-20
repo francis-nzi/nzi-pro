@@ -1,10 +1,33 @@
-export const navLinks = [
-  { href: "/services", label: "Services" },
-  { href: "/carbon-reduction-plans", label: "Carbon Reduction Plans" },
-  { href: "/scope-3", label: "Scope 3" },
+export type NavLink = {
+  href: string;
+  label: string;
+  children?: { href: string; label: string }[];
+};
+
+export const navLinks: NavLink[] = [
+  {
+    href: "/services",
+    label: "Services",
+    children: [
+      { href: "/carbon-reduction-plans", label: "Carbon Reduction Plans" },
+      { href: "/scope-3", label: "Scope 3" },
+      { href: "/life-cycle-assessments", label: "Life Cycle Assessments" },
+      { href: "/product-carbon-footprinting", label: "Product Carbon Footprinting" },
+      { href: "/cbam", label: "CBAM" },
+      { href: "/workshops", label: "Workshops" },
+      { href: "/training", label: "Training" },
+      { href: "/regulations", label: "Regulations" },
+    ],
+  },
   { href: "/nz-insights-pro", label: "NZ Insights Pro" },
-  { href: "/training", label: "Training" },
-  { href: "/resources", label: "Resources" },
+  {
+    href: "/resources",
+    label: "Resources",
+    children: [
+      { href: "/glossary", label: "Glossary" },
+      { href: "/faq", label: "FAQ" },
+    ],
+  },
   { href: "/about", label: "About" },
   { href: "/contact", label: "Contact" },
 ];

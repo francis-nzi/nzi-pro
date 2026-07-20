@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { SectionHeading } from "@/components/SectionHeading";
 import { JsonLd } from "@/components/JsonLd";
+import { ClosingCta } from "@/components/ClosingCta";
 import { breadcrumbSchema, definedTermSetSchema } from "@/lib/schema";
 import { glossaryTerms } from "@/content/site";
 
@@ -44,6 +45,11 @@ export default function GlossaryPage() {
             ))}
           </div>
         </section>
+
+        <ClosingCta
+          title="Term not covered here?"
+          description="Ask us directly, we're happy to explain how any of this applies to your organisation specifically."
+        />
       </div>
     </>
   );

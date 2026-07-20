@@ -1,5 +1,6 @@
 import { SectionHeading } from "@/components/SectionHeading";
 import { JsonLd } from "@/components/JsonLd";
+import { ClosingCta } from "@/components/ClosingCta";
 import { breadcrumbSchema } from "@/lib/schema";
 import { aiPrinciples } from "@/content/site";
 
@@ -57,6 +58,13 @@ export default function AiEraPage() {
           </blockquote>
         </article>
       </section>
+
+      <ClosingCta
+        title="See it for yourself"
+        description="Pick any service page and check: does it answer what it is, who it's for, and what to do next, in the first few lines?"
+        ctaLabel="Explore our services"
+        ctaHref="/services"
+      />
     </div>
     </>
   );

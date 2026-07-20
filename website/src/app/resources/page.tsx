@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SectionHeading } from "@/components/SectionHeading";
 import { JsonLd } from "@/components/JsonLd";
+import { ClosingCta } from "@/components/ClosingCta";
 import { breadcrumbSchema } from "@/lib/schema";
 import { faqs, resourcePages } from "@/content/site";
 import { comparisonPages } from "@/content/comparisons";
@@ -78,6 +79,8 @@ export default function ResourcesPage() {
           ))}
         </div>
       </section>
+
+      <ClosingCta />
     </div>
     </>
   );

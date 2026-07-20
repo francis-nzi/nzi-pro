@@ -1,6 +1,4 @@
-import Link from "next/link";
-import { ArrowRight } from "lucide-react";
-import { SectionHeading } from "@/components/SectionHeading";
+import { ClosingCta } from "@/components/ClosingCta";
 
 type Section = {
   title: string;
@@ -32,8 +30,8 @@ export function ContentPage({
   sections = [],
   ctaHref = "/contact",
   ctaLabel = "Talk to us",
-  nextStepTitle = "Ready to talk it through?",
-  nextStepDescription = "Every engagement starts with a short conversation about where you are today and what you need. Get in touch and we'll tell you honestly whether we're the right fit.",
+  nextStepTitle,
+  nextStepDescription,
   relatedLinks = [],
 }: ContentPageProps) {
   return (
@@ -65,22 +63,13 @@ export function ContentPage({
         </section>
       ) : null}
 
-      <section className="content-section">
-        <SectionHeading eyebrow="Next step" title={nextStepTitle} description={nextStepDescription} />
-        <Link href={ctaHref} className="btn btn-primary">
-          {ctaLabel} <ArrowRight size={16} />
-        </Link>
-
-        {relatedLinks.length > 0 ? (
-          <div className="related-links">
-            {relatedLinks.map((link) => (
-              <Link key={link.href} href={link.href} className="related-link">
-                {link.label}
-              </Link>
-            ))}
-          </div>
-        ) : null}
-      </section>
+      <ClosingCta
+        title={nextStepTitle}
+        description={nextStepDescription}
+        ctaLabel={ctaLabel}
+        ctaHref={ctaHref}
+        relatedLinks={relatedLinks}
+      />
     </div>
   );
 }
