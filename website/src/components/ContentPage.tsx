@@ -37,7 +37,7 @@ export function ContentPage({
           <div className="page-layout">
             {sections.map((section) => (
               <article key={section.title} className="page-card">
-                <h3>{section.title}</h3>
+                <h2>{section.title}</h2>
                 <ul className="stack-list">
                   {section.points.map((point) => (
                     <li key={point}>{point}</li>

@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowRight, Menu } from "lucide-react";
+import { ArrowRight, Menu, X } from "lucide-react";
 import { navLinks } from "@/content/site";
 
 function isActive(pathname: string, href: string): boolean {
@@ -12,6 +13,13 @@ function isActive(pathname: string, href: string): boolean {
 
 export function SiteHeader() {
   const pathname = usePathname();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [lastPathname, setLastPathname] = useState(pathname);
+
+  if (pathname !== lastPathname) {
+    setLastPathname(pathname);
+    setMenuOpen(false);
+  }
 
   return (
     <header className="site-header">
@@ -40,11 +48,37 @@ export function SiteHeader() {
           <Link href="/contact" className="btn btn-ghost desktop-only">
             Contact us <ArrowRight size={16} />
           </Link>
-          <button className="mobile-menu" type="button" aria-label="Open navigation">
-            <Menu size={20} />
+          <button
+            className="mobile-menu"
+            type="button"
+            aria-label={menuOpen ? "Close navigation" : "Open navigation"}
+            aria-expanded={menuOpen}
+            aria-controls="mobile-nav-panel"
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            {menuOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
         </div>
       </div>
+
+      {menuOpen ? (
+        <div className="mobile-nav-panel" id="mobile-nav-panel">
+          <nav className="mobile-nav" aria-label="Mobile navigation">
+            {navLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={isActive(pathname, link.href) ? "mobile-nav-link active" : "mobile-nav-link"}
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+          <Link href="/contact" className="btn btn-primary mobile-nav-cta">
+            Contact us <ArrowRight size={16} />
+          </Link>
+        </div>
+      ) : null}
     </header>
   );
 }

@@ -69,7 +69,8 @@ export default function HomePage() {
                   <h3>{item.title}</h3>
                   <p>{item.summary}</p>
                   <Link href={item.href!} className="inline-cta">
-                    Learn more <ArrowRight size={15} />
+                    Learn more<span className="sr-only"> about {item.title}</span>{" "}
+                    <ArrowRight size={15} />
                   </Link>
                 </article>
               ))}

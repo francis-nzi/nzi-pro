@@ -172,6 +172,50 @@ img {
   color: var(--text);
 }
 
+.mobile-nav-panel {
+  display: none;
+  flex-direction: column;
+  gap: 16px;
+  padding: 8px 16px 24px;
+  border-top: 1px solid rgba(18, 32, 24, 0.08);
+  background: rgba(247, 243, 234, 0.98);
+}
+
+.mobile-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mobile-nav-link {
+  padding: 14px 4px;
+  border-bottom: 1px solid rgba(18, 32, 24, 0.08);
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.mobile-nav-link:hover,
+.mobile-nav-link.active {
+  color: var(--accent);
+}
+
+.mobile-nav-cta {
+  width: 100%;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .hero,
 .content-section {
   padding: 72px 0;
@@ -361,7 +405,8 @@ a.quote-card:hover {
 .info-card h3,
 .phase-card h3,
 .faq-card h3,
-.page-card h3 {
+.page-card h3,
+.page-card h2 {
   margin: 0 0 10px;
   font-size: 1.08rem;
 }
@@ -541,6 +586,10 @@ a.quote-card:hover {
   .mobile-menu {
     display: inline-grid;
     place-items: center;
+  }
+
+  .mobile-nav-panel {
+    display: flex;
   }
 
   .desktop-only {

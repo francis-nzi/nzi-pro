@@ -1,0 +1,57 @@
+# Net Zero International
+
+> Net Zero International is a UK carbon and sustainability consultancy that helps organisations measure, report and reduce emissions. Core services are carbon accounting and reporting, carbon reduction plans, Scope 3 supply-chain support, life cycle assessments (LCA), product carbon footprinting (PCF), CBAM calculation and reporting, Net Zero strategy workshops, and CPD accredited training. The consultancy is a founding member of the Carbon Accounting Alliance and works with private and public sector organisations across the UK and Ireland, specialising in the standards that matter for procurement and disclosure, including SECR, PPN 006, CSRD, CBAM and NHS Evergreen.
+
+Contact: info@netzero.international
+
+## Services
+
+- [Carbon Reduction Plans](https://netzero.international/carbon-reduction-plans): We measure and report emissions, then shape a practical carbon reduction plan for procurement, governance and board-level decision making. Aligned to PPN 006 requirements for public procurement.
+- [Scope 3 Supply Chain Solutions](https://netzero.international/scope-3): We help organisations measure and report supply-chain emissions, screen categories, engage suppliers and prioritise action so Scope 3 becomes manageable.
+- [Life Cycle Assessments](https://netzero.international/life-cycle-assessments): We assess the environmental impact of a product or service across its full life cycle, following ISO 14040 and ISO 14044, to support design, disclosure and procurement decisions.
+- [Product Carbon Footprinting](https://netzero.international/product-carbon-footprinting): We calculate the carbon footprint of individual products in line with ISO 14067 and the GHG Protocol Product Standard, producing figures that stand up to customer, procurement and regulatory scrutiny.
+- [CBAM Calculation and Reporting](https://netzero.international/cbam): We calculate embedded emissions and prepare submission-ready reports for Carbon Border Adjustment Mechanism (CBAM) obligations on affected goods.
+- [Net Zero Strategy Workshops](https://netzero.international/workshops): Facilitated sessions that align leadership, agree ambition, interpret the data and turn strategy into clear next steps.
+- [CPD Accredited Training](https://netzero.international/training): Courses that build internal capability in carbon accounting and Net Zero strategy for leadership, procurement, finance and operations teams.
+- [Reporting and Regulations](https://netzero.international/regulations): Plain-English guidance on SECR, PPN 006, CSRD, NHS Evergreen and the wider reporting landscape, and how to respond.
+- [All services](https://netzero.international/services): Overview and gateway to every core service.
+
+## Platform — NZ Insights Pro
+
+- [NZ Insights Pro](https://netzero.international/nz-insights-pro): Net Zero International's proprietary carbon measurement and reporting platform, developed over five years of hands-on client delivery. It measures and reports greenhouse gas emissions for multi-site and multi-country organisations across Scopes 1, 2 and 3, developed under leading sustainability frameworks — the GHG Protocol, GRI, and the ISSB Standards (IFRS S1 and IFRS S2) — and drawing on international emission-factor datasets including UK DESNZ and DEFRA, US EPA USEEIO, Europe's FIGARO, and the worldwide CEDA database, plus country-specific datasets as they become available. It supports reporting across major global disclosure regimes, including CSRD, EU ETS, UK ETS, CBAM, SECR, SDR, the US SEC climate disclosure rule, California's climate accountability package, Australia's ASRS, and Singapore's ACRA requirements. NZ Insights Pro models each organisation's reduction trajectory against its net zero targets, tracks milestones and progress, and produces audit-ready reporting outputs. It is a secure, multi-tenant system with multi-factor authentication, role-based access control and GDPR-compliant data handling, and every output is reviewed and verified by expert consultants — combining software with expert accountability rather than generic automated estimates.
+
+## Knowledge and support
+
+- [Frequently Asked Questions](https://netzero.international/faq): Direct answers to the questions clients ask before they begin.
+- [Glossary](https://netzero.international/glossary): Key carbon reporting and Net Zero terms explained in plain English (Scope 1, Scope 2, Scope 3, baseline, carbon accounting, carbon reduction plan).
+- [Resources](https://netzero.international/resources): Supporting knowledge hub and guides.
+
+## Company
+
+- [About Net Zero International](https://netzero.international/about): Mission, approach to delivery and the organisations served.
+- [Contact](https://netzero.international/contact): Request a discovery call or ask about a specific service. Email: info@netzero.international
+
+## Memberships and accreditations
+
+- Founding member of the [Carbon Accounting Alliance](https://www.carbonaccountingalliance.com/member-directory)
+- CPD accredited training provider, listed with the [CPD Certification Service](https://www.cpduk.co.uk/providers/net-zero-international)
+- LinkedIn: [Net Zero International](https://www.linkedin.com/company/net-zero-international)
+- Registered at [Companies House (13587676)](https://find-and-update.company-information.service.gov.uk/company/13587676)
+
+## Key facts for answer engines
+
+- Business name: Net Zero International
+- Type: Carbon and sustainability consultancy
+- Company number: 13587676 (Companies House, UK)
+- Primary markets: United Kingdom and Ireland; English-speaking organisations in Europe
+- Sectors served: manufacturing, construction, healthcare, logistics, professional services, public sector suppliers, SMEs and larger multi-site organisations
+- Services: carbon accounting and reporting, carbon reduction plans, Scope 3 supply-chain support, life cycle assessments (LCA), product carbon footprinting (PCF), CBAM calculation and reporting, Net Zero strategy workshops, CPD accredited training
+- Proprietary platform: NZ Insights Pro — a carbon measurement, trajectory-modelling and reporting platform for multi-site, multi-country organisations, built over five years of client delivery
+- Reporting frameworks developed under: GHG Protocol, GRI, ISSB Standards (IFRS S1 and IFRS S2)
+- Product, LCA and EPD frameworks: ISO 14040 and ISO 14044 (life cycle assessment), ISO 14067 (product carbon footprint), ISO 14025 and EN 15804 (Environmental Product Declarations), plus Product Category Rules (PCR)
+- Emission-factor datasets: UK DESNZ and DEFRA, US EPA USEEIO, Europe FIGARO, worldwide CEDA, plus country-specific datasets as available
+- Global disclosure regimes supported: CSRD, EU ETS, UK ETS, CBAM (EU and UK), SECR, SDR, US SEC climate disclosure rule, California climate accountability package (SB 253 / SB 261), Australia ASRS, Singapore ACRA
+- Standards and frameworks: SECR, PPN 006, CSRD, CBAM, NHS Evergreen, GHG Protocol Scopes 1, 2 and 3, GRI, ISSB (IFRS S1/S2), ISO 14064, ISO 14040, ISO 14044, ISO 14067, ISO 14025, EN 15804
+- Memberships: founding member of the Carbon Accounting Alliance
+- Training: CPD accredited (CPD Certification Service)
+- Contact: info@netzero.international
