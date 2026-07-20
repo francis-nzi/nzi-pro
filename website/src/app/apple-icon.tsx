@@ -1,9 +1,14 @@
+import fs from "fs";
+import path from "path";
 import { ImageResponse } from "next/og";
 
 export const size = { width: 180, height: 180 };
 export const contentType = "image/png";
 
 export default function AppleIcon() {
+  const markPath = path.join(process.cwd(), "public", "netzero-mark.png");
+  const markBase64 = fs.readFileSync(markPath).toString("base64");
+
   return new ImageResponse(
     (
       <div
@@ -13,14 +18,16 @@ export default function AppleIcon() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "linear-gradient(135deg, #174d2f, #2b7142)",
-          color: "#f7f3ea",
-          fontSize: 64,
-          fontWeight: 700,
-          letterSpacing: -2,
+          background: "#ffffff",
         }}
       >
-        NZI
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`data:image/png;base64,${markBase64}`}
+          width={152}
+          height={152}
+          alt=""
+        />
       </div>
     ),
     size

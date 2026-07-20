@@ -1,9 +1,14 @@
+import fs from "fs";
+import path from "path";
 import { ImageResponse } from "next/og";
 
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
 export default function OpengraphImage() {
+  const logoPath = path.join(process.cwd(), "public", "netzero-logo.png");
+  const logoBase64 = fs.readFileSync(logoPath).toString("base64");
+
   return new ImageResponse(
     (
       <div
@@ -17,43 +22,22 @@ export default function OpengraphImage() {
           background: "linear-gradient(135deg, #f7f3ea 0%, #efe7d6 100%)",
         }}
       >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`data:image/png;base64,${logoBase64}`}
+          width={420}
+          height={165}
+          alt=""
+          style={{ marginBottom: 48 }}
+        />
         <div
           style={{
             display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: 88,
-            height: 88,
-            borderRadius: 24,
-            background: "linear-gradient(135deg, #174d2f, #2b7142)",
-            color: "#f7f3ea",
-            fontSize: 32,
-            fontWeight: 700,
-            letterSpacing: -1,
-            marginBottom: 40,
-          }}
-        >
-          NZI
-        </div>
-        <div
-          style={{
-            display: "flex",
-            fontSize: 56,
+            fontSize: 40,
             fontWeight: 700,
             color: "#122018",
-            lineHeight: 1.1,
+            lineHeight: 1.2,
             maxWidth: 900,
-          }}
-        >
-          Net Zero International
-        </div>
-        <div
-          style={{
-            display: "flex",
-            fontSize: 28,
-            color: "#5c685f",
-            marginTop: 20,
-            maxWidth: 820,
           }}
         >
           Carbon accounting, carbon reduction plans and Net Zero support

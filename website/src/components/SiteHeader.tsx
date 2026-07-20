@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowRight, Menu, X } from "lucide-react";
@@ -25,11 +26,13 @@ export function SiteHeader() {
     <header className="site-header">
       <div className="site-wrap site-header-inner">
         <Link href="/" className="brand" aria-label="Net Zero International home">
-          <span className="brand-mark">NZI</span>
-          <span className="brand-text">
-            <strong>Net Zero International</strong>
-            <span>Carbon reporting and Net Zero support</span>
-          </span>
+          <Image
+            src="/netzero-logo.png"
+            alt="Net Zero International"
+            width={150}
+            height={59}
+            priority
+          />
         </Link>
 
         <nav className="site-nav" aria-label="Main navigation">

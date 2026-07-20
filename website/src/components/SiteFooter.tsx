@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 export function SiteFooter() {
@@ -5,6 +6,13 @@ export function SiteFooter() {
     <footer className="site-footer">
       <div className="site-wrap footer-grid">
         <div>
+          <Image
+            src="/netzero-mark.png"
+            alt="Net Zero International"
+            width={52}
+            height={52}
+            className="footer-mark"
+          />
           <p className="eyebrow">Net Zero International</p>
           <h2>Practical net zero support for organisations that need clarity and credibility.</h2>
           <p className="muted">

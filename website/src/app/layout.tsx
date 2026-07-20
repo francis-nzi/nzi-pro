@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Fraunces, Manrope } from "next/font/google";
+import { Manrope, Roboto } from "next/font/google";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import "./globals.css";
@@ -9,8 +9,9 @@ const bodyFont = Manrope({
   variable: "--font-body",
 });
 
-const displayFont = Fraunces({
+const displayFont = Roboto({
   subsets: ["latin"],
+  weight: ["500", "700", "900"],
   variable: "--font-display",
 });
 
