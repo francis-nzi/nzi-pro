@@ -1,9 +1,31 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/auth";
 
-import { BRAND } from "@/lib/brand";
+import { Card } from "@/components/ui/card";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type Action = {
@@ -30,18 +52,32 @@ type Category = { category_id: number; name: string };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+// Kanban column order per UX spec §6.4 (Proposed / Approved / In Progress / Verified).
+// "cancelled" is a real status but deliberately not a board column — see the
+// collapsible section at the bottom of the board.
+const STATUS_ORDER = ["open", "approved", "in_progress", "completed"] as const;
+
 const STATUS_LABEL: Record<string, string> = {
-  open: "Not started",
-  in_progress: "In progress",
-  completed: "Completed",
+  open: "Proposed",
+  approved: "Approved",
+  in_progress: "In Progress",
+  completed: "Verified",
   cancelled: "Cancelled",
 };
 
-const STATUS_COLOURS: Record<string, string> = {
-  open: "bg-gray-100 text-gray-600",
-  in_progress: "bg-blue-100 text-blue-700",
-  completed: "bg-green-100 text-green-700",
-  cancelled: "bg-red-100 text-red-600",
+const STATUS_BADGE_VARIANT: Record<string, BadgeProps["variant"]> = {
+  open: "outline",
+  approved: "secondary",
+  in_progress: "warning",
+  completed: "success",
+  cancelled: "risk",
+};
+
+const NEXT_STATUS: Record<string, string | null> = {
+  open: "approved",
+  approved: "in_progress",
+  in_progress: "completed",
+  completed: null,
 };
 
 const TERM_LABEL: Record<string, string> = {
@@ -59,23 +95,6 @@ function formatDate(raw: string | null | undefined): string {
   }
 }
 
-// ── Progress bar ─────────────────────────────────────────────────────────────
-
-function ProgressBar({ value }: { value: number }) {
-  const pct = Math.max(0, Math.min(100, value));
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 h-2 rounded-full bg-gray-200 overflow-hidden">
-        <div
-          className="h-full rounded-full transition-all"
-          style={{ width: `${pct}%`, backgroundColor: BRAND }}
-        />
-      </div>
-      <span className="text-xs font-medium tabular-nums text-gray-600 w-8 text-right">{pct}%</span>
-    </div>
-  );
-}
-
 // ── Library modal ────────────────────────────────────────────────────────────
 
 type LibraryAction = {
@@ -89,6 +108,7 @@ type LibraryAction = {
 };
 
 const SCOPE_OPTIONS = ["Scope 1", "Scope 2", "Scope 3", "Scope 1 and Scope 2", "All scopes"];
+const ALL = "__all__";
 
 function LibraryModal({
   categories,
@@ -102,9 +122,9 @@ function LibraryModal({
   const [library, setLibrary] = useState<LibraryAction[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQ, setSearchQ] = useState("");
-  const [filterCategory, setFilterCategory] = useState("");
-  const [filterScope, setFilterScope] = useState("");
-  const [filterTerm, setFilterTerm] = useState("");
+  const [filterCategory, setFilterCategory] = useState(ALL);
+  const [filterScope, setFilterScope] = useState(ALL);
+  const [filterTerm, setFilterTerm] = useState(ALL);
   const [adding, setAdding] = useState<number | null>(null);
   const [error, setError] = useState("");
 
@@ -122,13 +142,13 @@ function LibraryModal({
       if (!a.action_name.toLowerCase().includes(q) && !(a.description ?? "").toLowerCase().includes(q))
         return false;
     }
-    if (filterCategory && (a.action_category ?? "").toLowerCase() !== filterCategory.toLowerCase()) return false;
-    if (filterScope && (a.scope_focus ?? "").toLowerCase() !== filterScope.toLowerCase()) return false;
-    if (filterTerm && (a.action_term ?? "").toLowerCase() !== filterTerm.toLowerCase()) return false;
+    if (filterCategory !== ALL && (a.action_category ?? "").toLowerCase() !== filterCategory.toLowerCase()) return false;
+    if (filterScope !== ALL && (a.scope_focus ?? "").toLowerCase() !== filterScope.toLowerCase()) return false;
+    if (filterTerm !== ALL && (a.action_term ?? "").toLowerCase() !== filterTerm.toLowerCase()) return false;
     return true;
   });
 
-  const hasFilters = !!(searchQ || filterCategory || filterScope || filterTerm);
+  const hasFilters = !!(searchQ || filterCategory !== ALL || filterScope !== ALL || filterTerm !== ALL);
 
   async function handleAdd(optionId: number) {
     setAdding(optionId);
@@ -155,167 +175,129 @@ function LibraryModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl flex flex-col max-h-[90vh]">
-
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col p-0">
         {/* Header */}
-        <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex-shrink-0">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold text-gray-900">
-                Action library ({filtered.length})
-              </h2>
-              <p className="mt-0.5 text-sm text-gray-500">
-                Browse recommended actions and add them to your plan.
-              </p>
-            </div>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors text-lg leading-none mt-0.5"
-            >
-              ✕
-            </button>
-          </div>
+        <div className="flex-shrink-0 border-b border-border px-6 pb-4 pt-6">
+          <DialogHeader className="mb-0">
+            <DialogTitle>Action library ({filtered.length})</DialogTitle>
+            <DialogDescription>Browse recommended actions and add them to your plan.</DialogDescription>
+          </DialogHeader>
 
-          {/* Search */}
           <div className="mt-4">
-            <input
+            <Input
               type="text"
               value={searchQ}
               onChange={e => setSearchQ(e.target.value)}
               placeholder="Search by name or description…"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
               autoFocus
             />
           </div>
 
-          {/* Filters */}
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <select
-              value={filterCategory}
-              onChange={e => setFilterCategory(e.target.value)}
-              className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-orange-400"
-            >
-              <option value="">All categories</option>
-              {categories.map(c => (
-                <option key={c.category_id} value={c.name}>{c.name}</option>
-              ))}
-            </select>
+            <Select value={filterCategory} onValueChange={setFilterCategory}>
+              <SelectTrigger className="h-8 w-auto min-w-[9rem] text-xs">
+                <SelectValue placeholder="All categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All categories</SelectItem>
+                {categories.map(c => <SelectItem key={c.category_id} value={c.name}>{c.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
 
-            <select
-              value={filterScope}
-              onChange={e => setFilterScope(e.target.value)}
-              className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-orange-400"
-            >
-              <option value="">All scopes</option>
-              {SCOPE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <Select value={filterScope} onValueChange={setFilterScope}>
+              <SelectTrigger className="h-8 w-auto min-w-[9rem] text-xs">
+                <SelectValue placeholder="All scopes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All scopes</SelectItem>
+                {SCOPE_OPTIONS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
 
-            <select
-              value={filterTerm}
-              onChange={e => setFilterTerm(e.target.value)}
-              className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-orange-400"
-            >
-              <option value="">All timeframes</option>
-              <option value="short">Short term (0–12 months)</option>
-              <option value="medium">Medium term (1–3 years)</option>
-              <option value="long">Long term (3+ years)</option>
-            </select>
+            <Select value={filterTerm} onValueChange={setFilterTerm}>
+              <SelectTrigger className="h-8 w-auto min-w-[10rem] text-xs">
+                <SelectValue placeholder="All timeframes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All timeframes</SelectItem>
+                <SelectItem value="short">Short term (0–12 months)</SelectItem>
+                <SelectItem value="medium">Medium term (1–3 years)</SelectItem>
+                <SelectItem value="long">Long term (3+ years)</SelectItem>
+              </SelectContent>
+            </Select>
 
             {hasFilters && (
-              <button
-                onClick={() => { setSearchQ(""); setFilterCategory(""); setFilterScope(""); setFilterTerm(""); }}
-                className="text-xs text-orange-600 hover:text-orange-700 font-medium"
+              <Button
+                variant="link"
+                size="sm"
+                className="h-auto p-0 text-xs"
+                onClick={() => { setSearchQ(""); setFilterCategory(ALL); setFilterScope(ALL); setFilterTerm(ALL); }}
               >
                 Clear filters
-              </button>
+              </Button>
             )}
           </div>
 
-          {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+          {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
         </div>
 
         {/* Results */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2.5">
+        <div className="flex-1 space-y-2.5 overflow-y-auto px-6 py-4">
           {loading ? (
-            <div className="py-8 text-center text-sm text-gray-400">Loading library…</div>
+            <SkeletonLoader rows={4} />
           ) : filtered.length === 0 ? (
-            <div className="py-8 text-center text-sm text-gray-400">
+            <p className="py-8 text-center text-sm text-muted-foreground">
               {hasFilters ? "No actions match your filters. Try clearing some." : "No actions in library yet."}
-            </div>
+            </p>
           ) : (
             filtered.map(action => (
-              <div
+              <Card
                 key={action.action_option_id}
-                className={`flex items-start gap-3 rounded-xl border p-4 transition-colors ${
-                  action.already_added ? "border-green-200 bg-green-50/40" : "border-gray-200 hover:border-gray-300"
-                }`}
+                className={`flex-row items-start gap-3 p-4 ${action.already_added ? "border-status-success/30 bg-status-success/5" : ""}`}
               >
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 leading-snug">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold leading-snug text-foreground">
                     {action.action_name}
                   </p>
                   {action.description && (
-                    <p className="mt-0.5 text-xs text-gray-500 leading-snug line-clamp-2">
+                    <p className="mt-0.5 line-clamp-2 text-xs leading-snug text-muted-foreground">
                       {action.description}
                     </p>
                   )}
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {action.action_category && (
-                      <span className="inline-flex items-center rounded-full bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700">
-                        {action.action_category}
-                      </span>
-                    )}
-                    {action.scope_focus && (
-                      <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                        {action.scope_focus}
-                      </span>
-                    )}
+                    {action.action_category && <Badge variant="secondary">{action.action_category}</Badge>}
+                    {action.scope_focus && <Badge variant="outline">{action.scope_focus}</Badge>}
                     {action.action_term && (
-                      <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                        {TERM_LABEL[action.action_term] ?? action.action_term}
-                      </span>
+                      <Badge variant="outline">{TERM_LABEL[action.action_term] ?? action.action_term}</Badge>
                     )}
                   </div>
                 </div>
                 <div className="flex-shrink-0 pt-0.5">
                   {action.already_added ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-3 py-1.5 text-xs font-medium text-green-700">
-                      ✓ In plan
-                    </span>
+                    <Badge variant="success">In plan</Badge>
                   ) : (
-                    <button
-                      onClick={() => handleAdd(action.action_option_id)}
-                      disabled={adding === action.action_option_id}
-                      className="rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-50"
-                      style={{ backgroundColor: BRAND }}
-                    >
+                    <Button size="sm" onClick={() => handleAdd(action.action_option_id)} disabled={adding === action.action_option_id}>
                       {adding === action.action_option_id ? "Adding…" : "+ Add"}
-                    </button>
+                    </Button>
                   )}
                 </div>
-              </div>
+              </Card>
             ))
           )}
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between flex-shrink-0">
-          <span className="text-xs text-gray-400">
+        <div className="flex flex-shrink-0 items-center justify-between border-t border-border px-6 py-4">
+          <span className="text-xs text-muted-foreground">
             {filtered.length} action{filtered.length !== 1 ? "s" : ""} shown
           </span>
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            Done
-          </button>
+          <Button variant="outline" onClick={onClose}>Done</Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
-
 
 // ── Update modal ─────────────────────────────────────────────────────────────
 
@@ -366,7 +348,7 @@ function UpdateModal({
     }
   }
 
-  // Auto-set progress to 100 when marking complete
+  // Auto-set progress to 100 when marking verified
   function handleStatusChange(v: string) {
     setStatus(v);
     if (v === "completed") setProgress("100");
@@ -374,31 +356,32 @@ function UpdateModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
-        <div className="px-6 pt-6 pb-4 border-b border-gray-100">
-          <h2 className="text-base font-semibold text-gray-900">Update action</h2>
-          <p className="mt-0.5 text-sm text-gray-500 leading-snug">{action.action_name}</p>
-        </div>
-        <div className="px-6 py-4 space-y-4">
-          {/* Status */}
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Update action</DialogTitle>
+          <DialogDescription>{action.action_name}</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-            <select
-              value={status}
-              onChange={e => handleStatusChange(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-            >
-              <option value="open">Not started</option>
-              <option value="in_progress">In progress</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
+            <label className="mb-1 block text-sm font-medium text-foreground">Status</label>
+            <Select value={status} onValueChange={handleStatusChange}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="open">Proposed</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="in_progress">In Progress</SelectItem>
+                <SelectItem value="completed">Verified</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
-          {/* Progress */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="mb-1 block text-sm font-medium text-foreground">
               Progress — {progress || 0}%
             </label>
             <input
@@ -408,75 +391,58 @@ function UpdateModal({
               step={5}
               value={progress}
               onChange={e => setProgress(e.target.value)}
-              className="w-full accent-orange-500"
+              className="w-full accent-brand"
             />
-            <div className="flex justify-between text-xs text-gray-400 mt-0.5">
+            <div className="mt-0.5 flex justify-between text-xs text-muted-foreground">
               <span>0%</span><span>50%</span><span>100%</span>
             </div>
           </div>
 
-          {/* Owner */}
           {contacts.length > 0 && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Owner</label>
-              <select
-                value={ownerContactId}
-                onChange={e => setOwnerContactId(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              >
-                <option value="">No owner assigned</option>
-                {contacts.map(c => (
-                  <option key={c.contact_id} value={String(c.contact_id)}>
-                    {c.full_name}{c.job_title ? ` (${c.job_title})` : ""}
-                  </option>
-                ))}
-              </select>
+              <label className="mb-1 block text-sm font-medium text-foreground">Owner</label>
+              <Select value={ownerContactId || "__none__"} onValueChange={(v) => setOwnerContactId(v === "__none__" ? "" : v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No owner assigned</SelectItem>
+                  {contacts.map(c => (
+                    <SelectItem key={c.contact_id} value={String(c.contact_id)}>
+                      {c.full_name}{c.job_title ? ` (${c.job_title})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )}
 
-          {/* Target date */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Target date</label>
-            <input
-              type="date"
-              value={targetDate}
-              onChange={e => setTargetDate(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-            />
+            <label className="mb-1 block text-sm font-medium text-foreground">Target date</label>
+            <Input type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} />
           </div>
 
-          {/* Note */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Update note (optional)</label>
-            <textarea
+            <label className="mb-1 block text-sm font-medium text-foreground">Update note (optional)</label>
+            <Textarea
               value={note}
               onChange={e => setNote(e.target.value)}
               rows={2}
               placeholder="Briefly describe the progress made…"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-400"
             />
           </div>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
-        <div className="px-6 pb-6 flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
-            style={{ backgroundColor: BRAND }}
-          >
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving}>
             {saving ? "Saving…" : "Save update"}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -492,69 +458,80 @@ function ActionCard({
   onUpdate: () => void;
 }) {
   const [showModal, setShowModal] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const [error, setError] = useState("");
+  const nextStatus = NEXT_STATUS[action.status] ?? null;
 
-  function handleSaved(updated: Action) {
+  function handleSaved() {
     setShowModal(false);
     onUpdate();
   }
 
+  async function handleMove() {
+    if (!nextStatus) return;
+    setMoving(true);
+    setError("");
+    try {
+      const body: Record<string, unknown> = { status: nextStatus };
+      if (nextStatus === "completed") body.progress = 100;
+      const res = await apiFetch(`/portal/actions/${action.job_action_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      onUpdate();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setMoving(false);
+    }
+  }
+
   return (
     <>
-      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow">
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-gray-900 leading-snug">{action.action_name}</h3>
-            {action.description && (
-              <p className="mt-1 text-sm text-gray-500 leading-snug line-clamp-2">{action.description}</p>
-            )}
-          </div>
-          <span className={`flex-shrink-0 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLOURS[action.status] ?? STATUS_COLOURS.open}`}>
-            {STATUS_LABEL[action.status] ?? action.status}
+      <Card className="p-4 transition-shadow hover:shadow-md">
+        <div className="mb-2 flex items-start justify-between gap-2">
+          <h3 className="text-sm font-semibold leading-snug text-foreground">{action.action_name}</h3>
+        </div>
+        {action.description && (
+          <p className="mb-3 line-clamp-2 text-xs leading-snug text-muted-foreground">{action.description}</p>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Progress value={action.progress} className="flex-1" />
+          <span className="w-8 flex-shrink-0 text-right text-xs font-medium tabular-nums text-muted-foreground">
+            {action.progress}%
           </span>
         </div>
 
-        <ProgressBar value={action.progress} />
-
         <div className="mt-3 flex flex-wrap gap-1.5">
-          {action.action_category && (
-            <span className="inline-flex items-center rounded-full bg-orange-50 px-2.5 py-0.5 text-xs font-medium text-orange-700">
-              {action.action_category}
-            </span>
-          )}
-          {action.scope_focus && (
-            <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600">
-              {action.scope_focus}
-            </span>
-          )}
+          {action.action_category && <Badge variant="secondary">{action.action_category}</Badge>}
+          {action.scope_focus && <Badge variant="outline">{action.scope_focus}</Badge>}
           {action.action_term && (
-            <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600">
-              {TERM_LABEL[action.action_term] ?? action.action_term}
-            </span>
+            <Badge variant="outline">{TERM_LABEL[action.action_term] ?? action.action_term}</Badge>
           )}
         </div>
 
-        <div className="mt-3 flex items-center justify-between gap-2 text-xs text-gray-400">
-          <div className="flex items-center gap-3">
-            {action.owner_name && (
-              <span>Owner: <span className="text-gray-600 font-medium">{action.owner_name}</span></span>
-            )}
-            {action.target_date && (
-              <span>Target: <span className="text-gray-600">{formatDate(action.target_date)}</span></span>
-            )}
-            {action.completed_at && (
-              <span>Completed: <span className="text-green-600">{formatDate(action.completed_at)}</span></span>
-            )}
-          </div>
-          {action.status !== "cancelled" && (
-            <button
-              onClick={() => setShowModal(true)}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              Update
-            </button>
+        <div className="mt-3 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+          {action.owner_name && <span>Owner: <span className="font-medium text-foreground">{action.owner_name}</span></span>}
+          {action.target_date && <span>Target: {formatDate(action.target_date)}</span>}
+          {action.completed_at && <span className="text-status-success">Verified: {formatDate(action.completed_at)}</span>}
+        </div>
+
+        {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+
+        <div className="mt-3 flex items-center gap-2">
+          <Button variant="ghost" size="sm" className="flex-1" onClick={() => setShowModal(true)}>
+            Details
+          </Button>
+          {nextStatus && (
+            <Button variant="outline" size="sm" className="flex-1" onClick={handleMove} disabled={moving}>
+              {moving ? "Moving…" : `→ ${STATUS_LABEL[nextStatus]}`}
+            </Button>
           )}
         </div>
-      </div>
+      </Card>
 
       {showModal && (
         <UpdateModal
@@ -568,9 +545,41 @@ function ActionCard({
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── Kanban column ─────────────────────────────────────────────────────────────
 
-type FilterKey = "all" | "open" | "in_progress" | "completed";
+function KanbanColumn({
+  status,
+  actions,
+  contacts,
+  onUpdate,
+}: {
+  status: (typeof STATUS_ORDER)[number];
+  actions: Action[];
+  contacts: Contact[];
+  onUpdate: () => void;
+}) {
+  return (
+    <div className="flex min-w-[16rem] flex-1 flex-col gap-3">
+      <div className="flex items-center justify-between px-1">
+        <h3 className="text-sm font-semibold text-foreground">{STATUS_LABEL[status]}</h3>
+        <Badge variant="outline">{actions.length}</Badge>
+      </div>
+      <div className="flex flex-col gap-3">
+        {actions.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+            No actions here
+          </div>
+        ) : (
+          actions.map(action => (
+            <ActionCard key={action.job_action_id} action={action} contacts={contacts} onUpdate={onUpdate} />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export default function PortalActions() {
   const [actions, setActions] = useState<Action[]>([]);
@@ -578,8 +587,8 @@ export default function PortalActions() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [filter, setFilter] = useState<FilterKey>("all");
   const [showLibraryModal, setShowLibraryModal] = useState(false);
+  const [showCancelled, setShowCancelled] = useState(false);
 
   const loadActions = useCallback(() => {
     return apiFetch("/portal/actions")
@@ -602,84 +611,69 @@ export default function PortalActions() {
     ]).finally(() => setLoading(false));
   }, [loadActions]);
 
-  const openCount = actions.filter(a => a.status === "open").length;
-  const inProgressCount = actions.filter(a => a.status === "in_progress").length;
-  const completedCount = actions.filter(a => a.status === "completed").length;
-
-  const filtered = filter === "all"
-    ? actions.filter(a => a.status !== "cancelled")
-    : actions.filter(a => a.status === filter);
-
   if (loading) {
-    return <div className="py-10 text-center text-sm text-gray-400">Loading actions…</div>;
+    return <SkeletonLoader rows={5} />;
   }
 
   if (error) {
-    return (
-      <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-        Failed to load actions: {error}
-      </div>
-    );
+    return <ErrorPanel description={`Failed to load actions: ${error}`} />;
   }
+
+  const cancelled = actions.filter(a => a.status === "cancelled");
 
   return (
     <div className="space-y-6">
       {/* Summary + library button */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex gap-4">
-          <div className="text-center">
-            <div className="text-2xl font-bold text-gray-900">{openCount}</div>
-            <div className="text-xs text-gray-500">Not started</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-blue-600">{inProgressCount}</div>
-            <div className="text-xs text-gray-500">In progress</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-green-600">{completedCount}</div>
-            <div className="text-xs text-gray-500">Completed</div>
-          </div>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex gap-5">
+          {STATUS_ORDER.map(s => (
+            <div key={s} className="text-center">
+              <div className="text-2xl font-bold text-foreground">{actions.filter(a => a.status === s).length}</div>
+              <div className="text-xs text-muted-foreground">{STATUS_LABEL[s]}</div>
+            </div>
+          ))}
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={() => setShowLibraryModal(true)}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-          >
+          {cancelled.length > 0 && (
+            <Button variant="outline" size="sm" onClick={() => setShowCancelled(v => !v)}>
+              {showCancelled ? "Hide" : "Show"} cancelled ({cancelled.length})
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => setShowLibraryModal(true)}>
             Browse library
-          </button>
+          </Button>
         </div>
       </div>
 
-      {/* Filter tabs */}
-      <div className="flex border-b border-gray-200">
-        {(["all", "open", "in_progress", "completed"] as FilterKey[]).map(f => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${filter === f ? "border-b-2 border-orange-500 text-orange-600" : "text-gray-500 hover:text-gray-700"}`}
-          >
-            {f === "all" ? "All" : f === "open" ? "Not started" : f === "in_progress" ? "In progress" : "Completed"}
-          </button>
-        ))}
-      </div>
-
-      {/* Action list */}
-      {filtered.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-400">
-          {actions.length === 0
-            ? "No actions have been added yet. Your NZI consultant will add recommended actions, or you can add your own above."
-            : "No actions match this filter."}
-        </div>
+      {/* Kanban board */}
+      {actions.length === 0 ? (
+        <EmptyStatePanel
+          title="No actions have been added yet"
+          description="Your NZI consultant will add recommended actions, or you can add your own from the library above."
+        />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map(action => (
-            <ActionCard
-              key={action.job_action_id}
-              action={action}
+        <div className="flex gap-4 overflow-x-auto pb-2">
+          {STATUS_ORDER.map(s => (
+            <KanbanColumn
+              key={s}
+              status={s}
+              actions={actions.filter(a => a.status === s)}
               contacts={contacts}
               onUpdate={loadActions}
             />
           ))}
+        </div>
+      )}
+
+      {/* Cancelled (collapsed by default) */}
+      {showCancelled && cancelled.length > 0 && (
+        <div className="space-y-3 border-t border-border pt-4">
+          <h3 className="text-sm font-semibold text-foreground">Cancelled</h3>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {cancelled.map(action => (
+              <ActionCard key={action.job_action_id} action={action} contacts={contacts} onUpdate={loadActions} />
+            ))}
+          </div>
         </div>
       )}
 

@@ -19,7 +19,7 @@ ACTION_TERM_HINTS = {
     "long": "3+ years",
 }
 
-ACTION_STATUSES = ["open", "in_progress", "completed", "cancelled"]
+ACTION_STATUSES = ["open", "approved", "in_progress", "completed", "cancelled"]
 
 DEFAULT_ACTION_CATEGORIES = [
     "Energy", "Buildings", "Travel", "Commuting",

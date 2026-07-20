@@ -2,6 +2,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/auth";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
 
 // ── Widget display config ────────────────────────────────────────────────────
 // Defines the display order and human-readable titles for CRM widget IDs.
@@ -39,15 +50,6 @@ function downloadDataUrl(dataUrl: string, filename: string) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-}
-
-function ComingSoon({ title }: { title: string }) {
-  return (
-    <div className="rounded-xl border border-dashed border-gray-300 p-16 text-center">
-      <p className="text-sm font-medium text-gray-500">{title}</p>
-      <p className="mt-1 text-xs text-gray-400">This section is coming soon.</p>
-    </div>
-  );
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -104,62 +106,53 @@ export default function PortalInsights() {
   return (
     <div className="space-y-4">
       {/* Sub-nav */}
-      <div className="flex border-b border-gray-200">
-        {subNavItems.map((item) => (
-          <button
-            key={item.key}
-            onClick={() => setSubNav(item.key)}
-            className={`px-5 py-2.5 text-sm font-medium transition-colors ${
-              subNav === item.key
-                ? "border-b-2 border-orange-500 text-orange-600"
-                : "text-gray-500 hover:text-gray-700"
-            }`}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+      <Tabs value={subNav} onValueChange={(v) => setSubNav(v as SubNavKey)}>
+        <TabsList className="h-auto w-full justify-start rounded-none border-b border-border bg-transparent p-0">
+          {subNavItems.map((item) => (
+            <TabsTrigger
+              key={item.key}
+              value={item.key}
+              className="rounded-none border-b-2 border-transparent px-5 py-2.5 data-[state=active]:border-brand data-[state=active]:bg-transparent data-[state=active]:text-brand data-[state=active]:shadow-none"
+            >
+              {item.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
       {/* Charts & Graphs */}
       {subNav === "charts" && (
         <div className="space-y-6 pt-2">
-          {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              Failed to load charts: {error}
-            </div>
-          )}
+          {error && <ErrorPanel description={`Failed to load charts: ${error}`} />}
 
           {/* Year selector */}
           {availableYears.length > 0 && (
             <div className="flex items-center justify-end gap-2">
-              <span className="text-sm text-gray-500">Reporting Year:</span>
-              <select
-                value={selectedYear ?? ""}
+              <span className="text-sm text-muted-foreground">Reporting Year:</span>
+              <Select
+                value={selectedYear != null ? String(selectedYear) : undefined}
                 disabled={yearLoading}
-                onChange={(e) => void handleYearChange(Number(e.target.value))}
-                className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                onValueChange={(v) => void handleYearChange(Number(v))}
               >
-                {availableYears.map((yr) => (
-                  <option key={yr} value={yr}>{yr}</option>
-                ))}
-              </select>
+                <SelectTrigger className="h-8 w-auto min-w-[6rem] text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableYears.map((yr) => (
+                    <SelectItem key={yr} value={String(yr)}>{yr}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )}
 
           {loading ? (
-            <div className="rounded-xl border border-gray-200 bg-white p-12 text-center text-sm text-gray-400 shadow-sm">
-              Loading charts…
-            </div>
+            <SkeletonLoader rows={5} />
           ) : visibleWidgets.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-gray-300 p-12 text-center">
-              <p className="text-sm font-medium text-gray-500">
-                No charts available{selectedYear ? ` for ${selectedYear}` : ""}
-              </p>
-              <p className="mt-1 text-xs text-gray-400">
-                Charts are generated when your NZI consultant reviews the Insights section.
-                Please contact them if you expect to see charts here.
-              </p>
-            </div>
+            <EmptyStatePanel
+              title={`No charts available${selectedYear ? ` for ${selectedYear}` : ""}`}
+              description="Charts are generated when your NZI consultant reviews the Insights section. Please contact them if you expect to see charts here."
+            />
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {visibleWidgets.map(({ id, title }) => {
@@ -167,20 +160,14 @@ export default function PortalInsights() {
                 const safeTitle = title.toLowerCase().replace(/\s+/g, "-");
                 const filename = `${safeTitle}${selectedYear ? `-${selectedYear}` : ""}.png`;
                 return (
-                  <div
-                    key={id}
-                    className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
-                  >
-                    <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
-                      <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-                      <button
-                        onClick={() => downloadDataUrl(pngData, filename)}
-                        className="rounded border border-gray-200 px-2.5 py-1 text-xs text-gray-500 transition-colors hover:border-gray-300 hover:text-gray-700"
-                      >
+                  <Card key={id} className="overflow-hidden p-0">
+                    <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-border px-5 py-3 pt-3">
+                      <CardTitle className="text-sm">{title}</CardTitle>
+                      <Button variant="outline" size="xs" onClick={() => downloadDataUrl(pngData, filename)}>
                         ↓ PNG
-                      </button>
-                    </div>
-                    <div className="flex min-h-[18rem] items-center justify-center bg-gray-50 p-4">
+                      </Button>
+                    </CardHeader>
+                    <CardContent className="flex min-h-[18rem] items-center justify-center bg-muted/30 p-4">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={pngData}
@@ -188,8 +175,8 @@ export default function PortalInsights() {
                         className="h-full max-h-72 w-auto max-w-full rounded object-contain"
                         style={{ maxWidth: "100%" }}
                       />
-                    </div>
-                  </div>
+                    </CardContent>
+                  </Card>
                 );
               })}
             </div>
@@ -200,12 +187,12 @@ export default function PortalInsights() {
       {/* Placeholder sub-sections */}
       {subNav === "industry" && (
         <div className="pt-2">
-          <ComingSoon title="Industry Benchmarking" />
+          <EmptyStatePanel title="Industry Benchmarking" description="This section is coming soon." />
         </div>
       )}
       {subNav === "knowledge" && (
         <div className="pt-2">
-          <ComingSoon title="Knowledge Base" />
+          <EmptyStatePanel title="Knowledge Base" description="This section is coming soon." />
         </div>
       )}
     </div>
