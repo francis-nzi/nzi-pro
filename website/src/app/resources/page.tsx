@@ -14,8 +14,8 @@ export default function ResourcesPage() {
         <p className="eyebrow">Resources</p>
         <h1>Support material for clients and search visitors.</h1>
         <p className="lead">
-          Resource pages answer common questions, support search intent, and create more entry
-          points into the business.
+          Plain-English guides to the terms and questions that come up most when clients start
+          working with us.
         </p>
       </section>
 
@@ -23,7 +23,7 @@ export default function ResourcesPage() {
         <SectionHeading
           eyebrow="Resource hub"
           title="Start here for knowledge pages"
-          description="These pages support search, answer discovery, and internal linking."
+          description="Start with the glossary or FAQ, or head straight to a service page if you already know what you need."
         />
 
         <div className="card-grid">
@@ -40,8 +40,8 @@ export default function ResourcesPage() {
       <section className="content-section">
         <SectionHeading
           eyebrow="FAQ"
-          title="Questions the site should answer explicitly"
-          description="These are the kinds of questions that should be easy to find both on the site and via search."
+          title="Common questions"
+          description="The questions we're asked most before a project starts. See the full FAQ page for more."
         />
 
         <div className="faq-grid">

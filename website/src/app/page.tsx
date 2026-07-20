@@ -32,8 +32,8 @@ export default function HomePage() {
               <div className="panel-note">
                 <strong>Core services</strong>
                 <p>
-                  The public site now points visitors to the real business offerings instead of
-                  internal notes.
+                  Specialist carbon accounting and Net Zero delivery for organisations across the
+                  UK and Ireland, from first measurement through to a board-ready reduction plan.
                 </p>
               </div>
 
@@ -57,7 +57,7 @@ export default function HomePage() {
           <SectionHeading
             eyebrow="Core offer"
             title="The services that sit at the centre of the business"
-            description="These are the commercial entry points we should make very easy to find."
+            description="The services clients come to us for first, each with its own dedicated page covering what's included and how it works."
           />
 
           <div className="card-grid">
@@ -83,7 +83,7 @@ export default function HomePage() {
           <SectionHeading
             eyebrow="Why work with us"
             title="Specialist delivery, grounded in the standards that matter"
-            description="These are the qualities that should be obvious on the public site."
+            description="What clients consistently tell us matters most when choosing a carbon partner."
           />
 
           <div className="card-grid">
@@ -126,7 +126,7 @@ export default function HomePage() {
           <SectionHeading
             eyebrow="Featured pages"
             title="Deeper pages for the services and knowledge layer"
-            description="These pages support search, answer questions, and give each service its own proper home."
+            description="Go deeper on any service, including the standards and frameworks we work to."
           />
 
           <div className="card-grid">

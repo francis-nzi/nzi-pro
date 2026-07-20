@@ -11,18 +11,19 @@ export default function AiEraPage() {
     <div className="site-wrap">
       <section className="page-hero">
         <p className="eyebrow">AI-ready content</p>
-        <h1>Structure the site so people and answer engines can understand it quickly.</h1>
+        <h1>Built to be found, verified, and trusted — by people and by AI.</h1>
         <p className="lead">
-          The useful move is not gimmicky AI content. It is a site that is structured, fast,
-          explicit, and easy to quote, classify, and retrieve.
+          However you found us — a search engine, a colleague&apos;s recommendation, or an AI
+          assistant helping with due diligence — you should get the same clear answer: who we
+          are, what we do, and how to reach us.
         </p>
       </section>
 
       <section className="content-section">
         <SectionHeading
           eyebrow="What matters"
-          title="The useful takeaways"
-          description="These are the parts that translate directly into site architecture and content strategy."
+          title="What this means for you"
+          description="The same principles that make us easy to verify online are the ones we bring to your carbon reporting."
         />
 
         <div className="card-grid">
@@ -37,15 +38,15 @@ export default function AiEraPage() {
 
       <section className="content-section">
         <SectionHeading
-          eyebrow="Implementation"
-          title="How that translates into the site"
-          description="The site should include a content map, schema, metadata, and clean internal linking so the platform is ready for later integrations."
+          eyebrow="In practice"
+          title="Clear, consistent, and easy to check"
+          description="Every core page states plainly what we do and who it's for, so you don't have to dig for the answer."
         />
 
         <article className="quote-card">
           <blockquote>
-            Every important page should be useful on its own. If an AI agent reads only one page,
-            it should still understand the company, the offer, and the next action.
+            Whichever page you land on, you should immediately understand what we do, who
+            it&apos;s for, and what to do next &mdash; no digging required.
           </blockquote>
         </article>
       </section>

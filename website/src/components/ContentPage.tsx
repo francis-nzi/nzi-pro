@@ -52,8 +52,8 @@ export function ContentPage({
       <section className="content-section">
         <SectionHeading
           eyebrow="Next step"
-          title="Make this page useful in the real world"
-          description="Every public page should make the next action obvious."
+          title="Ready to talk it through?"
+          description="Every engagement starts with a short conversation about where you are today and what you need. Get in touch and we'll tell you honestly whether we're the right fit."
         />
         <Link href={ctaHref} className="btn btn-primary">
           {ctaLabel} <ArrowRight size={16} />

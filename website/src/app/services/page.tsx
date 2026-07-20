@@ -14,8 +14,8 @@ export default function ServicesPage() {
         <p className="eyebrow">Services</p>
         <h1>The core business offering, presented clearly.</h1>
         <p className="lead">
-          Each service page should answer three questions immediately: what the service is,
-          who it is for, and how it helps the client move forward.
+          We offer a small number of well-defined services rather than generic sustainability
+          support. Explore each one below, or get in touch if you&apos;re not sure where to start.
         </p>
       </section>
 
@@ -23,7 +23,7 @@ export default function ServicesPage() {
         <SectionHeading
           eyebrow="Service map"
           title="Dedicated pages for each core offer"
-          description="The main services each have a landing page so the site is useful for people and search."
+          description="Each core service has its own page covering what's included, who it's for, and what you'll get."
         />
 
         <div className="card-grid">
@@ -39,9 +39,9 @@ export default function ServicesPage() {
 
       <section className="content-section">
         <SectionHeading
-          eyebrow="Service blocks"
-          title="Support content that backs up the sales pages"
-          description="These are the reusable blocks the site can use across the homepage, cards, and future campaign pages."
+          eyebrow="At a glance"
+          title="A quick summary of every service"
+          description="A one-line view of what each service covers, plus where to go for supporting guides and FAQs."
         />
 
         <div className="card-grid">
@@ -51,7 +51,7 @@ export default function ServicesPage() {
               <p>{item.summary}</p>
               {item.href ? (
                 <Link href={item.href} className="inline-cta">
-                  Learn more
+                  Learn more<span className="sr-only"> about {item.title}</span>
                 </Link>
               ) : null}
             </article>

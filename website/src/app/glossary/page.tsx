@@ -14,7 +14,8 @@ export default function GlossaryPage() {
         <p className="eyebrow">Glossary</p>
         <h1>A glossary that makes the subject easier to navigate.</h1>
         <p className="lead">
-          This page helps visitors and search engines understand the language used across the site.
+          Plain-English definitions for the carbon reporting and Net Zero terms you&apos;ll come
+          across when working with us.
         </p>
       </section>
 
@@ -22,7 +23,7 @@ export default function GlossaryPage() {
         <SectionHeading
           eyebrow="Terms"
           title="Useful definitions"
-          description="Short explanations that can be linked to from service pages, resources, and FAQs."
+          description="The core terms that come up most in carbon accounting and Net Zero reporting."
         />
 
         <div className="card-grid">

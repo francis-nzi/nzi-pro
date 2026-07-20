@@ -56,6 +56,26 @@ export default function AboutPage() {
           </article>
         </div>
       </section>
+
+      <section className="content-section">
+        <SectionHeading
+          eyebrow="Who we work with"
+          title="Organisations of every size, across sectors"
+          description="From SMEs completing their first carbon reduction plan to larger, multi-site organisations managing complex supply chains."
+        />
+
+        <div className="page-layout">
+          <article className="page-card">
+            <ul className="stack-list">
+              <li>Public sector suppliers responding to procurement requirements</li>
+              <li>Private businesses and SMEs starting their carbon reporting journey</li>
+              <li>Manufacturing, construction, healthcare, logistics and professional services organisations</li>
+              <li>Larger, multi-site organisations with complex supply chains</li>
+              <li>Teams that need to build internal capability, not just receive a report</li>
+            </ul>
+          </article>
+        </div>
+      </section>
     </div>
   );
 }

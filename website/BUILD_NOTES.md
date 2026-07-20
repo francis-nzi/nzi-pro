@@ -127,6 +127,32 @@ All four categories on both pages now meet or exceed the brief's ≥95 target (b
 
 - **Item 6 (empty/duplicate folders):** re-confirmed absent — no action taken, none needed unless you know of live external links to those old slugs.
 - **Item 7 (nav scope):** **not changed** — `navLinks` still omits Workshops/Regulations/FAQ/Glossary, matching the brief's "keep primary nav lean" default, since footer + `/services` already make every page reachable and this is explicitly flagged in the brief as a judgement call rather than a defect. Say the word if you'd rather they were promoted into the header.
-- **Item 8 (content-completeness pass against `NET_ZERO_INTERNATIONAL_PAGE_BY_PAGE_CONTENT_PLAN.md`):** not started — this is the one substantial piece of Phase 1 left, and it's a content/copy review rather than a code fix, so I've held off rather than rewriting page copy without your steer on tone/scope per page.
+- **Item 8 (content-completeness pass):** done — see §8.
 
-No commits have been made — all changes above are sitting as local working-tree edits. Let me know if you'd like item 8 done next, the nav-scope question decided, or these changes committed.
+Items 1–5 above were committed as `447f397d` ("Website Phase 1: fix mobile nav, favicons/OG image, heading order, link text").
+
+---
+
+## 8. Phase 1 item 8 — content-completeness pass (2026-07-20)
+
+Read `NET_ZERO_INTERNATIONAL_SITE_STRATEGY.md` and `NET_ZERO_INTERNATIONAL_PAGE_BY_PAGE_CONTENT_PLAN.md` in full before starting this pass, since both are the source of truth for tone and per-page structure.
+
+**Main finding:** most of the site's supporting copy (section descriptions, page leads — not the core service descriptions in `servicePages`, which were already good) was developer scaffold text describing what a section *should* do, rather than real customer-facing copy — e.g. the home page's hero note read "The public site now points visitors to the real business offerings instead of internal notes," and `/services` read "These are the reusable blocks the site can use across the homepage, cards, and future campaign pages." This directly violates the strategy doc's own explicit rule ("avoid internal project commentary... should not feel like an explanation of how the site will be built"), and it was present on essentially every page. Rewrote all of it to real, customer-facing copy grounded in the strategy doc's stated voice ("here is the problem / here is how we help / here is what you can expect / here is the next step"):
+
+- `src/content/site.ts`: `resourcePages` (glossary/FAQ gateway descriptions).
+- `src/app/page.tsx` (home): hero panel note, and the "Core offer"/"Why work with us"/"Featured pages" section descriptions.
+- `src/app/services/page.tsx`: hero lead, "Service map" description, and retitled/rewrote the second "reusable blocks" grid to "At a glance" (it was ~80% duplicate of the grid above it with meta copy explaining why it existed — kept the layout, since restructuring it is a design call beyond a content pass, but gave it a real, non-duplicate framing as a quick-reference summary). Also fixed the same missing-link-text accessibility issue there as was fixed on Home in §6.
+- `src/app/resources/page.tsx`, `src/app/faq/page.tsx`, `src/app/glossary/page.tsx`: hero leads and section descriptions.
+- `src/app/ai-era/page.tsx`: the whole page was talking about the website's own technical build ("content map, schema, metadata... ready for later integrations") rather than anything a client would find useful. Reframed around a real angle for this audience — being easy to verify and quote, for a person or an AI research tool, whoever's doing due diligence — while keeping the existing `aiPrinciples` cards, which were already genuine content.
+- `src/components/ContentPage.tsx`: the "Next step" CTA block is shared across all five service pages and read "Make this page useful in the real world / Every public page should make the next action obvious" — replaced with a real CTA.
+
+**Content-plan gaps filled** (both explicitly named in the plan's "suggested sections" but missing from the shipped pages):
+
+- `/about`: added a "Who we work with" section (client/sector types), the one sub-section from the plan's About spec that wasn't there.
+- `/contact`: added a "What to include" checklist for enquiries, likewise named in the plan but missing.
+
+**Verification:** `npm run lint` and `npm run build` both clean after every change. Grepped the whole `src/` tree afterward for leftover scaffold-style phrasing (`"should be"`, `"the site"`, `"this page helps"`, etc.) — no matches.
+
+**Lighthouse re-check — a caveat, not a clean re-confirmation:** accessibility, best practices and SEO held at 100/100 across every re-run, which is the meaningful confirmation for a content-and-copy pass (nothing here touches JS or images). Performance, however, bounced between 74 and 98 across four consecutive re-runs with **no code change in between them** — cross-checked against `.next/static/chunks` size, which is actually slightly smaller than the Phase 0 baseline (656 KB vs. 697 KB), so this isn't a real regression from anything in this pass. The cause looks environmental: this machine had ~25 orphaned headless Chrome processes left over from earlier Lighthouse runs (a side effect of the same `EPERM`/temp-dir cleanup quirk noted in §4), plus OneDrive actively syncing this exact repo folder and Teams/VS Code running, all contending for CPU during the trace capture that "simulated" throttling is built from. Killing the stray Chrome processes didn't fix it, which points more at the background sync/app load than the leftover processes specifically. Recommend treating the §6 baseline (98/98, captured on a quieter run) as the trustworthy number, and re-running Performance specifically once on Render or another idle machine before relying on it for a Phase 4 before/after comparison — not chasing this further locally.
+
+All of Phase 1 (items 1–8) is now complete.

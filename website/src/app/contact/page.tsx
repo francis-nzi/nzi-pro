@@ -51,6 +51,25 @@ export default function ContactPage() {
           </article>
         </div>
       </section>
+
+      <section className="content-section">
+        <SectionHeading
+          eyebrow="Before you email"
+          title="What to include"
+          description="A few details up front help us point you to the right service straight away."
+        />
+
+        <div className="page-layout">
+          <article className="page-card">
+            <ul className="stack-list">
+              <li>Which service you&apos;re interested in, if you already know</li>
+              <li>Your organisation type and rough size (sites, headcount, or turnover)</li>
+              <li>Any deadline you&apos;re working to, e.g. a procurement or reporting date</li>
+              <li>Any reporting or data you already have in place</li>
+            </ul>
+          </article>
+        </div>
+      </section>
     </div>
   );
 }

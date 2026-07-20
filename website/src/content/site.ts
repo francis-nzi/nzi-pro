@@ -212,14 +212,14 @@ export const resourcePages = [
     eyebrow: "Glossary",
     title: "A glossary that makes the subject easier to navigate.",
     description:
-      "Glossary pages help both visitors and search engines understand the language of the site.",
+      "Plain-English definitions for the Scope 1, 2 and 3 terms, baselines and reporting language you'll come across when working with us.",
   },
   {
     slug: "faq",
     eyebrow: "FAQ",
-    title: "A reusable FAQ surface for common questions.",
+    title: "Answers to the questions clients ask most.",
     description:
-      "This can start as simple content and later become structured answer blocks used across the site.",
+      "Direct answers to the questions clients ask before starting a carbon reduction plan, Scope 3 project, or training programme.",
   },
 ];
 

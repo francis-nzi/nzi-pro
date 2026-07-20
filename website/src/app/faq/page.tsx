@@ -14,16 +14,15 @@ export default function FaqPage() {
         <p className="eyebrow">FAQ</p>
         <h1>Questions clients usually ask before they begin.</h1>
         <p className="lead">
-          These answers should be easy to scan, easy to quote, and easy to expand as the site
-          develops.
+          Straight answers to what clients usually want to know before they get in touch.
         </p>
       </section>
 
       <section className="content-section">
         <SectionHeading
           eyebrow="Answers"
-          title="Short, direct, reusable"
-          description="This format works well for visitors and for answer engines."
+          title="Straight answers"
+          description="If your question isn't here, get in touch and we'll answer it directly."
         />
 
         <div className="faq-grid">
