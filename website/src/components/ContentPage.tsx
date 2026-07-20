@@ -4,7 +4,13 @@ import { SectionHeading } from "@/components/SectionHeading";
 
 type Section = {
   title: string;
-  points: string[];
+  points?: string[];
+  body?: string;
+};
+
+type RelatedLink = {
+  href: string;
+  label: string;
 };
 
 type ContentPageProps = {
@@ -14,6 +20,9 @@ type ContentPageProps = {
   sections?: Section[];
   ctaHref?: string;
   ctaLabel?: string;
+  nextStepTitle?: string;
+  nextStepDescription?: string;
+  relatedLinks?: RelatedLink[];
 };
 
 export function ContentPage({
@@ -23,6 +32,9 @@ export function ContentPage({
   sections = [],
   ctaHref = "/contact",
   ctaLabel = "Talk to us",
+  nextStepTitle = "Ready to talk it through?",
+  nextStepDescription = "Every engagement starts with a short conversation about where you are today and what you need. Get in touch and we'll tell you honestly whether we're the right fit.",
+  relatedLinks = [],
 }: ContentPageProps) {
   return (
     <div className="site-wrap">
@@ -38,11 +50,15 @@ export function ContentPage({
             {sections.map((section) => (
               <article key={section.title} className="page-card">
                 <h2>{section.title}</h2>
-                <ul className="stack-list">
-                  {section.points.map((point) => (
-                    <li key={point}>{point}</li>
-                  ))}
-                </ul>
+                {section.body ? (
+                  <p>{section.body}</p>
+                ) : (
+                  <ul className="stack-list">
+                    {(section.points ?? []).map((point) => (
+                      <li key={point}>{point}</li>
+                    ))}
+                  </ul>
+                )}
               </article>
             ))}
           </div>
@@ -50,14 +66,20 @@ export function ContentPage({
       ) : null}
 
       <section className="content-section">
-        <SectionHeading
-          eyebrow="Next step"
-          title="Ready to talk it through?"
-          description="Every engagement starts with a short conversation about where you are today and what you need. Get in touch and we'll tell you honestly whether we're the right fit."
-        />
+        <SectionHeading eyebrow="Next step" title={nextStepTitle} description={nextStepDescription} />
         <Link href={ctaHref} className="btn btn-primary">
           {ctaLabel} <ArrowRight size={16} />
         </Link>
+
+        {relatedLinks.length > 0 ? (
+          <div className="related-links">
+            {relatedLinks.map((link) => (
+              <Link key={link.href} href={link.href} className="related-link">
+                {link.label}
+              </Link>
+            ))}
+          </div>
+        ) : null}
       </section>
     </div>
   );

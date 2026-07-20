@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 import { SectionHeading } from "@/components/SectionHeading";
 
 export const metadata = {
@@ -36,6 +38,16 @@ export default function AboutPage() {
           <article className="info-card">
             <h3>Scope 3 and supply chains</h3>
             <p>Supplier engagement, category prioritisation, and practical help with indirect emissions.</p>
+          </article>
+          <article className="info-card">
+            <h3>Our platform</h3>
+            <p>
+              NZ Insights Pro, our proprietary platform, measures and reports emissions across
+              multi-site and multi-country organisations.
+            </p>
+            <Link href="/nz-insights-pro" className="inline-cta">
+              See NZ Insights Pro <ArrowRight size={15} />
+            </Link>
           </article>
         </div>
       </section>

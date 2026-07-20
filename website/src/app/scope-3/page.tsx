@@ -17,6 +17,7 @@ export default function Scope3SolutionsPage() {
       description={page?.description ?? ""}
       sections={page?.sections}
       ctaLabel="Discuss Scope 3"
+      relatedLinks={page?.relatedLinks}
     />
   );
 }

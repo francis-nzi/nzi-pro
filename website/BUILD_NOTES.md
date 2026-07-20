@@ -1,8 +1,8 @@
 # Build Notes — Net Zero International marketing site
 
-Phase 0 (audit & baseline) — completed 2026-07-20. Phase 1 — partially completed 2026-07-20 (see §6). Read alongside `NET_ZERO_INTERNATIONAL_CLAUDE_CODE_BUILD_BRIEF.md` in the repo root, which this file tracks against.
+Phase 0 (audit & baseline) — completed 2026-07-20. Phase 1 (all 8 items) — completed 2026-07-20 (see §6–§8). Phase 2 (new service pages + regulations rewrite) — completed 2026-07-20 (see §9). Read alongside `NET_ZERO_INTERNATIONAL_CLAUDE_CODE_BUILD_BRIEF.md` in the repo root, which this file tracks against.
 
-Sections 1–5 below are the original Phase 0 findings, left as written at the time. §6 records what Phase 1 work has actually landed since, and §7 replaces the old "open questions" list with what's still outstanding.
+Sections 1–5 below are the original Phase 0 findings, left as written at the time. §6–§8 cover Phase 1. §9 covers Phase 2.
 
 ---
 
@@ -156,3 +156,37 @@ Read `NET_ZERO_INTERNATIONAL_SITE_STRATEGY.md` and `NET_ZERO_INTERNATIONAL_PAGE_
 **Lighthouse re-check — a caveat, not a clean re-confirmation:** accessibility, best practices and SEO held at 100/100 across every re-run, which is the meaningful confirmation for a content-and-copy pass (nothing here touches JS or images). Performance, however, bounced between 74 and 98 across four consecutive re-runs with **no code change in between them** — cross-checked against `.next/static/chunks` size, which is actually slightly smaller than the Phase 0 baseline (656 KB vs. 697 KB), so this isn't a real regression from anything in this pass. The cause looks environmental: this machine had ~25 orphaned headless Chrome processes left over from earlier Lighthouse runs (a side effect of the same `EPERM`/temp-dir cleanup quirk noted in §4), plus OneDrive actively syncing this exact repo folder and Teams/VS Code running, all contending for CPU during the trace capture that "simulated" throttling is built from. Killing the stray Chrome processes didn't fix it, which points more at the background sync/app load than the leftover processes specifically. Recommend treating the §6 baseline (98/98, captured on a quieter run) as the trustworthy number, and re-running Performance specifically once on Render or another idle machine before relying on it for a Phase 4 before/after comparison — not chasing this further locally.
 
 All of Phase 1 (items 1–8) is now complete.
+
+---
+
+## 9. Phase 2 — new service pages + regulations rewrite (2026-07-20)
+
+Built the brief's Phase 2 and 2b in one pass, using the ready-to-use copy already drafted at the repo root (`NEW_SERVICE_PAGES_COPY_LCA_PCF_CBAM.md`, `NZ_INSIGHTS_PRO_PAGE_COPY.md`, `REGULATIONS_PAGE_COPY.md`). JSON-LD is explicitly out of scope here — that's Phase 3.
+
+**Four new routes**, all in `sitemap.ts`:
+
+- `/life-cycle-assessments` — Life Cycle Assessments (ISO 14040/14044)
+- `/product-carbon-footprinting` — Product Carbon Footprinting (ISO 14067)
+- `/cbam` — CBAM Calculation and Reporting (EU CBAM from 2026, UK CBAM from 2027)
+- `/nz-insights-pro` — the platform page (public-safe positioning only; checked against the brief's confidentiality guardrail — no client numbers, pricing, team size or roadmap included)
+
+**Content model changed to fit this content.** The copy docs are written as a series of question-shaped headings with full paragraph answers (the AI-search pattern from the search-intent framework), not the short bullet lists the existing `sections: { title, points }` shape was built for. Rather than force nine-paragraph pages into bullet points, extended `Section` to `{ title, points?, body? }` and `ContentPage.tsx` to render a paragraph when `body` is present. Also added optional `metaDescription`, `ctaLabel`, `nextStepTitle`, `nextStepDescription` and `relatedLinks` to the `ServicePage` type (all optional, so the five existing pages needed no changes) — the new pages use their own closing-CTA heading and a row of related-page links rather than the one generic block every page shared before. Added an explicit `ServicePage`/`ServiceSection` type to `site.ts` for this, since `servicePages` had been an inferred literal array and mixing optional fields across entries needs a real type to stay sound.
+
+**`/regulations` was rewritten as a bespoke page**, not through `ContentPage` — the source copy groups content by region (UK, Europe, North America, Asia-Pacific, global baseline) with a visible "Last updated" date, which doesn't fit the generic service-page shape. Structure: hero with last-updated line, a "why this matters now" section, one section per region, "how we help", closing CTA with related links. Heading order verified sequential (h1 → h2 per region → h3 per question, repeating) by fetching the rendered HTML and checking the tag sequence directly, not just counting tags.
+
+**One thing that needs your sign-off before this goes fully live:** the regulations copy doc it was drafted from flags several facts as "verify before publish" in its own guardrail notes (not just boilerplate caution — it explicitly says some regimes are "actively changing" as of July 2026). I published the substantive sentences as drafted and only stripped the internal "(verify at publish)" instruction fragments themselves, but I have no way to independently confirm these are still current. Specifically:
+- The UK public-sector Carbon Reduction Plan **£5 million contract threshold** and its "Cabinet Office procurement policy" reference — the source doc explicitly notes procurement rules changed under the Procurement Act 2023 and this needs reconfirming.
+- UK SDR status, UK ETS and EU ETS scope/coverage, CSRD scope and timeline (post-"Omnibus" simplification), Australia ASRS phase-in group, and Singapore ACRA timelines — each flagged in the source doc as needing a currency check.
+- The US SEC rule and California SB 253/SB 261 sections were already written with full contested-status wording baked into the visible copy (stayed, proposed for rescission, under injunction), so those didn't need stripping and should already read as appropriately hedged.
+
+None of this blocks a private review, but I wouldn't treat `/regulations` as final for real client traffic until someone checks those specific figures.
+
+**Internal linking**, per the brief's explicit Phase 2b requirement to link to NZ Insights Pro from Home, Scope 3, Services and About:
+- Home and Services: automatic — both iterate `servicePages`/`serviceCards` in full, so the four new pages appear without any JSX change.
+- `/scope-3`: added a related-links row (Product Carbon Footprinting, NZ Insights Pro, Carbon Reduction Plans, Contact) — Scope 3 Category 1 connects directly to PCF per the source copy, so included that link too, not just the one the brief named.
+- `/about`: added a fourth "Our platform" card alongside the existing three capability cards, linking to `/nz-insights-pro`.
+- Added "NZ Insights Pro" to the primary nav (`navLinks`) — the brief explicitly asks for this one page to be in "the nav/Services gateway", which is a specific instruction for this page, distinct from the general nav-scope question in §7 that I left alone (Workshops/Regulations/FAQ/Glossary still aren't in the header nav; that decision is still open).
+
+**Verification:** `npm run lint` and `npm run build` both clean (24 routes now, up from 20). Confirmed all nine new/changed routes return 200 locally. Checked heading order on all five by fetching rendered HTML and inspecting the actual `<h1>`/`<h2>`/`<h3>` sequence, not just tag counts. Ran Lighthouse on `/nz-insights-pro` (the longest new page, nine content sections) as a spot check: **Accessibility 100, Best Practices 100, SEO 100.** Skipped a Performance re-check here given §8's finding that this machine's Performance numbers are currently unreliable for before/after comparison — same caveat applies.
+
+**Deliberately not done in this pass** (all explicitly later phases per the brief): JSON-LD/schema markup for any page, including the `SoftwareApplication` block for NZ Insights Pro (Phase 3); the comparison-cluster pages in `RESOURCES_COMPARISON_CLUSTER_COPY.md` (also Phase 3g); `llms.txt` still only mentions these pages, it isn't otherwise wired to them (no change needed, it already listed them); image/performance optimisation (Phase 4); further visual polish (Phase 5).

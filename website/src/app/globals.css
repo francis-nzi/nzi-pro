@@ -204,6 +204,29 @@ img {
   width: 100%;
 }
 
+.related-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.related-link {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+  transition: border-color 160ms ease, color 160ms ease;
+}
+
+.related-link:hover {
+  color: var(--accent);
+  border-color: rgba(23, 77, 47, 0.3);
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
