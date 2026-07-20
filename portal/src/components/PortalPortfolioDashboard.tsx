@@ -9,6 +9,7 @@ import { apiFetch } from "@/lib/auth";
 import { formatEmissions } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyStatePanel, ErrorPanel } from "@/components/shared/DataStates";
 
 type PortfolioOverview = {
   ok: boolean;
@@ -180,7 +181,7 @@ function metricCard({ icon, label, value, sub }: { icon: ReactNode; label: strin
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-        <span className="text-[#1c5026]">{icon}</span>
+        <span className="text-muted-foreground">{icon}</span>
         <span>{label}</span>
       </div>
       <div className="mt-3 text-3xl font-semibold text-slate-900 tabular-nums">{value}</div>
@@ -258,11 +259,7 @@ export default function PortalPortfolioDashboard({
   }
 
   if (error && !data) {
-    return (
-      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">
-        Failed to load portfolio dashboard: {error}
-      </div>
-    );
+    return <ErrorPanel title="Failed to load portfolio dashboard" description={error} />;
   }
 
   if (!data) return null;
@@ -308,7 +305,7 @@ export default function PortalPortfolioDashboard({
               </CardHeader>
               <CardContent>
                 {statusData.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">No client status data yet.</div>
+                  <EmptyStatePanel title="No client status data yet." />
                 ) : (
                   <div className="flex items-center gap-4">
                     <div className="h-[230px] w-[230px] shrink-0">
@@ -345,7 +342,7 @@ export default function PortalPortfolioDashboard({
               </CardHeader>
               <CardContent>
                 {annualEmissionsData.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">No year-on-year emissions data yet.</div>
+                  <EmptyStatePanel title="No year-on-year emissions data yet." />
                 ) : (
                   <div className="h-[260px]">
                     <ResponsiveContainer width="100%" height="100%">
@@ -369,7 +366,7 @@ export default function PortalPortfolioDashboard({
             </CardHeader>
             <CardContent>
               {clientEmissionsData.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">No emissions data available for the portfolio yet.</div>
+                <EmptyStatePanel title="No emissions data available for the portfolio yet." />
               ) : (
                 <div className="h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
@@ -417,7 +414,7 @@ export default function PortalPortfolioDashboard({
                 </CardHeader>
                 <CardContent>
                   {riskClients.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-500">No portfolio risks are currently flagged.</div>
+                    <EmptyStatePanel title="No portfolio risks are currently flagged." />
                   ) : (
                     <div className="max-h-[380px] overflow-auto rounded-xl border border-slate-200 bg-white">
                       <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -466,7 +463,7 @@ export default function PortalPortfolioDashboard({
                 </CardHeader>
                 <CardContent>
                   {attentionJobs.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-500">No jobs are currently near an SLA deadline.</div>
+                    <EmptyStatePanel title="No jobs are currently near an SLA deadline." />
                   ) : (
                     <div className="max-h-[380px] overflow-auto rounded-xl border border-slate-200 bg-white">
                       <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -563,7 +560,7 @@ export default function PortalPortfolioDashboard({
               <CardContent>
                 <div className="space-y-3 max-h-[420px] overflow-auto pr-1">
                   {data.recent_notes.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">No notes have been captured for this portfolio yet.</div>
+                    <EmptyStatePanel title="No notes have been captured for this portfolio yet." />
                   ) : data.recent_notes.map((note) => (
                     <div key={`${note.source_type}-${note.note_id}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -589,7 +586,7 @@ export default function PortalPortfolioDashboard({
             </CardHeader>
             <CardContent>
               {data.jobs.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">No jobs found for this portfolio.</div>
+                <EmptyStatePanel title="No jobs found for this portfolio." />
               ) : (
                 <div className="overflow-hidden rounded-xl border border-slate-200">
                   <div className="max-h-[420px] overflow-auto">

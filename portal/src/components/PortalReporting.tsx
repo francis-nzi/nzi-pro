@@ -26,7 +26,11 @@ type ReportingData = {
   by_activity_detail?: ActivityDetail[];
 };
 
-const SCOPE_COLORS = ["#15803d", "#22c55e", "#4ade80", "#86efac", "#bbf7d0"];
+// Canonical Scope 1/2/3 palette (confirmed 2026-07-20): teal / cyan / sky —
+// matches api/chart_generation.py, PortalDashboardCharts.tsx and
+// PortalReportViewer.tsx. This was previously a standalone green ramp; see
+// CLIENT_PORTAL_PHASE_0_DESIGN_SYSTEM_SCOPE.md §2.3.
+const SCOPE_COLORS = ["#0f766e", "#0891b2", "#38bdf8"];
 
 function fmt(n: number): string {
   return n.toLocaleString("en-GB", { minimumFractionDigits: 1, maximumFractionDigits: 1 });

@@ -13,6 +13,7 @@ import {
   Zap,
 } from "lucide-react";
 import { apiFetch, clearAllTokens, getBestToken } from "@/lib/auth";
+import { Badge } from "@/components/ui/badge";
 
 type PortalUser = {
   portal_user_id: number | null;
@@ -99,7 +100,7 @@ export default function PortalShell({
 
   const currentTab = activeTab ?? searchParams.get("tab") ?? "dashboard";
   const isDashboard = pathname === "/dashboard" || pathname === "/";
-  const sidebarBg = "#1a3a2a";
+  const sidebarBg = "var(--portal-sidebar)";
 
   const visibleNav = useMemo(() => {
     // Don't flash every item (including ones that should stay hidden) while
@@ -181,9 +182,9 @@ export default function PortalShell({
       {user && (
         <div className="border-t border-white/10 px-4 py-4 space-y-2">
           {user.is_staff && (
-            <div className="rounded-md bg-orange-500/20 px-2.5 py-1 text-xs font-semibold text-orange-200 text-center">
+            <Badge className="w-full justify-center border-transparent bg-orange-500/20 text-orange-200">
               Staff preview
-            </div>
+            </Badge>
           )}
           <div className="text-xs text-white/50 truncate">{user.full_name}</div>
           <button
