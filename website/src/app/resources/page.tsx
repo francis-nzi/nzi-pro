@@ -3,6 +3,7 @@ import { SectionHeading } from "@/components/SectionHeading";
 import { JsonLd } from "@/components/JsonLd";
 import { breadcrumbSchema } from "@/lib/schema";
 import { faqs, resourcePages } from "@/content/site";
+import { comparisonPages } from "@/content/comparisons";
 
 export const metadata = {
   title: "Resources",
@@ -39,6 +40,23 @@ export default function ResourcesPage() {
               <p className="eyebrow">{page.eyebrow}</p>
               <h3>{page.title}</h3>
               <p>{page.description}</p>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section className="content-section">
+        <SectionHeading
+          eyebrow="Guides"
+          title="Short answers to specific comparisons"
+          description="Standalone guides for the questions that come up most when scoping carbon work."
+        />
+
+        <div className="card-grid">
+          {comparisonPages.map((page) => (
+            <Link key={page.slug} href={`/resources/${page.slug}`} className="page-card">
+              <h3>{page.h1}</h3>
+              <p>{page.metaDescription}</p>
             </Link>
           ))}
         </div>

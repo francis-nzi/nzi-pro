@@ -1,3 +1,5 @@
+import { comparisonPages } from "@/content/comparisons";
+
 export default function sitemap() {
   const baseUrl = "https://netzero.international";
   const paths = [
@@ -16,6 +18,7 @@ export default function sitemap() {
     "/faq",
     "/ai-era",
     "/resources",
+    ...comparisonPages.map((page) => `/resources/${page.slug}`),
     "/about",
     "/contact",
   ];

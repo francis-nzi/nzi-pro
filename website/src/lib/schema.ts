@@ -96,6 +96,26 @@ export function breadcrumbSchema(items: { name: string; path: string }[]) {
   };
 }
 
+export function articleSchema(options: {
+  headline: string;
+  path: string;
+  description: string;
+  datePublished: string;
+  dateModified?: string;
+}) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: options.headline,
+    description: options.description,
+    url: `${BASE_URL}${options.path}`,
+    datePublished: options.datePublished,
+    dateModified: options.dateModified ?? options.datePublished,
+    author: { "@id": `${BASE_URL}/#organization` },
+    publisher: { "@id": `${BASE_URL}/#organization` },
+  };
+}
+
 export function serviceSchema(options: {
   name: string;
   serviceType: string;
