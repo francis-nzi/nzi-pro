@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
-
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -20,6 +18,30 @@ def _json_null_if_na(value):
         return None if pd.isna(value) else value
     except Exception:
         return value
+
+
+_EMPTY_FACETS = {
+    "industries": [], "statuses": [], "owners": [], "risks": [], "portfolios": [], "client_managers": [],
+}
+
+# Risk (traffic-light) SQL, mirroring the previous Python get_milestone_status/get_overall_status
+# logic exactly: red if any incomplete milestone is more than 1 day overdue, else amber if any
+# incomplete milestone is due within 7 days (including up to 1 day overdue), else green/NULL.
+_RISK_CASE_SQL = """
+    CASE
+        WHEN bool_or(
+            (jp.data_collection_completed_at IS NULL AND jp.data_collection_due IS NOT NULL AND jp.data_collection_due < (CURRENT_DATE - INTERVAL '1 day'))
+            OR (jp.first_draft_completed_at IS NULL AND jp.first_draft_due IS NOT NULL AND jp.first_draft_due < (CURRENT_DATE - INTERVAL '1 day'))
+            OR (jp.final_report_completed_at IS NULL AND jp.final_report_due IS NOT NULL AND jp.final_report_due < (CURRENT_DATE - INTERVAL '1 day'))
+        ) THEN 'red'
+        WHEN bool_or(
+            (jp.data_collection_completed_at IS NULL AND jp.data_collection_due IS NOT NULL AND jp.data_collection_due <= (CURRENT_DATE + INTERVAL '7 day'))
+            OR (jp.first_draft_completed_at IS NULL AND jp.first_draft_due IS NOT NULL AND jp.first_draft_due <= (CURRENT_DATE + INTERVAL '7 day'))
+            OR (jp.final_report_completed_at IS NULL AND jp.final_report_due IS NOT NULL AND jp.final_report_due <= (CURRENT_DATE + INTERVAL '7 day'))
+        ) THEN 'amber'
+        ELSE 'green'
+    END
+"""
 
 
 @router.get("/clients")
@@ -43,32 +65,24 @@ def list_clients(
     query = (q or "").strip()
     org_placeholder = "%s" if db_backend() == "postgres" else "?"
 
-    def _col_exists(con, table_name: str, col_name: str) -> bool:
+    def _col_exists_many(con, table_name: str, col_names: list[str]) -> set[str]:
         try:
-            row = con.execute(
-                """
-                SELECT 1
+            df = con.execute(
+                f"""
+                SELECT column_name
                 FROM information_schema.columns
-                WHERE table_name = ? AND column_name = ?
-                LIMIT 1
+                WHERE table_name = {org_placeholder}
+                  AND column_name IN ({','.join([org_placeholder] * len(col_names))})
                 """,
-                [table_name, col_name],
-            ).fetchone()
-            return bool(row)
+                [table_name, *col_names],
+            ).df()
+            return set(df["column_name"].tolist()) if df is not None and not df.empty else set()
         except Exception:
-            return False
-
-    def _normalize_filter_value(value: object, fallback: str) -> str:
-        text = str(value or "").strip()
-        return text if text else fallback
-
-    def _normalize_lookup_value(value: object) -> str:
-        return str(value or "").strip().lower()
+            return set()
 
     def _client_visibility_clause() -> tuple[str, list[object]]:
         if not org_id:
             return "", []
-
         params: list[object] = [org_id, org_id]
         clause = (
             f"(c.org_id = {org_placeholder} "
@@ -80,118 +94,148 @@ def list_clients(
     try:
         with get_conn() as con:
             ensure_client_org_columns(con)
-            has_industry = _col_exists(con, "clients", "industry")
-            has_status = _col_exists(con, "clients", "status")
-            has_crm_owner = _col_exists(con, "clients", "crm_owner")
-            has_portfolio = _col_exists(con, "clients", "portfolio")
-            has_client_manager = _col_exists(con, "clients", "client_manager")
+            existing_cols = _col_exists_many(
+                con, "clients", ["industry", "status", "crm_owner", "portfolio", "client_manager"]
+            )
+            has_industry = "industry" in existing_cols
+            has_status = "status" in existing_cols
+            has_crm_owner = "crm_owner" in existing_cols
+            has_portfolio = "portfolio" in existing_cols
+            has_client_manager = "client_manager" in existing_cols
 
-            where_clauses: list[str] = []
-            params: list[object] = []
+            industry_expr = "COALESCE(NULLIF(c.industry,''),'Unspecified')" if has_industry else "'Unspecified'"
+            status_expr = "COALESCE(NULLIF(c.status,''),'Unspecified')" if has_status else "'Unspecified'"
+            owner_expr = "COALESCE(NULLIF(c.crm_owner,''),'Unassigned')" if has_crm_owner else "'Unassigned'"
+            portfolio_expr = "COALESCE(NULLIF(c.portfolio,''),'Unassigned')" if has_portfolio else "'Unassigned'"
+            manager_expr = "NULLIF(c.client_manager,'')" if has_client_manager else "NULL::text"
+
+            base_where: list[str] = []
+            base_params: list[object] = []
             visibility_clause, visibility_params = _client_visibility_clause()
             if visibility_clause:
-                where_clauses.append(visibility_clause)
-                params.extend(visibility_params)
+                base_where.append(visibility_clause)
+                base_params.extend(visibility_params)
             if not bool(_user.get("is_super_admin")) and str(_user.get("access_scope") or "").strip().lower() == "linked_clients":
                 linked_client_ids = sorted(
-                    {
-                        int(client_id)
-                        for client_id in (_user.get("linked_client_ids") or [])
-                        if client_id is not None
-                    }
+                    {int(cid) for cid in (_user.get("linked_client_ids") or []) if cid is not None}
                 )
                 if not linked_client_ids:
-                    return {"items": [], "limit": int(limit), "offset": int(offset), "total": 0}
-                where_clauses.append(f"c.db_id IN ({','.join(['%s'] * len(linked_client_ids))})")
-                params.extend(linked_client_ids)
+                    return {"items": [], "limit": int(limit), "offset": int(offset), "total": 0, "facets": _EMPTY_FACETS}
+                base_where.append(f"c.db_id IN ({','.join(['%s'] * len(linked_client_ids))})")
+                base_params.extend(linked_client_ids)
             if not include_archived and has_status:
-                where_clauses.append("(c.status IS NULL OR lower(c.status) <> 'archived')")
-
+                base_where.append("(c.status IS NULL OR lower(c.status) <> 'archived')")
             if query:
-                if db_backend() == "postgres":
-                    if has_industry:
-                        where_clauses.append("(c.client_name ILIKE %s OR c.industry ILIKE %s)")
-                        like = f"%{query}%"
-                        params.extend([like, like])
-                    else:
-                        where_clauses.append("c.client_name ILIKE %s")
-                        params.append(f"%{query}%")
+                if has_industry:
+                    base_where.append("(c.client_name ILIKE %s OR c.industry ILIKE %s)")
+                    like = f"%{query}%"
+                    base_params.extend([like, like])
                 else:
-                    if has_industry:
-                        where_clauses.append("(lower(coalesce(c.client_name,'')) LIKE %s OR lower(coalesce(c.industry,'')) LIKE %s)")
-                        like = f"%{query.lower()}%"
-                        params.extend([like, like])
-                    else:
-                        where_clauses.append("lower(coalesce(c.client_name,'')) LIKE %s")
-                        params.append(f"%{query.lower()}%")
+                    base_where.append("c.client_name ILIKE %s")
+                    base_params.append(f"%{query}%")
             if client_manager and has_client_manager:
-                if db_backend() == "postgres":
-                    where_clauses.append("c.client_manager ILIKE %s")
-                    params.append(f"%{client_manager}%")
-                else:
-                    where_clauses.append("lower(coalesce(c.client_manager,'')) LIKE %s")
-                    params.append(f"%{client_manager.lower()}%")
+                base_where.append("c.client_manager ILIKE %s")
+                base_params.append(f"%{client_manager}%")
 
-            where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+            base_where_sql = f"WHERE {' AND '.join(base_where)}" if base_where else ""
+
+            # `base` = every client visible to this user matching search/visibility/manager
+            # filters only (mirrors the previous implementation's facet scope: facets reflect
+            # what's available before the industry/status/owner/portfolio/risk drill-down).
+            cte_sql = f"""
+                WITH client_risk AS (
+                    SELECT j.client_db_id, {_RISK_CASE_SQL} AS milestone_status
+                    FROM jobs j
+                    LEFT JOIN job_plan jp ON jp.job_id = j.job_id
+                    GROUP BY j.client_db_id
+                ),
+                base AS (
+                    SELECT
+                        c.db_id AS client_db_id,
+                        c.client_name,
+                        {industry_expr} AS industry,
+                        {status_expr} AS status,
+                        {owner_expr} AS crm_owner,
+                        {portfolio_expr} AS portfolio,
+                        {manager_expr} AS client_manager,
+                        cr.milestone_status AS milestone_status,
+                        CASE cr.milestone_status WHEN 'red' THEN 'Overdue' WHEN 'amber' THEN 'Due' ELSE 'Healthy' END AS risk_label
+                    FROM clients c
+                    LEFT JOIN client_risk cr ON cr.client_db_id = c.db_id
+                    {base_where_sql}
+                )
+            """
+
+            facet_rows = con.execute(
+                f"""
+                {cte_sql}
+                SELECT 'industry' AS dim, industry AS key, COUNT(*) AS n FROM base GROUP BY industry
+                UNION ALL
+                SELECT 'status', status, COUNT(*) FROM base GROUP BY status
+                UNION ALL
+                SELECT 'owner', crm_owner, COUNT(*) FROM base GROUP BY crm_owner
+                UNION ALL
+                SELECT 'portfolio', portfolio, COUNT(*) FROM base GROUP BY portfolio
+                UNION ALL
+                SELECT 'risk', risk_label, COUNT(*) FROM base GROUP BY risk_label
+                UNION ALL
+                SELECT 'manager', client_manager, COUNT(*) FROM base WHERE client_manager IS NOT NULL GROUP BY client_manager
+                """,
+                base_params,
+            ).df()
+
+            # Drill-down filters applied on top of `base` for the actual item list/count.
+            item_where: list[str] = []
+            item_params: list[object] = list(base_params)
+            if industry:
+                item_where.append("LOWER(TRIM(industry)) = LOWER(TRIM(%s))")
+                item_params.append(industry)
+            if status:
+                item_where.append("LOWER(TRIM(status)) = LOWER(TRIM(%s))")
+                item_params.append(status)
+            if crm_owner:
+                item_where.append("LOWER(TRIM(crm_owner)) = LOWER(TRIM(%s))")
+                item_params.append(crm_owner)
+            if portfolio:
+                item_where.append("LOWER(TRIM(portfolio)) = LOWER(TRIM(%s))")
+                item_params.append(portfolio)
+            if risk:
+                item_where.append("LOWER(TRIM(risk_label)) = LOWER(TRIM(%s))")
+                item_params.append(risk)
+            item_where_sql = f"WHERE {' AND '.join(item_where)}" if item_where else ""
 
             total_row = con.execute(
-                f"""
-                SELECT COUNT(*)
-                FROM clients c
-                {where_sql}
-                """,
-                params,
+                f"{cte_sql} SELECT COUNT(*) FROM base {item_where_sql}",
+                item_params,
             ).fetchone()
+            total = int(total_row[0] if total_row else 0)
 
-            industry_col = "c.industry" if has_industry else "NULL::text as industry"
-            status_col = "c.status" if has_status else "NULL::text as status"
-            crm_col = "c.crm_owner" if has_crm_owner else "NULL::text as crm_owner"
-            portfolio_col = "c.portfolio" if has_portfolio else "NULL::text as portfolio"
-            client_manager_col = "c.client_manager" if has_client_manager else "NULL::text as client_manager"
+            sort_col_map = {
+                "industry": "industry",
+                "status": "status",
+                "owner": "crm_owner",
+                "risk": "CASE risk_label WHEN 'Overdue' THEN 0 WHEN 'Due' THEN 1 ELSE 2 END",
+            }
+            sort_col = sort_col_map.get((sort_by or "client").strip().lower(), "LOWER(COALESCE(client_name,''))")
+            sort_dir_sql = "DESC" if str(sort_dir or "asc").strip().lower() == "desc" else "ASC"
 
-            rows = (
-                con.execute(
-                    f"""
-                    SELECT c.db_id as client_db_id,
-                           c.client_name,
-                           {industry_col},
-                           {status_col},
-                           {crm_col},
-                           {portfolio_col},
-                           {client_manager_col}
-                    FROM clients c
-                    {where_sql}
-                    ORDER BY LOWER(COALESCE(c.client_name, '')) ASC, c.db_id ASC
-                    """,
-                    params,
-                )
-                .df()
-            )
-
-            milestone_data = None
-            if rows is not None and not rows.empty:
-                client_ids = [int(r["client_db_id"]) for _, r in rows.iterrows()]
-                try:
-                    milestone_data = con.execute(
-                        f"""
-                        SELECT 
-                            j.client_db_id,
-                            jp.data_collection_due, jp.data_collection_completed_at,
-                            jp.first_draft_due, jp.first_draft_completed_at,
-                            jp.final_report_due, jp.final_report_completed_at
-                        FROM jobs j
-                        LEFT JOIN job_plan jp ON jp.job_id = j.job_id
-                        WHERE j.client_db_id IN ({','.join(['%s'] * len(client_ids))})
-                        """,
-                        client_ids,
-                    ).df()
-                except Exception:
-                    milestone_data = None
+            page_df = con.execute(
+                f"""
+                {cte_sql}
+                SELECT client_db_id, client_name, industry, status, crm_owner, portfolio, client_manager, milestone_status
+                FROM base
+                {item_where_sql}
+                ORDER BY {sort_col} {sort_dir_sql}, client_db_id ASC
+                LIMIT %s OFFSET %s
+                """,
+                item_params + [int(limit), int(offset)],
+            ).df()
     except Exception as e:
-        # Final defensive fallback for schema drift: return a minimal list instead of 500.
+        # Final defensive fallback for schema drift: return a minimal, still-paginated list
+        # instead of a 500.
         try:
             with get_conn() as con:
-                where_clauses = []
+                where_clauses: list[str] = []
                 params: list[object] = []
                 visibility_clause, visibility_params = _client_visibility_clause()
                 if visibility_clause:
@@ -202,177 +246,63 @@ def list_clients(
                     params.append(f"%{query}%")
                 where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
-                total_row = con.execute(
-                    f"SELECT COUNT(*) FROM clients c {where_sql}",
-                    params,
-                ).fetchone()
-                rows = (
-                    con.execute(
-                        f"""
-                        SELECT c.db_id as client_db_id,
-                               c.client_name,
-                               NULL::text as industry,
-                               NULL::text as status,
-                               NULL::text as crm_owner,
-                               NULL::text as portfolio
-                        FROM clients c
-                        {where_sql}
-                        ORDER BY LOWER(COALESCE(c.client_name, '')) ASC, c.db_id ASC
-                        """,
-                        params,
-                    )
-                    .df()
-                )
-                milestone_data = None
+                total_row = con.execute(f"SELECT COUNT(*) FROM clients c {where_sql}", params).fetchone()
+                total = int(total_row[0] if total_row else 0)
+                page_df = con.execute(
+                    f"""
+                    SELECT c.db_id as client_db_id, c.client_name,
+                           NULL::text as industry, NULL::text as status,
+                           NULL::text as crm_owner, NULL::text as portfolio,
+                           NULL::text as client_manager, NULL::text as milestone_status
+                    FROM clients c
+                    {where_sql}
+                    ORDER BY LOWER(COALESCE(c.client_name, '')) ASC, c.db_id ASC
+                    LIMIT %s OFFSET %s
+                    """,
+                    params + [int(limit), int(offset)],
+                ).df()
+                facet_rows = pd.DataFrame(columns=["dim", "key", "n"])
         except Exception:
             raise HTTPException(status_code=500, detail=f"/clients failed: {e}")
 
-    # Helper function to calculate milestone status
-    def get_milestone_status(due_date, completed_at):
-        """Calculate traffic light status: green, amber, red, completed"""
-        from datetime import date as _date
-        import pandas as pd
-
-        if completed_at is not None and not pd.isna(completed_at):
-            return "completed"
-        if due_date is None or pd.isna(due_date):
-            return "green"
-
-        # Handle pandas/python datetime values safely.
-        if hasattr(due_date, "date"):
-            due_date = due_date.date()
-
-        today = _date.today()
-        days_until_due = (due_date - today).days
-
-        if days_until_due < -1:  # Overdue by more than 1 day
-            return "red"
-        elif days_until_due <= 7:  # Due within 7 days or 1 day overdue
-            return "amber"
-        else:
-            return "green"
-
-    def get_overall_status(statuses):
-        """Get overall status: red if any red, amber if any amber, else green"""
-        if "red" in statuses:
-            return "red"
-        elif "amber" in statuses:
-            return "amber"
-        else:
-            return "green"
-
-    # Calculate milestone status for each client
-    client_milestone_status = {}
-    if rows is not None and not rows.empty and 'milestone_data' in locals() and milestone_data is not None and not milestone_data.empty:
-        for client_id in client_ids:
-            client_jobs = milestone_data[milestone_data['client_db_id'] == client_id]
-            all_statuses = []
-
-            for _, job in client_jobs.iterrows():
-                job_statuses = []
-                if job.get("data_collection_due"):
-                    job_statuses.append(get_milestone_status(job.get("data_collection_due"), job.get("data_collection_completed_at")))
-                if job.get("first_draft_due"):
-                    job_statuses.append(get_milestone_status(job.get("first_draft_due"), job.get("first_draft_completed_at")))
-                if job.get("final_report_due"):
-                    job_statuses.append(get_milestone_status(job.get("final_report_due"), job.get("final_report_completed_at")))
-
-                if job_statuses:
-                    all_statuses.extend(job_statuses)
-
-            if all_statuses:
-                client_milestone_status[client_id] = get_overall_status(all_statuses)
-            else:
-                client_milestone_status[client_id] = None
-
-    items: list[dict[str, object]] = []
-    facet_industries: dict[str, int] = {}
-    facet_statuses: dict[str, int] = {}
-    facet_owners: dict[str, int] = {}
-    facet_risks: dict[str, int] = {}
-    facet_portfolios: dict[str, int] = {}
-    facet_client_managers: dict[str, int] = {}
-    if rows is not None and (not rows.empty):
-        for _, r in rows.iterrows():
-            client_id = int(r.get("client_db_id"))
-            industry_value = _normalize_filter_value(_json_null_if_na(r.get("industry")), "Unspecified")
-            status_value = _normalize_filter_value(_json_null_if_na(r.get("status")), "Unspecified")
-            owner_value = _normalize_filter_value(_json_null_if_na(r.get("crm_owner")), "Unassigned")
-            portfolio_value = _normalize_filter_value(_json_null_if_na(r.get("portfolio")), "Unassigned")
-            client_manager_value = _json_null_if_na(r.get("client_manager")) or ""
-            risk_value = _normalize_filter_value(client_milestone_status.get(client_id) or "green", "green")
-            risk_label = "Overdue" if risk_value == "red" else "Due" if risk_value == "amber" else "Healthy"
-
-            facet_industries[industry_value] = facet_industries.get(industry_value, 0) + 1
-            facet_statuses[status_value] = facet_statuses.get(status_value, 0) + 1
-            facet_owners[owner_value] = facet_owners.get(owner_value, 0) + 1
-            facet_risks[risk_label] = facet_risks.get(risk_label, 0) + 1
-            facet_portfolios[portfolio_value] = facet_portfolios.get(portfolio_value, 0) + 1
-            if client_manager_value:
-                facet_client_managers[client_manager_value] = facet_client_managers.get(client_manager_value, 0) + 1
-
-            items.append(
+    page_items: list[dict[str, object]] = []
+    if page_df is not None and not page_df.empty:
+        for _, r in page_df.iterrows():
+            page_items.append(
                 {
-                    "client_db_id": client_id,
+                    "client_db_id": int(r.get("client_db_id")),
                     "client_name": _json_null_if_na(r.get("client_name")),
-                    "industry": industry_value,
-                    "status": status_value,
-                    "crm_owner": owner_value,
-                    "portfolio": portfolio_value,
-                    "client_manager": client_manager_value,
-                    "milestone_status": _json_null_if_na(client_milestone_status.get(client_id)),
+                    "industry": _json_null_if_na(r.get("industry")),
+                    "status": _json_null_if_na(r.get("status")),
+                    "crm_owner": _json_null_if_na(r.get("crm_owner")),
+                    "portfolio": _json_null_if_na(r.get("portfolio")),
+                    "client_manager": _json_null_if_na(r.get("client_manager")) or "",
+                    "milestone_status": _json_null_if_na(r.get("milestone_status")),
                 }
             )
 
-        def matches_filters(item: dict[str, object]) -> bool:
-            if industry and _normalize_lookup_value(item.get("industry")) != _normalize_lookup_value(industry):
-                return False
-            if status and _normalize_lookup_value(item.get("status")) != _normalize_lookup_value(status):
-                return False
-            if crm_owner and _normalize_lookup_value(item.get("crm_owner")) != _normalize_lookup_value(crm_owner):
-                return False
-            if portfolio and _normalize_lookup_value(item.get("portfolio")) != _normalize_lookup_value(portfolio):
-                return False
-            if client_manager and _normalize_lookup_value(client_manager) not in _normalize_lookup_value(item.get("client_manager") or ""):
-                return False
-            if risk:
-                item_risk = item.get("milestone_status")
-                risk_label = "Overdue" if item_risk == "red" else "Due" if item_risk == "amber" else "Healthy"
-                if _normalize_lookup_value(risk_label) != _normalize_lookup_value(risk):
-                    return False
-            return True
-
-        items = [item for item in items if matches_filters(item)]
-
-    def sort_value(item: dict[str, object]):
-        key = (sort_by or "client").strip().lower()
-        if key == "industry":
-            return _normalize_lookup_value(item.get("industry"))
-        if key == "status":
-            return _normalize_lookup_value(item.get("status"))
-        if key == "owner":
-            return _normalize_lookup_value(item.get("crm_owner"))
-        if key == "risk":
-            status = item.get("milestone_status")
-            return 0 if status == "red" else 1 if status == "amber" else 2
-        return _normalize_lookup_value(item.get("client_name"))
-
-    reverse = str(sort_dir or "asc").strip().lower() == "desc"
-    items.sort(key=sort_value, reverse=reverse)
-
-    total = len(items)
-    start = int(offset)
-    end = start + int(limit)
-    page_items = items[start:end]
-
-    facet_payload = {
-        "industries": [{"value": key, "count": count} for key, count in sorted(facet_industries.items(), key=lambda kv: (-kv[1], kv[0].lower()))],
-        "statuses": [{"value": key, "count": count} for key, count in sorted(facet_statuses.items(), key=lambda kv: (-kv[1], kv[0].lower()))],
-        "owners": [{"value": key, "count": count} for key, count in sorted(facet_owners.items(), key=lambda kv: (-kv[1], kv[0].lower()))],
-        "risks": [{"value": key, "count": count} for key, count in sorted(facet_risks.items(), key=lambda kv: (-kv[1], kv[0].lower()))],
-        "portfolios": [{"value": key, "count": count} for key, count in sorted(facet_portfolios.items(), key=lambda kv: (-kv[1], kv[0].lower()))],
-        "client_managers": [{"value": key, "count": count} for key, count in sorted(facet_client_managers.items(), key=lambda kv: kv[0].lower())],
-    }
+    facet_payload = dict(_EMPTY_FACETS)
+    if facet_rows is not None and not facet_rows.empty:
+        dim_to_key = {
+            "industry": "industries",
+            "status": "statuses",
+            "owner": "owners",
+            "portfolio": "portfolios",
+            "risk": "risks",
+            "manager": "client_managers",
+        }
+        for dim, payload_key in dim_to_key.items():
+            dim_rows = facet_rows[facet_rows["dim"] == dim]
+            entries = [
+                {"value": str(row["key"]), "count": int(row["n"])}
+                for _, row in dim_rows.iterrows()
+                if not pd.isna(row["key"])
+            ]
+            if dim == "manager":
+                entries.sort(key=lambda kv: kv["value"].lower())
+            else:
+                entries.sort(key=lambda kv: (-kv["count"], kv["value"].lower()))
+            facet_payload[payload_key] = entries
 
     return {
         "items": page_items,
