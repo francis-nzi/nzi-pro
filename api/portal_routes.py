@@ -1269,7 +1269,7 @@ def portal_data_completeness(current_user: dict = Depends(portal_user_dep)):
             job_ids = [int(j[0]) for j in jobs]
             row_data = con.execute(
                 f"""
-                SELECT job_id, site_id, qty,
+                SELECT row_id, job_id, site_id, qty,
                        month_1, month_2, month_3, month_4, month_5, month_6,
                        month_7, month_8, month_9, month_10, month_11, month_12
                 FROM job_scope_rows
@@ -1278,27 +1278,42 @@ def portal_data_completeness(current_user: dict = Depends(portal_user_dep)):
                 [job_ids],
             ).fetchall()
 
-    # Aggregate: (job_id, site_id) -> has_data, monthly[1..12] bool
+            # Source-document mapping (one file per row, see
+            # CLIENT_PORTAL_SOURCE_DOCUMENT_MAPPING_SCOPE.md): counted
+            # regardless of the file's portal_visible flag -- this is an
+            # internal documentation-quality signal, not a "can the client
+            # open it" check (that's decided per-row in the ingestion feed).
+            linked_row_ids = {
+                int(r[0]) for r in con.execute(
+                    "SELECT DISTINCT row_id FROM job_files WHERE job_id = ANY(%s) AND row_id IS NOT NULL",
+                    [job_ids],
+                ).fetchall() or []
+            }
+
+    # Aggregate: (job_id, site_id) -> has_data, monthly[1..12] bool, row counts
     agg: dict[tuple[int, int], dict[str, Any]] = {}
     for r in row_data or []:
-        job_id, site_id = int(r[0]), int(r[1])
+        row_id, job_id, site_id = int(r[0]), int(r[1]), int(r[2])
         key = (job_id, site_id)
-        entry = agg.setdefault(key, {"has_data": False, "monthly": [False] * 12})
-        qty = r[2]
-        months = r[3:15]
-        if qty is not None and float(qty) != 0:
+        entry = agg.setdefault(key, {"has_data": False, "monthly": [False] * 12, "rows_total": 0, "rows_with_evidence": 0})
+        qty = r[3]
+        months = r[4:16]
+        row_has_data = (qty is not None and float(qty) != 0) or any(m is not None and float(m) != 0 for m in months)
+        if row_has_data:
             entry["has_data"] = True
+            entry["rows_total"] += 1
+            if row_id in linked_row_ids:
+                entry["rows_with_evidence"] += 1
         for i, m in enumerate(months):
             if m is not None and float(m) != 0:
                 entry["monthly"][i] = True
-                entry["has_data"] = True
 
     cells = []
     years_seen = set()
     for job_id, reporting_year, period_end, approved in jobs:
         years_seen.add(int(reporting_year))
         for site_id, site_name in sites:
-            entry = agg.get((int(job_id), int(site_id)), {"has_data": False, "monthly": [False] * 12})
+            entry = agg.get((int(job_id), int(site_id)), {"has_data": False, "monthly": [False] * 12, "rows_total": 0, "rows_with_evidence": 0})
             status = _completeness_status(entry["has_data"], bool(approved), period_end)
             cells.append({
                 "site_id": int(site_id),
@@ -1306,6 +1321,8 @@ def portal_data_completeness(current_user: dict = Depends(portal_user_dep)):
                 "reporting_year": int(reporting_year),
                 "status": status,
                 "monthly": entry["monthly"],
+                "rows_total": entry["rows_total"],
+                "rows_with_evidence": entry["rows_with_evidence"],
             })
 
     return {
@@ -1336,11 +1353,13 @@ def portal_ingestion_feed(current_user: dict = Depends(portal_user_dep)):
                 SELECT
                     jsr.row_id, jsr.report_label, jsr.qty, jsr.uom, jsr.data_source,
                     jsr.updated_at, cs.site_name, j.reporting_year,
-                    COALESCE(bool_or(rr.status = 'approved') OVER (PARTITION BY j.job_id), FALSE) AS approved
+                    COALESCE(bool_or(rr.status = 'approved') OVER (PARTITION BY j.job_id), FALSE) AS approved,
+                    jf.file_id, jf.file_name, jf.portal_visible
                 FROM job_scope_rows jsr
                 JOIN jobs j ON j.job_id = jsr.job_id
                 LEFT JOIN client_sites cs ON cs.site_id = jsr.site_id
                 LEFT JOIN report_reviews rr ON rr.job_id = j.job_id
+                LEFT JOIN job_files jf ON jf.row_id = jsr.row_id AND jf.job_id = jsr.job_id
                 WHERE j.client_db_id = %s AND COALESCE(j.portal_visible, TRUE) = TRUE
                   AND COALESCE(jsr.enabled, TRUE) = TRUE
                 ORDER BY jsr.updated_at DESC NULLS LAST
@@ -1366,6 +1385,14 @@ def portal_ingestion_feed(current_user: dict = Depends(portal_user_dep)):
             "site_name": _portal_clean_label(r[6], "Unassigned"),
             "reporting_year": int(r[7]) if r[7] is not None else None,
             "status": "complete" if r[8] else "in_progress",
+            # Source document mapping (one file per row): has_source_document
+            # reflects the real internal linkage regardless of visibility, for
+            # an honest completeness signal; the file_id/download link is only
+            # included when the linked file is also portal_visible, so we
+            # never advertise a link a client can't actually open.
+            "has_source_document": r[9] is not None,
+            "source_document_file_id": int(r[9]) if (r[9] is not None and r[11]) else None,
+            "source_document_name": r[10] if (r[9] is not None and r[11]) else None,
         }
         for r in (rows or [])
     ]

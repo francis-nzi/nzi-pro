@@ -40,6 +40,8 @@ type CompletenessCell = {
   reporting_year: number;
   status: "not_started" | "in_progress" | "complete" | "overdue";
   monthly: boolean[];
+  rows_total: number;
+  rows_with_evidence: number;
 };
 
 type CompletenessData = {
@@ -58,6 +60,9 @@ type IngestionItem = {
   site_name: string;
   reporting_year: number | null;
   status: "complete" | "in_progress";
+  has_source_document: boolean;
+  source_document_file_id: number | null;
+  source_document_name: string | null;
 };
 
 const COMPLETENESS_LABEL: Record<CompletenessCell["status"], string> = {
@@ -75,6 +80,20 @@ const COMPLETENESS_VARIANT: Record<CompletenessCell["status"], BadgeProps["varia
 };
 
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+async function downloadSourceDocument(fileId: number, fileName: string) {
+  const res = await apiFetch(`/portal/files/${fileId}/download`);
+  if (!res.ok) return;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 function formatUpdatedAt(iso: string | null): string {
   if (!iso) return "—";
@@ -491,6 +510,11 @@ export default function PortalReporting() {
                         </div>
                       ))}
                     </div>
+                    {selected.rows_total > 0 && (
+                      <p className="mt-2 text-[11px] text-muted-foreground">
+                        {selected.rows_with_evidence} of {selected.rows_total} rows have a linked source document
+                      </p>
+                    )}
                   </div>
                 )}
                 <p className="px-3 pb-3 text-xs text-muted-foreground">
@@ -538,6 +562,7 @@ export default function PortalReporting() {
                       <TableHead>Unit</TableHead>
                       <TableHead>Source</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Source Document</TableHead>
                       <TableHead>Last Updated</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -553,6 +578,18 @@ export default function PortalReporting() {
                           <Badge variant={item.status === "complete" ? "success" : "secondary"}>
                             {item.status === "complete" ? "Complete" : "In progress"}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {item.source_document_file_id ? (
+                            <button
+                              onClick={() => void downloadSourceDocument(item.source_document_file_id as number, item.source_document_name || "source-document")}
+                              className="text-xs font-medium text-brand underline hover:text-brand-dark"
+                            >
+                              View
+                            </button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-muted-foreground">{formatUpdatedAt(item.updated_at)}</TableCell>
                       </TableRow>

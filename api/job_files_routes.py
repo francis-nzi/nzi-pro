@@ -413,6 +413,40 @@ def list_job_files(
         raise HTTPException(status_code=500, detail=f"Failed to list files: {e}")
 
 
+@router.get("/jobs/{job_id}/files/row-links")
+def list_job_file_row_links(
+    job_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Map of row_id -> linked file, for rendering an evidence indicator inline
+    in the data-entry grid without a per-row lookup. One file per row (the
+    existing job_files.row_id model) -- see CLIENT_PORTAL_SOURCE_DOCUMENT_MAPPING_SCOPE.md."""
+    try:
+        with get_conn() as con:
+            _ensure_job_files_table(con)
+            rows = con.execute(
+                """
+                SELECT row_id, file_id, file_name, portal_visible
+                FROM job_files
+                WHERE job_id = %s AND row_id IS NOT NULL
+                """,
+                [int(job_id)],
+            ).fetchall()
+        return {
+            "job_id": int(job_id),
+            "links": {
+                str(int(r[0])): {
+                    "file_id": int(r[1]),
+                    "file_name": r[2],
+                    "portal_visible": bool(r[3]) if r[3] is not None else False,
+                }
+                for r in (rows or [])
+            },
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load file row-links: {e}")
+
+
 @router.get("/jobs/{job_id}/files/types")
 def list_job_file_types(
     job_id: int,

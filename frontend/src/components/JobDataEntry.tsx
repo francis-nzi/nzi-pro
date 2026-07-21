@@ -238,6 +238,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     status?: string | null;
   } | null>(null);
   const [sites, setSites] = useState<Site[]>([]);
+  const [fileLinks, setFileLinks] = useState<Record<number, { file_id: number; file_name: string; portal_visible: boolean }>>({});
   const [methodologyCountry, setMethodologyCountry] = useState<string>("UK");
   const [previousYearRows, setPreviousYearRows] = useState<PreviousYearRow[]>([]);
   const [previousYearLoading, setPreviousYearLoading] = useState(false);
@@ -454,12 +455,20 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     
     try {
       // Only load essential data on initial load (not template factors)
-      const [totalsRes, dataRes, jobRes, previousRowsRes] = await Promise.all([
+      const [totalsRes, dataRes, jobRes, previousRowsRes, fileLinksRes] = await Promise.all([
         fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-totals`, { credentials: "include" }),
         fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data`, { credentials: "include" }),
         fetch(`${effectiveBaseUrl}/jobs/${jobId}`, { credentials: "include" }),
         fetch(`${effectiveBaseUrl}/jobs/${jobId}/previous-scope-rows?limit=50`, { credentials: "include" }),
+        fetch(`${effectiveBaseUrl}/jobs/${jobId}/files/row-links`, { credentials: "include" }),
       ]);
+
+      if (fileLinksRes.ok) {
+        const linksJson = await fileLinksRes.json() as { links: Record<string, { file_id: number; file_name: string; portal_visible: boolean }> };
+        const byRowId: Record<number, { file_id: number; file_name: string; portal_visible: boolean }> = {};
+        for (const [rid, link] of Object.entries(linksJson.links || {})) byRowId[Number(rid)] = link;
+        setFileLinks(byRowId);
+      }
 
       if (totalsRes.ok) {
         const totalsData = await totalsRes.json();
@@ -2185,6 +2194,16 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               >
                                 Spend Data
                               </div>
+                            ) : null}
+                            {fileLinks[row.row_id] ? (
+                              <button
+                                type="button"
+                                onClick={() => window.open(`${effectiveBaseUrl}/jobs/${jobId}/files/${fileLinks[row.row_id].file_id}/download`, "_blank")}
+                                className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-900 hover:bg-emerald-200"
+                                title={`Source document: ${fileLinks[row.row_id].file_name}${fileLinks[row.row_id].portal_visible ? " (visible to client)" : " (not shared with client)"}`}
+                              >
+                                📎 Evidence
+                              </button>
                             ) : null}
                           </div>
                         </td>
