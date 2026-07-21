@@ -30,6 +30,7 @@ from services.portal import (
     get_portal_user_auth_data,
     get_portal_user_by_email,
     get_portal_user_by_id,
+    get_portal_user_site_ids,
     set_portal_user_password,
 )
 from services.outbound_email import send_tracked_email
@@ -228,12 +229,18 @@ async def _portal_user(authorization: str = Header(default="")) -> dict[str, Any
             "full_name": str(payload.get("staff_name") or "Staff"),
             "is_active": True,
             "is_staff": True,
+            # Staff previewing the portal always see everything, unrestricted --
+            # site-scoping only applies to real client_portal_users accounts.
+            "role": "ClientAdmin",
+            "site_ids": None,
         }
 
     portal_user_id = int(payload["sub"])
     with get_conn() as con:
         ensure_portal_schema(con)
         user = get_portal_user_by_id(portal_user_id, con=con)
+        if user:
+            user["site_ids"] = get_portal_user_site_ids(portal_user_id, con=con)
     if not user or not user.get("is_active"):
         raise HTTPException(status_code=401, detail="Account not found or inactive")
     if int(user["client_db_id"]) != client_db_id:

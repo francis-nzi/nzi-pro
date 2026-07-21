@@ -18,6 +18,10 @@ from api.portal_auth_routes import portal_user_dep
 from core.database import get_conn
 from pydantic import BaseModel as _BaseModel, Field as _Field
 from services.portal import (
+    PORTAL_ROLE_CAN_APPROVE,
+    PORTAL_ROLE_CAN_COMMENT,
+    PORTAL_ROLE_CAN_MANAGE_ACTIONS,
+    SITE_SCOPED_HIDDEN_SECTIONS,
     add_comment,
     approve_review,
     get_or_create_review,
@@ -48,6 +52,36 @@ def _assert_job_belongs_to_client(job_id: int, client_db_id: int, con) -> None:
         raise HTTPException(status_code=403, detail="Access denied")
     if row[1] is False:
         raise HTTPException(status_code=404, detail="Job not found")
+
+
+def _assert_section_allowed(current_user: dict, section: str) -> None:
+    """Site-scoped portal users (current_user["site_ids"] is not None) don't
+    get a filtered view of Reports/Files/Actions/Insights -- those sections
+    have no per-site structure to filter (a job/report/file/action can span
+    multiple sites), so they're hidden entirely rather than shown
+    unfiltered. See CLIENT_PORTAL_GOVERNANCE_ENDPOINT_AUDIT.md §3 (confirmed).
+    This is a defense-in-depth check behind the nav-level hiding on the
+    frontend -- it must not be the only thing stopping a site-scoped user
+    from reaching this data."""
+    if current_user.get("site_ids") is not None and section in SITE_SCOPED_HIDDEN_SECTIONS:
+        raise HTTPException(status_code=403, detail="Not available for a site-scoped account")
+
+
+def _assert_role_allowed(current_user: dict, allowed_roles: set) -> None:
+    if current_user.get("role", "ClientAdmin") not in allowed_roles:
+        raise HTTPException(status_code=403, detail="Your portal role doesn't allow this action")
+
+
+@router.get("/portal/me")
+def portal_me(current_user: dict = Depends(portal_user_dep)):
+    """Role + site-scope info for the portal frontend to decide nav
+    visibility. Deliberately doesn't return the actual site_ids list --
+    the frontend only needs to know *whether* it's scoped, not to what."""
+    return {
+        "role": current_user.get("role", "ClientAdmin"),
+        "is_site_scoped": current_user.get("site_ids") is not None,
+        "hidden_sections": sorted(SITE_SCOPED_HIDDEN_SECTIONS) if current_user.get("site_ids") is not None else [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +128,7 @@ def portal_portfolio_dashboard(current_user: dict = Depends(portal_user_dep)):
 
 @router.get("/portal/jobs/{job_id}")
 def portal_job_overview(job_id: int, current_user: dict = Depends(portal_user_dep)):
+    _assert_section_allowed(current_user, "reports")
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         _assert_job_belongs_to_client(job_id, client_db_id, con)
@@ -140,6 +175,7 @@ def portal_job_overview(job_id: int, current_user: dict = Depends(portal_user_de
 
 @router.get("/portal/jobs/{job_id}/live-report-data")
 def portal_live_report_data(job_id: int, current_user: dict = Depends(portal_user_dep)):
+    _assert_section_allowed(current_user, "reports")
     from services.tenancy import org_context
     from api.job_live_report_routes import get_job_live_report_data
 
@@ -186,6 +222,7 @@ def portal_live_report_data(job_id: int, current_user: dict = Depends(portal_use
 
 @router.get("/portal/jobs/{job_id}/report-html", response_class=HTMLResponse)
 def portal_report_html(job_id: int, current_user: dict = Depends(portal_user_dep)):
+    _assert_section_allowed(current_user, "reports")
     from services.tenancy import org_context
     from api.job_report_routes import _render_report_snapshot_html
 
@@ -239,6 +276,7 @@ def portal_report_html(job_id: int, current_user: dict = Depends(portal_user_dep
 
 @router.get("/portal/jobs/{job_id}/report-meta")
 def portal_report_meta(job_id: int, current_user: dict = Depends(portal_user_dep)):
+    _assert_section_allowed(current_user, "reports")
     from services.tenancy import org_context
 
     client_db_id = int(current_user["client_db_id"])
@@ -308,6 +346,7 @@ def portal_snapshot_data(job_id: int, current_user: dict = Depends(portal_user_d
     always sees exactly the version the CRM explicitly sent, not live data.
     Returns { status: 'not_sent' } with 404 if no version has been sent yet.
     """
+    _assert_section_allowed(current_user, "reports")
     import json as _json
 
     client_db_id = int(current_user["client_db_id"])
@@ -383,6 +422,7 @@ def portal_snapshot_data(job_id: int, current_user: dict = Depends(portal_user_d
 @router.get("/portal/jobs/{job_id}/download-pdf")
 def portal_download_pdf(job_id: int, current_user: dict = Depends(portal_user_dep)):
     """Serve the published PDF to the client.  Only available after CRM clicks Publish PDF."""
+    _assert_section_allowed(current_user, "reports")
     from fastapi.responses import Response as _Response
     import pathlib as _pathlib
 
@@ -441,6 +481,7 @@ class AddCommentPayload(BaseModel):
 
 @router.get("/portal/jobs/{job_id}/comments")
 def portal_list_comments(job_id: int, current_user: dict = Depends(portal_user_dep)):
+    _assert_section_allowed(current_user, "reports")
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         _assert_job_belongs_to_client(job_id, client_db_id, con)
@@ -455,6 +496,8 @@ def portal_add_comment(
     payload: AddCommentPayload = Body(...),
     current_user: dict = Depends(portal_user_dep),
 ):
+    _assert_section_allowed(current_user, "reports")
+    _assert_role_allowed(current_user, PORTAL_ROLE_CAN_COMMENT)
     client_db_id = int(current_user["client_db_id"])
     with get_conn(autocommit=False) as con:
         _assert_job_belongs_to_client(job_id, client_db_id, con)
@@ -880,6 +923,15 @@ def portal_metrics(
                         "portal_metrics: crp entries load failed client_db_id=%s", client_db_id,
                     )
 
+                # Site-scoped users only see rows attributable to their sites --
+                # see CLIENT_PORTAL_GOVERNANCE_AUTHORIZATION_DESIGN.md §5.3/5.4.
+                site_ids = current_user.get("site_ids")
+                if site_ids is not None and scope_df is not None and not scope_df.empty:
+                    if "site_id" in scope_df.columns:
+                        scope_df = scope_df[scope_df["site_id"].isin(site_ids)]
+                    else:
+                        scope_df = scope_df.iloc[0:0]
+
             try:
                 benchmark_metrics = get_client_benchmark_metrics(con, client_db_id)
             except Exception:
@@ -1066,6 +1118,17 @@ def portal_reporting_data(current_user: dict = Depends(portal_user_dep)):
                     "portal_reporting_data: crp entries load failed client_db_id=%s", client_db_id,
                 )
 
+            # Site-scoped portal users only see rows attributable to their
+            # sites; rows with no site_id (e.g. crp_scope_entries, which has
+            # no site column at all) are excluded, not shown by default --
+            # see CLIENT_PORTAL_GOVERNANCE_AUTHORIZATION_DESIGN.md §5.3/5.4.
+            site_ids = current_user.get("site_ids")
+            if site_ids is not None:
+                if "site_id" in scope_df.columns:
+                    scope_df = scope_df[scope_df["site_id"].isin(site_ids)]
+                else:
+                    scope_df = scope_df.iloc[0:0]
+
             if scope_df is None or scope_df.empty:
                 # No data has been entered for any of this client's jobs yet --
                 # don't surface empty reporting years (e.g. a newly created job).
@@ -1171,6 +1234,7 @@ def portal_sites_geo(current_user: dict = Depends(portal_user_dep)):
     from services.sites import ensure_client_sites_runtime_columns
 
     client_db_id = int(current_user["client_db_id"])
+    site_ids = current_user.get("site_ids")
     with get_conn() as con:
         ensure_client_sites_runtime_columns(con)
         rows = con.execute(
@@ -1180,8 +1244,9 @@ def portal_sites_geo(current_user: dict = Depends(portal_user_dep)):
             WHERE client_db_id = %s
               AND (archived = FALSE OR archived IS NULL)
               AND vacated_date IS NULL
+              AND (%s::int[] IS NULL OR site_id = ANY(%s))
             """,
-            [client_db_id],
+            [client_db_id, site_ids, site_ids],
         ).fetchall()
 
     sites = [
@@ -1231,6 +1296,7 @@ def portal_data_completeness(current_user: dict = Depends(portal_user_dep)):
     """Per-site, per-reporting-year completeness, with an optional monthly
     drill-down using the real month_1..12 values already captured per row."""
     client_db_id = int(current_user["client_db_id"])
+    site_ids = current_user.get("site_ids")
     with get_conn() as con:
         client_row = con.execute("SELECT org_id FROM clients WHERE db_id = %s", [client_db_id]).fetchone()
         if not client_row:
@@ -1244,9 +1310,10 @@ def portal_data_completeness(current_user: dict = Depends(portal_user_dep)):
                 """
                 SELECT site_id, site_name FROM client_sites
                 WHERE client_db_id = %s AND (archived = FALSE OR archived IS NULL) AND vacated_date IS NULL
+                  AND (%s::int[] IS NULL OR site_id = ANY(%s))
                 ORDER BY site_name
                 """,
-                [client_db_id],
+                [client_db_id, site_ids, site_ids],
             ).fetchall()
 
             jobs = con.execute(
@@ -1339,6 +1406,7 @@ def portal_ingestion_feed(current_user: dict = Depends(portal_user_dep)):
     §3.4. "Owner" is deliberately omitted -- no per-row/site ownership concept
     exists in the schema yet (confirmed during scoping), so it is not faked here."""
     client_db_id = int(current_user["client_db_id"])
+    site_ids = current_user.get("site_ids")
     with get_conn() as con:
         client_row = con.execute("SELECT org_id FROM clients WHERE db_id = %s", [client_db_id]).fetchone()
         if not client_row:
@@ -1362,10 +1430,11 @@ def portal_ingestion_feed(current_user: dict = Depends(portal_user_dep)):
                 LEFT JOIN job_files jf ON jf.row_id = jsr.row_id AND jf.job_id = jsr.job_id
                 WHERE j.client_db_id = %s AND COALESCE(j.portal_visible, TRUE) = TRUE
                   AND COALESCE(jsr.enabled, TRUE) = TRUE
+                  AND (%s::int[] IS NULL OR jsr.site_id = ANY(%s))
                 ORDER BY jsr.updated_at DESC NULLS LAST
                 LIMIT 500
                 """,
-                [client_db_id],
+                [client_db_id, site_ids, site_ids],
             ).fetchall()
 
     def _dt(v):
@@ -1414,6 +1483,8 @@ def portal_approve_report(
     payload: ApprovePayload = Body(...),
     current_user: dict = Depends(portal_user_dep),
 ):
+    _assert_section_allowed(current_user, "reports")
+    _assert_role_allowed(current_user, PORTAL_ROLE_CAN_APPROVE)
     if not payload.confirmed:
         raise HTTPException(status_code=400, detail="Approval confirmation is required")
 
@@ -1654,6 +1725,7 @@ class _PortalAddActionPayload(_BaseModel):
 @router.get("/portal/actions/library")
 def portal_actions_library(current_user: dict = Depends(portal_user_dep)):
     """Return full active action library with 'already_added' flag for this client."""
+    _assert_section_allowed(current_user, "actions")
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         from services.report_actions import ensure_report_actions_schema
@@ -1706,6 +1778,8 @@ def portal_add_action_from_library(
     current_user: dict = Depends(portal_user_dep),
 ):
     """Add a library action template to this client's plan."""
+    _assert_section_allowed(current_user, "actions")
+    _assert_role_allowed(current_user, PORTAL_ROLE_CAN_MANAGE_ACTIONS)
     from services.report_actions import ensure_report_actions_schema, list_job_report_actions, normalize_action_term
 
     action_option_id = body.get("action_option_id")
@@ -1802,6 +1876,7 @@ def portal_add_action_from_library(
 @router.get("/portal/actions/contacts")
 def portal_action_contacts(current_user: dict = Depends(portal_user_dep)):
     """Return client contacts for the owner dropdown."""
+    _assert_section_allowed(current_user, "actions")
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         rows = con.execute(
@@ -1830,6 +1905,7 @@ def portal_action_contacts(current_user: dict = Depends(portal_user_dep)):
 @router.get("/portal/actions/categories")
 def portal_action_categories(current_user: dict = Depends(portal_user_dep)):
     """Return active action categories for the category dropdown."""
+    _assert_section_allowed(current_user, "actions")
     with get_conn() as con:
         from services.report_actions import ensure_report_actions_schema
         ensure_report_actions_schema(con)
@@ -1845,6 +1921,7 @@ def portal_action_categories(current_user: dict = Depends(portal_user_dep)):
 @router.get("/portal/actions")
 def portal_list_actions(current_user: dict = Depends(portal_user_dep)):
     """Return all actions for this client across all their jobs."""
+    _assert_section_allowed(current_user, "actions")
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         from services.report_actions import ensure_report_actions_schema
@@ -1921,6 +1998,8 @@ def portal_update_action(
     current_user: dict = Depends(portal_user_dep),
 ):
     """Update progress/status/note on an action owned by this client."""
+    _assert_section_allowed(current_user, "actions")
+    _assert_role_allowed(current_user, PORTAL_ROLE_CAN_MANAGE_ACTIONS)
     from services.report_actions import update_job_action
 
     client_db_id = int(current_user["client_db_id"])
@@ -1954,6 +2033,8 @@ def portal_add_action(
     current_user: dict = Depends(portal_user_dep),
 ):
     """Add a new custom action for this client, assigned to their most recent job."""
+    _assert_section_allowed(current_user, "actions")
+    _assert_role_allowed(current_user, PORTAL_ROLE_CAN_MANAGE_ACTIONS)
     from services.report_actions import ensure_report_actions_schema, list_job_report_actions, normalize_action_term
 
     client_db_id = int(current_user["client_db_id"])
@@ -2029,6 +2110,7 @@ def portal_insights_widget_pngs(
     current_user: dict = Depends(portal_user_dep),
 ):
     """Return stored widget PNGs for the client's job in the specified year."""
+    _assert_section_allowed(current_user, "insights")
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         jobs_df = _portal_load_jobs(con, client_db_id)
@@ -2087,6 +2169,7 @@ def portal_insights_widget_pngs(
 @router.get("/portal/files")
 def portal_files(current_user: dict = Depends(portal_user_dep)):
     """Return all files attached to this client's jobs (read-only, no upload)."""
+    _assert_section_allowed(current_user, "files")
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         # Ensure portal visibility columns exist (may not be present on older deployments)
@@ -2169,9 +2252,10 @@ def portal_file_download(file_id: int, current_user: dict = Depends(portal_user_
         row = con.execute(
             """
             SELECT jf.file_id, jf.file_name, jf.file_path, jf.external_item_id,
-                   jf.storage_provider, jf.mime_type
+                   jf.storage_provider, jf.mime_type, jsr.site_id
             FROM job_files jf
             JOIN jobs j ON j.job_id = jf.job_id
+            LEFT JOIN job_scope_rows jsr ON jsr.row_id = jf.row_id AND jsr.job_id = jf.job_id
             WHERE jf.file_id = %s
               AND j.client_db_id = %s
               AND COALESCE(j.portal_visible, TRUE) = TRUE
@@ -2183,6 +2267,19 @@ def portal_file_download(file_id: int, current_user: dict = Depends(portal_user_
 
     if not row:
         raise HTTPException(status_code=404, detail="File not found")
+
+    # Site-scoped users don't get the general Files tab at all (see
+    # _assert_section_allowed), but this same endpoint also serves the
+    # Source Document Mapping "View" link from the still-visible Data tab
+    # (Ingestion Feed), which IS site-attributable via the linked row.
+    # So: allow when unrestricted, or when the linked row's site is one of
+    # theirs; otherwise this is a plain Files-tab file with no site
+    # attribution, which a site-scoped user shouldn't reach either way.
+    site_ids = current_user.get("site_ids")
+    if site_ids is not None:
+        linked_site_id = int(row[6]) if row[6] is not None else None
+        if linked_site_id is None or linked_site_id not in site_ids:
+            raise HTTPException(status_code=403, detail="Not available for a site-scoped account")
 
     file_name      = str(row[1] or "download")
     local_path     = str(row[2] or "").strip()

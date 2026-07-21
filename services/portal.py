@@ -174,7 +174,75 @@ def ensure_portal_schema(con) -> None:
         )
     """)
 
+    # Governance: portal-user role + optional site scoping. Every existing
+    # user defaults to 'ClientAdmin' (today's de facto full-access
+    # behaviour) so this is purely additive -- see
+    # CLIENT_PORTAL_GOVERNANCE_AUTHORIZATION_DESIGN.md. A user with zero
+    # rows in portal_user_sites is unrestricted (sees all of their
+    # client's sites), also matching today's behaviour with zero migration
+    # risk.
+    try:
+        con.execute("ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS role VARCHAR NOT NULL DEFAULT 'ClientAdmin'")
+    except Exception:
+        pass
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS portal_user_sites (
+          portal_user_id INTEGER NOT NULL REFERENCES client_portal_users(portal_user_id) ON DELETE CASCADE,
+          site_id        INTEGER NOT NULL REFERENCES client_sites(site_id) ON DELETE CASCADE,
+          PRIMARY KEY (portal_user_id, site_id)
+        )
+    """)
+
     _schema_seeded = True
+
+
+PORTAL_ROLES = ("ClientAdmin", "ClientContributor", "ClientViewer", "ClientReporting")
+
+# Which portal roles can perform each write action -- see
+# CLIENT_PORTAL_GOVERNANCE_ENDPOINT_AUDIT.md §5 (sign-off confirmed).
+PORTAL_ROLE_CAN_APPROVE = {"ClientAdmin"}
+PORTAL_ROLE_CAN_COMMENT = {"ClientAdmin", "ClientContributor"}
+PORTAL_ROLE_CAN_MANAGE_ACTIONS = {"ClientAdmin", "ClientContributor"}
+PORTAL_ROLE_CAN_MANAGE_USERS = {"ClientAdmin"}
+
+# Nav sections hidden entirely for a site-scoped portal user, per
+# CLIENT_PORTAL_GOVERNANCE_ENDPOINT_AUDIT.md §3: none of these have a real
+# per-site structure to filter (a job/report/file/action can span multiple
+# sites), so a partial view isn't possible -- confirmed decision was to hide
+# rather than show unfiltered.
+SITE_SCOPED_HIDDEN_SECTIONS = {"reports", "files", "actions", "insights"}
+
+
+def get_portal_user_site_ids(portal_user_id: int, *, con=None) -> list[int] | None:
+    """None means unrestricted (sees every site for their client) -- the
+    default, zero-migration-risk state for every user until staff (or a
+    ClientAdmin) explicitly assigns specific sites."""
+    if con is None:
+        with get_conn() as managed:
+            return get_portal_user_site_ids(portal_user_id, con=managed)
+    ensure_portal_schema(con)
+    rows = con.execute(
+        "SELECT site_id FROM portal_user_sites WHERE portal_user_id = %s",
+        [int(portal_user_id)],
+    ).fetchall()
+    if not rows:
+        return None
+    return [int(r[0]) for r in rows]
+
+
+def set_portal_user_sites(portal_user_id: int, site_ids: list[int], *, con=None) -> None:
+    """Replace this user's site scope. An empty list means unrestricted
+    (all sites) -- matches get_portal_user_site_ids' None convention."""
+    if con is None:
+        with get_conn(autocommit=False) as managed:
+            return set_portal_user_sites(portal_user_id, site_ids, con=managed)
+    ensure_portal_schema(con)
+    con.execute("DELETE FROM portal_user_sites WHERE portal_user_id = %s", [int(portal_user_id)])
+    for site_id in site_ids or []:
+        con.execute(
+            "INSERT INTO portal_user_sites (portal_user_id, site_id) VALUES (%s, %s)",
+            [int(portal_user_id), int(site_id)],
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +403,7 @@ def _row_to_portal_user(row) -> dict[str, Any]:
         "created_by": str(row[8] or "") or None,
         "invited_at": str(row[9]) if row[9] else None,
         "invited_by": str(row[10] or "") or None,
+        "role": str(row[11] or "ClientAdmin") if len(row) > 11 else "ClientAdmin",
     }
 
 
@@ -346,14 +415,17 @@ def list_portal_users(client_db_id: int, *, con=None) -> list[dict[str, Any]]:
     rows = con.execute(
         """
         SELECT portal_user_id, client_db_id, contact_id, email, full_name,
-               is_active, created_at, last_login_at, created_by, invited_at, invited_by
+               is_active, created_at, last_login_at, created_by, invited_at, invited_by, role
         FROM client_portal_users
         WHERE client_db_id = %s
         ORDER BY full_name ASC
         """,
         [int(client_db_id)],
     ).fetchall()
-    return [_row_to_portal_user(r) for r in (rows or [])]
+    users = [_row_to_portal_user(r) for r in (rows or [])]
+    for user in users:
+        user["site_ids"] = get_portal_user_site_ids(user["portal_user_id"], con=con)
+    return users
 
 
 def get_portal_user_by_id(portal_user_id: int, *, con=None) -> dict[str, Any] | None:
@@ -364,7 +436,7 @@ def get_portal_user_by_id(portal_user_id: int, *, con=None) -> dict[str, Any] | 
     row = con.execute(
         """
         SELECT portal_user_id, client_db_id, contact_id, email, full_name,
-               is_active, created_at, last_login_at, created_by, invited_at, invited_by
+               is_active, created_at, last_login_at, created_by, invited_at, invited_by, role
         FROM client_portal_users
         WHERE portal_user_id = %s
         """,
@@ -382,7 +454,7 @@ def get_portal_user_by_email(email: str, *, con=None) -> dict[str, Any] | None:
     row = con.execute(
         """
         SELECT portal_user_id, client_db_id, contact_id, email, full_name,
-               is_active, created_at, last_login_at, created_by, invited_at, invited_by, password_hash
+               is_active, created_at, last_login_at, created_by, invited_at, invited_by, role, password_hash
         FROM client_portal_users
         WHERE LOWER(email) = LOWER(%s)
         """,
@@ -391,7 +463,7 @@ def get_portal_user_by_email(email: str, *, con=None) -> dict[str, Any] | None:
     if not row:
         return None
     user = _row_to_portal_user(row)
-    user["password_hash"] = row[11]
+    user["password_hash"] = row[12]
     return user
 
 
@@ -440,6 +512,8 @@ def create_portal_user(
     full_name: str,
     contact_id: int | None = None,
     created_by: str,
+    role: str = "ClientAdmin",
+    site_ids: list[int] | None = None,
     con=None,
 ) -> tuple[dict[str, Any], str]:
     """Create a portal user with a system-generated temporary password.
@@ -455,6 +529,8 @@ def create_portal_user(
                 full_name=full_name,
                 contact_id=contact_id,
                 created_by=created_by,
+                role=role,
+                site_ids=site_ids,
                 con=managed,
             )
     ensure_portal_schema(con)
@@ -465,6 +541,7 @@ def create_portal_user(
     full_name = str(full_name or "").strip()
     if not full_name:
         raise HTTPException(status_code=400, detail="Full name is required")
+    role = role if role in PORTAL_ROLES else "ClientAdmin"
 
     existing = con.execute(
         "SELECT portal_user_id FROM client_portal_users WHERE LOWER(email) = LOWER(%s)",
@@ -478,13 +555,16 @@ def create_portal_user(
     row = con.execute(
         """
         INSERT INTO client_portal_users
-          (client_db_id, contact_id, email, full_name, password_hash, is_active, created_by, invited_at, invited_by)
-        VALUES (%s, %s, %s, %s, %s, TRUE, %s, NOW(), %s)
+          (client_db_id, contact_id, email, full_name, password_hash, is_active, created_by, invited_at, invited_by, role)
+        VALUES (%s, %s, %s, %s, %s, TRUE, %s, NOW(), %s, %s)
         RETURNING portal_user_id
         """,
-        [int(client_db_id), contact_id, email, full_name, ph, created_by, created_by],
+        [int(client_db_id), contact_id, email, full_name, ph, created_by, created_by, role],
     ).fetchone()
-    user = get_portal_user_by_id(int(row[0]), con=con)
+    new_id = int(row[0])
+    if site_ids:
+        set_portal_user_sites(new_id, site_ids, con=con)
+    user = get_portal_user_by_id(new_id, con=con)
     return user, temporary_password
 
 
@@ -493,25 +573,33 @@ def update_portal_user(
     *,
     full_name: str | None = None,
     is_active: bool | None = None,
+    role: str | None = None,
+    site_ids: list[int] | None = None,
     con=None,
 ) -> dict[str, Any]:
     if con is None:
         with get_conn(autocommit=False) as managed:
-            return update_portal_user(portal_user_id, full_name=full_name, is_active=is_active, con=managed)
+            return update_portal_user(
+                portal_user_id, full_name=full_name, is_active=is_active,
+                role=role, site_ids=site_ids, con=managed,
+            )
     ensure_portal_schema(con)
     user = get_portal_user_by_id(portal_user_id, con=con)
     if not user:
         raise HTTPException(status_code=404, detail="Portal user not found")
     next_name = str(full_name or "").strip() or user["full_name"]
     next_active = is_active if is_active is not None else user["is_active"]
+    next_role = role if role in PORTAL_ROLES else user["role"]
     con.execute(
         """
         UPDATE client_portal_users
-        SET full_name = %s, is_active = %s, updated_at = NOW()
+        SET full_name = %s, is_active = %s, role = %s, updated_at = NOW()
         WHERE portal_user_id = %s
         """,
-        [next_name, next_active, int(portal_user_id)],
+        [next_name, next_active, next_role, int(portal_user_id)],
     )
+    if site_ids is not None:
+        set_portal_user_sites(portal_user_id, site_ids, con=con)
     return get_portal_user_by_id(portal_user_id, con=con)
 
 

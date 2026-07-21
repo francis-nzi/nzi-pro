@@ -53,11 +53,15 @@ class CreatePortalUserPayload(BaseModel):
     email: str = Field(..., min_length=1)
     full_name: str = Field(..., min_length=1)
     contact_id: int | None = None
+    role: str = "ClientAdmin"
+    site_ids: list[int] | None = None
 
 
 class UpdatePortalUserPayload(BaseModel):
     full_name: str | None = None
     is_active: bool | None = None
+    role: str | None = None
+    site_ids: list[int] | None = None
 
 
 @router.get("/clients/{client_db_id}/portal-candidate-users")
@@ -140,6 +144,8 @@ def create_client_portal_user(
         full_name=payload.full_name,
         contact_id=payload.contact_id,
         created_by=_actor(_user),
+        role=payload.role,
+        site_ids=payload.site_ids,
     )
 
     # Send welcome email with login URL and the generated password
@@ -171,6 +177,8 @@ def update_client_portal_user(
         int(portal_user_id),
         full_name=payload.full_name,
         is_active=payload.is_active,
+        role=payload.role,
+        site_ids=payload.site_ids,
     )
     return {"ok": True, "item": updated}
 

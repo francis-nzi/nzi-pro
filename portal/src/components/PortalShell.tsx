@@ -70,6 +70,7 @@ export default function PortalShell({
   const [navConfig, setNavConfig] = useState<NavConfig>({});
   const [navLoaded, setNavLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [hiddenSections, setHiddenSections] = useState<string[]>([]);
 
   useEffect(() => {
     if (!getBestToken()) {
@@ -91,6 +92,15 @@ export default function PortalShell({
         setNavLoaded(true);
       })
       .catch(() => { clearAllTokens(); router.replace("/login"); });
+
+    // Site-scoped portal users don't get Reports/Files/Actions/Insights at
+    // all -- see CLIENT_PORTAL_GOVERNANCE_ENDPOINT_AUDIT.md §3. The backend
+    // enforces this on every request regardless; this just keeps the nav
+    // from advertising sections that would 403.
+    apiFetch("/portal/me")
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then((d: { hidden_sections?: string[] }) => setHiddenSections(d.hidden_sections ?? []))
+      .catch(() => setHiddenSections([]));
   }, [router]);
 
   function handleLogout() {
@@ -108,11 +118,12 @@ export default function PortalShell({
     // has actually loaded.
     if (!navLoaded) return [];
     return ALL_NAV_ITEMS.filter((item) => {
+      if (hiddenSections.includes(item.key)) return false;
       const cfg = navConfig as Record<string, boolean>;
       if (Object.keys(navConfig).length === 0) return true;
       return cfg[item.key] !== false;
     });
-  }, [navConfig, navLoaded]);
+  }, [navConfig, navLoaded, hiddenSections]);
   const visibleNavTabs = useMemo(() => visibleNav.map((item) => item.tab), [visibleNav]);
 
   useEffect(() => {

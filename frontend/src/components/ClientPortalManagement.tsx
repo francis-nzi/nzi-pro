@@ -24,8 +24,22 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { jobFamilyBadgeClassName } from "@/lib/job-family";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
+
+const PORTAL_ROLE_OPTIONS = [
+  { value: "ClientAdmin", label: "Client Admin — full access, can approve reports & manage other users" },
+  { value: "ClientContributor", label: "Contributor — can comment & manage actions, can't approve" },
+  { value: "ClientViewer", label: "Viewer — read-only" },
+  { value: "ClientReporting", label: "Reporting — read-only, Data/Reports-focused" },
+] as const;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -45,7 +59,11 @@ type PortalUser = {
   last_login_at: string | null;
   invited_at: string | null;
   invited_by: string | null;
+  role: string;
+  site_ids: number[] | null;
 };
+
+type PortalSite = { site_id: number; site_name: string };
 
 type ClientPortalFile = {
   file_id: number;
@@ -685,6 +703,15 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [addingUser, setAddingUser] = useState(false);
   const [addError, setAddError] = useState("");
+  const [newUserRole, setNewUserRole] = useState<string>("ClientAdmin");
+  const [newUserSiteIds, setNewUserSiteIds] = useState<number[]>([]);
+
+  // Site-scoping (Governance) -- see CLIENT_PORTAL_GOVERNANCE_AUTHORIZATION_DESIGN.md
+  const [sites, setSites] = useState<PortalSite[]>([]);
+  const [managingSitesFor, setManagingSitesFor] = useState<number | null>(null);
+  const [draftSiteIds, setDraftSiteIds] = useState<number[]>([]);
+  const [savingSites, setSavingSites] = useState(false);
+  const [savingRoleFor, setSavingRoleFor] = useState<number | null>(null);
 
   // Reset password
   const [resettingUserId, setResettingUserId] = useState<number | null>(null);
@@ -708,11 +735,16 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
     setLoading(true);
     setError("");
     try {
-      const [usersRes, historyRes, candidatesRes] = await Promise.all([
+      const [usersRes, historyRes, candidatesRes, sitesRes] = await Promise.all([
         fetch(`${baseUrl}/clients/${clientId}/portal-users`, { credentials: "include" }),
         fetch(`${baseUrl}/clients/${clientId}/portal-history`, { credentials: "include" }),
         fetch(`${baseUrl}/clients/${clientId}/portal-candidate-users`, { credentials: "include" }),
+        fetch(`${baseUrl}/clients/${clientId}/sites`, { credentials: "include" }),
       ]);
+      if (sitesRes.ok) {
+        const data = await sitesRes.json() as { active_sites?: PortalSite[] };
+        setSites(data.active_sites ?? []);
+      }
       if (usersRes.ok) {
         const data = await usersRes.json() as { items: PortalUser[] };
         setPortalUsers(data.items ?? []);
@@ -776,6 +808,8 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
       const body: Record<string, unknown> = {
         email: selectedCandidate.email,
         full_name: selectedCandidate.full_name,
+        role: newUserRole,
+        site_ids: newUserSiteIds,
       };
       if (selectedCandidate.contact_id !== undefined) body.contact_id = selectedCandidate.contact_id;
       const res = await fetch(`${baseUrl}/clients/${clientId}/portal-users`, {
@@ -788,6 +822,7 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
       if (!res.ok) throw new Error(data.detail ?? "Failed to create user");
       setShowAddUser(false);
       setSelectedCandidate(null); setCandidateSearch("");
+      setNewUserRole("ClientAdmin"); setNewUserSiteIds([]);
       await copyPasswordAndNotify(data.temporary_password, "Portal user created and welcome email sent.");
       await load();
     } catch (e) {
@@ -809,6 +844,48 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
       await load();
     } catch (e) {
       setError((e as Error).message);
+    }
+  }
+
+  async function handleUpdateRole(user: PortalUser, role: string) {
+    setSavingRoleFor(user.portal_user_id);
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/portal-users/${user.portal_user_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ role }),
+      });
+      if (!res.ok) throw new Error("Failed to update role");
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSavingRoleFor(null);
+    }
+  }
+
+  function openSiteManager(user: PortalUser) {
+    setManagingSitesFor(user.portal_user_id);
+    setDraftSiteIds(user.site_ids ?? []);
+  }
+
+  async function handleSaveSites(portalUserId: number) {
+    setSavingSites(true);
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/portal-users/${portalUserId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ site_ids: draftSiteIds }),
+      });
+      if (!res.ok) throw new Error("Failed to update site access");
+      setManagingSitesFor(null);
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSavingSites(false);
     }
   }
 
@@ -1219,12 +1296,56 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
                 </div>
               </div>
 
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>Role</Label>
+                  <Select value={newUserRole} onValueChange={setNewUserRole}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {PORTAL_ROLE_OPTIONS.map(r => (
+                        <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {sites.length > 1 && (
+                  <div className="space-y-1">
+                    <Label>Site access</Label>
+                    <div className="max-h-28 overflow-y-auto rounded-md border p-2 space-y-1">
+                      <label className="flex items-center gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={newUserSiteIds.length === 0}
+                          onChange={() => setNewUserSiteIds([])}
+                        />
+                        All sites (unrestricted)
+                      </label>
+                      {sites.map(s => (
+                        <label key={s.site_id} className="flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={newUserSiteIds.includes(s.site_id)}
+                            onChange={(e) => setNewUserSiteIds(prev =>
+                              e.target.checked ? [...prev, s.site_id] : prev.filter(id => id !== s.site_id)
+                            )}
+                          />
+                          {s.site_name}
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Leave unchecked (all sites) unless this person should only see specific sites — a site-scoped user won&apos;t see Reports, Files, Actions, or Insights.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {addError && <p className="text-xs text-red-600">{addError}</p>}
               <div className="flex gap-2">
                 <Button type="submit" size="sm" disabled={addingUser || !selectedCandidate}>
                   {addingUser ? "Creating…" : "Create Account & Send Welcome Email"}
                 </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => { setShowAddUser(false); setSelectedCandidate(null); setCandidateSearch(""); }}>Cancel</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => { setShowAddUser(false); setSelectedCandidate(null); setCandidateSearch(""); setNewUserRole("ClientAdmin"); setNewUserSiteIds([]); }}>Cancel</Button>
               </div>
             </form>
           )}
@@ -1237,7 +1358,7 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
             <div className="divide-y rounded-md border">
               {portalUsers.map(user => (
                 <div key={user.portal_user_id}>
-                  <div className="flex items-center justify-between px-4 py-3">
+                  <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <div className="text-sm font-medium">{user.full_name}</div>
                       <div className="text-xs text-muted-foreground">{user.email}</div>
@@ -1250,8 +1371,31 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
                       {user.invited_at && (
                         <div className="text-xs text-muted-foreground">Invited: {fmtDate(user.invited_at)}</div>
                       )}
+                      {user.site_ids && user.site_ids.length > 0 && (
+                        <div className="mt-0.5 text-xs text-amber-700">
+                          Scoped to {user.site_ids.length} site{user.site_ids.length !== 1 ? "s" : ""} — no Reports/Files/Actions/Insights
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Select
+                        value={user.role}
+                        onValueChange={(v) => void handleUpdateRole(user, v)}
+                      >
+                        <SelectTrigger className="h-8 w-auto min-w-[8rem] text-xs" disabled={savingRoleFor === user.portal_user_id}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PORTAL_ROLE_OPTIONS.map(r => (
+                            <SelectItem key={r.value} value={r.value}>{r.value}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {sites.length > 1 && (
+                        <Button variant="ghost" size="sm" className="text-xs" onClick={() => openSiteManager(user)}>
+                          Sites…
+                        </Button>
+                      )}
                       <Badge variant={user.is_active ? "secondary" : "outline"}>
                         {user.is_active ? "Active" : "Inactive"}
                       </Badge>
@@ -1277,6 +1421,40 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
                       </Button>
                     </div>
                   </div>
+
+                  {managingSitesFor === user.portal_user_id && (
+                    <div className="border-t bg-muted/30 px-4 py-3 space-y-2">
+                      <p className="text-xs font-medium">Site access for {user.full_name}</p>
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        <label className="flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={draftSiteIds.length === 0}
+                            onChange={() => setDraftSiteIds([])}
+                          />
+                          All sites (unrestricted)
+                        </label>
+                        {sites.map(s => (
+                          <label key={s.site_id} className="flex items-center gap-2 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={draftSiteIds.includes(s.site_id)}
+                              onChange={(e) => setDraftSiteIds(prev =>
+                                e.target.checked ? [...prev, s.site_id] : prev.filter(id => id !== s.site_id)
+                              )}
+                            />
+                            {s.site_name}
+                          </label>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" disabled={savingSites} onClick={() => void handleSaveSites(user.portal_user_id)}>
+                          {savingSites ? "Saving…" : "Save"}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setManagingSitesFor(null)}>Cancel</Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
