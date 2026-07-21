@@ -1142,6 +1142,13 @@ def get_job_scope_data(
                         "enabled": safe_bool(r.get("enabled")),
                         "linked_row_id": safe_int(r.get("linked_row_id")),
                         "is_auto_generated": safe_bool(r.get("is_auto_generated")),
+                        # Cheap scalars (no per-month array) so a row whose factor is
+                        # blended across two factor-dataset years is disclosed even in
+                        # the compact table view, not only when a row is expanded.
+                        "factor_label": metrics.get("factor_label"),
+                        "dataset_label": metrics.get("dataset_label"),
+                        "factor_blended": bool(metrics.get("factor_blended")),
+                        "uses_monthly_factors": bool(metrics.get("uses_monthly_factors")),
                     })
                     if include_monthly_details:
                         rows[-1].update({
@@ -1157,10 +1164,7 @@ def get_job_scope_data(
                             "unit_warning": metrics.get("unit_warning"),
                             "uses_emissions_fallback": bool(metrics.get("uses_emissions_fallback")),
                             "source_volume_available": bool(metrics.get("source_volume_available")),
-                            "factor_label": metrics.get("factor_label"),
-                            "dataset_label": metrics.get("dataset_label"),
                             "monthly_factor_details": metrics.get("monthly_factor_details") or [],
-                            "uses_monthly_factors": bool(metrics.get("uses_monthly_factors")),
                             "created_at": str(r.get("created_at")) if r.get("created_at") else None,
                             "updated_at": str(r.get("updated_at")) if r.get("updated_at") else None,
                         })

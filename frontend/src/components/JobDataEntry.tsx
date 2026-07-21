@@ -66,6 +66,7 @@ type ScopeDataRow = {
   factor_label?: string | null;
   dataset_label?: string | null;
   dataset_category?: string | null;
+  factor_blended?: boolean;
   uses_monthly_factors?: boolean;
   monthly_factor_details?: Array<{
     month_index: number;
@@ -2095,7 +2096,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                     {visibleColumns.site && <th className="text-left p-2">Site</th>}
                     <th className="text-left p-2">Report Label</th>
                     {visibleColumns.qty && <th className="text-right p-2">Qty</th>}
-                    {visibleColumns.apply && <th className="text-right p-2">Factor</th>}
+                    {visibleColumns.apply && <th className="text-right p-2">Factor{filteredData.some((r) => r.factor_blended) ? <span className="text-amber-600 font-normal" title="Weighted average across two or more factor datasets for periods spanning a dataset year boundary"> (* = blended)</span> : null}</th>}
                     {visibleColumns.tco2e && <th className="text-right p-2">tCO₂e (After)</th>}
                     {visibleColumns.confidence && <th className="text-left p-2">Data Confidence</th>}
                     <th className="text-left p-2">Monthly</th>
@@ -2250,7 +2251,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                         )}
                         {visibleColumns.apply && (
                           <td className="p-2 text-right">
-                            <span className="font-mono font-semibold">{factorDisplayText(row)}</span>
+                            <span className="font-mono font-semibold" title={row.factor_blended ? `Weighted average - blended across factor datasets: ${row.dataset_label || ""}` : undefined}>
+                              {factorDisplayText(row)}
+                              {row.factor_blended && <sup className="text-amber-600 ml-0.5" title={row.dataset_label || undefined}>*</sup>}
+                            </span>
                           </td>
                         )}
                         {visibleColumns.tco2e && (
