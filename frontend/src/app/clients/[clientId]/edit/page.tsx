@@ -127,6 +127,7 @@ type Client = {
   description_long: string | null;
   website: string | null;
   year_end_month: string | null;
+  data_frequency: string | null;
   company_reg: string | null;
   sic_code: string | null;
   headquarters: string | null;
@@ -232,6 +233,7 @@ export default function EditClientPage() {
   const [descriptionLong, setDescriptionLong] = useState<string>("");
   const [website, setWebsite] = useState<string>("");
   const [yearEndMonth, setYearEndMonth] = useState<string>("");
+  const [dataFrequency, setDataFrequency] = useState<string>("annual");
   const [companyReg, setCompanyReg] = useState<string>("");
   const [sicCode, setSicCode] = useState<string>("");
   const [headquarters, setHeadquarters] = useState<string>("");
@@ -405,6 +407,7 @@ export default function EditClientPage() {
         setDescriptionLong(json.description_long || "");
         setWebsite(json.website || "");
         setYearEndMonth(json.year_end_month || "");
+        setDataFrequency(json.data_frequency || "annual");
         setCompanyReg(json.company_reg || "");
         setSicCode(json.sic_code || "");
         setHeadquarters(json.headquarters || "");
@@ -634,6 +637,7 @@ export default function EditClientPage() {
           description_long: descriptionLong || null,
           website: website || null,
           year_end_month: yearEndMonth || null,
+          data_frequency: dataFrequency || "annual",
           company_reg: companyReg || null,
           sic_code: sicCode || null,
           headquarters: headquarters || null,
@@ -829,7 +833,7 @@ export default function EditClientPage() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid gap-4 md:grid-cols-4">
                   <div className="space-y-2">
                     <Label htmlFor="headquarters">Headquarters</Label>
                     <Input
@@ -853,6 +857,21 @@ export default function EditClientPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="dataFrequency">Data Reporting Frequency</Label>
+                    <Select value={dataFrequency} onValueChange={setDataFrequency}>
+                      <SelectTrigger id="dataFrequency">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="annual">Annual (default)</SelectItem>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Controls which view opens first on the portal&apos;s Data Completeness tab. Monthly detail is always available as a drill-down either way.
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="currency">Currency</Label>

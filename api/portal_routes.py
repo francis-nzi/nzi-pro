@@ -1197,6 +1197,182 @@ def portal_sites_geo(current_user: dict = Depends(portal_user_dep)):
 
 
 # ---------------------------------------------------------------------------
+# Data completeness & ingestion feed
+#
+# Per CLIENT_PORTAL_DATA_COMPLETENESS_SCOPE.md: fewer than 5% of clients
+# report monthly, so completeness is computed at the (site, reporting year)
+# grain by default -- not a monthly grid -- derived entirely from data that
+# already exists (job_scope_rows presence, report_reviews.status, and each
+# job's real reporting_period_end), with the real month_1..12 values
+# available underneath as an optional per-cell drill-down for any client
+# that wants it.
+# ---------------------------------------------------------------------------
+
+_COMPLETENESS_GRACE_DAYS = 60
+
+
+def _completeness_status(has_data: bool, approved: bool, period_end) -> str:
+    if approved:
+        return "complete"
+    from datetime import date, timedelta
+    overdue = False
+    if period_end is not None:
+        try:
+            overdue = date.today() > (period_end + timedelta(days=_COMPLETENESS_GRACE_DAYS))
+        except Exception:
+            overdue = False
+    if overdue:
+        return "overdue"
+    return "in_progress" if has_data else "not_started"
+
+
+@router.get("/portal/data-completeness")
+def portal_data_completeness(current_user: dict = Depends(portal_user_dep)):
+    """Per-site, per-reporting-year completeness, with an optional monthly
+    drill-down using the real month_1..12 values already captured per row."""
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        client_row = con.execute("SELECT org_id FROM clients WHERE db_id = %s", [client_db_id]).fetchone()
+        if not client_row:
+            raise HTTPException(status_code=404, detail="Client not found")
+        _org_id = str(client_row[0]) if client_row[0] else None
+
+    from services.tenancy import org_context
+    with org_context(_org_id):
+        with get_conn() as con:
+            sites = con.execute(
+                """
+                SELECT site_id, site_name FROM client_sites
+                WHERE client_db_id = %s AND (archived = FALSE OR archived IS NULL) AND vacated_date IS NULL
+                ORDER BY site_name
+                """,
+                [client_db_id],
+            ).fetchall()
+
+            jobs = con.execute(
+                """
+                SELECT j.job_id, j.reporting_year, j.reporting_period_end,
+                       COALESCE(bool_or(rr.status = 'approved'), FALSE) AS approved
+                FROM jobs j
+                LEFT JOIN report_reviews rr ON rr.job_id = j.job_id
+                WHERE j.client_db_id = %s AND COALESCE(j.portal_visible, TRUE) = TRUE
+                  AND j.reporting_year IS NOT NULL
+                GROUP BY j.job_id, j.reporting_year, j.reporting_period_end
+                ORDER BY j.reporting_year ASC
+                """,
+                [client_db_id],
+            ).fetchall()
+
+            if not sites or not jobs:
+                return {"sites": [], "years": [], "cells": []}
+
+            job_ids = [int(j[0]) for j in jobs]
+            row_data = con.execute(
+                f"""
+                SELECT job_id, site_id, qty,
+                       month_1, month_2, month_3, month_4, month_5, month_6,
+                       month_7, month_8, month_9, month_10, month_11, month_12
+                FROM job_scope_rows
+                WHERE job_id = ANY(%s) AND COALESCE(enabled, TRUE) = TRUE AND site_id IS NOT NULL
+                """,
+                [job_ids],
+            ).fetchall()
+
+    # Aggregate: (job_id, site_id) -> has_data, monthly[1..12] bool
+    agg: dict[tuple[int, int], dict[str, Any]] = {}
+    for r in row_data or []:
+        job_id, site_id = int(r[0]), int(r[1])
+        key = (job_id, site_id)
+        entry = agg.setdefault(key, {"has_data": False, "monthly": [False] * 12})
+        qty = r[2]
+        months = r[3:15]
+        if qty is not None and float(qty) != 0:
+            entry["has_data"] = True
+        for i, m in enumerate(months):
+            if m is not None and float(m) != 0:
+                entry["monthly"][i] = True
+                entry["has_data"] = True
+
+    cells = []
+    years_seen = set()
+    for job_id, reporting_year, period_end, approved in jobs:
+        years_seen.add(int(reporting_year))
+        for site_id, site_name in sites:
+            entry = agg.get((int(job_id), int(site_id)), {"has_data": False, "monthly": [False] * 12})
+            status = _completeness_status(entry["has_data"], bool(approved), period_end)
+            cells.append({
+                "site_id": int(site_id),
+                "site_name": site_name,
+                "reporting_year": int(reporting_year),
+                "status": status,
+                "monthly": entry["monthly"],
+            })
+
+    return {
+        "sites": [{"site_id": int(s[0]), "site_name": s[1]} for s in sites],
+        "years": sorted(years_seen),
+        "cells": cells,
+        "grace_days": _COMPLETENESS_GRACE_DAYS,
+    }
+
+
+@router.get("/portal/ingestion-feed")
+def portal_ingestion_feed(current_user: dict = Depends(portal_user_dep)):
+    """Searchable feed of real activity rows, per CLIENT_PORTAL_DATA_COMPLETENESS_SCOPE.md
+    §3.4. "Owner" is deliberately omitted -- no per-row/site ownership concept
+    exists in the schema yet (confirmed during scoping), so it is not faked here."""
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        client_row = con.execute("SELECT org_id FROM clients WHERE db_id = %s", [client_db_id]).fetchone()
+        if not client_row:
+            raise HTTPException(status_code=404, detail="Client not found")
+        _org_id = str(client_row[0]) if client_row[0] else None
+
+    from services.tenancy import org_context
+    with org_context(_org_id):
+        with get_conn() as con:
+            rows = con.execute(
+                """
+                SELECT
+                    jsr.row_id, jsr.report_label, jsr.qty, jsr.uom, jsr.data_source,
+                    jsr.updated_at, cs.site_name, j.reporting_year,
+                    COALESCE(bool_or(rr.status = 'approved') OVER (PARTITION BY j.job_id), FALSE) AS approved
+                FROM job_scope_rows jsr
+                JOIN jobs j ON j.job_id = jsr.job_id
+                LEFT JOIN client_sites cs ON cs.site_id = jsr.site_id
+                LEFT JOIN report_reviews rr ON rr.job_id = j.job_id
+                WHERE j.client_db_id = %s AND COALESCE(j.portal_visible, TRUE) = TRUE
+                  AND COALESCE(jsr.enabled, TRUE) = TRUE
+                ORDER BY jsr.updated_at DESC NULLS LAST
+                LIMIT 500
+                """,
+                [client_db_id],
+            ).fetchall()
+
+    def _dt(v):
+        try:
+            return v.isoformat() if v else None
+        except Exception:
+            return str(v) if v else None
+
+    items = [
+        {
+            "row_id": int(r[0]),
+            "activity": _portal_clean_label(r[1], "Unknown activity"),
+            "value": float(r[2]) if r[2] is not None else None,
+            "unit": r[3],
+            "source": _portal_clean_label(r[4], "Company Data"),
+            "updated_at": _dt(r[5]),
+            "site_name": _portal_clean_label(r[6], "Unassigned"),
+            "reporting_year": int(r[7]) if r[7] is not None else None,
+            "status": "complete" if r[8] else "in_progress",
+        }
+        for r in (rows or [])
+    ]
+    return {"items": items}
+
+
+# ---------------------------------------------------------------------------
 # Approval
 # ---------------------------------------------------------------------------
 

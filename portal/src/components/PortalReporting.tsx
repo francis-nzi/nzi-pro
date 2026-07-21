@@ -8,6 +8,9 @@ import {
 import { apiFetch } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { KpiCard } from "@/components/shared/KpiCard";
 import { TrendChip } from "@/components/shared/TrendChip";
 import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
@@ -30,6 +33,57 @@ type ReportingData = {
   by_site: Array<{ year: number; [key: string]: number | string }>;
   by_activity_detail?: ActivityDetail[];
 };
+
+type CompletenessCell = {
+  site_id: number;
+  site_name: string;
+  reporting_year: number;
+  status: "not_started" | "in_progress" | "complete" | "overdue";
+  monthly: boolean[];
+};
+
+type CompletenessData = {
+  sites: Array<{ site_id: number; site_name: string }>;
+  years: number[];
+  cells: CompletenessCell[];
+};
+
+type IngestionItem = {
+  row_id: number;
+  activity: string;
+  value: number | null;
+  unit: string | null;
+  source: string;
+  updated_at: string | null;
+  site_name: string;
+  reporting_year: number | null;
+  status: "complete" | "in_progress";
+};
+
+const COMPLETENESS_LABEL: Record<CompletenessCell["status"], string> = {
+  not_started: "Not started",
+  in_progress: "In progress",
+  complete: "Complete",
+  overdue: "Overdue",
+};
+
+const COMPLETENESS_VARIANT: Record<CompletenessCell["status"], BadgeProps["variant"]> = {
+  not_started: "outline",
+  in_progress: "secondary",
+  complete: "success",
+  overdue: "risk",
+};
+
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatUpdatedAt(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  } catch {
+    return iso;
+  }
+}
 
 // Canonical Scope 1/2/3 palette (confirmed 2026-07-20): teal / cyan / sky —
 // matches api/chart_generation.py, PortalDashboardCharts.tsx and
@@ -59,13 +113,23 @@ function ChangeCell({ cur, prev }: { cur: number; prev: number }) {
   return <TrendChip value={pct} />;
 }
 
-type TabKey = "by-scope" | "by-activity" | "by-site";
+type TabKey = "by-scope" | "by-activity" | "by-site" | "completeness" | "ingestion";
 
 export default function PortalReporting() {
   const [data, setData] = useState<ReportingData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState<TabKey>("by-scope");
+
+  const [completeness, setCompleteness] = useState<CompletenessData | null>(null);
+  const [completenessLoading, setCompletenessLoading] = useState(false);
+  const [completenessError, setCompletenessError] = useState("");
+  const [selectedCell, setSelectedCell] = useState<{ site_id: number; reporting_year: number } | null>(null);
+
+  const [ingestion, setIngestion] = useState<IngestionItem[] | null>(null);
+  const [ingestionLoading, setIngestionLoading] = useState(false);
+  const [ingestionError, setIngestionError] = useState("");
+  const [ingestionSearch, setIngestionSearch] = useState("");
 
   useEffect(() => {
     apiFetch("/portal/reporting-data")
@@ -74,6 +138,26 @@ export default function PortalReporting() {
       .catch(e => setError((e as Error).message))
       .finally(() => setLoading(false));
   }, []);
+
+  // Lazy-load the two secondary tabs only once, when first opened.
+  useEffect(() => {
+    if (activeTab === "completeness" && completeness === null && !completenessLoading) {
+      setCompletenessLoading(true);
+      apiFetch("/portal/data-completeness")
+        .then(r => r.json() as Promise<CompletenessData>)
+        .then(d => setCompleteness(d))
+        .catch(e => setCompletenessError((e as Error).message))
+        .finally(() => setCompletenessLoading(false));
+    }
+    if (activeTab === "ingestion" && ingestion === null && !ingestionLoading) {
+      setIngestionLoading(true);
+      apiFetch("/portal/ingestion-feed")
+        .then(r => r.json() as Promise<{ items: IngestionItem[] }>)
+        .then(d => setIngestion(d.items ?? []))
+        .catch(e => setIngestionError((e as Error).message))
+        .finally(() => setIngestionLoading(false));
+    }
+  }, [activeTab, completeness, completenessLoading, ingestion, ingestionLoading]);
 
   if (loading) return <SkeletonLoader rows={4} />;
   if (error) return <ErrorPanel description={`Failed to load reporting data: ${error}`} />;
@@ -136,6 +220,8 @@ export default function PortalReporting() {
     { key: "by-scope", label: "By Scope" },
     { key: "by-activity", label: "By Activity" },
     { key: "by-site", label: "By Site" },
+    { key: "completeness", label: "Completeness" },
+    { key: "ingestion", label: "Ingestion Feed" },
   ];
 
   return (
@@ -327,9 +413,163 @@ export default function PortalReporting() {
               </table>
             );
           })()}
+
+          {activeTab === "completeness" && (() => {
+            if (completenessLoading) return <div className="p-4"><SkeletonLoader rows={4} /></div>;
+            if (completenessError) return <div className="p-4"><ErrorPanel description={`Failed to load completeness data: ${completenessError}`} /></div>;
+            if (!completeness || completeness.sites.length === 0) {
+              return (
+                <div className="p-4">
+                  <EmptyStatePanel
+                    title="No sites to show completeness for yet"
+                    description="This will populate once sites and reporting years exist for your account."
+                  />
+                </div>
+              );
+            }
+
+            const cellFor = (siteId: number, year: number) =>
+              completeness.cells.find(c => c.site_id === siteId && c.reporting_year === year);
+            const selected = selectedCell ? cellFor(selectedCell.site_id, selectedCell.reporting_year) : null;
+            const selectedSiteName = selected
+              ? completeness.sites.find(s => s.site_id === selected.site_id)?.site_name
+              : null;
+
+            return (
+              <>
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="text-left p-2 border text-xs font-medium text-gray-600">Site</th>
+                      {completeness.years.map(yr => (
+                        <th key={yr} className="text-center p-2 border text-xs font-medium text-gray-600">{yr}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {completeness.sites.map(site => (
+                      <tr key={site.site_id} className="hover:bg-gray-50">
+                        <td className="p-2 border text-xs font-medium">{site.site_name}</td>
+                        {completeness.years.map(yr => {
+                          const cell = cellFor(site.site_id, yr);
+                          if (!cell) return <td key={yr} className="p-2 border text-center text-xs text-muted-foreground">—</td>;
+                          const isSelected = selectedCell?.site_id === site.site_id && selectedCell?.reporting_year === yr;
+                          return (
+                            <td key={yr} className="p-2 border text-center">
+                              <button
+                                onClick={() => setSelectedCell(isSelected ? null : { site_id: site.site_id, reporting_year: yr })}
+                                className="w-full"
+                              >
+                                <Badge variant={COMPLETENESS_VARIANT[cell.status]} className={isSelected ? "ring-2 ring-brand" : ""}>
+                                  {COMPLETENESS_LABEL[cell.status]}
+                                </Badge>
+                              </button>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {selected && (
+                  <div className="m-3 rounded-lg border border-border p-3">
+                    <p className="mb-2 text-xs font-semibold text-foreground">
+                      Monthly detail — {selectedSiteName} · {selected.reporting_year}
+                    </p>
+                    <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-12">
+                      {MONTH_LABELS.map((label, i) => (
+                        <div
+                          key={label}
+                          className={`rounded px-1.5 py-1 text-center text-[11px] ${
+                            selected.monthly[i]
+                              ? "bg-status-success/15 text-status-success"
+                              : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {label}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="px-3 pb-3 text-xs text-muted-foreground">
+                  Click a cell to see which months have data. Most clients report annually — monthly detail is optional, not required.
+                </p>
+              </>
+            );
+          })()}
+
+          {activeTab === "ingestion" && (() => {
+            if (ingestionLoading) return <div className="p-4"><SkeletonLoader rows={5} /></div>;
+            if (ingestionError) return <div className="p-4"><ErrorPanel description={`Failed to load ingestion feed: ${ingestionError}`} /></div>;
+            if (!ingestion || ingestion.length === 0) {
+              return (
+                <div className="p-4">
+                  <EmptyStatePanel
+                    title="No activity data yet"
+                    description="Entered activity data will appear here as it's added."
+                  />
+                </div>
+              );
+            }
+
+            const q = ingestionSearch.trim().toLowerCase();
+            const filtered = q
+              ? ingestion.filter(it =>
+                  [it.activity, it.site_name, it.source].join(" ").toLowerCase().includes(q)
+                )
+              : ingestion;
+
+            return (
+              <div className="space-y-2 p-3">
+                <Input
+                  placeholder="Search activity, site, or source…"
+                  value={ingestionSearch}
+                  onChange={(e) => setIngestionSearch(e.target.value)}
+                  className="h-8 max-w-sm text-xs"
+                />
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Activity</TableHead>
+                      <TableHead>Site</TableHead>
+                      <TableHead className="text-right">Value</TableHead>
+                      <TableHead>Unit</TableHead>
+                      <TableHead>Source</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Last Updated</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.slice(0, 200).map(item => (
+                      <TableRow key={item.row_id}>
+                        <TableCell className="font-medium">{item.activity}</TableCell>
+                        <TableCell>{item.site_name}</TableCell>
+                        <TableCell className="text-right tabular-nums">{item.value != null ? item.value.toLocaleString("en-GB", { maximumFractionDigits: 1 }) : "—"}</TableCell>
+                        <TableCell>{item.unit || "—"}</TableCell>
+                        <TableCell>{item.source}</TableCell>
+                        <TableCell>
+                          <Badge variant={item.status === "complete" ? "success" : "secondary"}>
+                            {item.status === "complete" ? "Complete" : "In progress"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{formatUpdatedAt(item.updated_at)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {filtered.length === 0 && (
+                  <p className="py-6 text-center text-sm text-muted-foreground">No rows match your search.</p>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
-        {showBenchmarkNote && <p className="px-4 pb-3 text-xs text-muted-foreground">★ Benchmark year</p>}
+        {showBenchmarkNote && ["by-scope", "by-activity", "by-site"].includes(activeTab) && (
+          <p className="px-4 pb-3 text-xs text-muted-foreground">★ Benchmark year</p>
+        )}
       </Card>
 
       {/* ── Year-over-Year Detailed Activity Breakdown ── */}

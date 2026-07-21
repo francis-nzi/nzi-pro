@@ -19,6 +19,7 @@ def ensure_client_context_columns(con) -> None:
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS certifications TEXT",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS primary_scope3_categories TEXT",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS client_manager VARCHAR",
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS data_frequency VARCHAR DEFAULT 'annual'",
     ]
     for sql in statements:
         try:
