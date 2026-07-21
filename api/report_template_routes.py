@@ -23,7 +23,7 @@ from services.dataset_selector import (
     get_scope_primary_datasets,
     resolve_dataset_resolution,
 )
-from services.report_actions import get_job_report_actions_payload
+from services.report_actions import get_client_report_actions_payload
 
 logger = logging.getLogger(__name__)
 
@@ -3632,7 +3632,7 @@ def get_job_report_data(
                        c.interim_s1_pct, c.interim_s2_pct, c.interim_s3_pct,
                        c.target_s1_year, c.target_s2_year, c.target_s3_year,
                        c.target_s1_pct, c.target_s2_pct, c.target_s3_pct,
-                       c.addr_city, c.addr_country
+                       c.addr_city, c.addr_country, j.client_db_id
                 FROM jobs j
                 JOIN clients c ON c.db_id = j.client_db_id
                 WHERE j.job_id = %s
@@ -3737,7 +3737,7 @@ def get_job_report_data(
                     updated_by=_current_actor_identifier(_user),
                 )
             )
-            job_actions = get_job_report_actions_payload(int(job_id), con=con)
+            job_actions = get_client_report_actions_payload(int(job_row[25]), con=con)
 
             job_payload = {
                 "job_id": job_row[0],

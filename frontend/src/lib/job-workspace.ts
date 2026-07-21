@@ -106,7 +106,6 @@ export const JOB_WORKSPACE_GROUPS: JobWorkspaceGroup[] = [
     defaultTab: "data-output",
     subtabs: [
       { key: "data-output", label: "Data Output" },
-      { key: "actions", label: "Actions" },
       { key: "lca", label: "Life Cycle Analysis" },
     ],
   },

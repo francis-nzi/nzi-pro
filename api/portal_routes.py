@@ -1733,13 +1733,11 @@ def portal_actions_library(current_user: dict = Depends(portal_user_dep)):
 
         existing_rows = con.execute(
             """
-            SELECT DISTINCT a.action_option_id
-            FROM job_report_actions a
-            JOIN jobs j ON j.job_id = a.job_id
-            WHERE j.client_db_id = %s
-              AND COALESCE(j.portal_visible, TRUE) = TRUE
-              AND a.action_option_id IS NOT NULL
-              AND COALESCE(a.status, 'open') != 'cancelled'
+            SELECT DISTINCT action_option_id
+            FROM client_report_actions
+            WHERE client_db_id = %s
+              AND action_option_id IS NOT NULL
+              AND COALESCE(status, 'open') != 'cancelled'
             """,
             [client_db_id],
         ).fetchall()
@@ -1780,7 +1778,7 @@ def portal_add_action_from_library(
     """Add a library action template to this client's plan."""
     _assert_section_allowed(current_user, "actions")
     _assert_role_allowed(current_user, PORTAL_ROLE_CAN_MANAGE_ACTIONS)
-    from services.report_actions import ensure_report_actions_schema, list_job_report_actions, normalize_action_term
+    from services.report_actions import ensure_report_actions_schema, list_client_report_actions, normalize_action_term
 
     action_option_id = body.get("action_option_id")
     if not action_option_id:
@@ -1806,10 +1804,9 @@ def portal_add_action_from_library(
 
         already = con.execute(
             """
-            SELECT a.job_action_id FROM job_report_actions a
-            JOIN jobs j ON j.job_id = a.job_id
-            WHERE j.client_db_id = %s AND a.action_option_id = %s
-              AND COALESCE(a.status, 'open') != 'cancelled'
+            SELECT client_action_id FROM client_report_actions
+            WHERE client_db_id = %s AND action_option_id = %s
+              AND COALESCE(status, 'open') != 'cancelled'
             LIMIT 1
             """,
             [client_db_id, action_option_id],
@@ -1817,35 +1814,31 @@ def portal_add_action_from_library(
         if already:
             raise HTTPException(status_code=409, detail="This action is already in your plan")
 
-        job_row = con.execute(
-            """
-            SELECT job_id FROM jobs WHERE client_db_id = %s
-            ORDER BY reporting_year DESC NULLS LAST, job_id DESC LIMIT 1
-            """,
-            [client_db_id],
+        name_clash = con.execute(
+            "SELECT 1 FROM client_report_actions WHERE client_db_id = %s AND LOWER(action_name) = LOWER(%s)",
+            [client_db_id, str(template[0] or "")],
         ).fetchone()
-        if not job_row:
-            raise HTTPException(status_code=400, detail="No job found for this client")
-        job_id = int(job_row[0])
+        if name_clash:
+            raise HTTPException(status_code=409, detail="An action with this name already exists for your account")
 
         action_term = normalize_action_term(template[2] or "medium")
         max_row = con.execute(
-            "SELECT COALESCE(MAX(sort_order), 0) FROM job_report_actions WHERE job_id = %s",
-            [job_id],
+            "SELECT COALESCE(MAX(sort_order), 0) FROM client_report_actions WHERE client_db_id = %s",
+            [client_db_id],
         ).fetchone()
         sort_order = int(max_row[0] or 0) + 10
 
         new_row = con.execute(
             """
-            INSERT INTO job_report_actions
-              (job_id, action_option_id, action_name, description, action_term,
+            INSERT INTO client_report_actions
+              (client_db_id, action_option_id, action_name, description, action_term,
                action_category, scope_focus, is_custom, sort_order, status, progress,
                created_by, updated_by)
             VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE, %s, 'open', 0, %s, %s)
-            RETURNING job_action_id
+            RETURNING client_action_id
             """,
             [
-                job_id, action_option_id,
+                client_db_id, action_option_id,
                 str(template[0] or ""),
                 str(template[1] or "") or None,
                 action_term,
@@ -1859,16 +1852,16 @@ def portal_add_action_from_library(
 
         con.execute(
             """
-            INSERT INTO job_report_action_updates
-              (job_action_id, changed_by, source, old_status, new_status, old_progress, new_progress, note)
+            INSERT INTO client_report_action_updates
+              (client_action_id, changed_by, source, old_status, new_status, old_progress, new_progress, note)
             VALUES (%s, %s, 'portal', NULL, 'open', NULL, 0, 'Added from library via client portal')
             """,
             [new_action_id, actor],
         )
 
-    rows = list_job_report_actions(job_id)
+    rows = list_client_report_actions(client_db_id)
     for r in rows:
-        if int(r["job_action_id"]) == new_action_id:
+        if int(r["client_action_id"]) == new_action_id:
             return {"ok": True, "item": r}
     raise HTTPException(status_code=500, detail="Created action could not be reloaded")
 
@@ -1920,7 +1913,7 @@ def portal_action_categories(current_user: dict = Depends(portal_user_dep)):
 
 @router.get("/portal/actions")
 def portal_list_actions(current_user: dict = Depends(portal_user_dep)):
-    """Return all actions for this client across all their jobs."""
+    """Return all actions for this client (one shared list, not per job/year)."""
     _assert_section_allowed(current_user, "actions")
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
@@ -1929,10 +1922,7 @@ def portal_list_actions(current_user: dict = Depends(portal_user_dep)):
         rows = con.execute(
             """
             SELECT
-                a.job_action_id,
-                a.job_id,
-                j.reporting_year,
-                j.title           AS job_title,
+                a.client_action_id,
                 a.action_name,
                 a.description,
                 a.action_term,
@@ -1947,11 +1937,9 @@ def portal_list_actions(current_user: dict = Depends(portal_user_dep)):
                 cc.full_name                AS owner_name,
                 a.created_at,
                 a.updated_at
-            FROM job_report_actions a
-            JOIN jobs j ON j.job_id = a.job_id
+            FROM client_report_actions a
             LEFT JOIN client_contacts cc ON cc.contact_id = a.owner_contact_id
-            WHERE j.client_db_id = %s
-              AND COALESCE(j.portal_visible, TRUE) = TRUE
+            WHERE a.client_db_id = %s
             ORDER BY
                 CASE COALESCE(a.status, 'open')
                     WHEN 'in_progress' THEN 1
@@ -1968,58 +1956,50 @@ def portal_list_actions(current_user: dict = Depends(portal_user_dep)):
         items = []
         for r in rows or []:
             items.append({
-                "job_action_id": int(r[0]),
-                "job_id": int(r[1]),
-                "reporting_year": int(r[2]) if r[2] is not None else None,
-                "job_title": str(r[3] or ""),
-                "action_name": str(r[4] or ""),
-                "description": str(r[5] or "") or None,
-                "action_term": str(r[6] or "medium"),
-                "action_category": str(r[7] or "") or None,
-                "scope_focus": str(r[8] or "") or None,
-                "is_custom": bool(r[9]),
-                "status": str(r[10] or "open"),
-                "progress": int(r[11] or 0),
-                "target_date": str(r[12]) if r[12] is not None else None,
-                "completed_at": str(r[13]) if r[13] is not None else None,
-                "owner_contact_id": int(r[14]) if r[14] is not None else None,
-                "owner_name": str(r[15] or "") or None,
-                "created_at": str(r[16]) if r[16] is not None else None,
-                "updated_at": str(r[17]) if r[17] is not None else None,
+                "client_action_id": int(r[0]),
+                "action_name": str(r[1] or ""),
+                "description": str(r[2] or "") or None,
+                "action_term": str(r[3] or "medium"),
+                "action_category": str(r[4] or "") or None,
+                "scope_focus": str(r[5] or "") or None,
+                "is_custom": bool(r[6]),
+                "status": str(r[7] or "open"),
+                "progress": int(r[8] or 0),
+                "target_date": str(r[9]) if r[9] is not None else None,
+                "completed_at": str(r[10]) if r[10] is not None else None,
+                "owner_contact_id": int(r[11]) if r[11] is not None else None,
+                "owner_name": str(r[12] or "") or None,
+                "created_at": str(r[13]) if r[13] is not None else None,
+                "updated_at": str(r[14]) if r[14] is not None else None,
             })
 
     return {"ok": True, "items": items}
 
 
-@router.patch("/portal/actions/{job_action_id}")
+@router.patch("/portal/actions/{client_action_id}")
 def portal_update_action(
-    job_action_id: int,
+    client_action_id: int,
     payload: _PortalUpdateActionPayload = Body(...),
     current_user: dict = Depends(portal_user_dep),
 ):
     """Update progress/status/note on an action owned by this client."""
     _assert_section_allowed(current_user, "actions")
     _assert_role_allowed(current_user, PORTAL_ROLE_CAN_MANAGE_ACTIONS)
-    from services.report_actions import update_job_action
+    from services.report_actions import update_client_action
 
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         row = con.execute(
-            """
-            SELECT j.job_id FROM job_report_actions a
-            JOIN jobs j ON j.job_id = a.job_id
-            WHERE a.job_action_id = %s AND j.client_db_id = %s
-            """,
-            [int(job_action_id), client_db_id],
+            "SELECT 1 FROM client_report_actions WHERE client_action_id = %s AND client_db_id = %s",
+            [int(client_action_id), client_db_id],
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Action not found")
-        job_id = int(row[0])
 
     actor = str(current_user.get("email") or current_user.get("full_name") or "portal")
-    item = update_job_action(
-        job_id,
-        int(job_action_id),
+    item = update_client_action(
+        client_db_id,
+        int(client_action_id),
         payload=payload.model_dump(exclude_unset=True),
         actor=actor,
         source="portal",
@@ -2032,47 +2012,44 @@ def portal_add_action(
     payload: _PortalAddActionPayload = Body(...),
     current_user: dict = Depends(portal_user_dep),
 ):
-    """Add a new custom action for this client, assigned to their most recent job."""
+    """Add a new custom action to this client's shared action list."""
     _assert_section_allowed(current_user, "actions")
     _assert_role_allowed(current_user, PORTAL_ROLE_CAN_MANAGE_ACTIONS)
-    from services.report_actions import ensure_report_actions_schema, list_job_report_actions, normalize_action_term
+    from services.report_actions import ensure_report_actions_schema, list_client_report_actions, normalize_action_term
 
     client_db_id = int(current_user["client_db_id"])
     actor = str(current_user.get("email") or current_user.get("full_name") or "portal")
+    action_name = payload.action_name.strip()
 
     with get_conn(autocommit=False) as con:
         ensure_report_actions_schema(con)
 
-        job_row = con.execute(
-            """
-            SELECT job_id FROM jobs WHERE client_db_id = %s
-            ORDER BY reporting_year DESC NULLS LAST, job_id DESC LIMIT 1
-            """,
-            [client_db_id],
+        name_clash = con.execute(
+            "SELECT 1 FROM client_report_actions WHERE client_db_id = %s AND LOWER(action_name) = LOWER(%s)",
+            [client_db_id, action_name],
         ).fetchone()
-        if not job_row:
-            raise HTTPException(status_code=400, detail="No job found for this client")
-        job_id = int(job_row[0])
+        if name_clash:
+            raise HTTPException(status_code=409, detail="An action with this name already exists for your account")
 
         action_term = normalize_action_term(payload.action_term or "medium")
         max_row = con.execute(
-            "SELECT COALESCE(MAX(sort_order), 0) FROM job_report_actions WHERE job_id = %s",
-            [job_id],
+            "SELECT COALESCE(MAX(sort_order), 0) FROM client_report_actions WHERE client_db_id = %s",
+            [client_db_id],
         ).fetchone()
         sort_order = int(max_row[0] or 0) + 10
 
         new_row = con.execute(
             """
-            INSERT INTO job_report_actions
-              (job_id, action_name, description, action_term, action_category, scope_focus,
+            INSERT INTO client_report_actions
+              (client_db_id, action_name, description, action_term, action_category, scope_focus,
                is_custom, sort_order, status, progress, target_date, owner_contact_id,
                created_by, updated_by)
             VALUES (%s, %s, %s, %s, %s, %s, TRUE, %s, 'open', 0, %s, %s, %s, %s)
-            RETURNING job_action_id
+            RETURNING client_action_id
             """,
             [
-                job_id,
-                payload.action_name.strip(),
+                client_db_id,
+                action_name,
                 str(payload.description or "").strip() or None,
                 action_term,
                 str(payload.action_category or "").strip() or None,
@@ -2087,16 +2064,16 @@ def portal_add_action(
 
         con.execute(
             """
-            INSERT INTO job_report_action_updates
-              (job_action_id, changed_by, source, old_status, new_status, old_progress, new_progress, note)
+            INSERT INTO client_report_action_updates
+              (client_action_id, changed_by, source, old_status, new_status, old_progress, new_progress, note)
             VALUES (%s, %s, 'portal', NULL, 'open', NULL, 0, 'Action created via client portal')
             """,
             [new_action_id, actor],
         )
 
-    rows = list_job_report_actions(job_id)
+    rows = list_client_report_actions(client_db_id)
     for r in rows:
-        if int(r["job_action_id"]) == new_action_id:
+        if int(r["client_action_id"]) == new_action_id:
             return {"ok": True, "item": r}
     raise HTTPException(status_code=500, detail="Created action could not be reloaded")
 

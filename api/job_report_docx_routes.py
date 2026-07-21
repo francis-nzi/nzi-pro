@@ -28,7 +28,7 @@ from api.job_report_routes import (
     _stringify_render_value,
     get_emissions_by_category,
     get_job_data,
-    get_job_report_actions_payload,
+    get_client_report_actions_payload,
     get_scope_totals,
 )
 from core.database import get_conn
@@ -273,7 +273,7 @@ def generate_job_report_docx(
             int(job_id),
             updated_by=_user.get("email", "unknown"),
         )
-        job_actions = get_job_report_actions_payload(int(job_id))
+        job_actions = get_client_report_actions_payload(job_data["client_db_id"])
         generation_date = datetime.now().strftime('%d %B %Y')
         render_values = _build_report_render_values(
             job_data=job_data,

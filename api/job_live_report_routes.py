@@ -57,7 +57,7 @@ from api.job_data_output_routes import (
 from services.emissions_reporting import combined_row_metrics, load_combined_emissions_summary_rows
 from services.monthly_emissions import JobMonthlyEmissionsResolver
 from services.playwright_browser import ensure_playwright_browser
-from services.report_actions import get_job_report_actions_payload
+from services.report_actions import get_client_report_actions_payload
 
 router = APIRouter()
 
@@ -316,7 +316,7 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
         return "intensity_metrics", _load_job_intensity_metrics(_jid)
 
     def _fetch_job_actions():
-        return "job_actions", get_job_report_actions_payload(_jid)
+        return "job_actions", get_client_report_actions_payload(_client_db_id)
 
     def _fetch_target_data():
         return "target_data", get_job_target_data(_jid)

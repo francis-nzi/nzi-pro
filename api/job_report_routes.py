@@ -52,7 +52,7 @@ from api.job_files_routes import (
     _onedrive_enabled as _files_onedrive_enabled,
 )
 from services.playwright_browser import ensure_playwright_browser
-from services.report_actions import get_job_report_actions_payload
+from services.report_actions import get_client_report_actions_payload
 from services.report_drafting import generate_report_section_draft
 from services.client_benchmark import ensure_client_benchmark_columns, get_client_benchmark_metrics
 from services.audit_log import record_audit_event
@@ -1941,7 +1941,7 @@ def _build_report_draft_context(job_id: int, template_key: str | None = None) ->
         previous_categories = []
 
     try:
-        job_actions = get_job_report_actions_payload(job_id)
+        job_actions = get_client_report_actions_payload(job_data["client_db_id"])
     except Exception:
         logger.debug("Failed to load report actions payload for job %s; continuing with empty actions", job_id, exc_info=True)
         job_actions = {"items": [], "term_counts": {}}
@@ -3749,7 +3749,7 @@ def generate_report_with_assets(
             int(job_id),
             updated_by=_user.get("email", "unknown"),
         )
-        job_actions = get_job_report_actions_payload(int(job_id))
+        job_actions = get_client_report_actions_payload(job_data["client_db_id"])
         render_values = _build_report_render_values(
             job_data=job_data,
             scope_totals=scope_totals,
@@ -4110,7 +4110,7 @@ def generate_job_report(
             int(job_id),
             updated_by=_user.get("email", "unknown"),
         )
-        job_actions = get_job_report_actions_payload(int(job_id))
+        job_actions = get_client_report_actions_payload(job_data["client_db_id"])
 
         render_values = _build_report_render_values(
             job_data=job_data,
@@ -4415,7 +4415,7 @@ def generate_html_report(
             int(job_id),
             updated_by=_user.get("email", "unknown"),
         )
-        job_actions = get_job_report_actions_payload(int(job_id))
+        job_actions = get_client_report_actions_payload(job_data["client_db_id"])
         render_values = _build_report_render_values(
             job_data=job_data,
             scope_totals=scope_totals,
@@ -4704,7 +4704,7 @@ def _generate_professional_pdf_impl(
             int(job_id),
             updated_by=_user.get("email", "unknown"),
         )
-        job_actions = get_job_report_actions_payload(int(job_id))
+        job_actions = get_client_report_actions_payload(job_data["client_db_id"])
         render_values = _build_report_render_values(
             job_data=job_data,
             scope_totals=scope_totals,
@@ -5134,7 +5134,7 @@ def generate_job_report_docx(
             int(job_id),
             updated_by=_user.get("email", "unknown"),
         )
-        job_actions = get_job_report_actions_payload(int(job_id))
+        job_actions = get_client_report_actions_payload(job_data["client_db_id"])
         generation_date = datetime.now().strftime('%d %B %Y')
         render_values = _build_report_render_values(
             job_data=job_data,

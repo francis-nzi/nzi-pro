@@ -6,15 +6,15 @@ from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel, Field
 
 from api.auth import _current_user
-from api.permissions import assert_job_access, assert_permission, require_permission
+from api.permissions import assert_client_access, assert_permission, require_permission
 from core.database import get_conn
 from services.permissions import ADMIN_ACCESS_PERMISSION, user_has_permission
 from services.report_actions import (
     action_term_options,
-    get_job_report_actions_payload,
+    get_client_report_actions_payload,
     list_report_action_options,
-    replace_job_report_actions,
-    update_job_action,
+    replace_client_report_actions,
+    update_client_action,
     upsert_report_action_option,
 )
 
@@ -43,8 +43,8 @@ class ActionOptionPayload(BaseModel):
     is_default: bool = False
 
 
-class JobActionPayload(BaseModel):
-    job_action_id: int | None = None
+class ClientActionPayload(BaseModel):
+    client_action_id: int | None = None
     action_option_id: int | None = None
     action_name: str | None = None
     description: str | None = None
@@ -59,7 +59,7 @@ class JobActionPayload(BaseModel):
     owner_contact_id: int | None = None
 
 
-class UpdateJobActionPayload(BaseModel):
+class UpdateClientActionPayload(BaseModel):
     status: str | None = None
     progress: int | None = None
     target_date: str | None = None
@@ -67,8 +67,8 @@ class UpdateJobActionPayload(BaseModel):
     note: str | None = None
 
 
-class SaveJobActionsPayload(BaseModel):
-    items: list[JobActionPayload] = Field(default_factory=list)
+class SaveClientActionsPayload(BaseModel):
+    items: list[ClientActionPayload] = Field(default_factory=list)
 
 
 @router.get("/admin/report-action-options")
@@ -120,53 +120,9 @@ def admin_update_report_action_option(
     return {"ok": True, "item": item}
 
 
-@router.get("/jobs/{job_id}/report-actions/available-sources")
-def get_report_action_copy_sources(
-    job_id: int,
-    _user: dict = Depends(_current_user),
-):
-    """Return other jobs from the same client that have actions, for use in copy-from dialog."""
-    assert_job_access(_user, int(job_id))
-    with get_conn() as con:
-        from services.report_actions import ensure_report_actions_schema
-        ensure_report_actions_schema(con)
-        row = con.execute(
-            "SELECT client_db_id FROM jobs WHERE job_id = %s", [int(job_id)]
-        ).fetchone()
-        if not row or row[0] is None:
-            return {"items": []}
-        client_db_id = int(row[0])
-        rows = con.execute(
-            """
-            SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                   COUNT(a.job_action_id) AS action_count
-            FROM jobs j
-            LEFT JOIN job_report_actions a ON a.job_id = j.job_id
-            WHERE j.client_db_id = %s
-              AND j.job_id <> %s
-            GROUP BY j.job_id, j.job_number, j.title, j.reporting_year, j.status
-            HAVING COUNT(a.job_action_id) > 0
-            ORDER BY j.reporting_year DESC NULLS LAST, j.job_id DESC
-            """,
-            [client_db_id, int(job_id)],
-        ).fetchall()
-        items = [
-            {
-                "job_id": int(r[0]),
-                "job_number": str(r[1] or ""),
-                "title": str(r[2] or ""),
-                "reporting_year": int(r[3]) if r[3] is not None else None,
-                "status": str(r[4] or ""),
-                "action_count": int(r[5]),
-            }
-            for r in (rows or [])
-        ]
-    return {"items": items}
-
-
-@router.get("/jobs/{job_id}/report-actions")
-def get_job_report_actions(
-    job_id: int,
+@router.get("/clients/{client_db_id}/report-actions")
+def get_client_report_actions(
+    client_db_id: int,
     _user: dict = Depends(_current_user),
 ):
     # Reporting users may need to see the action library even if they are not
@@ -177,34 +133,34 @@ def get_job_report_actions(
         or user_has_permission(_user, "jobs.edit")
     ):
         assert_permission(_user, "jobs.reporting.view")
-    assert_job_access(_user, int(job_id))
+    assert_client_access(_user, int(client_db_id))
     with get_conn() as con:
-        return get_job_report_actions_payload(
-            int(job_id),
+        return get_client_report_actions_payload(
+            int(client_db_id),
             include_suggested_options=True,
             con=con,
         )
 
 
-@router.put("/jobs/{job_id}/report-actions")
-def save_job_report_actions(
-    job_id: int,
-    payload: SaveJobActionsPayload = Body(...),
+@router.put("/clients/{client_db_id}/report-actions")
+def save_client_report_actions(
+    client_db_id: int,
+    payload: SaveClientActionsPayload = Body(...),
     _user: dict = Depends(_current_user),
 ):
     assert_permission(_user, "jobs.edit")
-    assert_job_access(_user, int(job_id))
+    assert_client_access(_user, int(client_db_id))
     actor = _actor_identifier(_user)
 
     with get_conn(autocommit=False) as con:
-        replace_job_report_actions(
-            int(job_id),
+        replace_client_report_actions(
+            int(client_db_id),
             [item.model_dump() for item in payload.items],
             actor=actor,
             con=con,
         )
-        response = get_job_report_actions_payload(
-            int(job_id),
+        response = get_client_report_actions_payload(
+            int(client_db_id),
             include_suggested_options=True,
             con=con,
         )
@@ -215,20 +171,20 @@ def save_job_report_actions(
     }
 
 
-@router.patch("/jobs/{job_id}/report-actions/{job_action_id}")
-def patch_job_report_action(
-    job_id: int,
-    job_action_id: int,
-    payload: UpdateJobActionPayload = Body(...),
+@router.patch("/clients/{client_db_id}/report-actions/{client_action_id}")
+def patch_client_report_action(
+    client_db_id: int,
+    client_action_id: int,
+    payload: UpdateClientActionPayload = Body(...),
     _user: dict = Depends(_current_user),
 ):
     assert_permission(_user, "jobs.edit")
-    assert_job_access(_user, int(job_id))
+    assert_client_access(_user, int(client_db_id))
     actor = _actor_identifier(_user)
     with get_conn(autocommit=False) as con:
-        item = update_job_action(
-            int(job_id),
-            int(job_action_id),
+        item = update_client_action(
+            int(client_db_id),
+            int(client_action_id),
             payload=payload.model_dump(exclude_unset=True),
             actor=actor,
             source="crm",

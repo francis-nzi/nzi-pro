@@ -34,6 +34,10 @@ const ClientReporting = dynamic(() => import("@/components/ClientReporting"), {
   ssr: false,
   loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading reporting...</div>,
 });
+const ClientActions = dynamic(() => import("@/components/ClientActions"), {
+  ssr: false,
+  loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading actions...</div>,
+});
 const ClientJobsSection = dynamic(() => import("@/components/ClientJobsSection"), {
   ssr: false,
   loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading jobs...</div>,
@@ -237,6 +241,7 @@ type ClientSection =
   | "contacts"
   | "jobs"
   | "reporting"
+  | "actions"
   | "custom-fields"
   | "portal"
   | "ai-profile";
@@ -249,6 +254,7 @@ const SECTIONS: Array<{ id: ClientSection; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "carbon", label: "Carbon Analytics" },
   { id: "reporting", label: "Reporting" },
+  { id: "actions", label: "Actions" },
   { id: "portal", label: "Portal" },
   { id: "tasks", label: "Tasks" },
   { id: "notes", label: "Notes" },
@@ -493,6 +499,8 @@ function ClientDetailPageContent() {
       targetSection = "carbon";
     } else if (section === "reporting") {
       targetSection = "reporting";
+    } else if (section === "actions") {
+      targetSection = "actions";
     } else if (section === "timeline" || section === "communications") {
       targetSection = "timeline";
     } else if (section === "notes") {
@@ -535,6 +543,8 @@ function ClientDetailPageContent() {
       targetSection = "carbon";
     } else if (section === "reporting") {
       targetSection = "reporting";
+    } else if (section === "actions") {
+      targetSection = "actions";
     } else if (section === "details") {
       targetSection = "profile";
       targetSubTab = "details";
@@ -2113,6 +2123,7 @@ function ClientDetailPageContent() {
     if (activeSection === "contacts") return renderContactsSection();
     if (activeSection === "jobs") return <ClientJobsSection loading={jobsLoading || !jobsLoaded} jobs={jobs} />;
     if (activeSection === "reporting") return <ClientReporting clientId={clientId} baseUrl={baseUrl} />;
+    if (activeSection === "actions") return <ClientActions clientDbId={clientId} baseUrl={baseUrl} />;
     if (activeSection === "portal") return <ClientPortalManagement clientId={clientId} baseUrl={baseUrl} />;
     if (activeSection === "custom-fields") return <CustomFields entityId={clientId} entityType="client" baseUrl={baseUrl} />;
     if (activeSection === "ai-profile") return <ClientAiProfile clientId={clientId} clientName={client?.client_name} clientWebsite={client?.website} baseUrl={baseUrl} />;

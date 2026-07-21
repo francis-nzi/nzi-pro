@@ -29,10 +29,7 @@ import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type Action = {
-  job_action_id: number;
-  job_id: number;
-  reporting_year: number | null;
-  job_title: string;
+  client_action_id: number;
   action_name: string;
   description: string | null;
   action_term: string;
@@ -330,7 +327,7 @@ function UpdateModal({
       if (note.trim()) body.note = note.trim();
       if (targetDate) body.target_date = targetDate;
       if (ownerContactId) body.owner_contact_id = parseInt(ownerContactId, 10);
-      const res = await apiFetch(`/portal/actions/${action.job_action_id}`, {
+      const res = await apiFetch(`/portal/actions/${action.client_action_id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -474,7 +471,7 @@ function ActionCard({
     try {
       const body: Record<string, unknown> = { status: nextStatus };
       if (nextStatus === "completed") body.progress = 100;
-      const res = await apiFetch(`/portal/actions/${action.job_action_id}`, {
+      const res = await apiFetch(`/portal/actions/${action.client_action_id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -571,7 +568,7 @@ function KanbanColumn({
           </div>
         ) : (
           actions.map(action => (
-            <ActionCard key={action.job_action_id} action={action} contacts={contacts} onUpdate={onUpdate} />
+            <ActionCard key={action.client_action_id} action={action} contacts={contacts} onUpdate={onUpdate} />
           ))
         )}
       </div>
@@ -671,7 +668,7 @@ export default function PortalActions() {
           <h3 className="text-sm font-semibold text-foreground">Cancelled</h3>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {cancelled.map(action => (
-              <ActionCard key={action.job_action_id} action={action} contacts={contacts} onUpdate={loadActions} />
+              <ActionCard key={action.client_action_id} action={action} contacts={contacts} onUpdate={loadActions} />
             ))}
           </div>
         </div>

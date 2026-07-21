@@ -76,9 +76,6 @@ const JobNotesSummary = dynamic(() => import("@/components/JobNotesSummary"), {
 const EmployeeCommutingData = dynamic(() => import("@/components/EmployeeCommutingData"), {
   loading: () => <LazyTabPanel title="Employee Commuting" description="Loading commuting data..." />,
 });
-const JobActions = dynamic(() => import("@/components/JobActions"), {
-  loading: () => <LazyTabPanel title="Actions" description="Loading action recommendations..." />,
-});
 const JobReportNew = dynamic(() => import("@/components/JobReportNew"), {
   loading: () => <LazyTabPanel title="Report (New)" description="Loading report editor..." />,
 });
@@ -1092,20 +1089,11 @@ export default function JobDetailPage() {
             <DataOutput jobId={jobId} baseUrl={baseUrl} />
           </TabsContent>
 
-          <TabsContent value="actions" className="mt-0">
-            <JobActions
-              jobId={jobId}
-              baseUrl={baseUrl}
-              onOpenReportNew={() => setActiveTab("report-new")}
-              isActive={activeTab === "actions"}
-            />
-          </TabsContent>
-
           <TabsContent value="report-new" className="mt-0">
             <JobReportNew
               jobId={jobId}
               baseUrl={baseUrl}
-              onOpenActions={() => setActiveTab("actions")}
+              onOpenActions={() => { if (job?.client_db_id) router.push(`/clients/${job.client_db_id}?section=actions`); }}
               isActive={activeTab === "report-new"}
             />
           </TabsContent>
