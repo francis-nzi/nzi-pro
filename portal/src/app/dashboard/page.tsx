@@ -25,6 +25,11 @@ const PortalActions = dynamic(() => import("@/components/PortalActions"), {
   loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading actions...</div>,
 });
 
+const PortalDataEntry = dynamic(() => import("@/components/PortalDataEntry"), {
+  ssr: false,
+  loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading data entry...</div>,
+});
+
 const PortalInsights = dynamic(() => import("@/components/PortalInsights"), {
   ssr: false,
   loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading insights...</div>,
@@ -170,8 +175,8 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
   );
 }
 
-type TabKey = "dashboard" | "portfolio" | "data" | "reports" | "actions" | "insights" | "files" | "governance";
-const VALID_TABS: TabKey[] = ["dashboard", "portfolio", "data", "reports", "actions", "insights", "files", "governance"];
+type TabKey = "dashboard" | "portfolio" | "data" | "data_entry" | "reports" | "actions" | "insights" | "files" | "governance";
+const VALID_TABS: TabKey[] = ["dashboard", "portfolio", "data", "data_entry", "reports", "actions", "insights", "files", "governance"];
 
 export default function DashboardPage() {
   return (
@@ -344,6 +349,7 @@ function DashboardPageInner() {
 
         {activeTab === "portfolio" && <div><PortalPortfolioDashboard /></div>}
         {activeTab === "data" && <div><PortalReporting /></div>}
+        {activeTab === "data_entry" && <div><PortalDataEntry /></div>}
         {activeTab === "actions" && <div><PortalActions /></div>}
         {activeTab === "insights" && <div><PortalInsights /></div>}
         {activeTab === "files" && <div><PortalFiles /></div>}

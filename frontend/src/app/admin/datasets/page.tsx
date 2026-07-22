@@ -21,6 +21,7 @@ import { STANDARD_COUNTRIES } from "@/lib/countries";
 import UploadProgressBar from "@/components/UploadProgressBar";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
+import PortalDataEntryBucketsPanel from "@/components/PortalDataEntryBucketsPanel";
 import {
   Select,
   SelectContent,
@@ -1141,10 +1142,11 @@ export default function DatasetsPage() {
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="browse">Browse Datasets</TabsTrigger>
             <TabsTrigger value="factors">Search &amp; Edit Factors</TabsTrigger>
             <TabsTrigger value="tools">Import &amp; Tools</TabsTrigger>
+            <TabsTrigger value="portal-buckets">Portal Data Entry Buckets</TabsTrigger>
           </TabsList>
 
           <TabsContent value="browse" className="space-y-4">
@@ -1741,6 +1743,10 @@ export default function DatasetsPage() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="portal-buckets" className="space-y-4">
+            <PortalDataEntryBucketsPanel />
           </TabsContent>
         </Tabs>
       </div>

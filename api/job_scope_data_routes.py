@@ -311,6 +311,35 @@ def _ensure_job_scope_rows_schema(con) -> None:
         )
     except Exception:
         logger.debug("Ignoring job_scope_rows.linked_row_id index compatibility migration failure", exc_info=True)
+    try:
+        con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS review_status VARCHAR DEFAULT NULL")
+    except Exception:
+        logger.debug("Ignoring job_scope_rows.review_status compatibility migration failure", exc_info=True)
+    try:
+        con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS review_note TEXT")
+    except Exception:
+        logger.debug("Ignoring job_scope_rows.review_note compatibility migration failure", exc_info=True)
+    try:
+        con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR")
+    except Exception:
+        logger.debug("Ignoring job_scope_rows.reviewed_by compatibility migration failure", exc_info=True)
+    try:
+        con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ")
+    except Exception:
+        logger.debug("Ignoring job_scope_rows.reviewed_at compatibility migration failure", exc_info=True)
+    try:
+        con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS submitted_by_portal BOOLEAN NOT NULL DEFAULT FALSE")
+    except Exception:
+        logger.debug("Ignoring job_scope_rows.submitted_by_portal compatibility migration failure", exc_info=True)
+    try:
+        con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS job_scope_rows_pending_review_idx
+            ON job_scope_rows (job_id, review_status) WHERE review_status = 'pending_review'
+            """
+        )
+    except Exception:
+        logger.debug("Ignoring job_scope_rows pending-review index compatibility migration failure", exc_info=True)
     _scope_rows_schema_seeded = True
 
 
@@ -1911,6 +1940,46 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
         raise HTTPException(status_code=500, detail=f"Failed to calculate scope totals: {e}")
 
 
+def _resolve_scope_row_factor_for_creation(
+    con, job_id: int, scope: str, original_id: str, payload: dict
+) -> tuple[object, object, object, object]:
+    """Resolve (dataset_id, factor_db_id, factor, ghg_unit) for a new scope-data
+    row, always preferring the job's active reporting-year dataset over any
+    stale value the caller supplied, so previous-year factors are never
+    carried forward into a new row. Shared by the CRM-side and portal-side
+    row-creation paths."""
+    resolved_dataset_id = None
+    resolved_factor_db_id = None
+    resolved_factor = None
+    resolved_ghg_unit = None
+    try:
+        from services.dataset_selector import resolve_dataset_resolution
+        _resolution = resolve_dataset_resolution(int(job_id))
+        _scope_map: dict[str, int] = {
+            str(s): int(d)
+            for s, d in (_resolution.get("scope_primary_datasets") or {}).items()
+            if d is not None
+        }
+        current_ds = _scope_map.get(str(scope))
+        if current_ds:
+            _refreshed = _lookup_factor_from_reference(con, current_ds, scope, str(original_id))
+            if _refreshed:
+                resolved_dataset_id = current_ds
+                resolved_factor_db_id = _refreshed["db_id"]
+                resolved_factor = _refreshed["factor"]
+                resolved_ghg_unit = _refreshed["ghg_unit"]
+            else:
+                resolved_dataset_id = current_ds
+    except Exception:
+        logger.debug("Ignoring resolved_dataset_id conversion failure while updating scope config", exc_info=True)
+
+    final_dataset_id = resolved_dataset_id if resolved_dataset_id is not None else payload.get("dataset_id")
+    final_factor_db_id = resolved_factor_db_id if resolved_factor_db_id is not None else payload.get("factor_db_id")
+    final_factor = resolved_factor if resolved_factor is not None else payload.get("factor")
+    final_ghg_unit = resolved_ghg_unit if resolved_ghg_unit is not None else payload.get("ghg_unit")
+    return final_dataset_id, final_factor_db_id, final_factor, final_ghg_unit
+
+
 @router.post("/jobs/{job_id}/scope-data")
 def create_scope_data_row(
     request: Request,
@@ -1928,14 +1997,14 @@ def create_scope_data_row(
             job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id=%s", [int(job_id)]).fetchone()
             if not job_exists:
                 raise HTTPException(status_code=404, detail="Job not found")
-            
+
             # Extract fields
             scope = payload.get("scope")
             original_id = payload.get("original_id")
-            
+
             if not scope or not original_id:
                 raise HTTPException(status_code=400, detail="scope and original_id are required")
-            
+
             # Extract site_id from payload
             site_id = payload.get("site_id")
             if site_id is not None:
@@ -1947,36 +2016,9 @@ def create_scope_data_row(
             # Always resolve the factor from the job's active dataset for this
             # reporting year so stale values from previous-year rows are not
             # carried forward into the new row.
-            resolved_dataset_id = None
-            resolved_factor_db_id = None
-            resolved_factor = None
-            resolved_ghg_unit = None
-            try:
-                from services.dataset_selector import resolve_dataset_resolution
-                _resolution = resolve_dataset_resolution(int(job_id))
-                _scope_map: dict[str, int] = {
-                    str(s): int(d)
-                    for s, d in (_resolution.get("scope_primary_datasets") or {}).items()
-                    if d is not None
-                }
-                current_ds = _scope_map.get(str(scope))
-                if current_ds:
-                    _refreshed = _lookup_factor_from_reference(con, current_ds, scope, str(original_id))
-                    if _refreshed:
-                        resolved_dataset_id = current_ds
-                        resolved_factor_db_id = _refreshed["db_id"]
-                        resolved_factor = _refreshed["factor"]
-                        resolved_ghg_unit = _refreshed["ghg_unit"]
-                    else:
-                        resolved_dataset_id = current_ds
-            except Exception:
-                logger.debug("Ignoring resolved_dataset_id conversion failure while updating scope config", exc_info=True)
-
-            # Fall back to whatever the payload supplied if resolution failed
-            final_dataset_id = resolved_dataset_id if resolved_dataset_id is not None else payload.get("dataset_id")
-            final_factor_db_id = resolved_factor_db_id if resolved_factor_db_id is not None else payload.get("factor_db_id")
-            final_factor = resolved_factor if resolved_factor is not None else payload.get("factor")
-            final_ghg_unit = resolved_ghg_unit if resolved_ghg_unit is not None else payload.get("ghg_unit")
+            final_dataset_id, final_factor_db_id, final_factor, final_ghg_unit = (
+                _resolve_scope_row_factor_for_creation(con, job_id, scope, original_id, payload)
+            )
 
             # Insert row
             result = con.execute(
@@ -2121,6 +2163,122 @@ def create_scope_data_row(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create scope data row: {e}")
+
+
+@router.patch("/jobs/{job_id}/scope-data/{row_id}/review")
+def review_scope_data_row(
+    request: Request,
+    job_id: int,
+    row_id: int,
+    payload: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Approve or reject a client-portal-submitted job_scope_rows row.
+    Approving is the only thing that flips `enabled` to TRUE -- until then
+    the row is invisible to every report/emissions query in the codebase,
+    exactly like any other disabled row (see CLIENT_PORTAL_DATA_ENTRY_SCOPE.md
+    / the Phase 1 plan for why this reuses `enabled` rather than teaching
+    report code a new review_status column)."""
+    decision = str(payload.get("decision") or "").strip().lower()
+    if decision not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
+    note = payload.get("note")
+    reviewer = str(_user.get("email") or _user.get("full_name") or _user.get("user_id") or "crm")
+
+    try:
+        with get_conn() as con:
+            _ensure_job_scope_rows_schema(con)
+            row = con.execute(
+                "SELECT review_status, submitted_by_portal FROM job_scope_rows WHERE row_id=%s AND job_id=%s",
+                [int(row_id), int(job_id)],
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Row not found")
+            if not row[1]:
+                raise HTTPException(status_code=400, detail="This row wasn't submitted via the client portal")
+            if row[0] == "approved":
+                raise HTTPException(status_code=409, detail="Already approved")
+
+            if decision == "approve":
+                try:
+                    con.execute(
+                        """
+                        UPDATE job_scope_rows
+                        SET enabled = TRUE, review_status = 'approved', review_note = %s,
+                            reviewed_by = %s, reviewed_at = NOW()
+                        WHERE row_id = %s
+                        """,
+                        [note, reviewer, int(row_id)],
+                    )
+                except Exception as approve_error:
+                    if "job_scope_rows_job_site_scope_active_uidx" in str(approve_error):
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                "An active row already exists for this site/scope/factor combination "
+                                "— merge or disable the existing row before approving this one."
+                            ),
+                        )
+                    raise
+            else:
+                con.execute(
+                    """
+                    UPDATE job_scope_rows
+                    SET review_status = 'rejected', review_note = %s,
+                        reviewed_by = %s, reviewed_at = NOW()
+                    WHERE row_id = %s
+                    """,
+                    [note, reviewer, int(row_id)],
+                )
+
+            after = _job_scope_row_snapshot(con, int(job_id), int(row_id))
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action=f"scope_row_{decision}",
+                entity_type="job_scope_row",
+                entity_id=int(row_id),
+                job_id=int(job_id),
+                after=after,
+                metadata={"decision": decision, "note": note},
+            )
+
+            return {"ok": True, "row_id": int(row_id), "review_status": "approved" if decision == "approve" else "rejected"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to review scope data row: {e}")
+
+
+@router.get("/jobs/{job_id}/scope-data/pending-review")
+def list_pending_review_rows(
+    job_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Client-portal submissions awaiting CRM approval for this job."""
+    try:
+        with get_conn() as con:
+            _ensure_job_scope_rows_schema(con)
+            df = con.execute(
+                """
+                SELECT row_id, site_id, scope, category, report_label, original_id, uom, qty, factor,
+                       month_1, month_2, month_3, month_4, month_5, month_6,
+                       month_7, month_8, month_9, month_10, month_11, month_12,
+                       review_status, review_note, created_at
+                FROM job_scope_rows
+                WHERE job_id = %s AND submitted_by_portal = TRUE AND review_status IN ('pending_review', 'rejected')
+                ORDER BY created_at DESC
+                """,
+                [int(job_id)],
+            ).df()
+            if df is None or df.empty:
+                return {"job_id": int(job_id), "rows": []}
+            df = df.where(df.notna(), None)
+            rows = [{k: _json_safe(row.get(k)) for k in row.index} for _, row in df.iterrows()]
+            return {"job_id": int(job_id), "rows": rows}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list pending review rows: {e}")
 
 
 @router.patch("/jobs/{job_id}/scope-data/{row_id}")

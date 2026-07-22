@@ -1149,6 +1149,71 @@ def bulk_normalize_factor_report_labels(
 
 
 # =========================
+# PORTAL DATA ENTRY BUCKETS (Client Portal Data Entry, Phase 1)
+# =========================
+
+@router.get("/portal-data-entry-buckets")
+def list_portal_data_entry_buckets(_user: dict = Depends(_current_user)):
+    from services.portal_data_entry import BUCKET_KEYS, BUCKET_LABELS, ensure_portal_data_entry_schema
+
+    with get_conn() as con:
+        ensure_portal_data_entry_schema(con)
+        df = con.execute(
+            "SELECT bucket_id, bucket_key, match_category, match_level_1 FROM portal_data_entry_buckets ORDER BY bucket_key, match_category"
+        ).df()
+
+    rows = [] if df is None or df.empty else df.where(df.notna(), None).to_dict("records")
+    return {
+        "buckets": [{"bucket_key": k, "label": BUCKET_LABELS[k]} for k in BUCKET_KEYS],
+        "mappings": rows,
+    }
+
+
+@router.post("/portal-data-entry-buckets")
+def create_portal_data_entry_bucket_mapping(
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    from services.portal_data_entry import BUCKET_KEYS, ensure_portal_data_entry_schema
+
+    bucket_key = str(body.get("bucket_key") or "").strip()
+    match_category = str(body.get("match_category") or "").strip() or None
+    match_level_1 = str(body.get("match_level_1") or "").strip() or None
+    if bucket_key not in BUCKET_KEYS:
+        raise HTTPException(status_code=400, detail=f"bucket_key must be one of {BUCKET_KEYS}")
+    if not match_category and not match_level_1:
+        raise HTTPException(status_code=400, detail="match_category or match_level_1 is required")
+
+    with get_conn() as con:
+        ensure_portal_data_entry_schema(con)
+        try:
+            row = con.execute(
+                """
+                INSERT INTO portal_data_entry_buckets (bucket_key, match_category, match_level_1)
+                VALUES (%s, %s, %s)
+                RETURNING bucket_id
+                """,
+                [bucket_key, match_category, match_level_1],
+            ).fetchone()
+        except Exception as e:
+            if "ux_portal_data_entry_buckets_category" in str(e):
+                raise HTTPException(status_code=409, detail="That category is already mapped to a bucket")
+            raise HTTPException(status_code=500, detail=f"Failed to create mapping: {e}")
+
+    return {"ok": True, "bucket_id": int(row[0])}
+
+
+@router.delete("/portal-data-entry-buckets/{bucket_id}")
+def delete_portal_data_entry_bucket_mapping(
+    bucket_id: int,
+    _user: dict = Depends(_current_user),
+):
+    with get_conn() as con:
+        con.execute("DELETE FROM portal_data_entry_buckets WHERE bucket_id = %s", [int(bucket_id)])
+    return {"ok": True}
+
+
+# =========================
 # LOOKUPS MANAGEMENT
 # =========================
 

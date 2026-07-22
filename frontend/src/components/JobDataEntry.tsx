@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import LoadingOrbit from "@/components/LoadingOrbit";
+import PendingPortalSubmissions from "@/components/PendingPortalSubmissions";
 import { withAuditHeaders } from "@/lib/auth-client";
 import { dispatchJobScopeRefresh, JOB_SCOPE_REFRESH_EVENT } from "@/lib/job-scope-refresh";
 import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
@@ -1884,6 +1885,8 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
           {error}
         </div>
       )}
+
+      <PendingPortalSubmissions jobId={jobId} baseUrl={effectiveBaseUrl} onReviewed={loadData} />
 
       {/* Template Capture Action */}
       <Card>
