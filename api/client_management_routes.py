@@ -617,8 +617,8 @@ def create_client_site(
             _ensure_client_sites_runtime_columns(con)
             if body.get("is_registered_office", False):
                 con.execute(
-                    "UPDATE client_sites SET is_registered_office = FALSE WHERE client_db_id = ? AND org_id = ?",
-                    [int(client_db_id), org_id],
+                    "UPDATE client_sites SET is_registered_office = FALSE WHERE client_db_id = ?",
+                    [int(client_db_id)],
                 )
 
             row = con.execute(
@@ -772,7 +772,6 @@ def geocode_client_sites(
     try:
         assert_permission(_user, "clients.sites.manage")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             _ensure_client_sites_runtime_columns(con)
@@ -780,11 +779,11 @@ def geocode_client_sites(
                 """
                 SELECT site_id, location
                 FROM client_sites
-                WHERE client_db_id = ? AND org_id = ?
+                WHERE client_db_id = ?
                   AND latitude IS NULL
                   AND location IS NOT NULL AND TRIM(location) != ''
                 """,
-                [int(client_db_id), org_id],
+                [int(client_db_id)],
             ).fetchall()
 
             geocoded = 0
