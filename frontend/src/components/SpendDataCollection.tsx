@@ -12,6 +12,7 @@ import UploadProgressBar from "@/components/UploadProgressBar";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 import { dispatchJobScopeRefresh } from "@/lib/job-scope-refresh";
 import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
+import PendingPortalSpendSubmissions from "@/components/PendingPortalSpendSubmissions";
 
 type SpendEntry = {
   entry_id: number;
@@ -551,6 +552,8 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
 
   return (
     <div className="space-y-6">
+
+      <PendingPortalSpendSubmissions jobId={jobId} baseUrl={baseUrl} onReviewed={loadData} />
 
       {/* Header: summary + feedback */}
       <Card>

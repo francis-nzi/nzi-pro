@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
+import PortalSpendTab from "@/components/PortalSpendTab";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,17 +54,18 @@ const REVIEW_LABEL: Record<string, { label: string; className: string }> = {
   rejected: { label: "Rejected — please review", className: "bg-rose-100 text-rose-800" },
 };
 
-// Employee Commuting and Purchased Goods & Services aren't part of this
-// generic search-and-add table (see CLIENT_PORTAL_DATA_ENTRY_SCOPE.md):
-// Employee Commuting needs its own bespoke entry flow wired up for portal
-// auth with the same submit-then-review safety gate the generic buckets
-// have, and PG&S is Phase 2 entirely (spend-mapping based, no factor at
-// ingestion). Shown as coming-soon placeholders so clients can see the
+// Employee Commuting isn't part of this generic search-and-add table (see
+// CLIENT_PORTAL_DATA_ENTRY_SCOPE.md) -- it needs its own bespoke entry flow
+// wired up for portal auth with the same submit-then-review safety gate the
+// other tabs have. Shown as a coming-soon placeholder so clients can see the
 // full intended shape of this page rather than being silently omitted.
-const COMING_SOON_BUCKETS: Bucket[] = [
-  { bucket_key: "employee_commuting", label: "Employee Commuting" },
-  { bucket_key: "purchased_goods_and_services", label: "Purchased Goods & Services" },
-];
+const COMING_SOON_BUCKETS: Bucket[] = [{ bucket_key: "employee_commuting", label: "Employee Commuting" }];
+
+// Purchased Goods & Services (Phase 2) is real, but structurally different
+// (raw ledger lines + category confirm, not a factor-search-and-add row) --
+// rendered by a dedicated PortalSpendTab component instead of this file's
+// generic table.
+const SPEND_BUCKET: Bucket = { bucket_key: "purchased_goods_and_services", label: "Purchased Goods & Services" };
 
 export default function PortalDataEntry() {
   const [buckets, setBuckets] = useState<Bucket[]>([]);
@@ -91,9 +93,10 @@ export default function PortalDataEntry() {
   }, []);
 
   const isComingSoon = COMING_SOON_BUCKETS.some((b) => b.bucket_key === activeBucket);
+  const isSpendTab = activeBucket === SPEND_BUCKET.bucket_key;
 
   useEffect(() => {
-    if (!activeBucket || isComingSoon) return;
+    if (!activeBucket || isComingSoon || isSpendTab) return;
     loadRows(activeBucket);
     setShowAdd(false);
     setSearch("");
@@ -167,8 +170,8 @@ export default function PortalDataEntry() {
     }
   }
 
-  const activeBucketLabel =
-    [...buckets, ...COMING_SOON_BUCKETS].find((b) => b.bucket_key === activeBucket)?.label || "";
+  const allTabs = [...buckets, SPEND_BUCKET, ...COMING_SOON_BUCKETS];
+  const activeBucketLabel = allTabs.find((b) => b.bucket_key === activeBucket)?.label || "";
 
   return (
     <div className="space-y-4">
@@ -181,7 +184,7 @@ export default function PortalDataEntry() {
       </div>
 
       <div className="flex flex-wrap gap-2 border-b pb-2">
-        {[...buckets, ...COMING_SOON_BUCKETS].map((b) => (
+        {allTabs.map((b) => (
           <button
             key={b.bucket_key}
             onClick={() => setActiveBucket(b.bucket_key)}
@@ -203,14 +206,16 @@ export default function PortalDataEntry() {
         />
       )}
 
-      {!isComingSoon && (
+      {isSpendTab && <PortalSpendTab />}
+
+      {!isComingSoon && !isSpendTab && (
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">{rows.length} submitted row(s) in {activeBucketLabel}</div>
         <Button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Cancel" : "+ Add Row"}</Button>
       </div>
       )}
 
-      {!isComingSoon && showAdd && (
+      {!isComingSoon && !isSpendTab && showAdd && (
         <Card>
           <CardContent className="space-y-3 pt-4">
             <Input
@@ -272,7 +277,7 @@ export default function PortalDataEntry() {
         </Card>
       )}
 
-      {!isComingSoon && (
+      {!isComingSoon && !isSpendTab && (
         rowsLoading ? (
           <SkeletonLoader />
         ) : rows.length === 0 ? (

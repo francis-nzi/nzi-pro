@@ -23,6 +23,7 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from api.auth import _current_user
+from api.job_scope_data_routes import _json_safe
 from core.database import get_conn
 from services.audit_log import fetch_row_dict, record_audit_event
 from services.dataset_selector import get_applicable_datasets, get_scope_primary_datasets
@@ -174,6 +175,14 @@ def _ensure_spend_tables(con) -> None:
         "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE",
         "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
         "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
+        # Client Portal Data Entry Phase 2: portal-submitted lines stay out of
+        # sync_spend_to_scope() -- the only path into real, reported emissions
+        # -- until a CRM approves them. See CLIENT_PORTAL_DATA_ENTRY_SCOPE.md.
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS submitted_by_portal BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS review_status VARCHAR DEFAULT NULL",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS review_note TEXT",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ",
     ]:
         try:
             con.execute(statement)
@@ -535,6 +544,7 @@ def _persist_spend_row(
     notes: str | None,
     actor: str,
     factor_override: dict[str, Any] | None = None,
+    submitted_by_portal: bool = False,
 ) -> dict[str, Any]:
     normalized_description = _normalize_description(spend_description)
     if factor_override:
@@ -571,9 +581,10 @@ def _persist_spend_row(
           job_id, site_id, source_type, code_type, reference_code, spend_description, normalized_description,
           currency, conversion_currency, conversion_rate, amount_net, amount_gross, vat_pct, notes,
           dataset_id, factor_db_id, factor_original_id, mapped_scope, mapped_category, mapped_report_label,
-          mapping_status, mapping_confidence, mapped_by, mapped_at, estimated_emissions_tco2e
+          mapping_status, mapping_confidence, mapped_by, mapped_at, estimated_emissions_tco2e,
+          submitted_by_portal, review_status
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s)
         RETURNING entry_id
         """,
         [
@@ -601,6 +612,12 @@ def _persist_spend_row(
             (mapping or {}).get("confidence"),
             actor if mapping else None,
             estimated_tco2e,
+            bool(submitted_by_portal),
+            # review_status stays NULL even for portal-submitted rows until the
+            # client actually confirms a category (confirm-category sets it to
+            # 'pending_review') -- an uncategorized row has nothing for a CRM
+            # to review yet, so it shouldn't appear in that queue.
+            None,
         ],
     ).fetchone()
 
@@ -1289,6 +1306,122 @@ def map_spend_row(job_id: int, entry_id: int, body: dict = Body(...), _user: dic
     return {"ok": True}
 
 
+@router.get("/jobs/{job_id}/spend-data/pending-review")
+def list_pending_review_spend_rows(job_id: int, _user: dict = Depends(_current_user)):
+    """Client-portal-submitted spend lines awaiting CRM approval before
+    they're eligible for sync_spend_to_scope()."""
+    with get_conn() as con:
+        _ensure_spend_tables(con)
+        df = con.execute(
+            """
+            SELECT entry_id, site_id, code_type, reference_code, spend_description,
+                   amount_net, amount_gross, vat_pct, currency,
+                   mapped_scope, mapped_category, mapped_report_label,
+                   mapping_status, review_status, review_note, created_at
+            FROM job_spend_entries
+            WHERE job_id = %s AND COALESCE(is_deleted, FALSE) = FALSE
+              AND submitted_by_portal = TRUE AND review_status IN ('pending_review', 'rejected')
+            ORDER BY created_at DESC
+            """,
+            [int(job_id)],
+        ).df()
+        if df is None or df.empty:
+            return {"job_id": int(job_id), "rows": []}
+        df = df.where(df.notna(), None)
+        rows = [{k: _json_safe(row.get(k)) for k in row.index} for _, row in df.iterrows()]
+        return {"job_id": int(job_id), "rows": rows}
+
+
+@router.patch("/jobs/{job_id}/spend-data/{entry_id}/review")
+def review_spend_row(
+    job_id: int,
+    entry_id: int,
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    """Approve or reject a client-portal-submitted job_spend_entries row.
+    Approving is the only thing that makes it eligible for
+    sync_spend_to_scope() -- until then it can never become a real,
+    reported emissions number, regardless of mapping_status. Approving
+    also fires the client_spend_mappings memory upsert (deferred from the
+    client's own category confirmation, per CLIENT_PORTAL_DATA_ENTRY_SCOPE.md
+    Phase 2 decision #1), so a client's mistake can't poison next year's
+    auto-suggestions before a CRM has actually looked at it."""
+    decision = str(body.get("decision") or "").strip().lower()
+    if decision not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
+    note = body.get("note")
+    reviewer = str(_user.get("email") or _user.get("full_name") or "crm")
+
+    with get_conn() as con:
+        _ensure_spend_tables(con)
+        row = con.execute(
+            """
+            SELECT submitted_by_portal, review_status, reference_code, code_type,
+                   normalized_description, factor_db_id, mapping_confidence
+            FROM job_spend_entries
+            WHERE entry_id = %s AND job_id = %s AND COALESCE(is_deleted, FALSE) = FALSE
+            """,
+            [int(entry_id), int(job_id)],
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Spend row not found")
+        if not row[0]:
+            raise HTTPException(status_code=400, detail="This row wasn't submitted via the client portal")
+        if row[1] == "approved":
+            raise HTTPException(status_code=409, detail="Already approved")
+
+        if decision == "approve":
+            factor_db_id = _safe_optional_int(row[5])
+            if not factor_db_id:
+                raise HTTPException(status_code=400, detail="This row has no category assigned yet and can't be approved")
+            factor = _factor_by_id(con, factor_db_id)
+            con.execute(
+                """
+                UPDATE job_spend_entries
+                SET review_status = 'approved', review_note = %s, reviewed_by = %s, reviewed_at = NOW()
+                WHERE entry_id = %s
+                """,
+                [note, reviewer, int(entry_id)],
+            )
+            ref_code = str(row[2] or "").strip()
+            if factor and ref_code:
+                client_db_id = _job_client_id(con, int(job_id))
+                _upsert_client_mapping(
+                    con=con,
+                    client_db_id=int(client_db_id),
+                    code_type=str(row[3] or "nominal_code"),
+                    reference_code=ref_code,
+                    normalized_description=str(row[4] or ""),
+                    factor=factor,
+                    actor=reviewer,
+                    confidence=str(row[6] or "High"),
+                    locked=True,
+                )
+        else:
+            con.execute(
+                """
+                UPDATE job_spend_entries
+                SET review_status = 'rejected', review_note = %s, reviewed_by = %s, reviewed_at = NOW()
+                WHERE entry_id = %s
+                """,
+                [note, reviewer, int(entry_id)],
+            )
+
+        record_audit_event(
+            con,
+            request=None,
+            actor=_user,
+            action=f"spend_row_{decision}",
+            entity_type="job_spend_entry",
+            entity_id=int(entry_id),
+            job_id=int(job_id),
+            metadata={"decision": decision, "note": note},
+        )
+
+    return {"ok": True, "entry_id": int(entry_id), "review_status": "approved" if decision == "approve" else "rejected"}
+
+
 @router.get("/jobs/{job_id}/spend-data/factors/search")
 def search_spend_factors(job_id: int, q: str = Query("", min_length=0), limit: int = Query(25, ge=1, le=200), _user: dict = Depends(_current_user)):
     with get_conn() as con:
@@ -1899,6 +2032,7 @@ def sync_spend_to_scope_data(
               AND COALESCE(is_deleted, FALSE) = FALSE
               AND factor_db_id IS NOT NULL
               AND mapped_scope IS NOT NULL
+              AND (submitted_by_portal = FALSE OR review_status = 'approved')
             ORDER BY entry_id
             """,
             [int(job_id)],
