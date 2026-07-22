@@ -42,6 +42,7 @@ export default function PortalCommutingTab() {
   const [showAdd, setShowAdd] = useState(false);
 
   const [rowType, setRowType] = useState<"commuting" | "wfh">("commuting");
+  const [entryMode, setEntryMode] = useState<"dropdown" | "vehicle">("dropdown");
   const [employeeName, setEmployeeName] = useState("");
   const [modeValue, setModeValue] = useState("");
   const [serviceValue, setServiceValue] = useState("");
@@ -51,6 +52,11 @@ export default function PortalCommutingTab() {
   const [weeksPerYear, setWeeksPerYear] = useState("48");
   const [annualDays, setAnnualDays] = useState("");
   const [hoursPerDay, setHoursPerDay] = useState("");
+
+  // "I drive my own car" -- registration lookup instead of mode/service dropdowns.
+  const [regNumber, setRegNumber] = useState("");
+  const [regAnnualMiles, setRegAnnualMiles] = useState("");
+  const [regLookupError, setRegLookupError] = useState("");
 
   useEffect(() => {
     apiFetch("/portal/commuting/options")
@@ -87,6 +93,37 @@ export default function PortalCommutingTab() {
     setWeeksPerYear("48");
     setAnnualDays("");
     setHoursPerDay("");
+    setRegNumber("");
+    setRegAnnualMiles("");
+    setRegLookupError("");
+  }
+
+  async function submitByVehicle() {
+    if (!employeeName.trim() || !regNumber.trim() || !regAnnualMiles.trim()) return;
+    setSaving(true);
+    setError("");
+    setRegLookupError("");
+    try {
+      const res = await apiFetch("/portal/commuting/rows-by-vehicle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employee_name: employeeName.trim(),
+          registration_number: regNumber.trim(),
+          annual_quantity: Number(regAnnualMiles),
+        }),
+      });
+      if (res.ok) {
+        setShowAdd(false);
+        resetForm();
+        void loadRows();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setRegLookupError(d?.detail || "Couldn't look up that registration.");
+      }
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function submitRow() {
@@ -169,11 +206,60 @@ export default function PortalCommutingTab() {
             </div>
 
             <div>
-              <label className="text-xs text-muted-foreground">Employee / Team</label>
-              <Input value={employeeName} onChange={(e) => setEmployeeName(e.target.value)} />
+              <label className="text-xs text-muted-foreground">Initials or Staff Number</label>
+              <Input
+                value={employeeName}
+                onChange={(e) => setEmployeeName(e.target.value)}
+                placeholder="e.g. JD or EMP-4471 — do not enter full names"
+              />
             </div>
 
-            {rowType === "commuting" ? (
+            {rowType === "commuting" && (
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={entryMode === "dropdown" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setEntryMode("dropdown")}
+                >
+                  Choose mode &amp; distance
+                </Button>
+                <Button
+                  type="button"
+                  variant={entryMode === "vehicle" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setEntryMode("vehicle")}
+                >
+                  I drive my own car (registration)
+                </Button>
+              </div>
+            )}
+
+            {rowType === "commuting" && entryMode === "vehicle" ? (
+              <div className="space-y-3">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="text-xs text-muted-foreground">Vehicle Registration Number</label>
+                    <Input
+                      placeholder="e.g. AB12 CDE"
+                      value={regNumber}
+                      onChange={(e) => setRegNumber(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground">Annual Commuting Miles</label>
+                    <Input type="number" value={regAnnualMiles} onChange={(e) => setRegAnnualMiles(e.target.value)} />
+                  </div>
+                </div>
+                {regLookupError && <div className="text-xs text-rose-700">{regLookupError}</div>}
+                <Button
+                  disabled={saving || !employeeName.trim() || !regNumber.trim() || !regAnnualMiles.trim()}
+                  onClick={() => void submitByVehicle()}
+                >
+                  {saving ? "Looking up & submitting..." : "Submit Entry"}
+                </Button>
+              </div>
+            ) : rowType === "commuting" ? (
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
                   <label className="text-xs text-muted-foreground">Commute Mode</label>
@@ -234,9 +320,11 @@ export default function PortalCommutingTab() {
               </div>
             )}
 
-            <Button disabled={saving || !employeeName.trim()} onClick={() => void submitRow()}>
-              {saving ? "Submitting..." : "Submit Entry"}
-            </Button>
+            {!(rowType === "commuting" && entryMode === "vehicle") && (
+              <Button disabled={saving || !employeeName.trim()} onClick={() => void submitRow()}>
+                {saving ? "Submitting..." : "Submit Entry"}
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -250,7 +338,7 @@ export default function PortalCommutingTab() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                <th className="p-2 text-left">Employee / Team</th>
+                <th className="p-2 text-left">Initials / Staff No.</th>
                 <th className="p-2 text-left">Type</th>
                 <th className="p-2 text-right">Qty</th>
                 <th className="p-2 text-right">tCO&#8322;e</th>

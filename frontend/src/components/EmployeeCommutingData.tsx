@@ -1139,12 +1139,12 @@ export default function EmployeeCommutingData({
                     </Select>
                   </div>
                   <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="manual-employee">Employee / Team</Label>
+                    <Label htmlFor="manual-employee">Initials or Staff Number</Label>
                     <Input
                       id="manual-employee"
                       value={manualEmployeeName}
                       onChange={(e) => setManualEmployeeName(e.target.value)}
-                      placeholder="e.g. Jane Smith or Sales team"
+                      placeholder="e.g. JD or EMP-4471 — avoid full names"
                     />
                   </div>
                 </div>

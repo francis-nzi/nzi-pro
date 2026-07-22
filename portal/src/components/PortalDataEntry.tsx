@@ -80,6 +80,13 @@ export default function PortalDataEntry() {
   const [qty, setQty] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Registration-number lookup (Phase 3) -- only offered for the two vehicle-
+  // shaped buckets; everything else keeps the plain search flow above.
+  const [regNumber, setRegNumber] = useState("");
+  const [regLookupLoading, setRegLookupLoading] = useState(false);
+  const [regLookupError, setRegLookupError] = useState("");
+  const [regLookupVehicle, setRegLookupVehicle] = useState<{ make: string | null; fuel_type: string | null } | null>(null);
+
   useEffect(() => {
     apiFetch("/portal/data-entry/buckets")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -102,6 +109,9 @@ export default function PortalDataEntry() {
     setFactorOptions([]);
     setSelectedFactor(null);
     setQty("");
+    setRegNumber("");
+    setRegLookupError("");
+    setRegLookupVehicle(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBucket]);
 
@@ -136,6 +146,30 @@ export default function PortalDataEntry() {
     }
   }
 
+  async function lookupByRegistration() {
+    if (!regNumber.trim()) return;
+    setRegLookupLoading(true);
+    setRegLookupError("");
+    setRegLookupVehicle(null);
+    try {
+      const res = await apiFetch("/portal/vehicle-lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registration_number: regNumber }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.factor) {
+        setSelectedFactor(d.factor);
+        setRegLookupVehicle({ make: d.make, fuel_type: d.fuel_type });
+        setRegNumber("");
+      } else {
+        setRegLookupError(d?.detail || "Couldn't look up that registration.");
+      }
+    } finally {
+      setRegLookupLoading(false);
+    }
+  }
+
   async function submitRow() {
     if (!selectedFactor || !qty.trim()) return;
     setSaving(true);
@@ -159,6 +193,7 @@ export default function PortalDataEntry() {
         setQty("");
         setSearch("");
         setFactorOptions([]);
+        setRegLookupVehicle(null);
         void loadRows(activeBucket);
       } else {
         const d = await res.json().catch(() => ({}));
@@ -169,6 +204,7 @@ export default function PortalDataEntry() {
     }
   }
 
+  const isVehicleBucket = activeBucket === "company_vehicles" || activeBucket === "business_travel";
   const allTabs = [...buckets, COMMUTING_BUCKET, SPEND_BUCKET, ...COMING_SOON_BUCKETS];
   const activeBucketLabel = allTabs.find((b) => b.bucket_key === activeBucket)?.label || "";
 
@@ -218,6 +254,32 @@ export default function PortalDataEntry() {
       {!isComingSoon && !isSpendTab && !isCommutingTab && showAdd && (
         <Card>
           <CardContent className="space-y-3 pt-4">
+            {isVehicleBucket && !selectedFactor && (
+              <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Have the vehicle&apos;s registration number? We&apos;ll work out the right category for you.
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="e.g. AB12 CDE"
+                    value={regNumber}
+                    onChange={(e) => setRegNumber(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && void lookupByRegistration()}
+                  />
+                  <Button disabled={regLookupLoading || !regNumber.trim()} onClick={() => void lookupByRegistration()}>
+                    {regLookupLoading ? "Looking up..." : "Look up"}
+                  </Button>
+                </div>
+                {regLookupError && <div className="text-xs text-rose-700">{regLookupError}</div>}
+                <div className="text-xs text-muted-foreground">— or search for the vehicle type manually below —</div>
+              </div>
+            )}
+            {regLookupVehicle && selectedFactor && (
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
+                Found: {regLookupVehicle.make || "vehicle"} ({regLookupVehicle.fuel_type || "unknown fuel"}) — matched to{" "}
+                {selectedFactor.report_label}
+              </div>
+            )}
             <Input
               placeholder={`Search ${activeBucketLabel.toLowerCase()}...`}
               value={search}
