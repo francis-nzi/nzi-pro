@@ -135,6 +135,7 @@ from api.portal_auth_routes import router as portal_auth_router
 from api.portal_routes import router as portal_router
 from api.portal_data_entry_routes import router as portal_data_entry_router
 from api.portal_spend_routes import router as portal_spend_router
+from api.portal_commuting_routes import router as portal_commuting_router
 from api.portfolio_routes import router as portfolio_router
 from api.job_review_routes import router as job_review_router
 from api.system_settings_routes import router as system_settings_router
@@ -334,6 +335,7 @@ app.include_router(portal_auth_router)
 app.include_router(portal_router)
 app.include_router(portal_data_entry_router)
 app.include_router(portal_spend_router)
+app.include_router(portal_commuting_router)
 app.include_router(portfolio_router)
 app.include_router(job_review_router)
 

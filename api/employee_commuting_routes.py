@@ -1551,24 +1551,28 @@ def _resolve_manual_commuting_rows(
     }
 
 
-def _insert_manual_commuting_rows(con, job_id: int, ready_rows: list[dict[str, Any]]) -> int:
+def _insert_manual_commuting_rows(
+    con, job_id: int, ready_rows: list[dict[str, Any]], submitted_by_portal: bool = False
+) -> tuple[int, list[int]]:
     inserted = 0
+    inserted_ids: list[int] = []
     for row in ready_rows:
         dataset_id = _dataset_id_for_insert(con, row.get("dataset_id"))
-        con.execute(
+        result = con.execute(
             """
             INSERT INTO job_emission_sources (
               job_id, group_id, scope, category, source_type, source_subtype, site_id,
               source_name, asset_identifier, employee_name, dataset_id, factor_db_id, original_id,
               qty, uom, factor, ghg_unit, apply_pct, data_source, data_confidence, notes,
-              detail_json, calc_tco2e
+              detail_json, calc_tco2e, enabled, submitted_by_portal, review_status
             )
             VALUES (
               %s, %s, %s, %s, %s, %s, %s,
               %s, %s, %s, %s, %s, %s,
               %s, %s, %s, %s, %s, %s, %s, %s,
-              %s, %s
+              %s, %s, %s, %s, %s
             )
+            RETURNING source_id
             """,
             [
                 int(job_id),
@@ -1594,10 +1598,15 @@ def _insert_manual_commuting_rows(con, job_id: int, ready_rows: list[dict[str, A
                 row.get("notes"),
                 row.get("detail_json") or {},
                 row.get("calc_tco2e"),
+                not submitted_by_portal,
+                bool(submitted_by_portal),
+                "pending_review" if submitted_by_portal else None,
             ],
-        )
+        ).fetchone()
         inserted += 1
-    return inserted
+        if result:
+            inserted_ids.append(int(result[0]))
+    return inserted, inserted_ids
 
 
 def _update_manual_commuting_row(con, job_id: int, source_id: int, row: dict[str, Any]) -> None:
@@ -1952,7 +1961,7 @@ def commit_employee_commuting_direct_entries(
         if replace_existing:
             disabled = _disable_existing_manual_commuting_rows(con, int(job_id), validated_site_id)
 
-        inserted = _insert_manual_commuting_rows(con, int(job_id), preview["ready_rows"])
+        inserted, _inserted_ids = _insert_manual_commuting_rows(con, int(job_id), preview["ready_rows"])
 
         record_audit_event(
             con,
@@ -2074,3 +2083,100 @@ def update_employee_commuting_direct_entry(
         "total_tco2e": float(preview["total_tco2e"]),
         "data_source": DIRECT_COMMUTING_DATA_SOURCE,
     }
+
+
+@router.get("/jobs/{job_id}/employee-commuting/pending-review")
+def list_pending_review_commuting_rows(job_id: int, _user: dict[str, str] = Depends(_current_user)):
+    """Client-portal-submitted commuting rows awaiting CRM approval."""
+    with get_conn() as con:
+        _ensure_emission_register_schema(con)
+        df = con.execute(
+            """
+            SELECT source_id, site_id, employee_name, source_subtype, qty, uom,
+                   factor, calc_tco2e, notes, review_status, review_note, created_at
+            FROM job_emission_sources
+            WHERE job_id = %s AND source_type = 'employee_commuting'
+              AND submitted_by_portal = TRUE AND review_status IN ('pending_review', 'rejected')
+            ORDER BY created_at DESC
+            """,
+            [int(job_id)],
+        ).df()
+        if df is None or df.empty:
+            return {"job_id": int(job_id), "rows": []}
+        df = df.where(df.notna(), None)
+        rows = []
+        for _, r in df.iterrows():
+            row = {k: r.get(k) for k in r.index}
+            if row.get("created_at") is not None:
+                row["created_at"] = str(row["created_at"])
+            rows.append(row)
+        return {"job_id": int(job_id), "rows": rows}
+
+
+@router.patch("/jobs/{job_id}/employee-commuting/{source_id}/review")
+def review_commuting_row(
+    request: Request,
+    job_id: int,
+    source_id: int,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Approve or reject a client-portal-submitted employee-commuting row.
+    Approving is the only thing that flips enabled to TRUE -- until then the
+    row is invisible to load_combined_reporting_rows() and the commuting
+    summary, both of which already filter enabled=TRUE."""
+    decision = str(body.get("decision") or "").strip().lower()
+    if decision not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
+    note = body.get("note")
+    reviewer = str(_user.get("email") or _user.get("full_name") or "crm")
+
+    with get_conn() as con:
+        _ensure_emission_register_schema(con)
+        row = con.execute(
+            """
+            SELECT submitted_by_portal, review_status
+            FROM job_emission_sources
+            WHERE source_id = %s AND job_id = %s AND source_type = 'employee_commuting'
+            """,
+            [int(source_id), int(job_id)],
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Commuting row not found")
+        if not row[0]:
+            raise HTTPException(status_code=400, detail="This row wasn't submitted via the client portal")
+        if row[1] == "approved":
+            raise HTTPException(status_code=409, detail="Already approved")
+
+        if decision == "approve":
+            con.execute(
+                """
+                UPDATE job_emission_sources
+                SET enabled = TRUE, review_status = 'approved', review_note = %s,
+                    reviewed_by = %s, reviewed_at = NOW()
+                WHERE source_id = %s
+                """,
+                [note, reviewer, int(source_id)],
+            )
+        else:
+            con.execute(
+                """
+                UPDATE job_emission_sources
+                SET review_status = 'rejected', review_note = %s, reviewed_by = %s, reviewed_at = NOW()
+                WHERE source_id = %s
+                """,
+                [note, reviewer, int(source_id)],
+            )
+
+        record_audit_event(
+            con,
+            request=request,
+            actor=_user,
+            action=f"commuting_row_{decision}",
+            entity_type="job_emission_source",
+            entity_id=int(source_id),
+            job_id=int(job_id),
+            metadata={"decision": decision, "note": note},
+        )
+
+    return {"ok": True, "source_id": int(source_id), "review_status": "approved" if decision == "approve" else "rejected"}

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
 import PortalSpendTab from "@/components/PortalSpendTab";
+import PortalCommutingTab from "@/components/PortalCommutingTab";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,18 +55,15 @@ const REVIEW_LABEL: Record<string, { label: string; className: string }> = {
   rejected: { label: "Rejected — please review", className: "bg-rose-100 text-rose-800" },
 };
 
-// Employee Commuting isn't part of this generic search-and-add table (see
-// CLIENT_PORTAL_DATA_ENTRY_SCOPE.md) -- it needs its own bespoke entry flow
-// wired up for portal auth with the same submit-then-review safety gate the
-// other tabs have. Shown as a coming-soon placeholder so clients can see the
-// full intended shape of this page rather than being silently omitted.
-const COMING_SOON_BUCKETS: Bucket[] = [{ bucket_key: "employee_commuting", label: "Employee Commuting" }];
+// Nothing is coming-soon anymore -- Employee Commuting and Purchased Goods &
+// Services are both real now, just structurally different from the generic
+// factor-search-and-add table (fixed dropdown vocab / raw ledger lines
+// respectively), so each gets its own dedicated tab component below rather
+// than being forced into this file's generic table.
+const COMING_SOON_BUCKETS: Bucket[] = [];
 
-// Purchased Goods & Services (Phase 2) is real, but structurally different
-// (raw ledger lines + category confirm, not a factor-search-and-add row) --
-// rendered by a dedicated PortalSpendTab component instead of this file's
-// generic table.
 const SPEND_BUCKET: Bucket = { bucket_key: "purchased_goods_and_services", label: "Purchased Goods & Services" };
+const COMMUTING_BUCKET: Bucket = { bucket_key: "employee_commuting", label: "Employee Commuting" };
 
 export default function PortalDataEntry() {
   const [buckets, setBuckets] = useState<Bucket[]>([]);
@@ -94,9 +92,10 @@ export default function PortalDataEntry() {
 
   const isComingSoon = COMING_SOON_BUCKETS.some((b) => b.bucket_key === activeBucket);
   const isSpendTab = activeBucket === SPEND_BUCKET.bucket_key;
+  const isCommutingTab = activeBucket === COMMUTING_BUCKET.bucket_key;
 
   useEffect(() => {
-    if (!activeBucket || isComingSoon || isSpendTab) return;
+    if (!activeBucket || isComingSoon || isSpendTab || isCommutingTab) return;
     loadRows(activeBucket);
     setShowAdd(false);
     setSearch("");
@@ -170,7 +169,7 @@ export default function PortalDataEntry() {
     }
   }
 
-  const allTabs = [...buckets, SPEND_BUCKET, ...COMING_SOON_BUCKETS];
+  const allTabs = [...buckets, COMMUTING_BUCKET, SPEND_BUCKET, ...COMING_SOON_BUCKETS];
   const activeBucketLabel = allTabs.find((b) => b.bucket_key === activeBucket)?.label || "";
 
   return (
@@ -207,15 +206,16 @@ export default function PortalDataEntry() {
       )}
 
       {isSpendTab && <PortalSpendTab />}
+      {isCommutingTab && <PortalCommutingTab />}
 
-      {!isComingSoon && !isSpendTab && (
+      {!isComingSoon && !isSpendTab && !isCommutingTab && (
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">{rows.length} submitted row(s) in {activeBucketLabel}</div>
         <Button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Cancel" : "+ Add Row"}</Button>
       </div>
       )}
 
-      {!isComingSoon && !isSpendTab && showAdd && (
+      {!isComingSoon && !isSpendTab && !isCommutingTab && showAdd && (
         <Card>
           <CardContent className="space-y-3 pt-4">
             <Input
@@ -277,7 +277,7 @@ export default function PortalDataEntry() {
         </Card>
       )}
 
-      {!isComingSoon && !isSpendTab && (
+      {!isComingSoon && !isSpendTab && !isCommutingTab && (
         rowsLoading ? (
           <SkeletonLoader />
         ) : rows.length === 0 ? (

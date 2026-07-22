@@ -1,0 +1,290 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { apiFetch } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
+
+type Options = { mode_options: string[]; service_options: string[]; unit_options: string[] };
+
+type Row = {
+  source_id: number;
+  employee_name: string | null;
+  source_subtype: string | null;
+  qty: number | null;
+  uom: string | null;
+  calc_tco2e: number | null;
+  review_status: "pending_review" | "approved" | "rejected" | null;
+  review_note: string | null;
+};
+
+const REVIEW_LABEL: Record<string, { label: string; className: string }> = {
+  pending_review: { label: "Awaiting review", className: "bg-amber-100 text-amber-800" },
+  approved: { label: "Approved", className: "bg-emerald-100 text-emerald-800" },
+  rejected: { label: "Rejected — please review", className: "bg-rose-100 text-rose-800" },
+};
+
+export default function PortalCommutingTab() {
+  const [options, setOptions] = useState<Options | null>(null);
+  const [rows, setRows] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+
+  const [rowType, setRowType] = useState<"commuting" | "wfh">("commuting");
+  const [employeeName, setEmployeeName] = useState("");
+  const [modeValue, setModeValue] = useState("");
+  const [serviceValue, setServiceValue] = useState("");
+  const [unitValue, setUnitValue] = useState("miles");
+  const [oneWayDistance, setOneWayDistance] = useState("");
+  const [officeDays, setOfficeDays] = useState("");
+  const [weeksPerYear, setWeeksPerYear] = useState("48");
+  const [annualDays, setAnnualDays] = useState("");
+  const [hoursPerDay, setHoursPerDay] = useState("");
+
+  useEffect(() => {
+    apiFetch("/portal/commuting/options")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d: Options) => {
+        setOptions(d);
+        if (d.mode_options?.length) setModeValue(d.mode_options[0]);
+        if (d.service_options?.length) setServiceValue(d.service_options[0]);
+      })
+      .catch(() => setError("Failed to load commuting options."));
+    void loadRows();
+  }, []);
+
+  async function loadRows() {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await apiFetch("/portal/commuting/rows");
+      if (res.ok) {
+        const d = await res.json();
+        setRows(d.rows || []);
+      } else {
+        setError("Failed to load your submitted commuting data.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function resetForm() {
+    setEmployeeName("");
+    setOneWayDistance("");
+    setOfficeDays("");
+    setWeeksPerYear("48");
+    setAnnualDays("");
+    setHoursPerDay("");
+  }
+
+  async function submitRow() {
+    if (!employeeName.trim()) return;
+    setSaving(true);
+    setError("");
+    try {
+      const payload: Record<string, unknown> = {
+        row_type: rowType,
+        employee_name: employeeName.trim(),
+      };
+      if (rowType === "commuting") {
+        Object.assign(payload, {
+          mode_value: modeValue,
+          service_value: serviceValue,
+          unit_value: unitValue,
+          one_way_distance: Number(oneWayDistance),
+          office_days: Number(officeDays),
+          weeks_per_year: Number(weeksPerYear),
+        });
+      } else {
+        Object.assign(payload, {
+          annual_days: Number(annualDays),
+          hours_per_day: Number(hoursPerDay),
+        });
+      }
+
+      const res = await apiFetch("/portal/commuting/rows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        setShowAdd(false);
+        resetForm();
+        void loadRows();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setError(d?.detail?.message || d?.detail || "Failed to submit this entry.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Add employee commuting or working-from-home data here. Your NZI consultant reviews and approves each entry
+        before it counts toward your reported emissions.
+      </p>
+
+      {error && <ErrorPanel description={error} />}
+
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-muted-foreground">{rows.length} entr{rows.length === 1 ? "y" : "ies"} submitted</div>
+        <Button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Cancel" : "+ Add Entry"}</Button>
+      </div>
+
+      {showAdd && options && (
+        <Card>
+          <CardContent className="space-y-3 pt-4">
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={rowType === "commuting" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setRowType("commuting")}
+              >
+                Commuting
+              </Button>
+              <Button
+                type="button"
+                variant={rowType === "wfh" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setRowType("wfh")}
+              >
+                Working From Home
+              </Button>
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground">Employee / Team</label>
+              <Input value={employeeName} onChange={(e) => setEmployeeName(e.target.value)} />
+            </div>
+
+            {rowType === "commuting" ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="text-xs text-muted-foreground">Commute Mode</label>
+                  <Select value={modeValue} onValueChange={setModeValue}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {options.mode_options.map((m) => (
+                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Vehicle / Service Type</label>
+                  <Select value={serviceValue} onValueChange={setServiceValue}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {options.service_options.map((s) => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Distance Unit</label>
+                  <Select value={unitValue} onValueChange={setUnitValue}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {options.unit_options.map((u) => (
+                        <SelectItem key={u} value={u}>{u}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">One-Way Distance</label>
+                  <Input type="number" value={oneWayDistance} onChange={(e) => setOneWayDistance(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Office Days / Week</label>
+                  <Input type="number" value={officeDays} onChange={(e) => setOfficeDays(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Weeks / Year</label>
+                  <Input type="number" value={weeksPerYear} onChange={(e) => setWeeksPerYear(e.target.value)} />
+                </div>
+              </div>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="text-xs text-muted-foreground">Annual WFH Days</label>
+                  <Input type="number" value={annualDays} onChange={(e) => setAnnualDays(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Hours Per Day</label>
+                  <Input type="number" value={hoursPerDay} onChange={(e) => setHoursPerDay(e.target.value)} />
+                </div>
+              </div>
+            )}
+
+            <Button disabled={saving || !employeeName.trim()} onClick={() => void submitRow()}>
+              {saving ? "Submitting..." : "Submit Entry"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {loading ? (
+        <SkeletonLoader />
+      ) : rows.length === 0 ? (
+        <EmptyStatePanel title="No commuting data submitted yet." />
+      ) : (
+        <div className="overflow-x-auto rounded-md border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                <th className="p-2 text-left">Employee / Team</th>
+                <th className="p-2 text-left">Type</th>
+                <th className="p-2 text-right">Qty</th>
+                <th className="p-2 text-right">tCO&#8322;e</th>
+                <th className="p-2 text-left">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const review = row.review_status ? REVIEW_LABEL[row.review_status] : null;
+                return (
+                  <tr key={row.source_id} className="border-b last:border-0">
+                    <td className="p-2">{row.employee_name || "-"}</td>
+                    <td className="p-2">{row.source_subtype || "-"}</td>
+                    <td className="p-2 text-right font-mono">{row.qty ?? "-"} {row.uom || ""}</td>
+                    <td className="p-2 text-right font-mono">{row.calc_tco2e?.toFixed(4) ?? "-"}</td>
+                    <td className="p-2">
+                      {review ? (
+                        <>
+                          <span className={`rounded-full px-2 py-0.5 text-xs ${review.className}`}>{review.label}</span>
+                          {row.review_status === "rejected" && row.review_note && (
+                            <div className="mt-1 text-xs text-muted-foreground">{row.review_note}</div>
+                          )}
+                        </>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -116,6 +116,15 @@ def _ensure_schema(con) -> None:
         ON job_emission_sources (group_id, enabled)
         """
     )
+    # Client Portal Data Entry (Employee Commuting): portal-submitted rows stay
+    # enabled=FALSE until a CRM approves them -- load_combined_reporting_rows()
+    # already filters WHERE enabled=TRUE, so this is the same gate Phases 1-2
+    # use elsewhere, just on this table. See CLIENT_PORTAL_DATA_ENTRY_SCOPE.md.
+    con.execute("ALTER TABLE job_emission_sources ADD COLUMN IF NOT EXISTS submitted_by_portal BOOLEAN NOT NULL DEFAULT FALSE")
+    con.execute("ALTER TABLE job_emission_sources ADD COLUMN IF NOT EXISTS review_status VARCHAR DEFAULT NULL")
+    con.execute("ALTER TABLE job_emission_sources ADD COLUMN IF NOT EXISTS review_note TEXT")
+    con.execute("ALTER TABLE job_emission_sources ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR")
+    con.execute("ALTER TABLE job_emission_sources ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ")
     con.execute(
         """
         UPDATE job_emission_groups g
