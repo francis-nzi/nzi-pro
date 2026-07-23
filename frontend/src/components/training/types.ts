@@ -249,6 +249,7 @@ export function formatDocumentType(type: string): string {
 
 export type TrainingLogEntry = {
   training_automation_log_id: number;
+  training_course_run_id: number;
   automation_key: string;
   trigger_key: string;
   action_type: string;
@@ -259,6 +260,25 @@ export type TrainingLogEntry = {
   error_text: string | null;
   created_at: string | null;
   sent_at: string | null;
+};
+
+export type TrainingCompletionRecipient = {
+  training_booking_id: number;
+  person_name: string | null;
+  person_email: string | null;
+  client_name: string | null;
+  participant_type: string | null;
+  attendance_status: string | null;
+  billing_status: string | null;
+  eligible: boolean;
+  can_send: boolean;
+  sent_status: string;
+  sent_at: string | null;
+  last_logged_at: string | null;
+  error_text: string | null;
+  subject: string | null;
+  training_automation_log_id: number | null;
+  automation_key: string | null;
 };
 
 export const STAFF_ROLE_OPTIONS = [

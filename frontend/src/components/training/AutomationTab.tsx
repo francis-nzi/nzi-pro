@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Send, Eye, CheckCircle, XCircle, Clock, Mail } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Send, Eye, CheckCircle, XCircle, Clock, Mail, CheckSquare, Square } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,8 +11,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { TrainingCourseRun, TrainingLogEntry } from "./types";
-import { formatTrainingCourseRunStatus } from "@/lib/training-workflow";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import type { TrainingCompletionRecipient, TrainingCourseRun, TrainingLogEntry } from "./types";
+import { formatTrainingCourseRunStatus, formatTrainingBookingStatus, formatTrainingBillingStatus } from "@/lib/training-workflow";
 
 type AutomationPayload = {
   training_course_run_id: number;
@@ -69,25 +70,47 @@ Kind regards,
 export default function AutomationTab({ jobId, runs, automationLog, baseUrl, onRefresh }: Props) {
   const [selectedRunId, setSelectedRunId] = useState<number | null>(runs[0]?.training_course_run_id ?? null);
   const [automation, setAutomation] = useState<AutomationPayload | null>(null);
-  const [loadingAuto, setLoadingAuto] = useState(false);
+  const [completionRecipients, setCompletionRecipients] = useState<TrainingCompletionRecipient[]>([]);
+  const [loadingAuto, setLoadingAuto] = useState(Boolean(runs[0]?.training_course_run_id));
+  const [loadingRecipients, setLoadingRecipients] = useState(Boolean(runs[0]?.training_course_run_id));
   const [saving, setSaving] = useState(false);
   const [previewResult, setPreviewResult] = useState<{ planned: unknown[] } | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [running, setRunning] = useState<string | null>(null);
+  const [selectedRecipientIds, setSelectedRecipientIds] = useState<Set<number>>(new Set());
 
-  async function loadAutomation(runId: number) {
+  const loadAutomation = useCallback(async (runId: number) => {
     setLoadingAuto(true);
     try {
       const res = await fetch(`${baseUrl}/training-course-runs/${runId}/automation`);
       if (res.ok) setAutomation(await res.json());
     } catch { /* silent */ }
     finally { setLoadingAuto(false); }
-  }
+  }, [baseUrl]);
+
+  const loadCompletionRecipients = useCallback(async (runId: number) => {
+    setLoadingRecipients(true);
+    try {
+      const res = await fetch(`${baseUrl}/training-course-runs/${runId}/completion-pack-recipients`);
+      if (res.ok) {
+        const data = await res.json();
+        setCompletionRecipients(data.items ?? []);
+        setSelectedRecipientIds(new Set());
+      } else {
+        setCompletionRecipients([]);
+      }
+    } catch {
+      setCompletionRecipients([]);
+    } finally {
+      setLoadingRecipients(false);
+    }
+  }, [baseUrl]);
 
   async function selectRun(runId: number) {
     setSelectedRunId(runId);
     setAutomation(null);
-    await loadAutomation(runId);
+    setCompletionRecipients([]);
+    setSelectedRecipientIds(new Set());
   }
 
   async function saveAutomation() {
@@ -108,14 +131,14 @@ export default function AutomationTab({ jobId, runs, automationLog, baseUrl, onR
     }
   }
 
-  async function runAutomation(triggerKey: string, mode: "preview" | "send") {
+  async function runAutomation(triggerKey: string, mode: "preview" | "send", bookingIds?: number[]) {
     if (!selectedRunId) return;
     setRunning(`${triggerKey}-${mode}`);
     try {
       const res = await fetch(`${baseUrl}/training-course-runs/${selectedRunId}/automation/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trigger_key: triggerKey, mode }),
+        body: JSON.stringify({ trigger_key: triggerKey, mode, booking_ids: bookingIds ?? [] }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -134,9 +157,49 @@ export default function AutomationTab({ jobId, runs, automationLog, baseUrl, onR
   }
 
   const selectedRun = runs.find((r) => r.training_course_run_id === selectedRunId);
+  const completionEligibleRecipients = completionRecipients.filter((recipient) => recipient.can_send);
+  const selectedCompletionRecipients = completionRecipients.filter((recipient) => selectedRecipientIds.has(recipient.training_booking_id));
+  const completionSendTargets = selectedCompletionRecipients.filter((recipient) => recipient.can_send).map((recipient) => recipient.training_booking_id);
+  const sendAllTargets = completionEligibleRecipients.map((recipient) => recipient.training_booking_id);
+  const allSelectableIds = completionEligibleRecipients.map((recipient) => recipient.training_booking_id);
+  const allSelected = allSelectableIds.length > 0 && allSelectableIds.every((id) => selectedRecipientIds.has(id));
+  const completionReady = selectedRun ? String(selectedRun.status).toLowerCase() === "completed" : false;
+  const selectedAutomationLogs = selectedRunId
+    ? automationLog.filter((log) => log.training_course_run_id === selectedRunId)
+    : automationLog;
+
+  function toggleRecipient(recipientId: number) {
+    setSelectedRecipientIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(recipientId)) next.delete(recipientId);
+      else next.add(recipientId);
+      return next;
+    });
+  }
+
+  function toggleAllRecipients() {
+    setSelectedRecipientIds(allSelected ? new Set() : new Set(allSelectableIds));
+  }
+
+  async function sendCompletionPack(bookingIds?: number[]) {
+    if (!selectedRunId) return;
+    const effectiveTargets = bookingIds ?? [];
+    if (bookingIds && bookingIds.length === 0) {
+      toast.error("Select at least one recipient.");
+      return;
+    }
+    await runAutomation("completion_pack", "send", effectiveTargets);
+    await loadCompletionRecipients(selectedRunId);
+  }
+
+  useEffect(() => {
+    if (!selectedRunId) return;
+    void loadAutomation(selectedRunId);
+    void loadCompletionRecipients(selectedRunId);
+  }, [selectedRunId, loadAutomation, loadCompletionRecipients]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-job-id={jobId}>
       {/* Cohort selector */}
       <div className="flex items-center gap-3">
         <Label className="shrink-0 text-sm">Cohort:</Label>
@@ -168,7 +231,140 @@ export default function AutomationTab({ jobId, runs, automationLog, baseUrl, onR
         </Button>
       )}
 
-      {loadingAuto && <p className="text-sm text-slate-400">Loading…</p>}
+      {loadingAuto && <p className="text-sm text-slate-400">Loading settings…</p>}
+
+      {selectedRun && (
+        <Card className="border-emerald-200 bg-emerald-50/40">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center justify-between gap-3 text-sm">
+              <span>Completion Pack</span>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-xs">
+                  {completionReady ? "Ready to send" : "Waiting for completion"}
+                </Badge>
+                <Badge variant="outline" className="text-xs">
+                  {completionEligibleRecipients.length} eligible
+                </Badge>
+                <Badge variant="outline" className="text-xs">
+                  {completionRecipients.filter((r) => r.sent_status === "sent").length} sent
+                </Badge>
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-slate-600">
+              Send the completion email, certificate, and attached follow-up documents from the cohort page. The sent log below shows exactly who has received it.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void runAutomation("completion_pack", "preview", selectedRecipientIds.size > 0 ? [...selectedRecipientIds] : undefined)}
+                disabled={!!running}
+              >
+                <Eye className="mr-1 h-3.5 w-3.5" />
+                {running === "completion_pack-preview" ? "Previewing…" : "Preview Pack"}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void sendCompletionPack(selectedRecipientIds.size > 0 ? completionSendTargets : sendAllTargets)}
+                disabled={!!running || !completionReady || completionEligibleRecipients.length === 0 || (selectedRecipientIds.size > 0 && completionSendTargets.length === 0)}
+              >
+                <Send className="mr-1 h-3.5 w-3.5" />
+                {running === "completion_pack-send" ? "Sending…" : selectedRecipientIds.size > 0 ? "Send Selected" : "Send All Remaining"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={toggleAllRecipients}
+                disabled={completionEligibleRecipients.length === 0}
+              >
+                {allSelected ? <CheckSquare className="mr-1 h-3.5 w-3.5" /> : <Square className="mr-1 h-3.5 w-3.5" />}
+                {allSelected ? "Clear Selection" : "Select All Eligible"}
+              </Button>
+            </div>
+            {loadingRecipients ? (
+              <p className="text-sm text-slate-400">Loading recipient status…</p>
+            ) : completionRecipients.length === 0 ? (
+              <p className="text-sm text-slate-400">No attendees found for this cohort.</p>
+            ) : (
+              <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                <div className="max-h-[320px] overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-10">
+                          <button type="button" onClick={toggleAllRecipients} className="text-slate-400 hover:text-slate-700" title="Select all eligible recipients">
+                            {allSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                          </button>
+                        </TableHead>
+                        <TableHead>Recipient</TableHead>
+                        <TableHead>Booking</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Sent</TableHead>
+                        <TableHead />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {completionRecipients.map((recipient) => {
+                        const isSelected = selectedRecipientIds.has(recipient.training_booking_id);
+                        const sent = recipient.sent_status === "sent";
+                        const failed = recipient.sent_status === "failed";
+                        return (
+                          <TableRow key={recipient.training_booking_id}>
+                            <TableCell>
+                              <button
+                                type="button"
+                                className="text-slate-500 disabled:cursor-not-allowed disabled:opacity-40"
+                                onClick={() => toggleRecipient(recipient.training_booking_id)}
+                                disabled={!recipient.can_send && !isSelected}
+                                title={recipient.can_send ? "Select recipient" : recipient.sent_status === "sent" ? "Already sent" : "No email available"}
+                              >
+                                {isSelected ? <CheckSquare className="h-4 w-4 text-emerald-600" /> : <Square className="h-4 w-4" />}
+                              </button>
+                            </TableCell>
+                            <TableCell>
+                              <div className="font-medium text-slate-900">{recipient.person_name || "Participant"}</div>
+                              <div className="text-xs text-slate-500">{recipient.person_email || "No email address"}</div>
+                            </TableCell>
+                            <TableCell className="text-xs text-slate-500">
+                              <div>{recipient.client_name || "No company"}</div>
+                              <div className="mt-1 flex flex-wrap gap-1.5">
+                                <Badge variant="outline" className="text-[10px]">{formatTrainingBookingStatus(recipient.attendance_status || "")}</Badge>
+                                <Badge variant="outline" className="text-[10px]">{formatTrainingBillingStatus(recipient.billing_status || "")}</Badge>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={`text-xs ${sent ? "border-emerald-200 bg-emerald-50 text-emerald-700" : failed ? "border-red-200 bg-red-50 text-red-700" : "border-slate-200 bg-slate-50 text-slate-700"}`}>
+                                {sent ? "Sent" : failed ? "Failed" : recipient.can_send ? "Ready" : "Blocked"}
+                              </Badge>
+                              {recipient.error_text && <div className="mt-1 text-[10px] text-red-500">{recipient.error_text}</div>}
+                            </TableCell>
+                            <TableCell className="text-xs text-slate-500">
+                              {recipient.sent_at ? new Date(recipient.sent_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 text-xs text-emerald-600"
+                                disabled={!recipient.can_send || !!running}
+                                onClick={() => void sendCompletionPack([recipient.training_booking_id])}
+                              >
+                                Send
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {automation && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -314,11 +510,11 @@ export default function AutomationTab({ jobId, runs, automationLog, baseUrl, onR
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {automationLog.length === 0 ? (
+                {selectedAutomationLogs.length === 0 ? (
                   <p className="text-sm text-slate-400">No automation emails sent yet.</p>
                 ) : (
                   <div className="space-y-1.5 max-h-96 overflow-y-auto">
-                    {automationLog.map((log) => (
+                    {selectedAutomationLogs.map((log) => (
                       <div key={log.training_automation_log_id} className="flex items-start gap-2 rounded border border-slate-100 p-2 text-xs">
                         <div className="mt-0.5 shrink-0">{logStatusIcon(log.status)}</div>
                         <div className="min-w-0 flex-1">

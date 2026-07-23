@@ -1138,6 +1138,54 @@ def _get_run_bookings(con, org_id: str, training_course_run_id: int) -> list[dic
     return [_booking_payload(row) for row in rows]
 
 
+def _get_training_completion_pack_recipients(con, org_id: str, training_course_run_id: int) -> list[dict[str, Any]]:
+    bookings = _get_run_bookings(con, org_id, training_course_run_id)
+    log_rows = con.execute(
+        """
+        SELECT l.training_booking_id, l.training_automation_log_id, l.status, l.error_text, l.subject,
+               l.sent_at, l.created_at, l.recipient_name, l.recipient_email, l.automation_key
+        FROM training_automation_log l
+        WHERE l.org_id = ?::text AND l.training_course_run_id = ? AND l.trigger_key = 'completion_pack'
+        ORDER BY l.created_at DESC, l.training_automation_log_id DESC
+        """,
+        [org_id, int(training_course_run_id)],
+    ).fetchall()
+    log_by_booking_id: dict[int, Any] = {}
+    for row in log_rows:
+        booking_id = int(row[0]) if row[0] is not None else None
+        if booking_id is None or booking_id in log_by_booking_id:
+            continue
+        log_by_booking_id[booking_id] = row
+
+    recipients: list[dict[str, Any]] = []
+    for booking in bookings:
+        booking_id = int(booking["training_booking_id"])
+        log_row = log_by_booking_id.get(booking_id)
+        eligible = _training_participant_email_allowed(booking)
+        sent_status = str(log_row[2]) if log_row else ("pending" if eligible else "not_eligible")
+        recipients.append(
+            {
+                "training_booking_id": booking_id,
+                "person_name": booking.get("person_name"),
+                "person_email": booking.get("person_email"),
+                "client_name": booking.get("client_name"),
+                "participant_type": booking.get("participant_type"),
+                "attendance_status": booking.get("attendance_status"),
+                "billing_status": booking.get("billing_status"),
+                "eligible": eligible,
+                "can_send": bool(eligible and log_row is None),
+                "sent_status": sent_status,
+                "sent_at": str(log_row[5]) if log_row and log_row[5] else None,
+                "last_logged_at": str(log_row[6]) if log_row and log_row[6] else None,
+                "error_text": str(log_row[3]) if log_row and log_row[3] else None,
+                "subject": str(log_row[4]) if log_row and log_row[4] else None,
+                "training_automation_log_id": int(log_row[1]) if log_row and log_row[1] is not None else None,
+                "automation_key": str(log_row[9]) if log_row and log_row[9] else None,
+            }
+        )
+    return recipients
+
+
 def _ensure_training_automation_log(con, org_id: str, training_course_run_id: int, automation_key: str) -> bool:
     exists = con.execute(
         """
@@ -1590,6 +1638,7 @@ def _execute_training_completion_pack(
     training_course_run_id: int,
     actor: str,
     mode: str = "preview",
+    booking_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     run_row = _get_training_run_row(con, org_id, training_course_run_id)
     run = _automation_payload(run_row)
@@ -1597,6 +1646,9 @@ def _execute_training_completion_pack(
         return {"ok": True, "mode": mode, "trigger_key": "completion_pack", "planned": [], "sent_count": 0, "ready": False}
 
     bookings = _get_run_bookings(con, org_id, training_course_run_id)
+    if booking_ids:
+        selected_booking_ids = {int(x) for x in booking_ids if str(x).strip() != ""}
+        bookings = [booking for booking in bookings if int(booking["training_booking_id"]) in selected_booking_ids]
     company_profile = get_company_profile(con)
     planned: list[dict[str, Any]] = []
     sent_count = 0
@@ -3027,6 +3079,15 @@ def run_training_course_automation(
     actor = _actor(_user)
     mode = str(body.get("mode") or "preview").strip().lower()
     trigger_key = str(body.get("trigger_key") or "reminders").strip().lower()
+    booking_ids_raw = body.get("booking_ids") or []
+    booking_ids: list[int] = []
+    if booking_ids_raw:
+        if not isinstance(booking_ids_raw, list):
+            raise HTTPException(status_code=400, detail="booking_ids must be a list of booking ids")
+        try:
+            booking_ids = [int(x) for x in booking_ids_raw if str(x).strip() != ""]
+        except Exception:
+            raise HTTPException(status_code=400, detail="booking_ids must be a list of booking ids")
     if mode not in {"preview", "send"}:
         raise HTTPException(status_code=400, detail="mode must be preview or send")
     if trigger_key not in {"reminders", "completion_pack"}:
@@ -3037,7 +3098,38 @@ def run_training_course_automation(
         _assert_run_access(_user, con, int(training_course_run_id), org_id)
         if trigger_key == "reminders":
             return _execute_training_reminders(con, org_id=org_id, training_course_run_id=int(training_course_run_id), actor=actor, mode=mode)
-        return _execute_training_completion_pack(con, org_id=org_id, training_course_run_id=int(training_course_run_id), actor=actor, mode=mode)
+        return _execute_training_completion_pack(
+            con,
+            org_id=org_id,
+            training_course_run_id=int(training_course_run_id),
+            actor=actor,
+            mode=mode,
+            booking_ids=booking_ids or None,
+        )
+
+
+@router.get("/training-course-runs/{training_course_run_id}/completion-pack-recipients")
+def list_training_completion_pack_recipients(
+    training_course_run_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    assert_permission(_user, "jobs.view")
+    org_id = require_org(_user)
+    with get_conn() as con:
+        _ensure_tables(con)
+        _assert_run_access(_user, con, int(training_course_run_id), org_id)
+        run_row = _get_training_run_row(con, org_id, int(training_course_run_id))
+        recipients = _get_training_completion_pack_recipients(con, org_id, int(training_course_run_id))
+        eligible_count = sum(1 for item in recipients if bool(item.get("can_send")))
+        sent_count = sum(1 for item in recipients if str(item.get("sent_status") or "").lower() == "sent")
+        return {
+            "training_course_run_id": int(training_course_run_id),
+            "run_name": str(run_row[5] or ""),
+            "ready": _all_sessions_completed(con, org_id, int(training_course_run_id)),
+            "eligible_count": eligible_count,
+            "sent_count": sent_count,
+            "items": recipients,
+        }
 
 
 @router.get("/jobs/{job_id}/training-automation-log")
