@@ -217,6 +217,11 @@ export type TrainingDocument = {
   document_type: string;
   document_name: string;
   file_url: string | null;
+  file_path?: string | null;
+  storage_provider?: string | null;
+  external_item_id?: string | null;
+  external_web_url?: string | null;
+  external_path?: string | null;
   notes: string | null;
   attach_to_email: boolean;
   is_visible_on_portal: boolean;

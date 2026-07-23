@@ -6,12 +6,13 @@ import json
 import os
 import re
 import uuid
+import urllib.parse
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -19,7 +20,9 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 
 from api.auth import _current_user
+from api.job_files_routes import _graph_raw_request, _onedrive_ensure_folder, _onedrive_enabled
 from api.permissions import assert_job_access, assert_permission
+from api.onedrive_routes import _drive_base_path, _graph_download, _graph_request, _graph_token, _joined_remote_path
 from core.database import get_conn
 from services.company_profile import company_footer_text, get_company_profile
 from services.messaging_templates import build_email_content, render_template_text
@@ -28,13 +31,92 @@ from services.tenancy import require_org
 
 router = APIRouter(tags=["job-training"])
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _TRAINING_DOCUMENTS_DIR = Path(
     os.getenv("NZI_TRAINING_DOCUMENTS_DIR")
-    or Path(__file__).resolve().parents[1] / "frontend" / "public" / "uploads" / "training_documents"
+    or PROJECT_ROOT / "frontend" / "public" / "uploads" / "training_documents"
 )
 # Legacy files were historically stored under frontend/public/uploads/training_documents.
-# Keep the same folder as the primary store, so older URLs continue to resolve if they point here.
-_LEGACY_TRAINING_DOCUMENTS_DIR = Path(__file__).resolve().parents[1] / "frontend" / "public" / "uploads" / "training_documents"
+# Keep that path, but also check the repo-root uploads folder in case older
+# deploys wrote there.
+_LEGACY_TRAINING_DOCUMENTS_DIR = PROJECT_ROOT / "frontend" / "public" / "uploads" / "training_documents"
+_ALT_TRAINING_DOCUMENTS_DIR = PROJECT_ROOT / "uploads" / "training_documents"
+
+
+def _sanitize_storage_stem(name: str) -> str:
+    stem = re.sub(r"[^a-zA-Z0-9._-]", "_", Path(str(name or "document")).stem)[:80]
+    return stem or "document"
+
+
+def _training_documents_remote_folder(org_id: str) -> str:
+    safe_org = re.sub(r"[^a-zA-Z0-9._-]", "_", str(org_id or "org")).strip("_-") or "org"
+    return _joined_remote_path(f"training-documents/org-{safe_org}")
+
+
+def _upload_training_document_to_onedrive(*, filename: str, content: bytes, org_id: str) -> dict[str, str | int | None]:
+    token = _graph_token()
+    drive_base = _drive_base_path(token)
+    remote_folder = _training_documents_remote_folder(org_id)
+    _onedrive_ensure_folder(token, remote_folder)
+
+    full_path = f"{remote_folder}/{filename}" if remote_folder else f"/{filename}"
+    encoded = urllib.parse.quote(full_path, safe="/")
+
+    if len(content) <= 4 * 1024 * 1024:
+        meta = _graph_request(
+            "PUT",
+            f"{drive_base}/root:{encoded}:/content",
+            token,
+            body=content,
+            content_type="application/octet-stream",
+        )
+    else:
+        session = _graph_request(
+            "POST",
+            f"{drive_base}/root:{encoded}:/createUploadSession",
+            token,
+            body=json.dumps(
+                {
+                    "item": {
+                        "@microsoft.graph.conflictBehavior": "replace",
+                        "name": filename,
+                    }
+                }
+            ).encode("utf-8"),
+            content_type="application/json",
+        )
+        upload_url = str(session.get("uploadUrl") or "").strip()
+        if not upload_url:
+            raise HTTPException(status_code=500, detail="Failed to create OneDrive upload session")
+
+        chunk_size = 5 * 1024 * 1024
+        start = 0
+        meta: dict[str, object] = {}
+        while start < len(content):
+            end = min(start + chunk_size, len(content)) - 1
+            chunk = content[start : end + 1]
+            raw = _graph_raw_request(
+                "PUT",
+                upload_url,
+                body=chunk,
+                headers={
+                    "Content-Length": str(len(chunk)),
+                    "Content-Range": f"bytes {start}-{end}/{len(content)}",
+                    "Content-Type": "application/octet-stream",
+                },
+            )
+            if raw:
+                meta = json.loads(raw.decode("utf-8"))
+            start = end + 1
+
+    return {
+        "storage_provider": "onedrive",
+        "file_path": str(full_path),
+        "external_item_id": str(meta.get("id") or ""),
+        "external_web_url": str(meta.get("webUrl") or ""),
+        "external_path": str(full_path),
+        "file_size": len(content),
+    }
 
 
 def _training_document_download_url(file_name: str) -> str:
@@ -49,6 +131,7 @@ def _training_document_candidates(file_name: str) -> list[Path]:
     return [
         _TRAINING_DOCUMENTS_DIR / safe_name,
         _LEGACY_TRAINING_DOCUMENTS_DIR / safe_name,
+        _ALT_TRAINING_DOCUMENTS_DIR / safe_name,
     ]
 
 
@@ -433,6 +516,11 @@ def _ensure_tables(con) -> None:
           document_type VARCHAR NOT NULL DEFAULT 'general',
           document_name VARCHAR NOT NULL,
           file_url TEXT,
+          file_path TEXT,
+          storage_provider VARCHAR DEFAULT 'local',
+          external_item_id VARCHAR,
+          external_web_url TEXT,
+          external_path TEXT,
           notes TEXT,
           attach_to_email BOOLEAN NOT NULL DEFAULT FALSE,
           is_visible_on_portal BOOLEAN NOT NULL DEFAULT FALSE,
@@ -443,6 +531,17 @@ def _ensure_tables(con) -> None:
         )
         """
     )
+    for _stmt in [
+        "ALTER TABLE training_documents ADD COLUMN IF NOT EXISTS file_path TEXT",
+        "ALTER TABLE training_documents ADD COLUMN IF NOT EXISTS storage_provider VARCHAR DEFAULT 'local'",
+        "ALTER TABLE training_documents ADD COLUMN IF NOT EXISTS external_item_id VARCHAR",
+        "ALTER TABLE training_documents ADD COLUMN IF NOT EXISTS external_web_url TEXT",
+        "ALTER TABLE training_documents ADD COLUMN IF NOT EXISTS external_path TEXT",
+    ]:
+        try:
+            con.execute(_stmt)
+        except Exception:
+            pass
     con.execute("CREATE INDEX IF NOT EXISTS ix_training_documents_target ON training_documents (org_id, target_type, target_id)")
 
 
@@ -455,20 +554,26 @@ def _doc_payload(row) -> dict[str, Any]:
         "document_type": row[4],
         "document_name": row[5],
         "file_url": row[6],
-        "notes": row[7],
-        "attach_to_email": bool(row[8]),
-        "is_visible_on_portal": bool(row[9]),
-        "created_at": str(row[10]) if row[10] else None,
-        "created_by": row[11],
-        "updated_at": str(row[12]) if row[12] else None,
-        "updated_by": row[13],
+        "file_path": row[7],
+        "storage_provider": row[8],
+        "external_item_id": row[9],
+        "external_web_url": row[10],
+        "external_path": row[11],
+        "notes": row[12],
+        "attach_to_email": bool(row[13]),
+        "is_visible_on_portal": bool(row[14]),
+        "created_at": str(row[15]) if row[15] else None,
+        "created_by": row[16],
+        "updated_at": str(row[17]) if row[17] else None,
+        "updated_by": row[18],
     }
 
 
 _DOC_SELECT = """
     SELECT training_document_id, org_id, target_type, target_id,
-           document_type, document_name, file_url, notes,
-           attach_to_email, is_visible_on_portal,
+           document_type, document_name, file_url, file_path,
+           storage_provider, external_item_id, external_web_url, external_path,
+           notes, attach_to_email, is_visible_on_portal,
            created_at, created_by, updated_at, updated_by
     FROM training_documents
 """
@@ -2527,6 +2632,132 @@ def reassign_training_booking(
         return {"ok": True, "training_booking_id": int(training_booking_id), "new_run_id": int(new_run_id)}
 
 
+@router.patch("/training-session-attendance/{training_session_attendance_id}/move")
+def move_training_session_attendance(
+    training_session_attendance_id: int,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Move a single session attendance row into another cohort.
+
+    This clones the participant booking into the target cohort so other
+    sessions on the original booking remain untouched.
+    """
+    assert_permission(_user, "jobs.edit")
+    org_id = require_org(_user)
+    actor = _actor(_user)
+    new_run_id = body.get("new_run_id")
+    session_ids: list[int] = [int(s) for s in (body.get("session_ids") or [])]
+    if not new_run_id:
+        raise HTTPException(status_code=400, detail="new_run_id is required")
+    if not session_ids:
+        raise HTTPException(status_code=400, detail="At least one target session is required")
+
+    with get_conn() as con:
+        _ensure_tables(con)
+        source_row = con.execute(
+            """
+            SELECT a.training_session_attendance_id, a.training_course_session_id, a.training_booking_id,
+                   a.attendance_status, a.attendance_minutes, a.notes,
+                   b.client_db_id, b.contact_id, b.participant_type, b.booking_source,
+                   b.person_name, b.person_email, b.person_phone, b.billing_status, b.attendance_status,
+                   b.special_requirements, b.consent_status, b.notes, b.entitlement_id
+            FROM training_session_attendance a
+            JOIN training_bookings b ON b.training_booking_id = a.training_booking_id AND b.org_id = a.org_id
+            WHERE a.training_session_attendance_id = ? AND a.org_id = ?::text
+            """,
+            [int(training_session_attendance_id), org_id],
+        ).fetchone()
+        if not source_row:
+            raise HTTPException(status_code=404, detail="Attendance row not found")
+
+        source_session_id = int(source_row[1])
+        source_booking_id = int(source_row[2])
+        _assert_session_access(_user, con, source_session_id, org_id)
+
+        target_run = con.execute(
+            "SELECT training_course_run_id FROM training_course_runs WHERE training_course_run_id = ? AND org_id = ?::text",
+            [int(new_run_id), org_id],
+        ).fetchone()
+        if not target_run:
+            raise HTTPException(status_code=404, detail="Target run not found")
+
+        new_booking_row = con.execute(
+            """
+            INSERT INTO training_bookings (
+              org_id, training_course_run_id, client_db_id, contact_id, participant_type, booking_source,
+              person_name, person_email, person_phone, billing_status, attendance_status,
+              special_requirements, consent_status, notes, entitlement_id, created_by, updated_by
+            )
+            VALUES (?::text, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING training_booking_id
+            """,
+            [
+                org_id,
+                int(new_run_id),
+                source_row[6],
+                source_row[7],
+                source_row[8],
+                source_row[9],
+                source_row[10],
+                source_row[11],
+                source_row[12],
+                source_row[13],
+                source_row[14],
+                source_row[15],
+                source_row[16],
+                source_row[17],
+                source_row[18],
+                actor,
+                actor,
+            ],
+        ).fetchone()
+        new_booking_id = int(new_booking_row[0])
+
+        for sid in session_ids:
+            sess_row = con.execute(
+                "SELECT 1 FROM training_course_sessions WHERE training_course_session_id = ? AND training_course_run_id = ? AND org_id = ?::text",
+                [int(sid), int(new_run_id), org_id],
+            ).fetchone()
+            if not sess_row:
+                continue
+            con.execute(
+                """
+                INSERT INTO training_session_attendance
+                  (org_id, training_course_session_id, training_booking_id, attendance_status,
+                   attendance_minutes, notes, created_by, updated_by)
+                VALUES (?::text, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    org_id,
+                    int(sid),
+                    new_booking_id,
+                    "booked",
+                    None,
+                    None,
+                    actor,
+                    actor,
+                ],
+            )
+
+        con.execute(
+            "DELETE FROM training_session_attendance WHERE training_session_attendance_id = ? AND org_id = ?::text",
+            [int(training_session_attendance_id), org_id],
+        )
+
+        remaining = con.execute(
+            "SELECT COUNT(*) FROM training_session_attendance WHERE training_booking_id = ? AND org_id = ?::text",
+            [source_booking_id, org_id],
+        ).fetchone()
+        if remaining and int(remaining[0]) == 0:
+            con.execute(
+                "DELETE FROM training_bookings WHERE training_booking_id = ? AND org_id = ?::text",
+                [source_booking_id, org_id],
+            )
+
+        return {"ok": True, "new_booking_id": new_booking_id, "moved_attendance_id": int(training_session_attendance_id), "new_run_id": int(new_run_id)}
+
+
 @router.get("/training-course-runs/{training_course_run_id}/sessions")
 def list_training_course_sessions(
     training_course_run_id: int,
@@ -3260,21 +3491,35 @@ async def upload_training_document_file(
 ):
     """Save an uploaded file and return its public URL."""
     assert_permission(_user, "jobs.edit")
+    org_id = require_org(_user)
     _TRAINING_DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Build a safe, unique filename
     original = file.filename or "document"
     ext = Path(original).suffix.lower()[:10]  # guard against long extensions
-    safe_stem = re.sub(r"[^a-zA-Z0-9._-]", "_", Path(original).stem)[:80]
+    content = await file.read()
+    safe_stem = _sanitize_storage_stem(original)
     unique_name = f"{uuid.uuid4().hex[:8]}_{safe_stem}{ext}"
 
-    dest = _TRAINING_DOCUMENTS_DIR / unique_name
-    content = await file.read()
-    dest.write_bytes(content)
+    storage_meta: dict[str, str | int | None]
+    if _onedrive_enabled():
+        storage_meta = _upload_training_document_to_onedrive(filename=unique_name, content=content, org_id=org_id)
+    else:
+        dest = _TRAINING_DOCUMENTS_DIR / unique_name
+        dest.write_bytes(content)
+        storage_meta = {
+            "storage_provider": "local",
+            "file_path": str(dest),
+            "external_item_id": None,
+            "external_web_url": None,
+            "external_path": None,
+            "file_size": len(content),
+        }
 
     return {
         "file_url": _training_document_download_url(unique_name),
         "file_name": original,
+        **storage_meta,
     }
 
 
@@ -3295,6 +3540,48 @@ def download_training_document_file(
                 filename=safe_name,
                 media_type="application/octet-stream",
             )
+
+    with get_conn() as con:
+        _ensure_tables(con)
+        row = con.execute(
+            """
+            SELECT file_path, storage_provider, external_item_id, external_web_url, file_url
+            FROM training_documents
+            WHERE file_url LIKE ? OR file_path LIKE ? OR external_path LIKE ?
+            ORDER BY training_document_id DESC
+            LIMIT 1
+            """,
+            [f"%/{safe_name}/download%", f"%{safe_name}%", f"%{safe_name}%"],
+        ).fetchone()
+
+    if row:
+        file_path = str(row[0] or "").strip()
+        storage_provider = str(row[1] or "local").strip().lower()
+        external_item_id = str(row[2] or "").strip()
+        external_web_url = str(row[3] or "").strip()
+        file_url = str(row[4] or "").strip()
+
+        if storage_provider == "onedrive":
+            if external_item_id:
+                token = _graph_token()
+                drive_base = _drive_base_path(token)
+                content, content_type = _graph_download(
+                    f"{drive_base}/items/{urllib.parse.quote(external_item_id)}/content",
+                    token,
+                )
+                return StreamingResponse(
+                    io.BytesIO(content),
+                    media_type=content_type or "application/octet-stream",
+                    headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+                )
+            if external_web_url:
+                return RedirectResponse(url=external_web_url)
+
+        if file_path and Path(file_path).exists():
+            return FileResponse(path=str(file_path), filename=safe_name, media_type="application/octet-stream")
+
+        if file_url.startswith("http://") or file_url.startswith("https://"):
+            return RedirectResponse(url=file_url)
 
     raise HTTPException(status_code=404, detail="File not found")
 
@@ -3327,12 +3614,14 @@ def create_training_document(body: dict = Body(...), _user: dict[str, str] = Dep
             """
             INSERT INTO training_documents
               (org_id, target_type, target_id, document_type, document_name,
-               file_url, notes, attach_to_email, is_visible_on_portal,
+               file_url, file_path, storage_provider, external_item_id, external_web_url, external_path,
+               notes, attach_to_email, is_visible_on_portal,
                created_by, updated_by)
-            VALUES (?::text, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?::text, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING training_document_id, org_id, target_type, target_id,
-                      document_type, document_name, file_url, notes,
-                      attach_to_email, is_visible_on_portal,
+                      document_type, document_name, file_url, file_path,
+                      storage_provider, external_item_id, external_web_url, external_path,
+                      notes, attach_to_email, is_visible_on_portal,
                       created_at, created_by, updated_at, updated_by
             """,
             [
@@ -3342,6 +3631,11 @@ def create_training_document(body: dict = Body(...), _user: dict[str, str] = Dep
                 str(body.get("document_type") or "general"),
                 str(body.get("document_name") or "").strip(),
                 body.get("file_url") or None,
+                body.get("file_path") or None,
+                body.get("storage_provider") or "local",
+                body.get("external_item_id") or None,
+                body.get("external_web_url") or None,
+                body.get("external_path") or None,
                 body.get("notes") or None,
                 bool(body.get("attach_to_email", False)),
                 bool(body.get("is_visible_on_portal", False)),
@@ -3361,19 +3655,26 @@ def update_training_document(doc_id: int, body: dict = Body(...), _user: dict[st
         row = con.execute(
             """
             UPDATE training_documents
-            SET document_type = ?, document_name = ?, file_url = ?, notes = ?,
-                attach_to_email = ?, is_visible_on_portal = ?,
+            SET document_type = ?, document_name = ?, file_url = ?, file_path = ?,
+                storage_provider = ?, external_item_id = ?, external_web_url = ?, external_path = ?,
+                notes = ?, attach_to_email = ?, is_visible_on_portal = ?,
                 updated_at = NOW(), updated_by = ?
             WHERE training_document_id = ? AND org_id = ?::text
             RETURNING training_document_id, org_id, target_type, target_id,
-                      document_type, document_name, file_url, notes,
-                      attach_to_email, is_visible_on_portal,
+                      document_type, document_name, file_url, file_path,
+                      storage_provider, external_item_id, external_web_url, external_path,
+                      notes, attach_to_email, is_visible_on_portal,
                       created_at, created_by, updated_at, updated_by
             """,
             [
                 str(body.get("document_type") or "general"),
                 str(body.get("document_name") or "").strip(),
                 body.get("file_url") or None,
+                body.get("file_path") or None,
+                body.get("storage_provider") or "local",
+                body.get("external_item_id") or None,
+                body.get("external_web_url") or None,
+                body.get("external_path") or None,
                 body.get("notes") or None,
                 bool(body.get("attach_to_email", False)),
                 bool(body.get("is_visible_on_portal", False)),

@@ -24,6 +24,11 @@ const EMPTY_FORM = {
   document_type: "general",
   document_name: "",
   file_url: "",
+  file_path: "",
+  storage_provider: "local",
+  external_item_id: "",
+  external_web_url: "",
+  external_path: "",
   notes: "",
   attach_to_email: false,
   is_visible_on_portal: false,
@@ -57,6 +62,19 @@ function resolveTrainingDocumentUrl(fileUrl: string): string {
   if (trimmed.startsWith("/uploads/")) return `/api/backend${trimmed}`;
   if (trimmed.startsWith("/")) return trimmed;
   return trimmed;
+}
+
+function getDocumentStorageLabel(doc: TrainingDocument): string {
+  const provider = String(doc.storage_provider || "").trim().toLowerCase();
+  const url = String(doc.file_url || "").trim();
+  const externalUrl = String(doc.external_web_url || "").trim();
+
+  if (provider === "onedrive") return "OneDrive";
+  if (provider === "local") return "Local";
+  if (externalUrl || /^https?:\/\//i.test(url)) return "Link";
+  if (doc.file_path) return "Local";
+  if (url.startsWith("/uploads/") || url.startsWith("/api/backend/")) return "Local";
+  return "Link";
 }
 
 export default function DocumentsPanel({ targetType, targetId, baseUrl, title = "Documents" }: Props) {
@@ -101,6 +119,11 @@ export default function DocumentsPanel({ targetType, targetId, baseUrl, title = 
       document_type: doc.document_type,
       document_name: doc.document_name,
       file_url: doc.file_url ?? "",
+      file_path: doc.file_path ?? "",
+      storage_provider: doc.storage_provider ?? "local",
+      external_item_id: doc.external_item_id ?? "",
+      external_web_url: doc.external_web_url ?? "",
+      external_path: doc.external_path ?? "",
       notes: doc.notes ?? "",
       attach_to_email: doc.attach_to_email,
       is_visible_on_portal: doc.is_visible_on_portal,
@@ -121,6 +144,11 @@ export default function DocumentsPanel({ targetType, targetId, baseUrl, title = 
       setForm((f) => ({
         ...f,
         file_url: data.file_url,
+        file_path: data.file_path ?? "",
+        storage_provider: data.storage_provider ?? "local",
+        external_item_id: data.external_item_id ?? "",
+        external_web_url: data.external_web_url ?? "",
+        external_path: data.external_path ?? "",
         document_name: f.document_name.trim() ? f.document_name : fileName.replace(/\.[^.]+$/, ""),
       }));
       setUploadedFileName(fileName);
@@ -133,7 +161,15 @@ export default function DocumentsPanel({ targetType, targetId, baseUrl, title = 
 
   function clearUpload() {
     setUploadedFileName(null);
-    setForm((f) => ({ ...f, file_url: "" }));
+    setForm((f) => ({
+      ...f,
+      file_url: "",
+      file_path: "",
+      storage_provider: "local",
+      external_item_id: "",
+      external_web_url: "",
+      external_path: "",
+    }));
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -150,6 +186,11 @@ export default function DocumentsPanel({ targetType, targetId, baseUrl, title = 
         document_type: form.document_type,
         document_name: form.document_name.trim(),
         file_url: form.file_url.trim() || null,
+        file_path: form.file_path.trim() || null,
+        storage_provider: form.storage_provider || "local",
+        external_item_id: form.external_item_id.trim() || null,
+        external_web_url: form.external_web_url.trim() || null,
+        external_path: form.external_path.trim() || null,
         notes: form.notes.trim() || null,
         attach_to_email: form.attach_to_email,
         is_visible_on_portal: form.is_visible_on_portal,
@@ -220,6 +261,9 @@ export default function DocumentsPanel({ targetType, targetId, baseUrl, title = 
                   <Badge className={`text-xs ${docTypeColor(doc.document_type)}`} variant="outline">
                     {formatDocumentType(doc.document_type)}
                   </Badge>
+                  <Badge variant="outline" className="border-slate-200 bg-slate-50 text-[10px] font-medium text-slate-600">
+                    {getDocumentStorageLabel(doc)}
+                  </Badge>
                   {doc.attach_to_email && (
                     <span className="flex items-center gap-0.5 rounded border border-blue-200 bg-blue-50 px-1 py-0.5 text-[10px] font-medium text-blue-700">
                       <Mail className="h-2.5 w-2.5" /> Email
@@ -273,6 +317,19 @@ export default function DocumentsPanel({ targetType, targetId, baseUrl, title = 
             <DialogTitle>{editing ? "Edit Document" : "Add Document"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
+            {editing && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="border-slate-200 bg-slate-50 text-[10px] font-medium text-slate-600">
+                  {getDocumentStorageLabel(editing)}
+                </Badge>
+                {editing.file_path && (
+                  <span className="text-[11px] text-slate-400">
+                    {editing.file_path}
+                  </span>
+                )}
+              </div>
+            )}
+
             <div>
               <Label>Document Type</Label>
               <Select value={form.document_type} onValueChange={(v) => setForm((f) => ({ ...f, document_type: v }))}>

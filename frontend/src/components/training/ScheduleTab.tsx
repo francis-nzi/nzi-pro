@@ -21,6 +21,7 @@ import {
   TRAINING_SESSION_STATUS_OPTIONS,
   TRAINING_BOOKING_STATUS_OPTIONS,
   TRAINING_BILLING_STATUS_OPTIONS,
+  TRAINING_ATTENDANCE_STATUS_OPTIONS,
   formatTrainingCourseRunStatus,
   formatTrainingDeliveryMode,
   formatTrainingBillingStatus,
@@ -93,6 +94,7 @@ const EMPTY_STAFF = () => ({
 
 type ReassignTarget = {
   source_session: TrainingSession;
+  source_attendance_id: number;
 };
 
 type AssignTarget = {
@@ -224,7 +226,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
   const [staffForm, setStaffForm] = useState(EMPTY_STAFF());
   const [editStaff, setEditStaff] = useState<TrainingSessionStaff | null>(null);
   const [reassignBooking, setReassignBooking] = useState<ReassignTarget | null>(null);
-  const [reassignSelectedBookingId, setReassignSelectedBookingId] = useState<string>("");
+  const [reassignSelectedAttendanceId, setReassignSelectedAttendanceId] = useState<string>("");
   const [reassignRunId, setReassignRunId] = useState<string>("");
   const [reassignSessionIds, setReassignSessionIds] = useState<Set<number>>(new Set());
   const [reassigning, setReassigning] = useState(false);
@@ -283,7 +285,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
   const reassignSourceSession = reassignBooking?.source_session ?? null;
   const reassignSourceParticipants = reassignSourceSession?.attendance ?? [];
   const reassignSelectedParticipant = reassignSourceParticipants.find(
-    (p) => String(p.training_booking_id) === reassignSelectedBookingId
+    (p) => String(p.training_session_attendance_id) === reassignSelectedAttendanceId
   ) ?? null;
   const assignSession = assignTarget?.session ?? null;
   const assignRunBookings = useMemo(() => {
@@ -411,15 +413,39 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
     }
   }
 
-  async function quickUpdateBookingStatus(attendance: SessionAttendanceRow, field: "attendance_status" | "billing_status", value: string) {
+  async function quickUpdateSessionAttendanceStatus(attendance: SessionAttendanceRow, value: string) {
     try {
+      const res = await fetch(`${baseUrl}/training-course-sessions/${attendance.training_course_session_id}/attendance`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: [
+            {
+              training_booking_id: attendance.training_booking_id,
+              attendance_status: value,
+              attendance_minutes: null,
+              notes: attendance.notes ?? null,
+            },
+          ],
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      onRefresh();
+    } catch (e: unknown) {
+      toast.error(String(e));
+    }
+  }
+
+  async function quickUpdateBookingBilling(attendance: SessionAttendanceRow, value: string) {
+    try {
+      const runId = sessions.find((s) => s.training_course_session_id === attendance.training_course_session_id)?.training_course_run_id ?? 0;
       const res = await fetch(`${baseUrl}/training-bookings/${attendance.training_booking_id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           training_booking_id: attendance.training_booking_id,
           org_id: attendance.org_id,
-          training_course_run_id: assignSession?.training_course_run_id ?? attendance.training_course_session_id,
+          training_course_run_id: runId,
           client_db_id: attendance.client_db_id,
           contact_id: attendance.contact_id,
           participant_type: attendance.participant_type,
@@ -427,8 +453,8 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
           person_name: attendance.person_name,
           person_email: attendance.person_email,
           person_phone: attendance.person_phone,
-          billing_status: field === "billing_status" ? value : attendance.billing_status,
-          attendance_status: field === "attendance_status" ? value : attendance.booking_attendance_status,
+          billing_status: value,
+          attendance_status: attendance.booking_attendance_status,
           special_requirements: attendance.special_requirements,
           consent_status: attendance.consent_status,
           notes: attendance.booking_notes,
@@ -658,15 +684,15 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
   }
 
   function openReassignParticipant(session: TrainingSession, participant: NonNullable<TrainingSession["attendance"]>[number]) {
-    setReassignBooking({ source_session: session });
-    setReassignSelectedBookingId(String(participant.training_booking_id));
+    setReassignBooking({ source_session: session, source_attendance_id: participant.training_session_attendance_id });
+    setReassignSelectedAttendanceId(String(participant.training_session_attendance_id));
     setReassignRunId("");
     setReassignSessionIds(new Set());
   }
 
   function openReassignFromSession(session: TrainingSession) {
-    setReassignBooking({ source_session: session });
-    setReassignSelectedBookingId("");
+    setReassignBooking({ source_session: session, source_attendance_id: 0 });
+    setReassignSelectedAttendanceId("");
     setReassignRunId("");
     setReassignSessionIds(new Set());
   }
@@ -682,10 +708,10 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
   }
 
   async function submitReassign() {
-    if (!reassignBooking || !reassignRunId || !reassignSelectedBookingId) return;
+    if (!reassignBooking || !reassignRunId || !reassignSelectedAttendanceId) return;
     setReassigning(true);
     try {
-      const res = await fetch(`${baseUrl}/training-bookings/${reassignSelectedBookingId}/reassign`, {
+      const res = await fetch(`${baseUrl}/training-session-attendance/${reassignSelectedAttendanceId}/move`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -696,7 +722,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
       if (!res.ok) throw new Error(await res.text());
       toast.success(`${reassignSelectedParticipant?.person_name || "Participant"} moved to a new cohort`);
       setReassignBooking(null);
-      setReassignSelectedBookingId("");
+      setReassignSelectedAttendanceId("");
       onRefresh();
     } catch (e: unknown) {
       toast.error(String(e));
@@ -1053,15 +1079,15 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                                       <span className="text-[10px] uppercase tracking-wide text-slate-400">Booking</span>
                                       <Select
                                         value={p.booking_attendance_status}
-                                        onValueChange={(v) => void quickUpdateBookingStatus(p, "attendance_status", v)}
+                                      onValueChange={(v) => void quickUpdateSessionAttendanceStatus(p, v)}
                                       >
                                         <SelectTrigger className="h-6 w-[110px] border-0 p-0 text-[10px] focus:ring-0">
-                                          <Badge className={`text-[10px] ${attendanceColor(p.booking_attendance_status)}`} variant="outline">
-                                            {p.booking_attendance_status.replace(/_/g, " ")}
+                                          <Badge className={`text-[10px] ${attendanceColor(p.attendance_status)}`} variant="outline">
+                                            {p.attendance_status.replace(/_/g, " ")}
                                           </Badge>
                                         </SelectTrigger>
                                         <SelectContent>
-                                          {TRAINING_BOOKING_STATUS_OPTIONS.map((o) => (
+                                          {TRAINING_ATTENDANCE_STATUS_OPTIONS.map((o) => (
                                             <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                                           ))}
                                         </SelectContent>
@@ -1071,7 +1097,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                                       <span className="text-[10px] uppercase tracking-wide text-slate-400">Billing</span>
                                       <Select
                                         value={p.billing_status}
-                                        onValueChange={(v) => void quickUpdateBookingStatus(p, "billing_status", v)}
+                                        onValueChange={(v) => void quickUpdateBookingBilling(p, v)}
                                       >
                                         <SelectTrigger className="h-6 w-[110px] border-0 p-0 text-[10px] focus:ring-0">
                                           <Badge className={`text-[10px] ${billingColor(p.billing_status)}`} variant="outline">
@@ -1602,13 +1628,13 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                 {reassignSourceSession && reassignSourceParticipants.length > 0 && (
                   <div className="mb-3">
                     <Label>Participant</Label>
-                    <Select value={reassignSelectedBookingId} onValueChange={setReassignSelectedBookingId}>
+                    <Select value={reassignSelectedAttendanceId} onValueChange={setReassignSelectedAttendanceId}>
                       <SelectTrigger>
                         <SelectValue placeholder="Choose participant..." />
                       </SelectTrigger>
                       <SelectContent>
                         {reassignSourceParticipants.map((p) => (
-                          <SelectItem key={p.training_session_attendance_id} value={String(p.training_booking_id)}>
+                          <SelectItem key={p.training_session_attendance_id} value={String(p.training_session_attendance_id)}>
                             {p.person_name}{p.client_name ? ` · ${p.client_name}` : ""} · {p.attendance_status.replace(/_/g, " ")}
                           </SelectItem>
                         ))}
@@ -1642,7 +1668,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
 
               {reassignTargetRun && (
                 <div>
-                  <Label className="mb-2 block">Enrol in sessions (optional)</Label>
+                  <Label className="mb-2 block">Move to sessions (optional)</Label>
                   {reassignTargetSessions.length > 0 ? (
                     <div className="space-y-1.5 rounded-lg border border-slate-200 p-2">
                       {reassignTargetSessions.map((s) => {
@@ -1679,7 +1705,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                   ) : (
                     <p className="text-xs text-slate-400">No sessions in this cohort yet.</p>
                   )}
-                  <p className="mt-1.5 text-xs text-slate-400">Existing attendance records for the old cohort will be removed.</p>
+                  <p className="mt-1.5 text-xs text-slate-400">This will move only the selected session attendance row and keep other sessions on the original cohort.</p>
                 </div>
               )}
             </div>
