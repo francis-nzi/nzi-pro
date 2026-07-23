@@ -33,11 +33,25 @@ from api.spend_data_routes import (
 from core.database import get_conn
 from services.portal import PORTAL_ROLE_CAN_MANAGE_ACTIONS
 from services.portal_data_entry import get_job_summary, get_top_spend_categories, resolve_current_job_for_client
+from services.spend_line_matching import suggest_spend_lines
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["portal-spend"])
 
 _PGS_CATEGORY = "Purchased Goods and Services"
+
+MAX_GL_CODE_LENGTH = 15
+MAX_VAT_PCT = 100
+MAX_NET_VALUE = 999_999_999
+
+
+def _validate_spend_line_fields(reference_code: str | None, amount_net: float | None, vat_pct: float | None) -> None:
+    if reference_code is not None and len(reference_code) > MAX_GL_CODE_LENGTH:
+        raise HTTPException(status_code=400, detail=f"GL / Nominal Code must be {MAX_GL_CODE_LENGTH} characters or fewer")
+    if amount_net is not None and not (0 <= amount_net <= MAX_NET_VALUE):
+        raise HTTPException(status_code=400, detail=f"Net Value must be between 0 and {MAX_NET_VALUE:,}")
+    if vat_pct is not None and not (0 <= vat_pct <= MAX_VAT_PCT):
+        raise HTTPException(status_code=400, detail=f"VAT % must be between 0 and {MAX_VAT_PCT}")
 
 
 def _assert_can_manage(current_user: dict) -> None:
@@ -64,7 +78,9 @@ def portal_spend_list_rows(current_user: dict = Depends(portal_user_dep)):
             SELECT entry_id, reference_code, spend_description, currency, conversion_rate,
                    amount_net, amount_gross, vat_pct,
                    mapped_scope, mapped_category, mapped_report_label,
-                   mapping_status, review_status, review_note, created_at
+                   mapping_status, review_status, review_note, created_at,
+                   month_1, month_2, month_3, month_4, month_5, month_6,
+                   month_7, month_8, month_9, month_10, month_11, month_12
             FROM job_spend_entries
             WHERE job_id = %s AND COALESCE(is_deleted, FALSE) = FALSE AND submitted_by_portal = TRUE
             ORDER BY entry_id DESC
@@ -143,7 +159,18 @@ async def portal_spend_upload_commit(
         df = _parse_upload(data, file.filename or "upload.csv")
 
         inserted = 0
-        for _, r in df.iterrows():
+        skipped: list[dict[str, Any]] = []
+        for idx, r in df.iterrows():
+            reference_code = str(r.get("reference_code") or "").strip()
+            amount_net = _safe_float(r.get("amount_net"), 0.0)
+            vat_pct = _safe_float(r.get("vat_pct"), 0.0)
+            description = str(r.get("spend_description") or "").strip()
+            try:
+                _validate_spend_line_fields(reference_code, amount_net, vat_pct)
+            except HTTPException as exc:
+                skipped.append({"row": int(idx) + 1, "spend_description": description, "reason": exc.detail})
+                continue
+
             _persist_spend_row(
                 con=con,
                 job_id=int(job_id),
@@ -151,20 +178,20 @@ async def portal_spend_upload_commit(
                 site_id=None,
                 source_type="portal_upload",
                 code_type="nominal_code",
-                reference_code=str(r.get("reference_code") or "").strip(),
-                spend_description=str(r.get("spend_description") or "").strip(),
+                reference_code=reference_code,
+                spend_description=description,
                 currency=str(r.get("currency") or "GBP").strip().upper(),
                 conversion_currency=str(r.get("conversion_currency") or "GBP").strip().upper(),
                 conversion_rate=_safe_float(r.get("conversion_rate"), 1.0),
-                amount_net=_safe_float(r.get("amount_net"), 0.0),
-                vat_pct=_safe_float(r.get("vat_pct"), 0.0),
+                amount_net=amount_net,
+                vat_pct=vat_pct,
                 notes=None,
                 actor=str(current_user.get("email") or "portal"),
                 submitted_by_portal=True,
             )
             inserted += 1
 
-    return {"ok": True, "job_id": job_id, "inserted": inserted}
+    return {"ok": True, "job_id": job_id, "inserted": inserted, "skipped": skipped}
 
 
 @router.post("/portal/spend/rows")
@@ -182,6 +209,9 @@ def portal_spend_create_row(
         amount_net = float(payload.get("amount_net"))
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="amount_net is required and must be a number")
+    reference_code = str(payload.get("reference_code") or "").strip()
+    vat_pct = _safe_float(payload.get("vat_pct"), 0.0)
+    _validate_spend_line_fields(reference_code, amount_net, vat_pct)
 
     with get_conn() as con:
         _ensure_spend_tables(con)
@@ -193,13 +223,13 @@ def portal_spend_create_row(
             site_id=None,
             source_type="portal_manual",
             code_type="nominal_code",
-            reference_code=str(payload.get("reference_code") or "").strip(),
+            reference_code=reference_code,
             spend_description=description,
             currency=str(payload.get("currency") or "GBP").strip().upper(),
             conversion_currency=str(payload.get("currency") or "GBP").strip().upper(),
             conversion_rate=_safe_float(payload.get("conversion_rate"), 1.0),
             amount_net=amount_net,
-            vat_pct=_safe_float(payload.get("vat_pct"), 0.0),
+            vat_pct=vat_pct,
             notes=None,
             actor=str(current_user.get("email") or "portal"),
             submitted_by_portal=True,
@@ -215,6 +245,31 @@ def portal_spend_top_categories(current_user: dict = Depends(portal_user_dep)):
         _ensure_spend_tables(con)
         items = get_top_spend_categories(con, client_db_id)
     return {"items": items}
+
+
+@router.get("/portal/spend/rows/{entry_id}/suggest-category")
+def portal_spend_suggest_category(entry_id: int, current_user: dict = Depends(portal_user_dep)):
+    """Keyword-scores the row's own GL code + description against the
+    Admin Centre's curated Spend Lines list -- see
+    services/spend_line_matching.py. Returns an empty list (never an
+    error) when nothing scores above zero, so the UI can fall back to the
+    normal search."""
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        _ensure_spend_tables(con)
+        row = con.execute(
+            """
+            SELECT e.reference_code, e.spend_description
+            FROM job_spend_entries e JOIN jobs j ON j.job_id = e.job_id
+            WHERE e.entry_id = %s AND j.client_db_id = %s AND COALESCE(e.is_deleted, FALSE) = FALSE
+            """,
+            [int(entry_id), client_db_id],
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Spend row not found")
+        text = f"{row[1] or ''} {row[0] or ''}"
+        items = suggest_spend_lines(con, text)
+    return {"entry_id": entry_id, "items": items}
 
 
 @router.get("/portal/spend/categories/search")
@@ -349,6 +404,13 @@ def portal_spend_update_row(
         if existing[1] == "approved":
             raise HTTPException(status_code=409, detail="This row has already been approved and can no longer be edited here")
 
+        if "reference_code" in payload:
+            _validate_spend_line_fields(str(payload.get("reference_code") or "").strip(), None, None)
+        if "amount_net" in payload:
+            _validate_spend_line_fields(None, _safe_float(payload.get("amount_net"), 0.0), None)
+        if "vat_pct" in payload:
+            _validate_spend_line_fields(None, None, _safe_float(payload.get("vat_pct"), 0.0))
+
         set_clauses: list[str] = []
         params: list[Any] = []
         for field in ["reference_code", "spend_description", "currency", "notes"]:
@@ -364,6 +426,12 @@ def portal_spend_update_row(
         if "conversion_rate" in payload:
             set_clauses.append("conversion_rate = %s")
             params.append(_safe_float(payload.get("conversion_rate"), 1.0))
+        for i in range(1, 13):
+            field = f"month_{i}"
+            if field in payload:
+                set_clauses.append(f"{field} = %s")
+                value = payload.get(field)
+                params.append(_safe_float(value, 0.0) if value not in (None, "") else None)
 
         if not set_clauses:
             return {"ok": True, "entry_id": entry_id, "review_status": existing[1]}

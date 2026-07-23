@@ -184,6 +184,22 @@ def _ensure_spend_tables(con) -> None:
         "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS review_note TEXT",
         "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR",
         "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ",
+        # Optional monthly breakdown of amount_net -- mainly for clients whose
+        # reporting year spans two calendar years. NULL unless a user has
+        # opened the monthly modal for that row (matches job_scope_rows'
+        # month_1..12 convention, see services/portal_data_entry.py).
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS month_1 NUMERIC",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS month_2 NUMERIC",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS month_3 NUMERIC",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS month_4 NUMERIC",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS month_5 NUMERIC",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS month_6 NUMERIC",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS month_7 NUMERIC",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS month_8 NUMERIC",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS month_9 NUMERIC",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS month_10 NUMERIC",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS month_11 NUMERIC",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS month_12 NUMERIC",
     ]:
         try:
             con.execute(statement)
@@ -667,11 +683,11 @@ def _parse_upload(file_bytes: bytes, filename: str) -> pd.DataFrame:
     code_col = find_col(["reference code", "nominal code", "gl code", "code"])
     desc_col = find_col(["spend description", "description", "account description"])
     currency_col = find_col(["currency", "currency code"])
-    amount_col = find_col(["spend amount (net ex vat)", "spend amount", "amount", "net amount", "amount ex vat", "amount excl vat"])
+    amount_col = find_col(["spend amount (net ex vat)", "spend amount", "net value (excl vat)", "net value", "amount", "net amount", "amount ex vat", "amount excl vat"])
     vat_col = find_col(["vat %", "vat pct", "vat", "vat rate"])
     conversion_currency_col = find_col(["conversion currency", "converted currency"])
     conversion_rate_col = find_col(["conversion rate", "fx rate", "exchange rate"])
-    conversion_col = find_col(["spend conversion", "conversion option", "conversion", "factor option"])
+    conversion_col = find_col(["spend conversion", "conversion option", "factor option"])
     factor_id_col = find_col(["factor db id", "factor_id", "factor dbid", "conversion factor id"])
 
     if not desc_col or not amount_col:

@@ -17,6 +17,7 @@ import {
   Mail,
   Megaphone,
   Palette,
+  Receipt,
   Settings2,
   ShieldCheck,
   Sparkles,
@@ -140,6 +141,14 @@ export const ADMIN_MODULES: AdminModule[] = [
     cta: "Edit definitions",
     domain: "Reference Data",
     icon: LibraryBig,
+  },
+  {
+    title: "Spend Lines",
+    description: "Curated Purchased Goods & Services categories with matching keywords, used to suggest a category from a client's raw GL/ledger line.",
+    href: "/admin/spend-lines",
+    cta: "Manage spend lines",
+    domain: "Reference Data",
+    icon: Receipt,
   },
   {
     title: "Templates",
