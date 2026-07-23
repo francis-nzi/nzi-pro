@@ -1569,37 +1569,42 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
             </DialogTitle>
           </DialogHeader>
           {emailTargetSession && (
-            <div className="space-y-4 py-1">
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-                <div className="font-medium text-slate-900">{emailTargetSession.session_title || `Session #${emailTargetSession.training_course_session_id}`}</div>
-                <div className="text-xs text-slate-500">
-                  {emailTargetMode === "all" ? "All participants in this session" : `${emailRecipients.length} selected participant${emailRecipients.length === 1 ? "" : "s"}`}
+            <div className="grid gap-5 py-1 lg:grid-cols-[minmax(0,2fr)_320px]">
+              <div className="space-y-4">
+                <div className="grid gap-3">
+                  <div>
+                    <Label>Subject</Label>
+                    <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} placeholder="Session update" />
+                  </div>
+                  <div>
+                    <Label>Message</Label>
+                    <Textarea rows={12} value={emailBody} onChange={(e) => setEmailBody(e.target.value)} placeholder="Write your email..." className="min-h-[18rem]" />
+                  </div>
                 </div>
               </div>
 
-              <div className="grid gap-3">
-                <div>
-                  <Label>Subject</Label>
-                  <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} placeholder="Session update" />
+              <div className="space-y-3">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Session</div>
+                  <div className="mt-2 font-medium text-slate-900">{emailTargetSession.session_title || `Session #${emailTargetSession.training_course_session_id}`}</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {emailTargetMode === "all" ? "All participants in this session" : `${emailRecipients.length} selected participant${emailRecipients.length === 1 ? "" : "s"}`}
+                  </div>
                 </div>
-                <div>
-                  <Label>Message</Label>
-                  <Textarea rows={8} value={emailBody} onChange={(e) => setEmailBody(e.target.value)} placeholder="Write your email..." />
-                </div>
-              </div>
 
-              <div className="rounded-lg border border-slate-200 p-3 text-sm">
-                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Recipients</div>
-                <div className="flex flex-wrap gap-2">
-                  {emailRecipients.length === 0 ? (
-                    <span className="text-xs text-slate-400">No selected participants with email addresses.</span>
-                  ) : (
-                    emailRecipients.map((attendance) => (
-                      <Badge key={attendance.training_session_attendance_id} variant="outline" className="text-xs">
-                        {attendance.person_name}
-                      </Badge>
-                    ))
-                  )}
+                <div className="rounded-lg border border-slate-200 p-3 text-sm">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Recipients</div>
+                  <div className="flex flex-wrap gap-2">
+                    {emailRecipients.length === 0 ? (
+                      <span className="text-xs text-slate-400">No selected participants with email addresses.</span>
+                    ) : (
+                      emailRecipients.map((attendance) => (
+                        <Badge key={attendance.training_session_attendance_id} variant="outline" className="text-xs">
+                          {attendance.person_name}
+                        </Badge>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

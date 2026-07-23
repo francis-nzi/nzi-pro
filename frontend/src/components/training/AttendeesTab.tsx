@@ -943,30 +943,37 @@ export default function AttendeesTab({ jobId, runs, sessions, baseUrl, onRefresh
             </DialogTitle>
           </DialogHeader>
           {emailTarget && (
-            <div className="space-y-4 py-1">
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-                <div className="font-medium text-slate-900">{emailTarget.person_name}</div>
-                <div className="text-xs text-slate-500">
-                  {emailTarget.person_email || "No email"}
-                  {emailTarget.client_name ? ` · ${emailTarget.client_name}` : ""}
-                </div>
-                <div className="text-xs text-slate-400">{emailTarget.run_name}</div>
-              </div>
-
-              <div className="grid gap-3">
-                <div>
-                  <Label>Subject</Label>
-                  <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} placeholder="Participant update" />
-                </div>
-                <div>
-                  <Label>Message</Label>
-                  <Textarea rows={8} value={emailBody} onChange={(e) => setEmailBody(e.target.value)} placeholder="Write your email..." />
+            <div className="grid gap-5 py-1 lg:grid-cols-[minmax(0,2fr)_320px]">
+              <div className="space-y-4">
+                <div className="grid gap-3">
+                  <div>
+                    <Label>Subject</Label>
+                    <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} placeholder="Participant update" />
+                  </div>
+                  <div>
+                    <Label>Message</Label>
+                    <Textarea rows={12} value={emailBody} onChange={(e) => setEmailBody(e.target.value)} placeholder="Write your email..." className="min-h-[18rem]" />
+                  </div>
                 </div>
               </div>
 
-              <p className="text-xs text-slate-400">
-                This sends a tracked email into the job communications history for the selected participant.
-              </p>
+              <div className="space-y-3">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recipient</div>
+                  <div className="mt-2 font-medium text-slate-900">{emailTarget.person_name}</div>
+                  <div className="text-xs text-slate-500">
+                    {emailTarget.person_email || "No email"}
+                    {emailTarget.client_name ? ` · ${emailTarget.client_name}` : ""}
+                  </div>
+                  <div className="mt-2 text-xs text-slate-400">{emailTarget.run_name}</div>
+                </div>
+                <div className="rounded-lg border border-slate-200 p-3 text-sm">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">What happens</div>
+                  <p className="mt-2 text-sm text-slate-600">
+                    This sends a tracked email into the job communications history for the selected participant.
+                  </p>
+                </div>
+              </div>
             </div>
           )}
           <div className="flex justify-end gap-2 border-t pt-3">
