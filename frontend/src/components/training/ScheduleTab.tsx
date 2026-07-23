@@ -54,6 +54,7 @@ type Props = {
   sessions: TrainingSession[];
   baseUrl: string;
   onRefresh: () => void;
+  onOpenAutomationTab?: () => void;
 };
 
 const EMPTY_RUN = () => ({
@@ -211,7 +212,7 @@ function sessionsClash(a: TrainingSession, b: TrainingSession) {
   return rangeA.start < rangeB.end && rangeB.start < rangeA.end;
 }
 
-export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, onRefresh }: Props) {
+export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, onRefresh, onOpenAutomationTab }: Props) {
   const [expandedRun, setExpandedRun] = useState<number | null>(runs[0]?.training_course_run_id ?? null);
   const [showRunForm, setShowRunForm] = useState(false);
   const [editRun, setEditRun] = useState<TrainingCourseRun | null>(null);
@@ -828,6 +829,17 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
                 <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
                   <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openEditRun(run)}>
                     <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-emerald-700"
+                    onClick={() => onOpenAutomationTab?.()}
+                    disabled={String(run.status).toLowerCase() !== "completed"}
+                    title={String(run.status).toLowerCase() !== "completed" ? "Completion pack is available once the cohort is completed" : "Open completion pack tools"}
+                  >
+                    <Mail className="mr-1 h-3.5 w-3.5" />
+                    Completion Pack
                   </Button>
                   <Button
                     size="sm"
@@ -1549,7 +1561,7 @@ export default function ScheduleTab({ jobId, runs, products, sessions, baseUrl, 
       </Dialog>
 
       <Dialog open={!!emailTargetSession} onOpenChange={(o) => !o && closeParticipantEmail()}>
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+        <DialogContent className="max-h-[90vh] w-[min(96vw,1200px)] max-w-none overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Mail className="h-4 w-4 text-emerald-600" />

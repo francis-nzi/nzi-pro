@@ -144,6 +144,7 @@ export default function JobTraining({ jobId, clientId, baseUrl, jobFamily }: Job
                 sessions={overview.sessions}
                 baseUrl={baseUrl}
                 onRefresh={refresh}
+                onOpenAutomationTab={() => setActiveTab("automation")}
               />
             )}
             {activeTab === "attendees" && (
