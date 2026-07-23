@@ -3617,7 +3617,7 @@ def create_training_document(body: dict = Body(...), _user: dict[str, str] = Dep
                file_url, file_path, storage_provider, external_item_id, external_web_url, external_path,
                notes, attach_to_email, is_visible_on_portal,
                created_by, updated_by)
-            VALUES (?::text, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?::text, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING training_document_id, org_id, target_type, target_id,
                       document_type, document_name, file_url, file_path,
                       storage_provider, external_item_id, external_web_url, external_path,
