@@ -132,6 +132,19 @@ def resolve_current_job_for_client(con, client_db_id: int) -> int | None:
     return int(row[0]) if row else None
 
 
+def get_job_summary(con, job_id: int) -> dict[str, Any]:
+    """Small bit of job context (job number, reporting year) the portal
+    Data Entry tabs show so a client can see which job their submissions
+    are attached to."""
+    row = con.execute(
+        "SELECT job_number, reporting_year FROM jobs WHERE job_id = %s",
+        [int(job_id)],
+    ).fetchone()
+    if not row:
+        return {"job_id": int(job_id), "job_number": None, "reporting_year": None}
+    return {"job_id": int(job_id), "job_number": row[0], "reporting_year": row[1]}
+
+
 def job_scope_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
     """Shared shaping for a job_scope_rows row as returned to the portal."""
     return {

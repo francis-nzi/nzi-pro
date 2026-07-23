@@ -70,6 +70,7 @@ export default function PortalDataEntry() {
   const [activeBucket, setActiveBucket] = useState<string>("");
   const [rows, setRows] = useState<Row[]>([]);
   const [rowsLoading, setRowsLoading] = useState(false);
+  const [jobNumber, setJobNumber] = useState<string | null>(null);
   const [error, setError] = useState("");
   // Set when the backend 404s specifically because this client has no open
   // job yet (e.g. every job is Closed) -- ~15% of clients hit this. This is
@@ -130,6 +131,7 @@ export default function PortalDataEntry() {
       if (res.ok) {
         const d = await res.json();
         setRows(d.rows || []);
+        setJobNumber(d.job_number || null);
       } else if (res.status === 404) {
         const d = await res.json().catch(() => ({}));
         setNoJobMessage(d?.detail || "No open job found for this account yet — contact your NZI consultant.");
@@ -226,6 +228,9 @@ export default function PortalDataEntry() {
           Add your activity data directly here — no more downloading and re-uploading spreadsheets.
           Submissions are reviewed by your NZI consultant before they count toward your reported emissions.
         </p>
+        {jobNumber && !isSpendTab && !isCommutingTab && (
+          <p className="mt-1 text-xs text-muted-foreground">Job: {jobNumber}</p>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2 border-b pb-2">
@@ -369,7 +374,6 @@ export default function PortalDataEntry() {
                   <th className="p-2 text-left">Report Label</th>
                   <th className="p-2 text-right">Qty</th>
                   <th className="p-2 text-left">Unit</th>
-                  <th className="p-2 text-right">tCO&#8322;e</th>
                   <th className="p-2 text-left">Status</th>
                 </tr>
               </thead>
@@ -381,7 +385,6 @@ export default function PortalDataEntry() {
                       <td className="p-2">{row.report_label || row.original_id}</td>
                       <td className="p-2 text-right font-mono">{row.qty ?? "-"}</td>
                       <td className="p-2">{row.uom || "-"}</td>
-                      <td className="p-2 text-right font-mono">{row.calc_tco2e?.toFixed(2) ?? "-"}</td>
                       <td className="p-2">
                         <span className={`rounded-full px-2 py-0.5 text-xs ${review.className}`}>{review.label}</span>
                         {row.review_status === "rejected" && row.review_note && (
@@ -392,10 +395,30 @@ export default function PortalDataEntry() {
                   );
                 })}
               </tbody>
+              <tfoot>
+                {sumByUnit(rows).map(({ uom, total }) => (
+                  <tr key={uom} className="border-t bg-muted/30 font-medium">
+                    <td className="p-2 text-right" colSpan={1}>Total</td>
+                    <td className="p-2 text-right font-mono">{total.toLocaleString()}</td>
+                    <td className="p-2">{uom}</td>
+                    <td className="p-2" />
+                  </tr>
+                ))}
+              </tfoot>
             </table>
           </div>
         )
       )}
     </div>
   );
+}
+
+function sumByUnit(rows: Row[]): { uom: string; total: number }[] {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    if (row.qty === null || row.qty === undefined) continue;
+    const key = row.uom || "units";
+    totals.set(key, (totals.get(key) || 0) + Number(row.qty));
+  }
+  return Array.from(totals.entries()).map(([uom, total]) => ({ uom, total }));
 }

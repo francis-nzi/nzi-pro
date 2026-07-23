@@ -25,6 +25,7 @@ from services.portal_data_entry import (
     BUCKET_LABELS,
     bucket_for_category,
     ensure_portal_data_entry_schema,
+    get_job_summary,
     job_scope_row_to_dict,
     load_bucket_category_map,
     resolve_current_job_for_client,
@@ -100,6 +101,7 @@ def portal_data_entry_list_rows(
     with get_conn() as con:
         ensure_portal_data_entry_schema(con)
         job_id = _resolve_job_or_404(con, client_db_id)
+        job_summary = get_job_summary(con, job_id)
         category_map = load_bucket_category_map(con)
 
         df = con.execute(
@@ -116,7 +118,7 @@ def portal_data_entry_list_rows(
         ).df()
 
     if df is None or df.empty:
-        return {"job_id": job_id, "bucket_key": bucket_key, "rows": []}
+        return {"job_id": job_id, "bucket_key": bucket_key, "rows": [], **job_summary}
 
     df = df.where(df.notna(), None)
     rows = []
@@ -128,7 +130,7 @@ def portal_data_entry_list_rows(
             continue
         rows.append(job_scope_row_to_dict(row_dict))
 
-    return {"job_id": job_id, "bucket_key": bucket_key, "rows": rows}
+    return {"job_id": job_id, "bucket_key": bucket_key, "rows": rows, **job_summary}
 
 
 @router.post("/portal/data-entry/{bucket_key}/rows")

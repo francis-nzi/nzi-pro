@@ -28,7 +28,7 @@ from api.employee_commuting_routes import (
 from api.portal_auth_routes import portal_user_dep
 from core.database import get_conn
 from services.portal import PORTAL_ROLE_CAN_MANAGE_ACTIONS
-from services.portal_data_entry import resolve_current_job_for_client
+from services.portal_data_entry import get_job_summary, resolve_current_job_for_client
 from services.vehicle_categorization import categorize_vehicle
 from services.vehicle_lookup import lookup_vehicle_by_registration
 
@@ -79,6 +79,7 @@ def portal_commuting_list_rows(current_user: dict = Depends(portal_user_dep)):
     with get_conn() as con:
         _ensure_emission_register_schema(con)
         job_id = _resolve_job_or_404(con, client_db_id)
+        job_summary = get_job_summary(con, job_id)
         df = con.execute(
             """
             SELECT source_id, employee_name, source_subtype, qty, uom, calc_tco2e,
@@ -90,7 +91,7 @@ def portal_commuting_list_rows(current_user: dict = Depends(portal_user_dep)):
             [int(job_id)],
         ).df()
     if df is None or df.empty:
-        return {"job_id": job_id, "rows": []}
+        return {"job_id": job_id, "rows": [], **job_summary}
     df = df.where(df.notna(), None)
     rows = []
     for _, r in df.iterrows():
@@ -98,7 +99,7 @@ def portal_commuting_list_rows(current_user: dict = Depends(portal_user_dep)):
         if row.get("created_at") is not None:
             row["created_at"] = str(row["created_at"])
         rows.append(row)
-    return {"job_id": job_id, "rows": rows}
+    return {"job_id": job_id, "rows": rows, **job_summary}
 
 
 @router.post("/portal/commuting/rows")

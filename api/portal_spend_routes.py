@@ -32,7 +32,7 @@ from api.spend_data_routes import (
 )
 from core.database import get_conn
 from services.portal import PORTAL_ROLE_CAN_MANAGE_ACTIONS
-from services.portal_data_entry import resolve_current_job_for_client
+from services.portal_data_entry import get_job_summary, resolve_current_job_for_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["portal-spend"])
@@ -58,6 +58,7 @@ def portal_spend_list_rows(current_user: dict = Depends(portal_user_dep)):
     with get_conn() as con:
         _ensure_spend_tables(con)
         job_id = _resolve_job_or_404(con, client_db_id)
+        job_summary = get_job_summary(con, job_id)
         df = con.execute(
             """
             SELECT entry_id, reference_code, spend_description, currency, conversion_rate,
@@ -71,13 +72,13 @@ def portal_spend_list_rows(current_user: dict = Depends(portal_user_dep)):
             [int(job_id)],
         ).df()
     if df is None or df.empty:
-        return {"job_id": job_id, "rows": []}
+        return {"job_id": job_id, "rows": [], **job_summary}
     df = df.where(df.notna(), None)
     rows = [{k: row.get(k) for k in row.index} for _, row in df.iterrows()]
     for r in rows:
         if r.get("created_at") is not None:
             r["created_at"] = str(r["created_at"])
-    return {"job_id": job_id, "rows": rows}
+    return {"job_id": job_id, "rows": rows, **job_summary}
 
 
 @router.get("/portal/spend/template")
