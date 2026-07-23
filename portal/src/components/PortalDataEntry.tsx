@@ -71,6 +71,11 @@ export default function PortalDataEntry() {
   const [rows, setRows] = useState<Row[]>([]);
   const [rowsLoading, setRowsLoading] = useState(false);
   const [error, setError] = useState("");
+  // Set when the backend 404s specifically because this client has no open
+  // job yet (e.g. every job is Closed) -- ~15% of clients hit this. This is
+  // an expected, actionable state, not a real error, so it gets its own
+  // calmer panel instead of the red error banner.
+  const [noJobMessage, setNoJobMessage] = useState("");
 
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
@@ -112,17 +117,22 @@ export default function PortalDataEntry() {
     setRegNumber("");
     setRegLookupError("");
     setRegLookupVehicle(null);
+    setNoJobMessage("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBucket]);
 
   async function loadRows(bucketKey: string) {
     setRowsLoading(true);
     setError("");
+    setNoJobMessage("");
     try {
       const res = await apiFetch(`/portal/data-entry/${bucketKey}/rows`);
       if (res.ok) {
         const d = await res.json();
         setRows(d.rows || []);
+      } else if (res.status === 404) {
+        const d = await res.json().catch(() => ({}));
+        setNoJobMessage(d?.detail || "No open job found for this account yet — contact your NZI consultant.");
       } else {
         setError("Failed to load your submitted data.");
       }
@@ -234,6 +244,13 @@ export default function PortalDataEntry() {
 
       {error && <ErrorPanel description={error} />}
 
+      {noJobMessage && (
+        <EmptyStatePanel
+          title="Not available yet for this account"
+          description={noJobMessage}
+        />
+      )}
+
       {isComingSoon && (
         <EmptyStatePanel
           title={`${activeBucketLabel} isn't available here yet`}
@@ -244,14 +261,14 @@ export default function PortalDataEntry() {
       {isSpendTab && <PortalSpendTab />}
       {isCommutingTab && <PortalCommutingTab />}
 
-      {!isComingSoon && !isSpendTab && !isCommutingTab && (
+      {!isComingSoon && !isSpendTab && !isCommutingTab && !noJobMessage && (
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">{rows.length} submitted row(s) in {activeBucketLabel}</div>
         <Button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Cancel" : "+ Add Row"}</Button>
       </div>
       )}
 
-      {!isComingSoon && !isSpendTab && !isCommutingTab && showAdd && (
+      {!isComingSoon && !isSpendTab && !isCommutingTab && !noJobMessage && showAdd && (
         <Card>
           <CardContent className="space-y-3 pt-4">
             {isVehicleBucket && !selectedFactor && (
@@ -339,7 +356,7 @@ export default function PortalDataEntry() {
         </Card>
       )}
 
-      {!isComingSoon && !isSpendTab && !isCommutingTab && (
+      {!isComingSoon && !isSpendTab && !isCommutingTab && !noJobMessage && (
         rowsLoading ? (
           <SkeletonLoader />
         ) : rows.length === 0 ? (

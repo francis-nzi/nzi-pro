@@ -38,6 +38,7 @@ export default function PortalCommutingTab() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [noJobMessage, setNoJobMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
 
@@ -73,11 +74,15 @@ export default function PortalCommutingTab() {
   async function loadRows() {
     setLoading(true);
     setError("");
+    setNoJobMessage("");
     try {
       const res = await apiFetch("/portal/commuting/rows");
       if (res.ok) {
         const d = await res.json();
         setRows(d.rows || []);
+      } else if (res.status === 404) {
+        const d = await res.json().catch(() => ({}));
+        setNoJobMessage(d?.detail || "No open job found for this account yet — contact your NZI consultant.");
       } else {
         setError("Failed to load your submitted commuting data.");
       }
@@ -177,13 +182,16 @@ export default function PortalCommutingTab() {
       </p>
 
       {error && <ErrorPanel description={error} />}
+      {noJobMessage && <EmptyStatePanel title="Not available yet for this account" description={noJobMessage} />}
 
+      {!noJobMessage && (
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">{rows.length} entr{rows.length === 1 ? "y" : "ies"} submitted</div>
         <Button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Cancel" : "+ Add Entry"}</Button>
       </div>
+      )}
 
-      {showAdd && options && (
+      {!noJobMessage && showAdd && options && (
         <Card>
           <CardContent className="space-y-3 pt-4">
             <div className="flex gap-2">
@@ -329,7 +337,7 @@ export default function PortalCommutingTab() {
         </Card>
       )}
 
-      {loading ? (
+      {!noJobMessage && (loading ? (
         <SkeletonLoader />
       ) : rows.length === 0 ? (
         <EmptyStatePanel title="No commuting data submitted yet." />
@@ -372,7 +380,7 @@ export default function PortalCommutingTab() {
             </tbody>
           </table>
         </div>
-      )}
+      ))}
     </div>
   );
 }

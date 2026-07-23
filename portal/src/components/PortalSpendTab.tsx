@@ -40,6 +40,7 @@ export default function PortalSpendTab() {
   const [rows, setRows] = useState<SpendRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [noJobMessage, setNoJobMessage] = useState("");
 
   const [showAdd, setShowAdd] = useState(false);
   const [refCode, setRefCode] = useState("");
@@ -60,11 +61,15 @@ export default function PortalSpendTab() {
   async function loadRows() {
     setLoading(true);
     setError("");
+    setNoJobMessage("");
     try {
       const res = await apiFetch("/portal/spend/rows");
       if (res.ok) {
         const d = await res.json();
         setRows(d.rows || []);
+      } else if (res.status === 404) {
+        const d = await res.json().catch(() => ({}));
+        setNoJobMessage(d?.detail || "No open job found for this account yet — contact your NZI consultant.");
       } else {
         setError("Failed to load your submitted spend data.");
       }
@@ -140,13 +145,16 @@ export default function PortalSpendTab() {
       </p>
 
       {error && <ErrorPanel description={error} />}
+      {noJobMessage && <EmptyStatePanel title="Not available yet for this account" description={noJobMessage} />}
 
+      {!noJobMessage && (
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">{rows.length} spend line(s) submitted</div>
         <Button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Cancel" : "+ Add Spend Line"}</Button>
       </div>
+      )}
 
-      {showAdd && (
+      {!noJobMessage && showAdd && (
         <Card>
           <CardContent className="space-y-3 pt-4">
             <div className="grid gap-3 md:grid-cols-2">
@@ -174,7 +182,7 @@ export default function PortalSpendTab() {
         </Card>
       )}
 
-      {loading ? (
+      {!noJobMessage && (loading ? (
         <SkeletonLoader />
       ) : rows.length === 0 ? (
         <EmptyStatePanel title="No spend data submitted yet." />
@@ -283,7 +291,7 @@ export default function PortalSpendTab() {
             </tbody>
           </table>
         </div>
-      )}
+      ))}
     </div>
   );
 }
