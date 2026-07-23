@@ -32,7 +32,7 @@ from api.spend_data_routes import (
 )
 from core.database import get_conn
 from services.portal import PORTAL_ROLE_CAN_MANAGE_ACTIONS
-from services.portal_data_entry import get_job_summary, resolve_current_job_for_client
+from services.portal_data_entry import get_job_summary, get_top_spend_categories, resolve_current_job_for_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["portal-spend"])
@@ -208,6 +208,15 @@ def portal_spend_create_row(
     return {"ok": True, "job_id": job_id, "entry_id": saved["entry_id"], "auto_mapped": saved["auto_mapped"]}
 
 
+@router.get("/portal/spend/categories/top")
+def portal_spend_top_categories(current_user: dict = Depends(portal_user_dep)):
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        _ensure_spend_tables(con)
+        items = get_top_spend_categories(con, client_db_id)
+    return {"items": items}
+
+
 @router.get("/portal/spend/categories/search")
 def portal_spend_search_categories(
     q: str = Query("", min_length=0),
@@ -313,3 +322,103 @@ def portal_spend_confirm_category(
         )
 
     return {"ok": True, "entry_id": int(entry_id), "review_status": "pending_review"}
+
+
+@router.patch("/portal/spend/rows/{entry_id}")
+def portal_spend_update_row(
+    entry_id: int,
+    payload: dict = Body(...),
+    current_user: dict = Depends(portal_user_dep),
+):
+    _assert_can_manage(current_user)
+    client_db_id = int(current_user["client_db_id"])
+
+    with get_conn() as con:
+        _ensure_spend_tables(con)
+        existing = con.execute(
+            """
+            SELECT e.entry_id, e.review_status
+            FROM job_spend_entries e JOIN jobs j ON j.job_id = e.job_id
+            WHERE e.entry_id = %s AND j.client_db_id = %s
+              AND e.submitted_by_portal = TRUE AND COALESCE(e.is_deleted, FALSE) = FALSE
+            """,
+            [int(entry_id), client_db_id],
+        ).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Spend row not found")
+        if existing[1] == "approved":
+            raise HTTPException(status_code=409, detail="This row has already been approved and can no longer be edited here")
+
+        set_clauses: list[str] = []
+        params: list[Any] = []
+        for field in ["reference_code", "spend_description", "currency", "notes"]:
+            if field in payload:
+                set_clauses.append(f"{field} = %s")
+                params.append(str(payload.get(field) or "").strip() or None)
+        if "amount_net" in payload:
+            set_clauses.append("amount_net = %s")
+            params.append(_safe_float(payload.get("amount_net"), 0.0))
+        if "vat_pct" in payload:
+            set_clauses.append("vat_pct = %s")
+            params.append(_safe_float(payload.get("vat_pct"), 0.0))
+        if "conversion_rate" in payload:
+            set_clauses.append("conversion_rate = %s")
+            params.append(_safe_float(payload.get("conversion_rate"), 1.0))
+
+        if not set_clauses:
+            return {"ok": True, "entry_id": entry_id, "review_status": existing[1]}
+
+        set_clauses.append("review_status = 'pending_review'")
+        set_clauses.append("review_note = NULL")
+        set_clauses.append("updated_at = NOW()")
+        params.append(int(entry_id))
+        con.execute(f"UPDATE job_spend_entries SET {', '.join(set_clauses)} WHERE entry_id = %s", params)
+
+        if "amount_net" in payload or "vat_pct" in payload or "conversion_rate" in payload:
+            row = con.execute(
+                "SELECT amount_net, vat_pct, factor_db_id FROM job_spend_entries WHERE entry_id = %s",
+                [int(entry_id)],
+            ).fetchone()
+            net = _safe_float(row[0], 0.0)
+            vat = _safe_float(row[1], 0.0)
+            gross = _gross_from_net(net, vat)
+            emissions = None
+            if row[2]:
+                factor = _factor_by_id(con, int(row[2]))
+                if factor:
+                    emissions = gross * _safe_float(factor.get("factor"), 0.0)
+            con.execute(
+                "UPDATE job_spend_entries SET amount_gross = %s, estimated_emissions_tco2e = %s, updated_at = NOW() WHERE entry_id = %s",
+                [gross, emissions, int(entry_id)],
+            )
+
+    return {"ok": True, "entry_id": entry_id, "review_status": "pending_review"}
+
+
+@router.delete("/portal/spend/rows/{entry_id}")
+def portal_spend_delete_row(entry_id: int, current_user: dict = Depends(portal_user_dep)):
+    _assert_can_manage(current_user)
+    client_db_id = int(current_user["client_db_id"])
+
+    with get_conn() as con:
+        _ensure_spend_tables(con)
+        existing = con.execute(
+            """
+            SELECT e.entry_id, e.review_status
+            FROM job_spend_entries e JOIN jobs j ON j.job_id = e.job_id
+            WHERE e.entry_id = %s AND j.client_db_id = %s
+              AND e.submitted_by_portal = TRUE AND COALESCE(e.is_deleted, FALSE) = FALSE
+            """,
+            [int(entry_id), client_db_id],
+        ).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Spend row not found")
+        if existing[1] == "approved":
+            raise HTTPException(status_code=409, detail="This row has already been approved and can no longer be deleted here")
+
+        con.execute(
+            "UPDATE job_spend_entries SET is_deleted = TRUE, updated_at = NOW() WHERE entry_id = %s",
+            [int(entry_id)],
+        )
+
+    return {"ok": True, "entry_id": entry_id}

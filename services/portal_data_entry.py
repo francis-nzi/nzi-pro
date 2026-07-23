@@ -145,6 +145,179 @@ def get_job_summary(con, job_id: int) -> dict[str, Any]:
     return {"job_id": int(job_id), "job_number": row[0], "reporting_year": row[1]}
 
 
+def get_previous_bucket_rows(
+    con, client_db_id: int, exclude_job_id: int, bucket_key: str,
+    category_map: dict[str, str], limit: int = 15,
+) -> list[dict[str, Any]]:
+    """Distinct factor rows this client has used in prior jobs, most-recent
+    job first -- lets a client re-add a recurring item without re-searching.
+    Only draws from enabled (i.e. real/reviewed) rows so a still-pending or
+    rejected submission never gets suggested back as if it were validated."""
+    df = con.execute(
+        """
+        SELECT jsr.job_id, j.reporting_year, jsr.scope, jsr.category,
+               jsr.report_label, jsr.original_id, jsr.uom, jsr.qty
+        FROM job_scope_rows jsr
+        JOIN jobs j ON j.job_id = jsr.job_id
+        WHERE j.client_db_id = %s AND jsr.job_id <> %s
+          AND COALESCE(jsr.enabled, TRUE) = TRUE
+          AND COALESCE(jsr.is_custom_entry, FALSE) = FALSE
+          AND COALESCE(jsr.original_id, '') <> ''
+        ORDER BY jsr.job_id DESC, jsr.row_id DESC
+        """,
+        [int(client_db_id), int(exclude_job_id)],
+    ).df()
+    if df is None or df.empty:
+        return []
+    df = df.where(df.notna(), None)
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for _, r in df.iterrows():
+        original_id = r.get("original_id")
+        if not original_id or original_id in seen:
+            continue
+        if bucket_for_category(category_map, r.get("category")) != bucket_key:
+            continue
+        seen.add(str(original_id))
+        out.append(
+            {
+                "scope": r.get("scope"),
+                "category": r.get("category"),
+                "report_label": r.get("report_label"),
+                "original_id": original_id,
+                "uom": r.get("uom"),
+                "last_qty": r.get("qty"),
+                "last_job_id": int(r.get("job_id")),
+                "last_reporting_year": r.get("reporting_year"),
+            }
+        )
+        if len(out) >= limit:
+            break
+    return out
+
+
+def get_top_factors_for_categories(
+    con, client_db_id: int | None, categories: list[str], limit: int = 8,
+) -> list[dict[str, Any]]:
+    """Ranks factors in the given categories by usage count across
+    job_scope_rows -- this client's own usage first (most-used first); if
+    they have no history yet (or client_db_id is None, e.g. a CRM-wide
+    browse), falls back to the most-used factors across ALL clients so the
+    quick-pick is never just empty. Pure COUNT(*) over existing rows, no new
+    schema needed. Shared by both the portal (bucket-grouped categories) and
+    the CRM's own factor search (a single selected category)."""
+    if not categories:
+        return []
+    placeholders = ",".join(["%s"] * len(categories))
+
+    def _rank(client_filter: bool) -> list[dict[str, Any]]:
+        where = [f"jsr.category IN ({placeholders})", "COALESCE(jsr.enabled, TRUE) = TRUE", "COALESCE(jsr.original_id, '') <> ''"]
+        params: list[Any] = list(categories)
+        if client_filter:
+            where.append("j.client_db_id = %s")
+            params.append(int(client_db_id))
+        df = con.execute(
+            f"""
+            SELECT jsr.scope, jsr.category, jsr.report_label, jsr.original_id, jsr.uom, COUNT(*) AS use_count
+            FROM job_scope_rows jsr
+            JOIN jobs j ON j.job_id = jsr.job_id
+            WHERE {" AND ".join(where)}
+            GROUP BY jsr.scope, jsr.category, jsr.report_label, jsr.original_id, jsr.uom
+            ORDER BY use_count DESC
+            LIMIT %s
+            """,
+            params + [int(limit)],
+        ).df()
+        if df is None or df.empty:
+            return []
+        return [
+            {
+                "scope": r.get("scope"),
+                "category": r.get("category"),
+                "report_label": r.get("report_label"),
+                "original_id": r.get("original_id"),
+                "uom": r.get("uom"),
+                "use_count": int(r.get("use_count")),
+            }
+            for _, r in df.iterrows()
+        ]
+
+    personal = _rank(client_filter=True) if client_db_id is not None else []
+    if len(personal) >= limit:
+        return personal
+    seen = {item["original_id"] for item in personal}
+    for item in _rank(client_filter=False):
+        if item["original_id"] in seen:
+            continue
+        personal.append(item)
+        seen.add(item["original_id"])
+        if len(personal) >= limit:
+            break
+    return personal
+
+
+def get_top_bucket_factors(
+    con, client_db_id: int, bucket_key: str, category_map: dict[str, str], limit: int = 8,
+) -> list[dict[str, Any]]:
+    """Bucket-grouped wrapper around get_top_factors_for_categories -- a
+    portal bucket (e.g. "energy") maps to several raw categories."""
+    categories = [cat for cat, key in category_map.items() if key == bucket_key]
+    return get_top_factors_for_categories(con, client_db_id, categories, limit)
+
+
+def get_top_spend_categories(con, client_db_id: int, limit: int = 8) -> list[dict[str, Any]]:
+    """Same ranking idea as get_top_factors_for_categories, but for
+    Purchased Goods & Services -- ranks previously-confirmed spend
+    categories by how often this client (falling back to all clients) has
+    mapped a line to them, so the category picker can lead with the most
+    likely matches instead of a blank search box."""
+
+    def _rank(client_filter: bool) -> list[dict[str, Any]]:
+        where = ["e.mapping_status = 'mapped'", "COALESCE(e.is_deleted, FALSE) = FALSE", "e.factor_db_id IS NOT NULL"]
+        params: list[Any] = []
+        if client_filter:
+            where.append("j.client_db_id = %s")
+            params.append(int(client_db_id))
+        df = con.execute(
+            f"""
+            SELECT e.factor_db_id, e.mapped_scope AS scope, e.mapped_category AS category,
+                   e.mapped_report_label AS report_label, COUNT(*) AS use_count
+            FROM job_spend_entries e
+            JOIN jobs j ON j.job_id = e.job_id
+            WHERE {" AND ".join(where)}
+            GROUP BY e.factor_db_id, e.mapped_scope, e.mapped_category, e.mapped_report_label
+            ORDER BY use_count DESC
+            LIMIT %s
+            """,
+            params + [int(limit)],
+        ).df()
+        if df is None or df.empty:
+            return []
+        return [
+            {
+                "db_id": int(r.get("factor_db_id")),
+                "scope": r.get("scope"),
+                "category": r.get("category"),
+                "report_label": r.get("report_label"),
+                "use_count": int(r.get("use_count")),
+            }
+            for _, r in df.iterrows()
+        ]
+
+    personal = _rank(client_filter=True)
+    if len(personal) >= limit:
+        return personal
+    seen = {item["db_id"] for item in personal}
+    for item in _rank(client_filter=False):
+        if item["db_id"] in seen:
+            continue
+        personal.append(item)
+        seen.add(item["db_id"])
+        if len(personal) >= limit:
+            break
+    return personal
+
+
 def job_scope_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
     """Shared shaping for a job_scope_rows row as returned to the portal."""
     return {

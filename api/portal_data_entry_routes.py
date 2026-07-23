@@ -26,6 +26,8 @@ from services.portal_data_entry import (
     bucket_for_category,
     ensure_portal_data_entry_schema,
     get_job_summary,
+    get_previous_bucket_rows,
+    get_top_bucket_factors,
     job_scope_row_to_dict,
     load_bucket_category_map,
     resolve_current_job_for_client,
@@ -87,6 +89,45 @@ def portal_data_entry_factors(
         "factors": matched,
         "total": len(matched),
     }
+
+
+@router.get("/portal/data-entry/{bucket_key}/previous-rows")
+def portal_data_entry_previous_rows(
+    bucket_key: str,
+    current_user: dict = Depends(portal_user_dep),
+):
+    """Distinct factor rows this client used in prior jobs for this bucket --
+    lets them re-add a recurring item without re-searching."""
+    _assert_valid_bucket(bucket_key)
+    client_db_id = int(current_user["client_db_id"])
+
+    with get_conn() as con:
+        ensure_portal_data_entry_schema(con)
+        job_id = _resolve_job_or_404(con, client_db_id)
+        category_map = load_bucket_category_map(con)
+        items = get_previous_bucket_rows(con, client_db_id, job_id, bucket_key, category_map)
+
+    return {"job_id": job_id, "bucket_key": bucket_key, "items": items}
+
+
+@router.get("/portal/data-entry/{bucket_key}/top-factors")
+def portal_data_entry_top_factors(
+    bucket_key: str,
+    current_user: dict = Depends(portal_user_dep),
+):
+    """Most-used factors for this bucket -- this client's own usage first,
+    falling back to the most-used factors across all clients so a brand-new
+    client still gets a useful quick-pick."""
+    _assert_valid_bucket(bucket_key)
+    client_db_id = int(current_user["client_db_id"])
+
+    with get_conn() as con:
+        ensure_portal_data_entry_schema(con)
+        job_id = _resolve_job_or_404(con, client_db_id)
+        category_map = load_bucket_category_map(con)
+        items = get_top_bucket_factors(con, client_db_id, bucket_key, category_map)
+
+    return {"job_id": job_id, "bucket_key": bucket_key, "items": items}
 
 
 @router.get("/portal/data-entry/{bucket_key}/rows")
@@ -302,3 +343,56 @@ def portal_data_entry_update_row(
         )
 
     return {"ok": True, "row_id": row_id, "review_status": "pending_review"}
+
+
+@router.delete("/portal/data-entry/{bucket_key}/rows/{row_id}")
+def portal_data_entry_delete_row(
+    request: Request,
+    bucket_key: str,
+    row_id: int,
+    current_user: dict = Depends(portal_user_dep),
+):
+    """Hard-deletes a still-pending/rejected portal submission. A still-pending
+    row was never enabled (never counted in a report), so unlike the CRM's
+    own delete (which soft-deletes via enabled=FALSE to preserve an audit
+    trail for rows that may have been live), there's nothing to preserve --
+    hard delete avoids needing a new column just for this."""
+    _assert_valid_bucket(bucket_key)
+    client_db_id = int(current_user["client_db_id"])
+    if current_user.get("role", "ClientAdmin") not in PORTAL_ROLE_CAN_MANAGE_ACTIONS:
+        raise HTTPException(status_code=403, detail="Your portal role doesn't allow this action")
+
+    with get_conn() as con:
+        _ensure_job_scope_rows_schema(con)
+        existing = con.execute(
+            """
+            SELECT r.row_id, r.job_id, r.site_id, r.review_status
+            FROM job_scope_rows r JOIN jobs j ON j.job_id = r.job_id
+            WHERE r.row_id = %s AND j.client_db_id = %s AND r.submitted_by_portal = TRUE
+            """,
+            [int(row_id), client_db_id],
+        ).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Row not found")
+        if existing[3] == "approved":
+            raise HTTPException(status_code=409, detail="This row has already been approved and can no longer be deleted here")
+
+        site_ids = current_user.get("site_ids")
+        if site_ids is not None and existing[2] not in site_ids:
+            raise HTTPException(status_code=403, detail="Not one of your assigned sites")
+
+        con.execute("DELETE FROM job_scope_rows WHERE row_id = %s", [int(row_id)])
+
+        record_audit_event(
+            con,
+            request=request,
+            actor={"email": current_user.get("email"), "full_name": current_user.get("full_name"), "user_id": "portal"},
+            action="portal_delete",
+            entity_type="job_scope_row",
+            entity_id=int(row_id),
+            client_id=client_db_id,
+            job_id=int(existing[1]),
+            metadata={"bucket_key": bucket_key},
+        )
+
+    return {"ok": True, "row_id": row_id}

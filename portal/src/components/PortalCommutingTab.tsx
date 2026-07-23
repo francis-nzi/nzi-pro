@@ -59,6 +59,12 @@ export default function PortalCommutingTab() {
   const [regAnnualMiles, setRegAnnualMiles] = useState("");
   const [regLookupError, setRegLookupError] = useState("");
 
+  const [jobNumber, setJobNumber] = useState<string | null>(null);
+  const [editingRowId, setEditingRowId] = useState<number | null>(null);
+  const [editEmployeeName, setEditEmployeeName] = useState("");
+  const [editQty, setEditQty] = useState("");
+  const [rowActionSaving, setRowActionSaving] = useState(false);
+
   useEffect(() => {
     apiFetch("/portal/commuting/options")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -80,6 +86,7 @@ export default function PortalCommutingTab() {
       if (res.ok) {
         const d = await res.json();
         setRows(d.rows || []);
+        setJobNumber(d.job_number || null);
       } else if (res.status === 404) {
         const d = await res.json().catch(() => ({}));
         setNoJobMessage(d?.detail || "No open job found for this account yet — contact your NZI consultant.");
@@ -174,12 +181,52 @@ export default function PortalCommutingTab() {
     }
   }
 
+  async function saveRowEdit(sourceId: number) {
+    if (!editEmployeeName.trim() || !editQty.trim()) return;
+    setRowActionSaving(true);
+    setError("");
+    try {
+      const res = await apiFetch(`/portal/commuting/rows/${sourceId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee_name: editEmployeeName.trim(), qty: Number(editQty) }),
+      });
+      if (res.ok) {
+        setEditingRowId(null);
+        void loadRows();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setError(d?.detail || "Failed to update this entry.");
+      }
+    } finally {
+      setRowActionSaving(false);
+    }
+  }
+
+  async function deleteRow(sourceId: number) {
+    if (!window.confirm("Delete this entry? This can't be undone.")) return;
+    setRowActionSaving(true);
+    setError("");
+    try {
+      const res = await apiFetch(`/portal/commuting/rows/${sourceId}`, { method: "DELETE" });
+      if (res.ok) {
+        void loadRows();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setError(d?.detail || "Failed to delete this entry.");
+      }
+    } finally {
+      setRowActionSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
         Add employee commuting or working-from-home data here. Your NZI consultant reviews and approves each entry
         before it counts toward your reported emissions.
       </p>
+      {jobNumber && <p className="-mt-2 text-xs text-muted-foreground">Job: {jobNumber}</p>}
 
       {error && <ErrorPanel description={error} />}
       {noJobMessage && <EmptyStatePanel title="Not available yet for this account" description={noJobMessage} />}
@@ -351,16 +398,31 @@ export default function PortalCommutingTab() {
                 <th className="p-2 text-right">Qty</th>
                 <th className="p-2 text-right">tCO&#8322;e</th>
                 <th className="p-2 text-left">Status</th>
+                <th className="p-2 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => {
                 const review = row.review_status ? REVIEW_LABEL[row.review_status] : null;
+                const isApproved = row.review_status === "approved";
+                const isEditing = editingRowId === row.source_id;
                 return (
                   <tr key={row.source_id} className="border-b last:border-0">
-                    <td className="p-2">{row.employee_name || "-"}</td>
+                    <td className="p-2">
+                      {isEditing ? (
+                        <Input value={editEmployeeName} onChange={(e) => setEditEmployeeName(e.target.value)} className="h-7 w-28" />
+                      ) : (
+                        row.employee_name || "-"
+                      )}
+                    </td>
                     <td className="p-2">{row.source_subtype || "-"}</td>
-                    <td className="p-2 text-right font-mono">{row.qty ?? "-"} {row.uom || ""}</td>
+                    <td className="p-2 text-right font-mono">
+                      {isEditing ? (
+                        <Input type="number" value={editQty} onChange={(e) => setEditQty(e.target.value)} className="ml-auto h-7 w-20 text-right" />
+                      ) : (
+                        <>{row.qty ?? "-"} {row.uom || ""}</>
+                      )}
+                    </td>
                     <td className="p-2 text-right font-mono">{row.calc_tco2e?.toFixed(4) ?? "-"}</td>
                     <td className="p-2">
                       {review ? (
@@ -372,6 +434,36 @@ export default function PortalCommutingTab() {
                         </>
                       ) : (
                         "-"
+                      )}
+                    </td>
+                    <td className="p-2 text-right">
+                      {isApproved ? (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : isEditing ? (
+                        <div className="flex items-center justify-end gap-2">
+                          <Button size="sm" variant="outline" disabled={rowActionSaving || !editEmployeeName.trim() || !editQty.trim()} onClick={() => void saveRowEdit(row.source_id)}>
+                            Save
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditingRowId(null)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end gap-3 text-xs">
+                          <button
+                            className="text-primary hover:underline"
+                            onClick={() => {
+                              setEditingRowId(row.source_id);
+                              setEditEmployeeName(row.employee_name || "");
+                              setEditQty(row.qty !== null && row.qty !== undefined ? String(row.qty) : "");
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button className="text-rose-700 hover:underline disabled:opacity-50" disabled={rowActionSaving} onClick={() => void deleteRow(row.source_id)}>
+                            Delete
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>

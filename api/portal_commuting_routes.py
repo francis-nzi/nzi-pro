@@ -220,3 +220,97 @@ def portal_commuting_create_row_by_vehicle(
         "matched_category": factor.get("report_label"),
         "review_status": "pending_review",
     }
+
+
+@router.patch("/portal/commuting/rows/{source_id}")
+def portal_commuting_update_row(
+    source_id: int,
+    payload: dict = Body(...),
+    current_user: dict = Depends(portal_user_dep),
+):
+    _assert_can_manage(current_user)
+    client_db_id = int(current_user["client_db_id"])
+
+    employee_name = payload.get("employee_name")
+    if employee_name is not None:
+        employee_name = str(employee_name).strip()
+        if not employee_name:
+            raise HTTPException(status_code=400, detail="employee_name is required")
+        _assert_not_a_full_name(employee_name)
+
+    with get_conn() as con:
+        _ensure_emission_register_schema(con)
+        existing = con.execute(
+            """
+            SELECT s.source_id, s.review_status, s.factor, s.ghg_unit, s.apply_pct
+            FROM job_emission_sources s JOIN jobs j ON j.job_id = s.job_id
+            WHERE s.source_id = %s AND j.client_db_id = %s
+              AND s.source_type = 'employee_commuting' AND s.submitted_by_portal = TRUE
+            """,
+            [int(source_id), client_db_id],
+        ).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Row not found")
+        if existing[1] == "approved":
+            raise HTTPException(status_code=409, detail="This row has already been approved and can no longer be edited here")
+
+        set_clauses: list[str] = []
+        params: list = []
+        if employee_name is not None:
+            set_clauses.append("employee_name = %s")
+            params.append(employee_name)
+        if "notes" in payload:
+            set_clauses.append("notes = %s")
+            params.append(str(payload.get("notes") or "").strip() or None)
+
+        new_qty = None
+        if "qty" in payload:
+            try:
+                new_qty = float(payload.get("qty"))
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="qty must be a number")
+            set_clauses.append("qty = %s")
+            params.append(new_qty)
+
+        if not set_clauses:
+            return {"ok": True, "source_id": source_id, "review_status": existing[1]}
+
+        if new_qty is not None:
+            calc_tco2e = _calc_commuting_tco2e(new_qty, existing[2], existing[4] or 100, existing[3])
+            set_clauses.append("calc_tco2e = %s")
+            params.append(calc_tco2e)
+
+        set_clauses.append("review_status = 'pending_review'")
+        set_clauses.append("review_note = NULL")
+        set_clauses.append("updated_at = NOW()")
+        params.append(int(source_id))
+
+        con.execute(f"UPDATE job_emission_sources SET {', '.join(set_clauses)} WHERE source_id = %s", params)
+
+    return {"ok": True, "source_id": source_id, "review_status": "pending_review"}
+
+
+@router.delete("/portal/commuting/rows/{source_id}")
+def portal_commuting_delete_row(source_id: int, current_user: dict = Depends(portal_user_dep)):
+    _assert_can_manage(current_user)
+    client_db_id = int(current_user["client_db_id"])
+
+    with get_conn() as con:
+        _ensure_emission_register_schema(con)
+        existing = con.execute(
+            """
+            SELECT s.source_id, s.review_status
+            FROM job_emission_sources s JOIN jobs j ON j.job_id = s.job_id
+            WHERE s.source_id = %s AND j.client_db_id = %s
+              AND s.source_type = 'employee_commuting' AND s.submitted_by_portal = TRUE
+            """,
+            [int(source_id), client_db_id],
+        ).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Row not found")
+        if existing[1] == "approved":
+            raise HTTPException(status_code=409, detail="This row has already been approved and can no longer be deleted here")
+
+        con.execute("DELETE FROM job_emission_sources WHERE source_id = %s", [int(source_id)])
+
+    return {"ok": True, "source_id": source_id}

@@ -272,6 +272,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const [factorScopeFilter, setFactorScopeFilter] = useState<string>("All");
   const [factorCategoryFilter, setFactorCategoryFilter] = useState<string>("All");
   const [factorCategoryOptions, setFactorCategoryOptions] = useState<string[]>([]);
+  const [topFactors, setTopFactors] = useState<TemplateFactor[]>([]);
   const [addingFactorId, setAddingFactorId] = useState<string | null>(null);
   const [addingPreviousRowId, setAddingPreviousRowId] = useState<number | null>(null);
   const [selectedPreviousRowIds, setSelectedPreviousRowIds] = useState<Set<number>>(new Set());
@@ -584,6 +585,46 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       setFactorsLoading(false);
     }
   }
+
+  async function loadTopFactors(category: string) {
+    if (!category || category === "All") {
+      setTopFactors([]);
+      return;
+    }
+    try {
+      const res = await fetch(
+        `${effectiveBaseUrl}/jobs/${jobId}/template-factors/top?category=${encodeURIComponent(category)}`,
+        { credentials: "include" }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const items: { scope: string | null; category: string | null; report_label: string | null; original_id: string | null; uom: string | null }[] =
+          data.items || [];
+        setTopFactors(
+          items.map((item) => ({
+            scope: item.scope || "",
+            category: item.category || "",
+            report_label: item.report_label || "",
+            original_id: item.original_id || "",
+            uom: item.uom || "",
+            dataset_id: null,
+            factor_db_id: null,
+            factor: null,
+            ghg_unit: null,
+          }))
+        );
+      } else {
+        setTopFactors([]);
+      }
+    } catch {
+      setTopFactors([]);
+    }
+  }
+
+  useEffect(() => {
+    if (showFactorBrowser) void loadTopFactors(factorCategoryFilter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showFactorBrowser, factorCategoryFilter]);
 
   useUnsavedChangesGuard(hasUnsavedChanges);
 
@@ -1949,6 +1990,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                 disabled: addingFactorId === factor.original_id,
               })}
               onSelectFactor={addFactorToJob}
+              frequentFactors={!factorSearchQuery.trim() ? topFactors : []}
               emptyMessage="No factors found. Try adjusting your search or filters."
             />
           </div>

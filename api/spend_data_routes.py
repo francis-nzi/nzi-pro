@@ -27,6 +27,7 @@ from api.job_scope_data_routes import _json_safe
 from core.database import get_conn
 from services.audit_log import fetch_row_dict, record_audit_event
 from services.dataset_selector import get_applicable_datasets, get_scope_primary_datasets
+from services.portal_data_entry import get_top_spend_categories
 from services.download_filenames import build_download_filename
 
 router = APIRouter()
@@ -1468,6 +1469,18 @@ def search_spend_factors(job_id: int, q: str = Query("", min_length=0), limit: i
                 }
             )
     return {"items": items}
+
+
+@router.get("/jobs/{job_id}/spend-data/factors/top")
+def top_spend_factors(job_id: int, _user: dict = Depends(_current_user)):
+    """Most-used PG&S categories for this job's client (falling back to all
+    clients), shown as a quick-pick above the search box."""
+    with get_conn() as con:
+        _ensure_spend_tables(con)
+        client_db_id = _job_client_id(con, int(job_id))
+        items = get_top_spend_categories(con, int(client_db_id))
+    return {"items": items}
+
 
 @router.get("/jobs/{job_id}/spend-data/template")
 def download_spend_template(

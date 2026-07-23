@@ -33,6 +33,26 @@ type FactorOption = {
   level_2?: string | null;
 };
 
+type PreviousRow = {
+  scope: string | null;
+  category: string | null;
+  report_label: string | null;
+  original_id: string | null;
+  uom: string | null;
+  last_qty: number | null;
+  last_job_id: number;
+  last_reporting_year: number | null;
+};
+
+type TopFactor = {
+  scope: string | null;
+  category: string | null;
+  report_label: string | null;
+  original_id: string | null;
+  uom: string | null;
+  use_count: number;
+};
+
 type Row = {
   row_id: number;
   site_id: number | null;
@@ -86,6 +106,13 @@ export default function PortalDataEntry() {
   const [qty, setQty] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const [previousRows, setPreviousRows] = useState<PreviousRow[]>([]);
+  const [topFactors, setTopFactors] = useState<TopFactor[]>([]);
+
+  const [editingRowId, setEditingRowId] = useState<number | null>(null);
+  const [editQty, setEditQty] = useState("");
+  const [rowActionSaving, setRowActionSaving] = useState(false);
+
   // Registration-number lookup (Phase 3) -- only offered for the two vehicle-
   // shaped buckets; everything else keeps the plain search flow above.
   const [regNumber, setRegNumber] = useState("");
@@ -119,6 +146,8 @@ export default function PortalDataEntry() {
     setRegLookupError("");
     setRegLookupVehicle(null);
     setNoJobMessage("");
+    setPreviousRows([]);
+    setTopFactors([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBucket]);
 
@@ -141,6 +170,33 @@ export default function PortalDataEntry() {
     } finally {
       setRowsLoading(false);
     }
+  }
+
+  async function loadQuickPicks(bucketKey: string) {
+    try {
+      const [prevRes, topRes] = await Promise.all([
+        apiFetch(`/portal/data-entry/${bucketKey}/previous-rows`),
+        apiFetch(`/portal/data-entry/${bucketKey}/top-factors`),
+      ]);
+      setPreviousRows(prevRes.ok ? (await prevRes.json()).items || [] : []);
+      setTopFactors(topRes.ok ? (await topRes.json()).items || [] : []);
+    } catch {
+      setPreviousRows([]);
+      setTopFactors([]);
+    }
+  }
+
+  function pickQuickFactor(item: PreviousRow | TopFactor) {
+    setSelectedFactor({
+      scope: item.scope,
+      category: item.category,
+      report_label: item.report_label,
+      original_id: item.original_id,
+      uom: item.uom,
+      factor: null,
+      dataset_id: null,
+      factor_db_id: null,
+    });
   }
 
   async function searchFactors(text: string) {
@@ -216,6 +272,46 @@ export default function PortalDataEntry() {
     }
   }
 
+  async function saveRowEdit(rowId: number) {
+    if (!editQty.trim()) return;
+    setRowActionSaving(true);
+    setError("");
+    try {
+      const res = await apiFetch(`/portal/data-entry/${activeBucket}/rows/${rowId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ qty: Number(editQty) }),
+      });
+      if (res.ok) {
+        setEditingRowId(null);
+        setEditQty("");
+        void loadRows(activeBucket);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setError(d?.detail || "Failed to update this row.");
+      }
+    } finally {
+      setRowActionSaving(false);
+    }
+  }
+
+  async function deleteRow(rowId: number) {
+    if (!window.confirm("Delete this row? This can't be undone.")) return;
+    setRowActionSaving(true);
+    setError("");
+    try {
+      const res = await apiFetch(`/portal/data-entry/${activeBucket}/rows/${rowId}`, { method: "DELETE" });
+      if (res.ok) {
+        void loadRows(activeBucket);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setError(d?.detail || "Failed to delete this row.");
+      }
+    } finally {
+      setRowActionSaving(false);
+    }
+  }
+
   const isVehicleBucket = activeBucket === "company_vehicles" || activeBucket === "business_travel";
   const allTabs = [...buckets, COMMUTING_BUCKET, SPEND_BUCKET, ...COMING_SOON_BUCKETS];
   const activeBucketLabel = allTabs.find((b) => b.bucket_key === activeBucket)?.label || "";
@@ -269,7 +365,15 @@ export default function PortalDataEntry() {
       {!isComingSoon && !isSpendTab && !isCommutingTab && !noJobMessage && (
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">{rows.length} submitted row(s) in {activeBucketLabel}</div>
-        <Button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Cancel" : "+ Add Row"}</Button>
+        <Button
+          onClick={() => {
+            const next = !showAdd;
+            setShowAdd(next);
+            if (next) void loadQuickPicks(activeBucket);
+          }}
+        >
+          {showAdd ? "Cancel" : "+ Add Row"}
+        </Button>
       </div>
       )}
 
@@ -300,6 +404,39 @@ export default function PortalDataEntry() {
               <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
                 Found: {regLookupVehicle.make || "vehicle"} ({regLookupVehicle.fuel_type || "unknown fuel"}) — matched to{" "}
                 {selectedFactor.report_label}
+              </div>
+            )}
+            {!selectedFactor && !search.trim() && previousRows.length > 0 && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Previously used</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {previousRows.map((item, idx) => (
+                    <button
+                      key={`prev-${item.original_id}-${idx}`}
+                      className="rounded-full border bg-muted/40 px-3 py-1 text-xs hover:bg-muted"
+                      onClick={() => pickQuickFactor(item)}
+                      title={item.last_reporting_year ? `Last used in ${item.last_reporting_year}` : undefined}
+                    >
+                      {item.report_label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!selectedFactor && !search.trim() && topFactors.length > 0 && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Frequently used</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {topFactors.map((item, idx) => (
+                    <button
+                      key={`top-${item.original_id}-${idx}`}
+                      className="rounded-full border bg-muted/40 px-3 py-1 text-xs hover:bg-muted"
+                      onClick={() => pickQuickFactor(item)}
+                    >
+                      {item.report_label}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             <Input
@@ -375,20 +512,64 @@ export default function PortalDataEntry() {
                   <th className="p-2 text-right">Qty</th>
                   <th className="p-2 text-left">Unit</th>
                   <th className="p-2 text-left">Status</th>
+                  <th className="p-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => {
                   const review = REVIEW_LABEL[row.review_status || "pending_review"];
+                  const isEditing = editingRowId === row.row_id;
+                  const isApproved = row.review_status === "approved";
                   return (
                     <tr key={row.row_id} className="border-b last:border-0">
                       <td className="p-2">{row.report_label || row.original_id}</td>
-                      <td className="p-2 text-right font-mono">{row.qty ?? "-"}</td>
+                      <td className="p-2 text-right font-mono">
+                        {isEditing ? (
+                          <Input
+                            type="number"
+                            value={editQty}
+                            onChange={(e) => setEditQty(e.target.value)}
+                            className="ml-auto h-7 w-24 text-right"
+                          />
+                        ) : (
+                          row.qty ?? "-"
+                        )}
+                      </td>
                       <td className="p-2">{row.uom || "-"}</td>
                       <td className="p-2">
                         <span className={`rounded-full px-2 py-0.5 text-xs ${review.className}`}>{review.label}</span>
                         {row.review_status === "rejected" && row.review_note && (
                           <div className="mt-1 text-xs text-muted-foreground">{row.review_note}</div>
+                        )}
+                      </td>
+                      <td className="p-2 text-right">
+                        {isApproved ? (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        ) : isEditing ? (
+                          <div className="flex items-center justify-end gap-2">
+                            <Button size="sm" variant="outline" disabled={rowActionSaving || !editQty.trim()} onClick={() => void saveRowEdit(row.row_id)}>
+                              Save
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => { setEditingRowId(null); setEditQty(""); }}>
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-end gap-3 text-xs">
+                            <button
+                              className="text-primary hover:underline"
+                              onClick={() => { setEditingRowId(row.row_id); setEditQty(row.qty !== null && row.qty !== undefined ? String(row.qty) : ""); }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="text-rose-700 hover:underline disabled:opacity-50"
+                              disabled={rowActionSaving}
+                              onClick={() => void deleteRow(row.row_id)}
+                            >
+                              Delete
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -401,7 +582,7 @@ export default function PortalDataEntry() {
                     <td className="p-2 text-right" colSpan={1}>Total</td>
                     <td className="p-2 text-right font-mono">{total.toLocaleString()}</td>
                     <td className="p-2">{uom}</td>
-                    <td className="p-2" />
+                    <td className="p-2" colSpan={2} />
                   </tr>
                 ))}
               </tfoot>

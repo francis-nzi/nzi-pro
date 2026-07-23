@@ -48,6 +48,7 @@ type FactorBrowserCardProps = {
   getActionProps: (factor: FactorBrowserFactor) => ActionProps;
   onSelectFactor: (factor: FactorBrowserFactor) => void;
   isFactorSelected?: (factor: FactorBrowserFactor) => boolean;
+  frequentFactors?: FactorBrowserFactor[];
   emptyMessage?: string;
   searchPlaceholder?: string;
   listMaxHeightClassName?: string;
@@ -75,6 +76,7 @@ export default function FactorBrowserCard({
   getActionProps,
   onSelectFactor,
   isFactorSelected,
+  frequentFactors = [],
   emptyMessage = "No factors found. Try adjusting your search or filters.",
   searchPlaceholder = "Search by label, category, or ID...",
   listMaxHeightClassName = "max-h-96",
@@ -99,6 +101,23 @@ export default function FactorBrowserCard({
               }}
             />
           </div>
+          {!factorSearchQuery.trim() && frequentFactors.length > 0 && (
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Frequently used</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {frequentFactors.map((factor, index) => (
+                  <button
+                    key={`frequent-${factor.original_id}-${index}`}
+                    type="button"
+                    className="rounded-full border bg-muted/40 px-3 py-1 text-xs hover:bg-muted"
+                    onClick={() => onSelectFactor(factor)}
+                  >
+                    {factor.report_label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] xl:items-end">
             <div className="min-w-0">
               <Label htmlFor={`${title.replace(/\s+/g, "-").toLowerCase()}-scope`}>Scope</Label>

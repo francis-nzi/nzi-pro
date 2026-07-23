@@ -16,6 +16,7 @@ from api.job_data_output_routes import _build_scope_summary, _load_data_output_r
 from services.audit_log import ensure_audit_log_table, fetch_row_dict, parse_json_text, record_audit_event
 from services.dataset_selector import get_scope_primary_datasets
 from services.monthly_emissions import JobMonthlyEmissionsResolver
+from services.portal_data_entry import get_top_factors_for_categories
 from services.td_electricity_pairing import detect_electricity_pair_kind, resolve_td_pair_for_new_row
 
 router = APIRouter()
@@ -2822,6 +2823,26 @@ def get_template_factors_test(job_id: int):
     """Simple test endpoint without authentication"""
     logger.debug("TEST ENDPOINT CALLED for job_id=%s", job_id)
     return {"test": "success", "job_id": job_id}
+
+@router.get("/jobs/{job_id}/template-factors/top")
+def get_top_template_factors(
+    job_id: int,
+    category: str = Query(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Most-used factors in the given category -- this job's own client's
+    usage first, falling back to the most-used across all clients. Shown as
+    a quick-pick above the search box so staff don't have to search for the
+    same handful of recurring factors every time."""
+    with get_conn() as con:
+        _ensure_job_scope_rows_schema(con)
+        job_row = con.execute("SELECT client_db_id FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
+        if not job_row:
+            raise HTTPException(status_code=404, detail="Job not found")
+        client_db_id = _safe_int(job_row[0])
+        items = get_top_factors_for_categories(con, client_db_id, [category.strip()])
+    return {"job_id": int(job_id), "category": category, "items": items}
+
 
 @router.get("/jobs/{job_id}/template-factors")
 def get_template_factors(
