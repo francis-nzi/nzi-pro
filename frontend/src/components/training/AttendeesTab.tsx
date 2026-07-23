@@ -935,7 +935,7 @@ export default function AttendeesTab({ jobId, runs, sessions, baseUrl, onRefresh
       </Dialog>
 
       <Dialog open={!!emailTarget} onOpenChange={(o) => !o && closeParticipantEmail()}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        <DialogContent className="max-h-[90vh] w-[min(98vw,1600px)] max-w-none overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Mail className="h-4 w-4 text-emerald-600" />
