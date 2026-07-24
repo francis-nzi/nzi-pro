@@ -90,12 +90,17 @@ def portal_commuting_list_rows(current_user: dict = Depends(portal_user_dep)):
         _ensure_emission_register_schema(con)
         job_id = _resolve_job_or_404(con, client_db_id)
         job_summary = get_job_summary(con, job_id)
+        # enabled=FALSE covers both a brand new pending submission (by design,
+        # see services/portal_data_entry.py) and a row the CRM has since
+        # deleted (soft-deleted via enabled=FALSE without touching
+        # review_status) -- only the former should still show here.
         df = con.execute(
             """
             SELECT source_id, employee_name, source_subtype, qty, uom, calc_tco2e,
                    review_status, review_note, notes, created_at
             FROM job_emission_sources
             WHERE job_id = %s AND source_type = 'employee_commuting' AND submitted_by_portal = TRUE
+              AND (enabled = TRUE OR review_status IN ('pending_review', 'rejected'))
             ORDER BY source_id DESC
             """,
             [int(job_id)],

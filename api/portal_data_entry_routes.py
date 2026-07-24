@@ -177,6 +177,12 @@ def portal_data_entry_list_rows(
         job_summary = get_job_summary(con, job_id)
         category_map = load_bucket_category_map(con)
 
+        # enabled=FALSE covers two very different situations: a brand new
+        # portal submission still awaiting review (review_status=
+        # 'pending_review', by design -- see services/portal_data_entry.py),
+        # and a row the CRM has since deleted (DELETE /jobs/{id}/scope-data/
+        # {row_id} soft-deletes via enabled=FALSE without touching
+        # review_status). Only the first should still show here.
         df = con.execute(
             """
             SELECT row_id, site_id, scope, category, report_label, original_id, uom, qty, factor,
@@ -185,6 +191,7 @@ def portal_data_entry_list_rows(
                    review_status, review_note, reviewed_by, reviewed_at, submitted_by_portal, enabled
             FROM job_scope_rows
             WHERE job_id = %s
+              AND (enabled = TRUE OR review_status IN ('pending_review', 'rejected'))
             ORDER BY row_id DESC
             """,
             [int(job_id)],
