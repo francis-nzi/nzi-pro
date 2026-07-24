@@ -29,6 +29,7 @@ from services.audit_log import fetch_row_dict, record_audit_event
 from services.dataset_selector import get_applicable_datasets, get_scope_primary_datasets
 from services.portal_data_entry import get_top_spend_categories
 from services.download_filenames import build_download_filename
+from services.virus_scan import VirusScanError, scan_bytes
 
 router = APIRouter()
 
@@ -1790,6 +1791,10 @@ async def preview_spend_upload(
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Empty upload file")
+    try:
+        scan_bytes(data, filename=file.filename or "upload.csv")
+    except VirusScanError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     with get_conn() as con:
         _ensure_spend_tables(con)
@@ -1880,6 +1885,10 @@ async def commit_spend_upload(
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Empty upload file")
+    try:
+        scan_bytes(data, filename=file.filename or "upload.csv")
+    except VirusScanError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     with get_conn() as con:
         _ensure_spend_tables(con)

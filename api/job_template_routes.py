@@ -15,6 +15,7 @@ from api.job_template_helpers import (
 )
 from core.database import get_conn
 from services.audit_log import record_audit_event
+from services.virus_scan import VirusScanError, scan_bytes
 
 router = APIRouter()
 @router.get("/job-templates")
@@ -180,6 +181,10 @@ async def create_job_template(
 
         contents = await file.read()
         original_filename = file.filename or f"{template_key}.xlsx"
+        try:
+            scan_bytes(contents, filename=original_filename)
+        except VirusScanError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
         with get_conn() as con:
             # Check if template_key already exists
@@ -294,6 +299,10 @@ async def update_job_template(
             # Handle file upload if provided
             if file and file.filename:
                 contents = await file.read()
+                try:
+                    scan_bytes(contents, filename=file.filename)
+                except VirusScanError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
                 original_filename = file.filename
                 updates.append("file_path = %s")
                 params.append(original_filename)

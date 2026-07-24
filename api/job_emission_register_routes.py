@@ -13,6 +13,7 @@ from openpyxl import load_workbook
 from services.business_travel_upload_template import generate_business_travel_upload_template
 from services.emission_register_template import build_emission_register_workbook
 from services.audit_log import record_audit_event
+from services.virus_scan import VirusScanError, scan_bytes
 
 router = APIRouter()
 
@@ -1004,6 +1005,10 @@ async def import_emission_register_workbook(
         content = await file.read()
         if not content:
             raise HTTPException(status_code=400, detail="Empty workbook upload")
+        try:
+            scan_bytes(content, filename=file.filename)
+        except VirusScanError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
         workbook = load_workbook(io.BytesIO(content), data_only=True)
         if "Groups" not in workbook.sheetnames or "Sources" not in workbook.sheetnames:

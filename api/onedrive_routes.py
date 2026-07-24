@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from api.auth import _current_user
 from api.permissions import require_permission
 from services.permissions import ADMIN_ACCESS_PERMISSION
+from services.virus_scan import VirusScanError, scan_bytes
 
 router = APIRouter(
     prefix="/admin/storage/onedrive",
@@ -246,6 +247,10 @@ async def onedrive_upload(
             status_code=400,
             detail="File too large for simple upload (>4MB). Implement upload sessions for larger files.",
         )
+    try:
+        scan_bytes(content, filename=filename)
+    except VirusScanError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     target = f"{drive_base}/root:{encoded}:/content"
     meta = _graph_request("PUT", target, token, body=content, content_type="application/octet-stream")

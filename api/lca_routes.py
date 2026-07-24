@@ -12,6 +12,7 @@ from api.auth import _current_user
 from api.permissions import assert_job_access, assert_permission
 from core.database import get_conn
 from services.lca_engine import apply_scenario_multipliers, compute_readiness, safe_float, summarize_assessment
+from services.virus_scan import VirusScanError, scan_bytes
 
 router = APIRouter(tags=["lca"])
 
@@ -1382,6 +1383,10 @@ async def upload_bom_file(
         raw = await file.read()
         if not raw:
             raise HTTPException(status_code=400, detail="Uploaded file is empty")
+        try:
+            scan_bytes(raw, filename=file.filename)
+        except VirusScanError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         if filename.endswith(".csv"):
             df = pd.read_csv(io.BytesIO(raw))
         elif filename.endswith((".xlsx", ".xlsm", ".xls")):

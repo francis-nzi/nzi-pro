@@ -23,6 +23,7 @@ from core.database import get_conn
 from services.permissions import ADMIN_ACCESS_PERMISSION
 from api.admin_routes import _ensure_legacy_cleanup_schema
 from api.admin_legacy_helpers import _resolve_job_reference
+from services.virus_scan import VirusScanError, scan_bytes
 
 router = APIRouter(
     prefix="/admin",
@@ -46,6 +47,10 @@ async def legacy_annual_preview(
         raw = await file.read()
         if not raw:
             raise HTTPException(status_code=400, detail="Empty upload")
+        try:
+            scan_bytes(raw, filename=file.filename)
+        except VirusScanError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         with get_conn() as con:
             resolved_job_id, resolved_job_number = _resolve_job_reference(con, job_id)
         parsed = parse_legacy_annual_workbook(raw)
@@ -239,6 +244,10 @@ async def preview_attribute_overrides(
         raw = await file.read()
         if not raw:
             raise HTTPException(status_code=400, detail="Empty upload")
+        try:
+            scan_bytes(raw, filename=file.filename)
+        except VirusScanError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         return parse_override_workbook(raw, filename=str(file.filename))
     except HTTPException:
         raise
@@ -367,6 +376,13 @@ async def upload_wfm_source_files(
             payload = await upload.read()
             if not payload:
                 rejected_files.append(f"{original_name}: empty file")
+                continue
+            try:
+                # clamd scans inside zip archives by default, so this one
+                # call covers both the plain-CSV and .zip branches below.
+                scan_bytes(payload, filename=original_name)
+            except VirusScanError as e:
+                rejected_files.append(f"{original_name}: {e}")
                 continue
 
             if lower_name.endswith(".zip"):

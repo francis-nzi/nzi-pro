@@ -27,6 +27,7 @@ from api.client_management_helpers import _list_sites
 from services.audit_log import record_audit_event
 from services.client_benchmark import ensure_client_benchmark_columns
 from services.tenancy import require_org
+from services.virus_scan import VirusScanError, scan_bytes
 from api.org_admin_helpers import _require_org_plan_active
 
 router = APIRouter()
@@ -801,6 +802,10 @@ async def job_excel_upload(
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Empty upload")
+    try:
+        scan_bytes(raw, filename=filename)
+    except VirusScanError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     errors: list[str] = []
     warnings: list[str] = []

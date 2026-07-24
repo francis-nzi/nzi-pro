@@ -19,6 +19,7 @@ from core.database import get_conn
 from services.company_profile import company_address_html, company_footer_text, get_company_profile
 from services.messaging_templates import build_email_content, get_user_signature_html
 from services.outbound_email import list_outbound_emails, send_tracked_email
+from services.virus_scan import VirusScanError, scan_bytes
 from api.job_files_routes import _read_job_file_bytes
 from api.crm_timeline_routes import _lookup_assignee_email, _send_task_assignment_email
 from reportlab.lib import colors
@@ -1385,6 +1386,10 @@ async def send_job_communication_email(
         raw = await uf.read()
         if not raw:
             continue
+        try:
+            scan_bytes(raw, filename=uf.filename)
+        except VirusScanError as e:
+            raise HTTPException(status_code=400, detail=f"Attachment {uf.filename!r}: {e}")
         mime = str(uf.content_type or "application/octet-stream")
         attachments.append({"bytes": raw, "filename": uf.filename, "mime": mime})
 

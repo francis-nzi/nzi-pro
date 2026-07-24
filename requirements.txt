@@ -31,3 +31,6 @@ python-multipart==0.0.20
 # Phase 1: Async PDF Generation
 rq==1.16.1
 redis==5.0.1
+
+# Upload virus scanning (talks to a clamd daemon -- see services/virus_scan.py)
+clamd==1.0.2

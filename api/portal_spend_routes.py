@@ -39,6 +39,7 @@ from services.portal_data_entry import (
     get_top_spend_categories,
     resolve_current_job_for_client,
 )
+from services.virus_scan import VirusScanError, scan_bytes
 from services.spend_line_matching import suggest_spend_lines
 
 logger = logging.getLogger(__name__)
@@ -150,6 +151,10 @@ async def portal_spend_upload_preview(
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Empty upload file")
+    try:
+        scan_bytes(data, filename=file.filename or "upload.csv")
+    except VirusScanError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     with get_conn() as con:
         _ensure_spend_tables(con)
         df = _parse_upload(data, file.filename or "upload.csv")
@@ -166,6 +171,10 @@ async def portal_spend_upload_commit(
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Empty upload file")
+    try:
+        scan_bytes(data, filename=file.filename or "upload.csv")
+    except VirusScanError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     with get_conn() as con:
         _ensure_spend_tables(con)

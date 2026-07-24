@@ -26,6 +26,7 @@ from api.onedrive_routes import (
     _joined_remote_path,
 )
 from core.database import get_conn
+from services.virus_scan import VirusScanError, scan_bytes
 
 router = APIRouter()
 
@@ -240,6 +241,10 @@ def _save_uploaded_file(file: UploadFile, job_id: int, file_type: str, storage_f
     contents = file.file.read()
     if not contents:
         raise HTTPException(status_code=400, detail="Cannot upload empty file")
+    try:
+        scan_bytes(contents, filename=file.filename or "unknown")
+    except VirusScanError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     storage_name = _safe_storage_filename(job_id, file.filename or "unknown")
     mime_type = _mime_type_for_filename(file.filename or "unknown")

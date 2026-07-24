@@ -37,6 +37,7 @@ from services.dataset_selector import get_applicable_datasets, get_scope_primary
 from services.download_filenames import build_download_filename
 from services.vehicle_categorization import categorize_vehicle
 from services.vehicle_lookup import lookup_vehicle_by_registration
+from services.virus_scan import VirusScanError, scan_bytes
 
 router = APIRouter()
 
@@ -1789,6 +1790,10 @@ async def preview_employee_commuting_upload(
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Empty upload")
+    try:
+        scan_bytes(raw, filename=file.filename)
+    except VirusScanError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     with get_conn() as con:
         _ensure_job_scope_rows_schema(con)
@@ -1820,6 +1825,10 @@ async def commit_employee_commuting_upload(
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Empty upload")
+    try:
+        scan_bytes(raw, filename=file.filename)
+    except VirusScanError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     # Run DDL migrations in a separate autocommit connection so they cannot
     # abort the transactional block below (PostgreSQL marks a transaction as

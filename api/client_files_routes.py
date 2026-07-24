@@ -13,6 +13,7 @@ from api.job_files_routes import (
     _onedrive_upload_bytes,
 )
 from core.database import get_conn
+from services.virus_scan import VirusScanError, scan_bytes
 
 router = APIRouter()
 
@@ -73,6 +74,10 @@ def _save_client_upload(file: UploadFile, client_id: int) -> tuple[dict, str]:
     contents = file.file.read()
     if not contents:
         raise HTTPException(status_code=400, detail="Cannot upload empty file")
+    try:
+        scan_bytes(contents, filename=file.filename or "unknown")
+    except VirusScanError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     storage_name = _safe_client_filename(client_id, file.filename or "unknown")
     mime_type = _mime_type_for_filename(file.filename or "unknown")
     if _onedrive_enabled():

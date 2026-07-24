@@ -12,6 +12,7 @@ from services.company_profile import (
     company_profile_metadata,
     get_company_profile,
 )
+from services.virus_scan import VirusScanError, scan_bytes
 
 router = APIRouter(prefix="/system-settings", tags=["system-settings"])
 
@@ -250,6 +251,10 @@ async def upload_nzi_logo(
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
     if len(raw) > (5 * 1024 * 1024):
         raise HTTPException(status_code=400, detail="Logo exceeds 5MB limit")
+    try:
+        scan_bytes(raw, filename=file.filename or "logo.png")
+    except VirusScanError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     # Save file (best effort for local/dev convenience)
     filename = f"nzi-logo{ext}"

@@ -16,6 +16,7 @@ from services.pdf_generation_queue import get_pdf_queue
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
 from services.tenancy import require_org, get_current_org_context, run_with_org_context
+from services.virus_scan import VirusScanError, scan_bytes
 from api.admin_dataset_import_helpers import _ingest_csv_report_for_dataset, _preview_csv_report_for_dataset
 from ingest_conversion_factors import DatasetReplacementBlocked, ingest_workbook_with_report
 from pathlib import Path
@@ -630,8 +631,13 @@ async def preview_dataset_factors(
             if not dataset_row:
                 raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
 
+        content = await file.read()
+        try:
+            scan_bytes(content, filename=file.filename or "upload.csv")
+        except VirusScanError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
         with tempfile.NamedTemporaryFile(mode='wb', suffix='.csv', delete=False) as tmp_file:
-            content = await file.read()
             tmp_file.write(content)
             tmp_path = Path(tmp_file.name)
 
@@ -683,11 +689,16 @@ async def upload_dataset_factors(
                 raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
         
         # Save uploaded file to temporary location
+        content = await file.read()
+        try:
+            scan_bytes(content, filename=file.filename or "upload.csv")
+        except VirusScanError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
         with tempfile.NamedTemporaryFile(mode='wb', suffix='.csv', delete=False) as tmp_file:
-            content = await file.read()
             tmp_file.write(content)
             tmp_path = Path(tmp_file.name)
-        
+
         try:
             current_org_id = get_current_org_context()
             report = await run_in_threadpool(
@@ -752,8 +763,13 @@ async def import_conversion_factors_workbook(
         if not file.filename or not str(file.filename).lower().endswith(".xlsx"):
             raise HTTPException(status_code=400, detail="Only .xlsx files are supported")
 
+        content = await file.read()
+        try:
+            scan_bytes(content, filename=file.filename)
+        except VirusScanError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
         with tempfile.NamedTemporaryFile(mode="wb", suffix=".xlsx", delete=False) as tmp_file:
-            content = await file.read()
             tmp_file.write(content)
             tmp_path = Path(tmp_file.name)
 

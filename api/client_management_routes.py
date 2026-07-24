@@ -21,6 +21,7 @@ from services.audit_log import fetch_row_dict, record_audit_event
 from services.client_benchmark import ensure_client_benchmark_columns
 from services.client_context_columns import ensure_client_context_columns
 from services.tenancy import require_org
+from services.virus_scan import VirusScanError, scan_bytes
 from api.org_admin_helpers import _require_org_capacity
 
 router = APIRouter()
@@ -229,6 +230,10 @@ async def upload_client_logo(
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
     if len(raw) > (5 * 1024 * 1024):
         raise HTTPException(status_code=400, detail="Logo exceeds 5MB limit")
+    try:
+        scan_bytes(raw, filename=file.filename or "logo.png")
+    except VirusScanError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     target_path, logo_url = _client_logo_upload_path(client_db_id, file.filename or "logo.png", file.content_type)
     target_path.parent.mkdir(parents=True, exist_ok=True)

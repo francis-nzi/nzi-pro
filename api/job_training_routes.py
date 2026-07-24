@@ -28,6 +28,7 @@ from services.company_profile import company_footer_text, get_company_profile
 from services.messaging_templates import build_email_content, render_template_text
 from services.outbound_email import send_tracked_email
 from services.tenancy import require_org
+from services.virus_scan import VirusScanError, scan_bytes
 
 router = APIRouter(tags=["job-training"])
 
@@ -3590,6 +3591,10 @@ async def upload_training_document_file(
     original = file.filename or "document"
     ext = Path(original).suffix.lower()[:10]  # guard against long extensions
     content = await file.read()
+    try:
+        scan_bytes(content, filename=original)
+    except VirusScanError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     safe_stem = _sanitize_storage_stem(original)
     unique_name = f"{uuid.uuid4().hex[:8]}_{safe_stem}{ext}"
 
