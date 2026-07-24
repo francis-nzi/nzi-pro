@@ -100,7 +100,10 @@ def portal_spend_list_rows(current_user: dict = Depends(portal_user_dep)):
         ).df()
     if df is None or df.empty:
         return {"job_id": job_id, "rows": [], **job_summary}
-    df = df.where(df.notna(), None)
+    # astype(object) first -- see api/portal_data_entry_routes.py for why the
+    # plain df.where(df.notna(), None) is a no-op on float64 columns and
+    # breaks JSON serialization for rows with a null numeric field.
+    df = df.astype(object).where(df.notna(), None)
     rows = [{k: row.get(k) for k in row.index} for _, row in df.iterrows()]
     for r in rows:
         if r.get("created_at") is not None:

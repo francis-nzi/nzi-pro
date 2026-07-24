@@ -230,7 +230,10 @@ def get_previous_bucket_rows(
     ).df()
     if df is None or df.empty:
         return []
-    df = df.where(df.notna(), None)
+    # astype(object) first -- see api/portal_data_entry_routes.py for why the
+    # plain df.where(df.notna(), None) is a no-op on float64 columns and
+    # breaks JSON serialization for rows with a null qty.
+    df = df.astype(object).where(df.notna(), None)
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
     for _, r in df.iterrows():

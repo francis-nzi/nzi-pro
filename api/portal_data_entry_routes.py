@@ -168,7 +168,12 @@ def portal_data_entry_list_rows(
     if df is None or df.empty:
         return {"job_id": job_id, "bucket_key": bucket_key, "rows": [], **job_summary}
 
-    df = df.where(df.notna(), None)
+    # astype(object) first -- df.where(df.notna(), None) alone is a no-op on
+    # float64 columns (pandas silently recasts the None back to NaN), which
+    # then blows up JSON serialization ("Out of range float values are not
+    # JSON compliant: nan") for any row with a null numeric column (qty,
+    # factor, calc_tco2e, month_1..12 are all nullable).
+    df = df.astype(object).where(df.notna(), None)
     rows = []
     for _, row in df.iterrows():
         row_dict = {k: row.get(k) for k in row.index}

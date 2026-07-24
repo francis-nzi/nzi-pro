@@ -102,7 +102,10 @@ def portal_commuting_list_rows(current_user: dict = Depends(portal_user_dep)):
         ).df()
     if df is None or df.empty:
         return {"job_id": job_id, "rows": [], **job_summary}
-    df = df.where(df.notna(), None)
+    # astype(object) first -- see api/portal_data_entry_routes.py for why the
+    # plain df.where(df.notna(), None) is a no-op on float64 columns and
+    # breaks JSON serialization for rows with a null qty/calc_tco2e.
+    df = df.astype(object).where(df.notna(), None)
     rows = []
     for _, r in df.iterrows():
         row = {k: r.get(k) for k in r.index}
