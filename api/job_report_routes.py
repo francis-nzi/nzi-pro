@@ -1436,7 +1436,12 @@ def _records_from_df(df):
     if df is None or getattr(df, "empty", True):
         return []
     try:
-        return df.where(df.notna(), None).to_dict("records")
+        # astype(object) first -- df.where(df.notna(), None) alone is a
+        # no-op on float64 columns (pandas recasts None back to NaN), which
+        # leaves a raw NaN on any nullable numeric column (e.g. factor_db_id)
+        # that isn't re-sanitized downstream -- see api/portal_data_entry_routes.py
+        # for the JSON-serialization crash this caused in the portal.
+        return df.astype(object).where(df.notna(), None).to_dict("records")
     except Exception:
         logger.debug("Failed to load job sites; returning empty list", exc_info=True)
         return []
