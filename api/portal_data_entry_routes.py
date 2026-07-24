@@ -61,6 +61,31 @@ def portal_data_entry_buckets(current_user: dict = Depends(portal_user_dep)):
     return {"buckets": [{"bucket_key": key, "label": BUCKET_LABELS[key]} for key in BUCKET_KEYS]}
 
 
+@router.get("/portal/data-entry/sites")
+def portal_data_entry_sites(current_user: dict = Depends(portal_user_dep)):
+    """Sites this portal user can attribute a Data Entry row to -- every
+    row now requires a site (see job_scope_rows_job_site_scope_active_uidx:
+    the CRM can only have one *approved* row per site+scope+factor, so
+    consolidating duplicate submissions before approval depends on the
+    client having actually picked a site up front)."""
+    client_db_id = int(current_user["client_db_id"])
+    site_ids = current_user.get("site_ids")
+    with get_conn() as con:
+        rows = con.execute(
+            """
+            SELECT site_id, site_name
+            FROM client_sites
+            WHERE client_db_id = %s AND COALESCE(archived, FALSE) = FALSE
+            ORDER BY site_name
+            """,
+            [client_db_id],
+        ).fetchall()
+    sites = [{"site_id": int(r[0]), "site_name": r[1]} for r in rows]
+    if site_ids is not None:
+        sites = [s for s in sites if s["site_id"] in site_ids]
+    return {"sites": sites}
+
+
 @router.get("/portal/data-entry/{bucket_key}/factors")
 def portal_data_entry_factors(
     bucket_key: str,
@@ -203,12 +228,10 @@ def portal_data_entry_create_row(
     if not scope or not original_id:
         raise HTTPException(status_code=400, detail="scope and original_id are required")
 
-    site_id = payload.get("site_id")
-    if site_id is not None:
-        try:
-            site_id = int(site_id)
-        except (ValueError, TypeError):
-            site_id = None
+    try:
+        site_id = int(payload.get("site_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="site_id is required")
     site_ids = current_user.get("site_ids")
     if site_ids is not None and site_id not in site_ids:
         raise HTTPException(status_code=403, detail="Not one of your assigned sites")
@@ -229,14 +252,13 @@ def portal_data_entry_create_row(
                 detail=f"That category doesn't belong under {BUCKET_LABELS[bucket_key]}",
             )
 
-        # Verify the site (if any) really belongs to this client before attaching a row to it.
-        if site_id is not None:
-            site_row = con.execute(
-                "SELECT 1 FROM client_sites WHERE site_id = %s AND client_db_id = %s",
-                [int(site_id), client_db_id],
-            ).fetchone()
-            if not site_row:
-                raise HTTPException(status_code=400, detail="Site not found for this account")
+        # Verify the site really belongs to this client before attaching a row to it.
+        site_row = con.execute(
+            "SELECT 1 FROM client_sites WHERE site_id = %s AND client_db_id = %s",
+            [int(site_id), client_db_id],
+        ).fetchone()
+        if not site_row:
+            raise HTTPException(status_code=400, detail="Site not found for this account")
 
         final_dataset_id, final_factor_db_id, final_factor, final_ghg_unit = (
             _resolve_scope_row_factor_for_creation(con, job_id, scope, original_id, payload)

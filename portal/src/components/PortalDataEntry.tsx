@@ -20,6 +20,8 @@ import PortalCommutingTab from "@/components/PortalCommutingTab";
 
 type Bucket = { bucket_key: string; label: string };
 
+type Site = { site_id: number; site_name: string | null };
+
 type FactorOption = {
   scope: string | null;
   category: string | null;
@@ -109,6 +111,14 @@ export default function PortalDataEntry() {
   const [qty, setQty] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Every row is now attributed to a site -- the CRM can only ever have one
+  // *approved* row per site+scope+factor, so knowing the site up front is
+  // what lets duplicate submissions be grouped and consolidated before
+  // approval instead of silently colliding.
+  const [sites, setSites] = useState<Site[]>([]);
+  const [sitesLoaded, setSitesLoaded] = useState(false);
+  const [selectedSiteId, setSelectedSiteId] = useState("");
+
   const [previousRows, setPreviousRows] = useState<PreviousRow[]>([]);
   const [topFactors, setTopFactors] = useState<TopFactor[]>([]);
 
@@ -131,6 +141,12 @@ export default function PortalDataEntry() {
         if (d.buckets?.length) setActiveBucket(d.buckets[0].bucket_key);
       })
       .catch(() => setError("Failed to load data entry categories."));
+
+    apiFetch("/portal/data-entry/sites")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d: { sites: Site[] }) => setSites(d.sites || []))
+      .catch(() => setSites([]))
+      .finally(() => setSitesLoaded(true));
   }, []);
 
   const isComingSoon = COMING_SOON_BUCKETS.some((b) => b.bucket_key === activeBucket);
@@ -145,6 +161,7 @@ export default function PortalDataEntry() {
     setFactorOptions([]);
     setSelectedFactor(null);
     setQty("");
+    setSelectedSiteId("");
     setRegNumber("");
     setRegLookupError("");
     setRegLookupVehicle(null);
@@ -245,7 +262,7 @@ export default function PortalDataEntry() {
   }
 
   async function submitRow() {
-    if (!selectedFactor || !qty.trim()) return;
+    if (!selectedFactor || !qty.trim() || !selectedSiteId) return;
     setSaving(true);
     setError("");
     try {
@@ -259,12 +276,14 @@ export default function PortalDataEntry() {
           report_label: selectedFactor.report_label,
           uom: selectedFactor.uom,
           qty: Number(qty),
+          site_id: Number(selectedSiteId),
         }),
       });
       if (res.ok) {
         setShowAdd(false);
         setSelectedFactor(null);
         setQty("");
+        setSelectedSiteId("");
         setSearch("");
         setFactorOptions([]);
         setRegLookupVehicle(null);
@@ -395,6 +414,27 @@ export default function PortalDataEntry() {
       {!isComingSoon && !isSpendTab && !isCommutingTab && !noJobMessage && !dataEntryExpired && showAdd && (
         <Card>
           <CardContent className="space-y-3 pt-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Site</label>
+              {sitesLoaded && sites.length === 0 ? (
+                <div className="text-xs text-rose-700">
+                  No sites are set up for your account yet — contact your NZI consultant before submitting data.
+                </div>
+              ) : (
+                <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={sitesLoaded ? "Select a site…" : "Loading sites…"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sites.map((site) => (
+                      <SelectItem key={site.site_id} value={String(site.site_id)}>
+                        {site.site_name || `Site #${site.site_id}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
             {isVehicleBucket && !selectedFactor && (
               <div className="space-y-2 rounded-md border bg-muted/30 p-3">
                 <label className="text-xs font-medium text-muted-foreground">
@@ -504,10 +544,13 @@ export default function PortalDataEntry() {
                   <label className="text-xs text-muted-foreground">Quantity ({selectedFactor.uom || "units"}, annual total)</label>
                   <Input type="number" value={qty} onChange={(e) => setQty(e.target.value)} />
                 </div>
-                <Button disabled={saving || !qty.trim()} onClick={() => void submitRow()}>
+                <Button disabled={saving || !qty.trim() || !selectedSiteId} onClick={() => void submitRow()}>
                   {saving ? "Submitting..." : "Submit"}
                 </Button>
               </div>
+            )}
+            {selectedFactor && !selectedSiteId && (
+              <div className="text-xs text-rose-700">Select a site above before submitting.</div>
             )}
           </CardContent>
         </Card>

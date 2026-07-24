@@ -2263,13 +2263,15 @@ def list_pending_review_rows(
             _ensure_job_scope_rows_schema(con)
             df = con.execute(
                 """
-                SELECT row_id, site_id, scope, category, report_label, original_id, uom, qty, factor,
-                       month_1, month_2, month_3, month_4, month_5, month_6,
-                       month_7, month_8, month_9, month_10, month_11, month_12,
-                       review_status, review_note, created_at
-                FROM job_scope_rows
-                WHERE job_id = %s AND submitted_by_portal = TRUE AND review_status IN ('pending_review', 'rejected')
-                ORDER BY created_at DESC
+                SELECT r.row_id, r.site_id, cs.site_name, r.scope, r.category, r.report_label, r.original_id,
+                       r.uom, r.qty, r.factor,
+                       r.month_1, r.month_2, r.month_3, r.month_4, r.month_5, r.month_6,
+                       r.month_7, r.month_8, r.month_9, r.month_10, r.month_11, r.month_12,
+                       r.review_status, r.review_note, r.created_at
+                FROM job_scope_rows r
+                LEFT JOIN client_sites cs ON cs.site_id = r.site_id
+                WHERE r.job_id = %s AND r.submitted_by_portal = TRUE AND r.review_status IN ('pending_review', 'rejected')
+                ORDER BY r.created_at DESC
                 """,
                 [int(job_id)],
             ).df()
@@ -2280,6 +2282,108 @@ def list_pending_review_rows(
             return {"job_id": int(job_id), "rows": rows}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list pending review rows: {e}")
+
+
+@router.post("/jobs/{job_id}/scope-data/consolidate")
+def consolidate_pending_scope_rows(
+    request: Request,
+    job_id: int,
+    payload: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Sum a group of duplicate client-portal submissions (same site + scope
+    + factor, all still pending_review) into one row, deleting the rest.
+
+    job_scope_rows only allows one *approved* row per site+scope+factor
+    (job_scope_rows_job_site_scope_active_uidx) -- a client can freely
+    submit several entries for the same site+type (e.g. one per fill-up),
+    but only one of them can ever become the real reported row, so this is
+    the step that turns N pending duplicates into the single row the CRM
+    can actually approve."""
+    row_ids = payload.get("row_ids")
+    if not isinstance(row_ids, list) or len(row_ids) < 2:
+        raise HTTPException(status_code=400, detail="row_ids must be a list of at least 2 row IDs")
+    try:
+        row_ids = [int(r) for r in row_ids]
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="row_ids must be integers")
+
+    try:
+        with get_conn() as con:
+            _ensure_job_scope_rows_schema(con)
+            rows = con.execute(
+                """
+                SELECT row_id, site_id, scope, original_id, qty,
+                       month_1, month_2, month_3, month_4, month_5, month_6,
+                       month_7, month_8, month_9, month_10, month_11, month_12
+                FROM job_scope_rows
+                WHERE job_id = %s AND row_id = ANY(%s)
+                  AND submitted_by_portal = TRUE AND review_status = 'pending_review'
+                """,
+                [int(job_id), row_ids],
+            ).fetchall()
+            if len(rows) != len(row_ids):
+                raise HTTPException(
+                    status_code=404,
+                    detail="One or more rows weren't found, were already reviewed, or aren't eligible for consolidation",
+                )
+
+            site_scope_original = {(r[1], r[2], r[3]) for r in rows}
+            if len(site_scope_original) != 1:
+                raise HTTPException(status_code=400, detail="All rows must share the same site, scope and factor")
+
+            rows_sorted = sorted(rows, key=lambda r: r[0])
+            primary_row_id = int(rows_sorted[0][0])
+            total_qty = sum(float(r[4] or 0) for r in rows)
+            month_totals = [sum(float(r[i] or 0) for r in rows) for i in range(5, 17)]
+            # Only carry a monthly breakdown if at least one contributing row
+            # actually had one -- otherwise leave months untouched (NULL)
+            # like any other annual-total row, rather than backfilling zeros
+            # nobody entered.
+            any_monthly = any(r[i] is not None for r in rows for i in range(5, 17))
+
+            before_snapshot = _job_scope_row_snapshot(con, int(job_id), primary_row_id)
+
+            if any_monthly:
+                con.execute(
+                    """
+                    UPDATE job_scope_rows
+                    SET qty = %s,
+                        month_1=%s, month_2=%s, month_3=%s, month_4=%s, month_5=%s, month_6=%s,
+                        month_7=%s, month_8=%s, month_9=%s, month_10=%s, month_11=%s, month_12=%s,
+                        updated_at = NOW()
+                    WHERE row_id = %s
+                    """,
+                    [total_qty, *month_totals, primary_row_id],
+                )
+            else:
+                con.execute(
+                    "UPDATE job_scope_rows SET qty = %s, updated_at = NOW() WHERE row_id = %s",
+                    [total_qty, primary_row_id],
+                )
+
+            other_row_ids = [int(r[0]) for r in rows_sorted[1:]]
+            con.execute("DELETE FROM job_scope_rows WHERE row_id = ANY(%s)", [other_row_ids])
+
+            after_snapshot = _job_scope_row_snapshot(con, int(job_id), primary_row_id)
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="update",
+                entity_type="job_scope_row",
+                entity_id=primary_row_id,
+                job_id=int(job_id),
+                before=before_snapshot,
+                after=after_snapshot,
+                metadata={"consolidated_row_ids": other_row_ids, "reason": "portal_submission_consolidation"},
+            )
+
+            return {"ok": True, "row_id": primary_row_id, "removed_row_ids": other_row_ids, "total_qty": total_qty}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to consolidate rows: {e}")
 
 
 @router.patch("/jobs/{job_id}/scope-data/{row_id}")

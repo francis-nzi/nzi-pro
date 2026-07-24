@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 type PendingRow = {
   row_id: number;
   site_id: number | null;
+  site_name: string | null;
   scope: string | null;
   category: string | null;
   report_label: string | null;
@@ -26,12 +27,21 @@ type Props = {
   onReviewed?: () => void;
 };
 
+// Rows submitted for the same site+scope+factor combo can only ever
+// produce one *approved* job_scope_rows entry (job_scope_rows_job_site_scope_active_uidx),
+// so pending duplicates need to be summed into one before any of them can
+// be approved. This key identifies that group.
+function groupKey(row: PendingRow): string {
+  return `${row.site_id ?? "none"}|${row.scope ?? ""}|${row.original_id ?? ""}`;
+}
+
 export default function PendingPortalSubmissions({ jobId, baseUrl, onReviewed }: Props) {
   const [rows, setRows] = useState<PendingRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyRowId, setBusyRowId] = useState<number | null>(null);
   const [notes, setNotes] = useState<Record<number, string>>({});
   const [rejectingRowId, setRejectingRowId] = useState<number | null>(null);
+  const [consolidatingKey, setConsolidatingKey] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -72,7 +82,33 @@ export default function PendingPortalSubmissions({ jobId, baseUrl, onReviewed }:
     }
   }
 
+  async function consolidate(key: string, rowIds: number[]) {
+    setConsolidatingKey(key);
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data/consolidate`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ row_ids: rowIds }),
+      });
+      if (res.ok) {
+        await load();
+      }
+    } finally {
+      setConsolidatingKey(null);
+    }
+  }
+
   if (!loading && rows.length === 0) return null;
+
+  const pendingGroups = new Map<string, PendingRow[]>();
+  for (const row of rows) {
+    if (row.review_status !== "pending_review") continue;
+    const key = groupKey(row);
+    const existing = pendingGroups.get(key);
+    if (existing) existing.push(row);
+    else pendingGroups.set(key, [row]);
+  }
 
   return (
     <Card className="border-amber-300">
@@ -90,60 +126,89 @@ export default function PendingPortalSubmissions({ jobId, baseUrl, onReviewed }:
         {loading && rows.length === 0 ? (
           <div className="text-sm text-muted-foreground">Loading...</div>
         ) : (
-          rows.map((row) => (
-            <div key={row.row_id} className="rounded-md border p-3 text-sm">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <div className="font-medium">{row.report_label || row.original_id}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {row.scope} &middot; {row.category || "Uncategorized"} &middot; {row.qty ?? "-"} {row.uom || ""}
-                  </div>
-                  {row.review_status === "rejected" && (
-                    <div className="mt-1 text-xs text-rose-700">
-                      Previously rejected: {row.review_note || "no reason given"} (client can still edit and resubmit)
-                    </div>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    disabled={busyRowId === row.row_id}
-                    onClick={() => void review(row.row_id, "approve")}
-                  >
-                    {busyRowId === row.row_id ? "Approving..." : "Approve"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busyRowId === row.row_id}
-                    onClick={() => setRejectingRowId(rejectingRowId === row.row_id ? null : row.row_id)}
-                  >
-                    Reject
-                  </Button>
-                </div>
-              </div>
-              {rejectingRowId === row.row_id && (
-                <div className="mt-2 flex flex-col gap-2">
-                  <Textarea
-                    placeholder="Reason for rejection (shown to the client)"
-                    value={notes[row.row_id] || ""}
-                    onChange={(e) => setNotes((prev) => ({ ...prev, [row.row_id]: e.target.value }))}
-                    className="text-sm"
-                  />
+          rows.map((row) => {
+            const key = groupKey(row);
+            const group = row.review_status === "pending_review" ? pendingGroups.get(key) ?? [row] : [row];
+            const isGrouped = group.length > 1;
+            // The backend keeps the lowest (earliest-created) row_id as the
+            // survivor when consolidating -- anchor the action on that same
+            // row so the button's position matches which row actually stays.
+            const isFirstInGroup = isGrouped && row.row_id === Math.min(...group.map((r) => r.row_id));
+            const groupTotalQty = group.reduce((sum, r) => sum + (r.qty ?? 0), 0);
+            return (
+              <div key={row.row_id} className={`rounded-md border p-3 text-sm ${isGrouped ? "border-blue-200 bg-blue-50/40" : ""}`}>
+                <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
+                    <div className="font-medium">{row.report_label || row.original_id}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {row.site_name || "No site"} &middot; {row.scope} &middot; {row.category || "Uncategorized"} &middot; {row.qty ?? "-"} {row.uom || ""}
+                    </div>
+                    {isGrouped && (
+                      <div className="mt-1 flex items-center gap-2 text-xs text-blue-700">
+                        <span className="rounded-full bg-blue-100 px-2 py-0.5 font-medium">
+                          {group.length} submissions for this site &middot; {groupTotalQty} {row.uom || ""} total
+                        </span>
+                        {isFirstInGroup && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-xs"
+                            disabled={consolidatingKey === key}
+                            onClick={() => void consolidate(key, group.map((r) => r.row_id))}
+                          >
+                            {consolidatingKey === key ? "Consolidating..." : "Consolidate into one row"}
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                    {row.review_status === "rejected" && (
+                      <div className="mt-1 text-xs text-rose-700">
+                        Previously rejected: {row.review_note || "no reason given"} (client can still edit and resubmit)
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
                     <Button
                       size="sm"
-                      variant="destructive"
-                      disabled={busyRowId === row.row_id}
-                      onClick={() => void review(row.row_id, "reject")}
+                      disabled={busyRowId === row.row_id || isGrouped}
+                      title={isGrouped ? "Consolidate this group into one row before approving" : undefined}
+                      onClick={() => void review(row.row_id, "approve")}
                     >
-                      Confirm Rejection
+                      {busyRowId === row.row_id ? "Approving..." : "Approve"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busyRowId === row.row_id}
+                      onClick={() => setRejectingRowId(rejectingRowId === row.row_id ? null : row.row_id)}
+                    >
+                      Reject
                     </Button>
                   </div>
                 </div>
-              )}
-            </div>
-          ))
+                {rejectingRowId === row.row_id && (
+                  <div className="mt-2 flex flex-col gap-2">
+                    <Textarea
+                      placeholder="Reason for rejection (shown to the client)"
+                      value={notes[row.row_id] || ""}
+                      onChange={(e) => setNotes((prev) => ({ ...prev, [row.row_id]: e.target.value }))}
+                      className="text-sm"
+                    />
+                    <div>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        disabled={busyRowId === row.row_id}
+                        onClick={() => void review(row.row_id, "reject")}
+                      >
+                        Confirm Rejection
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
       </CardContent>
     </Card>
