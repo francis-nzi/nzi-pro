@@ -253,6 +253,7 @@ _DEFAULT_NAV_CONFIG = {
     "dashboard": True,
     "portfolio": False,
     "data": True,
+    "data_entry": True,
     "reports": True,
     "actions": True,
     "insights": True,

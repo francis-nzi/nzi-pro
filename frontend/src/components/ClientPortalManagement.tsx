@@ -1156,6 +1156,7 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
     { key: "dashboard", label: "Dashboard" },
     { key: "portfolio", label: "Portfolio" },
     { key: "data",      label: "Data" },
+    { key: "data_entry",label: "Data Entry" },
     { key: "reports",   label: "Reports" },
     { key: "actions",   label: "Actions" },
     { key: "insights",  label: "Insights" },
