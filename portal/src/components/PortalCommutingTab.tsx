@@ -39,6 +39,7 @@ export default function PortalCommutingTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [noJobMessage, setNoJobMessage] = useState("");
+  const [dataEntryExpired, setDataEntryExpired] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
 
@@ -81,12 +82,14 @@ export default function PortalCommutingTab() {
     setLoading(true);
     setError("");
     setNoJobMessage("");
+    setDataEntryExpired(false);
     try {
       const res = await apiFetch("/portal/commuting/rows");
       if (res.ok) {
         const d = await res.json();
         setRows(d.rows || []);
         setJobNumber(d.job_number || null);
+        setDataEntryExpired(Boolean(d.portal_data_entry_expired));
       } else if (res.status === 404) {
         const d = await res.json().catch(() => ({}));
         setNoJobMessage(d?.detail || "No open job found for this account yet — contact your NZI consultant.");
@@ -231,14 +234,23 @@ export default function PortalCommutingTab() {
       {error && <ErrorPanel description={error} />}
       {noJobMessage && <EmptyStatePanel title="Not available yet for this account" description={noJobMessage} />}
 
+      {!noJobMessage && dataEntryExpired && (
+        <EmptyStatePanel
+          title="Data entry is closed for this period"
+          description="The data collection deadline has passed. Contact your NZI consultant if you still need to submit or edit data here."
+        />
+      )}
+
       {!noJobMessage && (
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">{rows.length} entr{rows.length === 1 ? "y" : "ies"} submitted</div>
-        <Button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Cancel" : "+ Add Entry"}</Button>
+        {!dataEntryExpired && (
+          <Button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Cancel" : "+ Add Entry"}</Button>
+        )}
       </div>
       )}
 
-      {!noJobMessage && showAdd && options && (
+      {!noJobMessage && !dataEntryExpired && showAdd && options && (
         <Card>
           <CardContent className="space-y-3 pt-4">
             <div className="flex gap-2">
@@ -437,7 +449,7 @@ export default function PortalCommutingTab() {
                       )}
                     </td>
                     <td className="p-2 text-right">
-                      {isApproved ? (
+                      {isApproved || dataEntryExpired ? (
                         <span className="text-xs text-muted-foreground">—</span>
                       ) : isEditing ? (
                         <div className="flex items-center justify-end gap-2">

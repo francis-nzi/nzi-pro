@@ -97,6 +97,9 @@ export default function PortalDataEntry() {
   // an expected, actionable state, not a real error, so it gets its own
   // calmer panel instead of the red error banner.
   const [noJobMessage, setNoJobMessage] = useState("");
+  // Set from the job's Data Collection Deadline milestone (or a CRM override)
+  // once it's passed -- another expected, actionable state with its own panel.
+  const [dataEntryExpired, setDataEntryExpired] = useState(false);
 
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
@@ -146,6 +149,7 @@ export default function PortalDataEntry() {
     setRegLookupError("");
     setRegLookupVehicle(null);
     setNoJobMessage("");
+    setDataEntryExpired(false);
     setPreviousRows([]);
     setTopFactors([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -155,12 +159,14 @@ export default function PortalDataEntry() {
     setRowsLoading(true);
     setError("");
     setNoJobMessage("");
+    setDataEntryExpired(false);
     try {
       const res = await apiFetch(`/portal/data-entry/${bucketKey}/rows`);
       if (res.ok) {
         const d = await res.json();
         setRows(d.rows || []);
         setJobNumber(d.job_number || null);
+        setDataEntryExpired(Boolean(d.portal_data_entry_expired));
       } else if (res.status === 404) {
         const d = await res.json().catch(() => ({}));
         setNoJobMessage(d?.detail || "No open job found for this account yet — contact your NZI consultant.");
@@ -352,6 +358,13 @@ export default function PortalDataEntry() {
         />
       )}
 
+      {!noJobMessage && dataEntryExpired && (
+        <EmptyStatePanel
+          title="Data entry is closed for this period"
+          description="The data collection deadline has passed. Contact your NZI consultant if you still need to submit or edit data here."
+        />
+      )}
+
       {isComingSoon && (
         <EmptyStatePanel
           title={`${activeBucketLabel} isn't available here yet`}
@@ -365,19 +378,21 @@ export default function PortalDataEntry() {
       {!isComingSoon && !isSpendTab && !isCommutingTab && !noJobMessage && (
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">{rows.length} submitted row(s) in {activeBucketLabel}</div>
-        <Button
-          onClick={() => {
-            const next = !showAdd;
-            setShowAdd(next);
-            if (next) void loadQuickPicks(activeBucket);
-          }}
-        >
-          {showAdd ? "Cancel" : "+ Add Row"}
-        </Button>
+        {!dataEntryExpired && (
+          <Button
+            onClick={() => {
+              const next = !showAdd;
+              setShowAdd(next);
+              if (next) void loadQuickPicks(activeBucket);
+            }}
+          >
+            {showAdd ? "Cancel" : "+ Add Row"}
+          </Button>
+        )}
       </div>
       )}
 
-      {!isComingSoon && !isSpendTab && !isCommutingTab && !noJobMessage && showAdd && (
+      {!isComingSoon && !isSpendTab && !isCommutingTab && !noJobMessage && !dataEntryExpired && showAdd && (
         <Card>
           <CardContent className="space-y-3 pt-4">
             {isVehicleBucket && !selectedFactor && (
@@ -543,7 +558,7 @@ export default function PortalDataEntry() {
                         )}
                       </td>
                       <td className="p-2 text-right">
-                        {isApproved ? (
+                        {isApproved || dataEntryExpired ? (
                           <span className="text-xs text-muted-foreground">—</span>
                         ) : isEditing ? (
                           <div className="flex items-center justify-end gap-2">

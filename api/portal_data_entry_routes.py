@@ -23,15 +23,22 @@ from services.portal import PORTAL_ROLE_CAN_MANAGE_ACTIONS
 from services.portal_data_entry import (
     BUCKET_KEYS,
     BUCKET_LABELS,
+    PORTAL_DATA_ENTRY_EXPIRED_MESSAGE,
     bucket_for_category,
     ensure_portal_data_entry_schema,
     get_job_summary,
+    get_portal_data_entry_status,
     get_previous_bucket_rows,
     get_top_bucket_factors,
     job_scope_row_to_dict,
     load_bucket_category_map,
     resolve_current_job_for_client,
 )
+
+
+def _assert_data_entry_open(con, job_id: int) -> None:
+    if get_portal_data_entry_status(con, job_id)["portal_data_entry_expired"]:
+        raise HTTPException(status_code=403, detail=PORTAL_DATA_ENTRY_EXPIRED_MESSAGE)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["portal-data-entry"])
@@ -205,6 +212,7 @@ def portal_data_entry_create_row(
         _ensure_job_scope_rows_schema(con)
         ensure_portal_data_entry_schema(con)
         job_id = _resolve_job_or_404(con, client_db_id)
+        _assert_data_entry_open(con, job_id)
 
         category_map = load_bucket_category_map(con)
         submitted_category = (
@@ -302,6 +310,7 @@ def portal_data_entry_update_row(
             raise HTTPException(status_code=404, detail="Row not found")
         if existing[3] == "approved":
             raise HTTPException(status_code=409, detail="This row has already been approved and can no longer be edited here")
+        _assert_data_entry_open(con, int(existing[1]))
 
         site_ids = current_user.get("site_ids")
         if site_ids is not None and existing[2] not in site_ids:
@@ -376,6 +385,7 @@ def portal_data_entry_delete_row(
             raise HTTPException(status_code=404, detail="Row not found")
         if existing[3] == "approved":
             raise HTTPException(status_code=409, detail="This row has already been approved and can no longer be deleted here")
+        _assert_data_entry_open(con, int(existing[1]))
 
         site_ids = current_user.get("site_ids")
         if site_ids is not None and existing[2] not in site_ids:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -8,6 +10,7 @@ from api.client_route_helpers import ensure_client_org_columns
 from api.permissions import assert_client_access, assert_permission
 from core.database import db_backend, get_conn
 from services.emissions_reporting import exact_job_total_emissions
+from services.portal_data_entry import PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS, ensure_portal_expiry_schema
 from services.tenancy import require_org
 
 router = APIRouter()
@@ -386,6 +389,7 @@ def client_jobs(
     org_id = str(_user.get("org_id") or "").strip() or None
     try:
         with get_conn() as con:
+            ensure_portal_expiry_schema(con)
             has_job_group = _col_exists(con, "jobs", "job_group")
             has_job_family = _col_exists(con, "jobs", "job_family")
             rows = pd.DataFrame()
@@ -405,7 +409,7 @@ def client_jobs(
                     f"""
                     SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
                            j.job_type, {("j.job_group" if has_job_group else "NULL::text AS job_group")}, {("j.job_family" if has_job_family else "NULL::text AS job_family")}, j.is_crp, j.reporting_period_end::text AS reporting_period_end,
-                           j.portal_visible,
+                           j.portal_visible, j.portal_data_entry_expiry_override::text AS portal_data_entry_expiry_override,
                            jp.data_collection_due::text AS data_collection_due, jp.data_collection_completed_at::text AS data_collection_completed_at,
                            jp.first_draft_due::text AS first_draft_due, jp.first_draft_completed_at::text AS first_draft_completed_at,
                            jp.final_report_due::text AS final_report_due, jp.final_report_completed_at::text AS final_report_completed_at
@@ -433,7 +437,7 @@ def client_jobs(
                     f"""
                     SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
                            j.job_type, {("j.job_group" if has_job_group else "NULL::text AS job_group")}, {("j.job_family" if has_job_family else "NULL::text AS job_family")}, j.is_crp, j.reporting_period_end::text AS reporting_period_end,
-                           j.portal_visible,
+                           j.portal_visible, j.portal_data_entry_expiry_override::text AS portal_data_entry_expiry_override,
                            jp.data_collection_due::text AS data_collection_due, jp.data_collection_completed_at::text AS data_collection_completed_at,
                            jp.first_draft_due::text AS first_draft_due, jp.first_draft_completed_at::text AS first_draft_completed_at,
                            jp.final_report_due::text AS final_report_due, jp.final_report_completed_at::text AS final_report_completed_at
@@ -520,6 +524,17 @@ def client_jobs(
                 milestone_statuses.append(get_milestone_status(r.get("final_report_due"), r.get("final_report_completed_at")))
             overall_milestone_status = get_overall_status(milestone_statuses)
 
+            data_collection_due_str = None if _is_missing(r.get("data_collection_due")) else str(r.get("data_collection_due"))
+            expiry_override_str = None if _is_missing(r.get("portal_data_entry_expiry_override")) else str(r.get("portal_data_entry_expiry_override"))
+            data_collection_due_date = date.fromisoformat(data_collection_due_str) if data_collection_due_str else None
+            expiry_override_date = date.fromisoformat(expiry_override_str) if expiry_override_str else None
+            effective_expiry_date = expiry_override_date or data_collection_due_date
+            max_override_str = (
+                (data_collection_due_date + timedelta(days=PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS)).isoformat()
+                if data_collection_due_date
+                else None
+            )
+
             items.append(
                 {
                     "job_id": job_id,
@@ -535,6 +550,11 @@ def client_jobs(
                     "milestone_status": overall_milestone_status,
                     "total_emissions": total_emissions_by_job.get(job_id),
                     "portal_visible": True if _is_missing(r.get("portal_visible")) else _bool_or_false(r.get("portal_visible")),
+                    "data_collection_due": data_collection_due_str,
+                    "portal_data_entry_expiry_override": expiry_override_str,
+                    "portal_data_entry_expiry": effective_expiry_date.isoformat() if effective_expiry_date else None,
+                    "portal_data_entry_expired": bool(effective_expiry_date and effective_expiry_date < date.today()),
+                    "portal_data_entry_max_override_date": max_override_str,
                 }
             )
 

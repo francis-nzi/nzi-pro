@@ -9,14 +9,21 @@ These routes are protected by standard NZI staff auth and allow CRMs to:
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from api.auth import _current_user
 from api.permissions import assert_job_access, assert_permission, assert_client_access
 from core.database import get_conn
+from services.audit_log import record_audit_event
+from services.portal_data_entry import (
+    PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS,
+    get_portal_data_entry_status,
+    max_portal_data_entry_override_date,
+)
 from services.portal import (
     add_comment,
     admin_reset_portal_user_password,
@@ -1048,3 +1055,71 @@ def set_portal_job_visibility(
             [bool(payload.portal_visible), list(payload.job_ids), int(client_db_id)],
         )
     return {"ok": True, "job_ids": payload.job_ids, "portal_visible": payload.portal_visible}
+
+
+class SetPortalDataEntryExpiryPayload(BaseModel):
+    override_date: str | None = None  # "YYYY-MM-DD", or None/omitted to clear the override
+
+
+@router.patch("/jobs/{job_id}/portal-data-entry-expiry")
+def set_portal_data_entry_expiry(
+    request: Request,
+    job_id: int,
+    payload: SetPortalDataEntryExpiryPayload = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    """CRM override for the portal's data-entry expiry (normally derived from
+    job_plan.data_collection_due) -- capped at PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS
+    past the actual Data Collection Deadline, however many times staff
+    re-extend it, so repeated extensions can't drift arbitrarily far from
+    the original milestone. See services/portal_data_entry.py."""
+    with get_conn() as con:
+        job_row = con.execute("SELECT client_db_id FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
+        if not job_row:
+            raise HTTPException(status_code=404, detail="Job not found")
+        assert_client_access(_user, int(job_row[0]))
+
+        before = get_portal_data_entry_status(con, int(job_id))
+
+        if not payload.override_date:
+            con.execute(
+                "UPDATE jobs SET portal_data_entry_expiry_override = NULL WHERE job_id = %s",
+                [int(job_id)],
+            )
+        else:
+            try:
+                override_date = date.fromisoformat(payload.override_date)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="override_date must be in YYYY-MM-DD format")
+
+            max_allowed = max_portal_data_entry_override_date(con, int(job_id))
+            if max_allowed is not None and override_date.isoformat() > max_allowed:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Override cannot exceed {PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS} days past the Data "
+                        f"Collection Deadline; the latest allowed date is {max_allowed}."
+                    ),
+                )
+
+            con.execute(
+                "UPDATE jobs SET portal_data_entry_expiry_override = %s WHERE job_id = %s",
+                [override_date, int(job_id)],
+            )
+
+        after = get_portal_data_entry_status(con, int(job_id))
+
+        record_audit_event(
+            con,
+            request=request,
+            actor=_user,
+            action="update",
+            entity_type="job_portal_data_entry_expiry",
+            entity_id=int(job_id),
+            client_id=int(job_row[0]),
+            job_id=int(job_id),
+            before=before,
+            after=after,
+        )
+
+    return {"ok": True, "job_id": int(job_id), **after}

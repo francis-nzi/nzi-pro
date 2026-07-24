@@ -32,7 +32,13 @@ from api.spend_data_routes import (
 )
 from core.database import get_conn
 from services.portal import PORTAL_ROLE_CAN_MANAGE_ACTIONS
-from services.portal_data_entry import get_job_summary, get_top_spend_categories, resolve_current_job_for_client
+from services.portal_data_entry import (
+    PORTAL_DATA_ENTRY_EXPIRED_MESSAGE,
+    get_job_summary,
+    get_portal_data_entry_status,
+    get_top_spend_categories,
+    resolve_current_job_for_client,
+)
 from services.spend_line_matching import suggest_spend_lines
 
 logger = logging.getLogger(__name__)
@@ -64,6 +70,11 @@ def _resolve_job_or_404(con, client_db_id: int) -> int:
     if job_id is None:
         raise HTTPException(status_code=404, detail="No open job found for this account yet — contact your NZI consultant")
     return job_id
+
+
+def _assert_data_entry_open(con, job_id: int) -> None:
+    if get_portal_data_entry_status(con, job_id)["portal_data_entry_expired"]:
+        raise HTTPException(status_code=403, detail=PORTAL_DATA_ENTRY_EXPIRED_MESSAGE)
 
 
 @router.get("/portal/spend/rows")
@@ -156,6 +167,7 @@ async def portal_spend_upload_commit(
     with get_conn() as con:
         _ensure_spend_tables(con)
         job_id = _resolve_job_or_404(con, client_db_id)
+        _assert_data_entry_open(con, job_id)
         df = _parse_upload(data, file.filename or "upload.csv")
 
         inserted = 0
@@ -216,6 +228,7 @@ def portal_spend_create_row(
     with get_conn() as con:
         _ensure_spend_tables(con)
         job_id = _resolve_job_or_404(con, client_db_id)
+        _assert_data_entry_open(con, job_id)
         saved = _persist_spend_row(
             con=con,
             job_id=int(job_id),
@@ -338,7 +351,7 @@ def portal_spend_confirm_category(
         _ensure_spend_tables(con)
         row = con.execute(
             """
-            SELECT e.entry_id, e.amount_net, e.vat_pct
+            SELECT e.entry_id, e.amount_net, e.vat_pct, e.job_id
             FROM job_spend_entries e
             JOIN jobs j ON j.job_id = e.job_id
             WHERE e.entry_id = %s AND j.client_db_id = %s AND COALESCE(e.is_deleted, FALSE) = FALSE
@@ -347,6 +360,7 @@ def portal_spend_confirm_category(
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Spend row not found")
+        _assert_data_entry_open(con, int(row[3]))
 
         factor = _factor_by_id(con, factor_db_id)
         if not factor:
@@ -392,7 +406,7 @@ def portal_spend_update_row(
         _ensure_spend_tables(con)
         existing = con.execute(
             """
-            SELECT e.entry_id, e.review_status
+            SELECT e.entry_id, e.review_status, e.job_id
             FROM job_spend_entries e JOIN jobs j ON j.job_id = e.job_id
             WHERE e.entry_id = %s AND j.client_db_id = %s
               AND e.submitted_by_portal = TRUE AND COALESCE(e.is_deleted, FALSE) = FALSE
@@ -403,6 +417,7 @@ def portal_spend_update_row(
             raise HTTPException(status_code=404, detail="Spend row not found")
         if existing[1] == "approved":
             raise HTTPException(status_code=409, detail="This row has already been approved and can no longer be edited here")
+        _assert_data_entry_open(con, int(existing[2]))
 
         if "reference_code" in payload:
             _validate_spend_line_fields(str(payload.get("reference_code") or "").strip(), None, None)
@@ -472,7 +487,7 @@ def portal_spend_delete_row(entry_id: int, current_user: dict = Depends(portal_u
         _ensure_spend_tables(con)
         existing = con.execute(
             """
-            SELECT e.entry_id, e.review_status
+            SELECT e.entry_id, e.review_status, e.job_id
             FROM job_spend_entries e JOIN jobs j ON j.job_id = e.job_id
             WHERE e.entry_id = %s AND j.client_db_id = %s
               AND e.submitted_by_portal = TRUE AND COALESCE(e.is_deleted, FALSE) = FALSE
@@ -483,6 +498,7 @@ def portal_spend_delete_row(entry_id: int, current_user: dict = Depends(portal_u
             raise HTTPException(status_code=404, detail="Spend row not found")
         if existing[1] == "approved":
             raise HTTPException(status_code=409, detail="This row has already been approved and can no longer be deleted here")
+        _assert_data_entry_open(con, int(existing[2]))
 
         con.execute(
             "UPDATE job_spend_entries SET is_deleted = TRUE, updated_at = NOW() WHERE entry_id = %s",

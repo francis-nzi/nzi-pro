@@ -28,7 +28,12 @@ from api.employee_commuting_routes import (
 from api.portal_auth_routes import portal_user_dep
 from core.database import get_conn
 from services.portal import PORTAL_ROLE_CAN_MANAGE_ACTIONS
-from services.portal_data_entry import get_job_summary, resolve_current_job_for_client
+from services.portal_data_entry import (
+    PORTAL_DATA_ENTRY_EXPIRED_MESSAGE,
+    get_job_summary,
+    get_portal_data_entry_status,
+    resolve_current_job_for_client,
+)
 from services.vehicle_categorization import categorize_vehicle
 from services.vehicle_lookup import lookup_vehicle_by_registration
 
@@ -62,6 +67,11 @@ def _resolve_job_or_404(con, client_db_id: int) -> int:
     if job_id is None:
         raise HTTPException(status_code=404, detail="No open job found for this account yet — contact your NZI consultant")
     return job_id
+
+
+def _assert_data_entry_open(con, job_id: int) -> None:
+    if get_portal_data_entry_status(con, job_id)["portal_data_entry_expired"]:
+        raise HTTPException(status_code=403, detail=PORTAL_DATA_ENTRY_EXPIRED_MESSAGE)
 
 
 @router.get("/portal/commuting/options")
@@ -121,6 +131,7 @@ def portal_commuting_create_row(
     with get_conn() as con:
         _ensure_emission_register_schema(con)
         job_id = _resolve_job_or_404(con, client_db_id)
+        _assert_data_entry_open(con, job_id)
 
         preview = _resolve_manual_commuting_rows(con, job_id, None, [payload])
         if preview["unresolved_count"] > 0:
@@ -181,6 +192,7 @@ def portal_commuting_create_row_by_vehicle(
     with get_conn() as con:
         _ensure_emission_register_schema(con)
         job_id = _resolve_job_or_404(con, client_db_id)
+        _assert_data_entry_open(con, job_id)
 
         factor, category_error = categorize_vehicle(con, job_id, vehicle_data)
         if category_error:
@@ -242,7 +254,7 @@ def portal_commuting_update_row(
         _ensure_emission_register_schema(con)
         existing = con.execute(
             """
-            SELECT s.source_id, s.review_status, s.factor, s.ghg_unit, s.apply_pct
+            SELECT s.source_id, s.review_status, s.factor, s.ghg_unit, s.apply_pct, s.job_id
             FROM job_emission_sources s JOIN jobs j ON j.job_id = s.job_id
             WHERE s.source_id = %s AND j.client_db_id = %s
               AND s.source_type = 'employee_commuting' AND s.submitted_by_portal = TRUE
@@ -253,6 +265,7 @@ def portal_commuting_update_row(
             raise HTTPException(status_code=404, detail="Row not found")
         if existing[1] == "approved":
             raise HTTPException(status_code=409, detail="This row has already been approved and can no longer be edited here")
+        _assert_data_entry_open(con, int(existing[5]))
 
         set_clauses: list[str] = []
         params: list = []
@@ -299,7 +312,7 @@ def portal_commuting_delete_row(source_id: int, current_user: dict = Depends(por
         _ensure_emission_register_schema(con)
         existing = con.execute(
             """
-            SELECT s.source_id, s.review_status
+            SELECT s.source_id, s.review_status, s.job_id
             FROM job_emission_sources s JOIN jobs j ON j.job_id = s.job_id
             WHERE s.source_id = %s AND j.client_db_id = %s
               AND s.source_type = 'employee_commuting' AND s.submitted_by_portal = TRUE
@@ -310,6 +323,7 @@ def portal_commuting_delete_row(source_id: int, current_user: dict = Depends(por
             raise HTTPException(status_code=404, detail="Row not found")
         if existing[1] == "approved":
             raise HTTPException(status_code=409, detail="This row has already been approved and can no longer be deleted here")
+        _assert_data_entry_open(con, int(existing[2]))
 
         con.execute("DELETE FROM job_emission_sources WHERE source_id = %s", [int(source_id)])
 

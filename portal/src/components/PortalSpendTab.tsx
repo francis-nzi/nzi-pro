@@ -84,6 +84,7 @@ export default function PortalSpendTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [noJobMessage, setNoJobMessage] = useState("");
+  const [dataEntryExpired, setDataEntryExpired] = useState(false);
 
   const [showAdd, setShowAdd] = useState(false);
   const [refCode, setRefCode] = useState("");
@@ -128,12 +129,14 @@ export default function PortalSpendTab() {
     setLoading(true);
     setError("");
     setNoJobMessage("");
+    setDataEntryExpired(false);
     try {
       const res = await apiFetch("/portal/spend/rows");
       if (res.ok) {
         const d = await res.json();
         setRows(d.rows || []);
         setJobNumber(d.job_number || null);
+        setDataEntryExpired(Boolean(d.portal_data_entry_expired));
       } else if (res.status === 404) {
         const d = await res.json().catch(() => ({}));
         setNoJobMessage(d?.detail || "No open job found for this account yet — contact your NZI consultant.");
@@ -400,29 +403,38 @@ export default function PortalSpendTab() {
       {error && <ErrorPanel description={error} />}
       {noJobMessage && <EmptyStatePanel title="Not available yet for this account" description={noJobMessage} />}
 
+      {!noJobMessage && dataEntryExpired && (
+        <EmptyStatePanel
+          title="Data entry is closed for this period"
+          description="The data collection deadline has passed. Contact your NZI consultant if you still need to submit or edit data here."
+        />
+      )}
+
       {!noJobMessage && (
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">{rows.length} spend line(s) submitted</div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => {
-              setShowBulkUpload((v) => !v);
-              setUploadError("");
-              setUploadResult(null);
-              setUploadPreview([]);
-              setUploadPreviewCount(0);
-              setUploadFile(null);
-            }}
-          >
-            {showBulkUpload ? "Cancel" : "Bulk Upload (CSV/XLSX)"}
-          </Button>
-          <Button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Cancel" : "+ Add Spend Line"}</Button>
-        </div>
+        {!dataEntryExpired && (
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowBulkUpload((v) => !v);
+                setUploadError("");
+                setUploadResult(null);
+                setUploadPreview([]);
+                setUploadPreviewCount(0);
+                setUploadFile(null);
+              }}
+            >
+              {showBulkUpload ? "Cancel" : "Bulk Upload (CSV/XLSX)"}
+            </Button>
+            <Button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Cancel" : "+ Add Spend Line"}</Button>
+          </div>
+        )}
       </div>
       )}
 
-      {!noJobMessage && showBulkUpload && (
+      {!noJobMessage && !dataEntryExpired && showBulkUpload && (
         <Card>
           <CardContent className="space-y-3 pt-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -499,7 +511,7 @@ export default function PortalSpendTab() {
         </Card>
       )}
 
-      {!noJobMessage && showAdd && (
+      {!noJobMessage && !dataEntryExpired && showAdd && (
         <Card>
           <CardContent className="space-y-2 pt-4">
             <div className="flex flex-wrap items-end gap-2">
@@ -638,7 +650,7 @@ export default function PortalSpendTab() {
                         )}
                       </td>
                       <td className="p-2 text-right">
-                        {isApproved ? (
+                        {isApproved || dataEntryExpired ? (
                           <span className="text-xs text-muted-foreground">—</span>
                         ) : isEditing ? (
                           <div className="flex items-center justify-end gap-2">

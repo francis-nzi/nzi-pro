@@ -9,11 +9,16 @@ handled here. See CLIENT_PORTAL_DATA_ENTRY_SCOPE.md for the full plan.
 from __future__ import annotations
 
 import logging
+from datetime import date, timedelta
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _schema_seeded = False
+_expiry_schema_seeded = False
+
+PORTAL_DATA_ENTRY_EXPIRED_MESSAGE = "Data entry milestone has expired — contact your CRM if you need access."
+PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS = 30
 
 # Bucket keys, in display order.
 BUCKET_KEYS = ["company_vehicles", "business_travel", "energy", "fuels", "other"]
@@ -132,17 +137,73 @@ def resolve_current_job_for_client(con, client_db_id: int) -> int | None:
     return int(row[0]) if row else None
 
 
+def ensure_portal_expiry_schema(con) -> None:
+    global _expiry_schema_seeded
+    if _expiry_schema_seeded:
+        return
+    con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS portal_data_entry_expiry_override DATE")
+    _expiry_schema_seeded = True
+
+
+def get_portal_data_entry_status(con, job_id: int) -> dict[str, Any]:
+    """Data-entry expiry for a job, derived from the job's Data Collection
+    Deadline milestone (job_plan.data_collection_due), or a CRM-set override
+    if one is present. No milestone set at all means "open" (never expired)
+    -- see CLIENT_PORTAL_DATA_ENTRY_SCOPE.md; this must never silently lock
+    out a job that predates this feature or hasn't had milestones configured."""
+    ensure_portal_expiry_schema(con)
+    row = con.execute(
+        """
+        SELECT jp.data_collection_due, j.portal_data_entry_expiry_override
+        FROM jobs j
+        LEFT JOIN job_plan jp ON jp.job_id = j.job_id
+        WHERE j.job_id = %s
+        """,
+        [int(job_id)],
+    ).fetchone()
+    data_collection_due = row[0] if row else None
+    expiry_override = row[1] if row else None
+    effective_expiry = expiry_override or data_collection_due
+    expired = bool(effective_expiry and effective_expiry < date.today())
+    return {
+        "data_collection_due": data_collection_due.isoformat() if data_collection_due else None,
+        "portal_data_entry_expiry_override": expiry_override.isoformat() if expiry_override else None,
+        "portal_data_entry_expiry": effective_expiry.isoformat() if effective_expiry else None,
+        "portal_data_entry_expired": expired,
+    }
+
+
+def max_portal_data_entry_override_date(con, job_id: int) -> str | None:
+    """Latest override date allowed -- the Data Collection Deadline plus
+    PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS, however many times staff re-extend
+    it (never measured from "now", so repeated extensions can't drift the
+    deadline arbitrarily far from the original milestone). None if there's
+    no milestone to measure from, meaning any override date is allowed."""
+    row = con.execute(
+        "SELECT data_collection_due FROM job_plan WHERE job_id = %s",
+        [int(job_id)],
+    ).fetchone()
+    data_collection_due = row[0] if row else None
+    if data_collection_due is None:
+        return None
+    return (data_collection_due + timedelta(days=PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS)).isoformat()
+
+
 def get_job_summary(con, job_id: int) -> dict[str, Any]:
-    """Small bit of job context (job number, reporting year) the portal
-    Data Entry tabs show so a client can see which job their submissions
-    are attached to."""
+    """Job context the portal Data Entry tabs show so a client can see which
+    job their submissions are attached to, plus the data-entry expiry status
+    that gates whether they can still submit."""
     row = con.execute(
         "SELECT job_number, reporting_year FROM jobs WHERE job_id = %s",
         [int(job_id)],
     ).fetchone()
-    if not row:
-        return {"job_id": int(job_id), "job_number": None, "reporting_year": None}
-    return {"job_id": int(job_id), "job_number": row[0], "reporting_year": row[1]}
+    base = {
+        "job_id": int(job_id),
+        "job_number": row[0] if row else None,
+        "reporting_year": row[1] if row else None,
+    }
+    base.update(get_portal_data_entry_status(con, job_id))
+    return base
 
 
 def get_previous_bucket_rows(

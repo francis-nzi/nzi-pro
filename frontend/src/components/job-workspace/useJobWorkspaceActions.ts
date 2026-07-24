@@ -702,6 +702,25 @@ export default function useJobWorkspaceActions(deps: ActionDeps) {
     }
   }
 
+  async function setPortalDataEntryOverride(overrideDate: string | null) {
+    const res = await fetch(`${baseUrl}/jobs/${jobId}/portal-data-entry-expiry`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ override_date: overrideDate }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Failed to update portal data-entry deadline: ${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+    }
+
+    const updatedJobRes = await fetch(`${baseUrl}/jobs/${jobId}`);
+    if (updatedJobRes.ok) {
+      const updatedJob = (await updatedJobRes.json()) as WorkspaceJob;
+      setJob(updatedJob);
+    }
+  }
+
   return {
     saveReportMetadata,
     saveScopeDatasets,
@@ -713,5 +732,6 @@ export default function useJobWorkspaceActions(deps: ActionDeps) {
     downloadTemplate,
     toggleMilestone,
     toggleAdditionalMilestone,
+    setPortalDataEntryOverride,
   };
 }

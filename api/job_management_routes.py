@@ -21,6 +21,7 @@ from api.permissions import assert_client_access, assert_job_access, assert_perm
 from core.database import db_backend, get_conn
 from services.audit_log import ensure_audit_log_table, parse_json_text, record_audit_event
 from services.client_benchmark import ensure_client_benchmark_columns
+from services.portal_data_entry import get_portal_data_entry_status, max_portal_data_entry_override_date
 from services.tenancy import require_org
 from api.org_admin_helpers import _require_org_plan_active
 
@@ -877,6 +878,11 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
                         """,
                         [int(job_id)],
                     ).fetchone()
+
+            portal_data_entry_status = get_portal_data_entry_status(con, int(job_id))
+            portal_data_entry_status["portal_data_entry_max_override_date"] = max_portal_data_entry_override_date(
+                con, int(job_id)
+            )
     except HTTPException:
         raise
     except Exception as e:
@@ -966,6 +972,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
         "job_family": str(job_family or "").strip().lower() or ("crp" if job_type else "crp"),
         "estimated_hours": estimated_hours,
         **milestone_data,
+        **portal_data_entry_status,
     }
 
 
