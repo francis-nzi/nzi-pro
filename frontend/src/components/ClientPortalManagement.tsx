@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
@@ -546,12 +546,27 @@ type ClientPortalJob = {
   job_type?: string | null;
   job_family?: string | null;
   portal_visible: boolean;
+  data_collection_due?: string | null;
+  portal_data_entry_expiry?: string | null;
+  portal_data_entry_expired?: boolean;
+  portal_data_entry_expiry_override?: string | null;
+  portal_data_entry_max_override_date?: string | null;
 };
+
+const DATA_ENTRY_GATED_FAMILIES = new Set(["training", "consultancy", "lca", "pcf"]);
+
+function formatShortDate(value: string) {
+  return new Date(value).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
 
 function ClientPortalJobsSection({ clientId, baseUrl }: { clientId: number; baseUrl: string }) {
   const [jobs, setJobs] = useState<ClientPortalJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingIds, setSavingIds] = useState<Set<number>>(new Set());
+  const [expandedJobId, setExpandedJobId] = useState<number | null>(null);
+  const [draftDate, setDraftDate] = useState("");
+  const [overrideSaving, setOverrideSaving] = useState(false);
+  const [overrideError, setOverrideError] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -587,6 +602,46 @@ function ClientPortalJobsSection({ clientId, baseUrl }: { clientId: number; base
     }
   }
 
+  function toggleExpanded(job: ClientPortalJob) {
+    if (expandedJobId === job.job_id) {
+      setExpandedJobId(null);
+      return;
+    }
+    setExpandedJobId(job.job_id);
+    setDraftDate(job.portal_data_entry_expiry_override || "");
+    setOverrideError("");
+  }
+
+  async function saveOverride(jobId: number, overrideDate: string | null) {
+    setOverrideSaving(true);
+    setOverrideError("");
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/portal-data-entry-expiry`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ override_date: overrideDate }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setOverrideError(d?.detail || "Failed to update the deadline.");
+        return;
+      }
+      const updated = await res.json();
+      setJobs(js => js.map(j => j.job_id === jobId
+        ? {
+            ...j,
+            portal_data_entry_expiry_override: updated.portal_data_entry_expiry_override ?? null,
+            portal_data_entry_expiry: updated.portal_data_entry_expiry ?? null,
+            portal_data_entry_expired: Boolean(updated.portal_data_entry_expired),
+          }
+        : j));
+      setExpandedJobId(null);
+    } finally {
+      setOverrideSaving(false);
+    }
+  }
+
   const visibleCount = jobs.filter(j => j.portal_visible).length;
   const allVisible = jobs.length > 0 && visibleCount === jobs.length;
   const someVisible = visibleCount > 0 && visibleCount < jobs.length;
@@ -604,7 +659,7 @@ function ClientPortalJobsSection({ clientId, baseUrl }: { clientId: number; base
           )}
         </CardTitle>
         <CardDescription>
-          Control which jobs the client can see in their NZInsights portal (dashboard, reporting data, actions and files).
+          Control which jobs the client can see in their NZInsights portal, and when portal data entry closes for each job.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -632,38 +687,113 @@ function ClientPortalJobsSection({ clientId, baseUrl }: { clientId: number; base
                   <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500">Job</th>
                   <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500">Reporting Period</th>
                   <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500">Status</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500">Data Entry</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {jobs.map(job => (
-                  <tr key={job.job_id} className={`hover:bg-gray-50/50 ${!job.portal_visible ? "opacity-60" : ""}`}>
-                    <td className="px-3 py-2.5 text-center">
-                      <input
-                        type="checkbox"
-                        checked={job.portal_visible}
-                        disabled={savingIds.has(job.job_id)}
-                        onChange={() => void setVisibility([job.job_id], !job.portal_visible)}
-                        className="h-4 w-4 rounded border-gray-300 text-green-600 cursor-pointer"
-                        title={job.portal_visible ? "Hide from portal" : "Show on portal"}
-                      />
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium text-gray-900">{job.job_number ?? `Job #${job.job_id}`}</span>
-                        {job.job_type && (
-                          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${jobFamilyBadgeClassName(job.job_family)}`}>
-                            {job.job_type}
-                          </span>
-                        )}
-                      </div>
-                      {job.title && <div className="text-xs text-gray-400 truncate max-w-[260px]">{job.title}</div>}
-                    </td>
-                    <td className="px-3 py-2.5 text-xs text-gray-500">{job.reporting_year ?? "—"}</td>
-                    <td className="px-3 py-2.5">
-                      <Badge variant="outline" className="text-xs">{job.status ?? "—"}</Badge>
-                    </td>
-                  </tr>
-                ))}
+                {jobs.map(job => {
+                  const dataEntryGated = !DATA_ENTRY_GATED_FAMILIES.has(String(job.job_family || ""));
+                  const isExpanded = expandedJobId === job.job_id;
+                  return (
+                    <Fragment key={job.job_id}>
+                      <tr className={`hover:bg-gray-50/50 ${!job.portal_visible ? "opacity-60" : ""}`}>
+                        <td className="px-3 py-2.5 text-center">
+                          <input
+                            type="checkbox"
+                            checked={job.portal_visible}
+                            disabled={savingIds.has(job.job_id)}
+                            onChange={() => void setVisibility([job.job_id], !job.portal_visible)}
+                            className="h-4 w-4 rounded border-gray-300 text-green-600 cursor-pointer"
+                            title={job.portal_visible ? "Hide from portal" : "Show on portal"}
+                          />
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium text-gray-900">{job.job_number ?? `Job #${job.job_id}`}</span>
+                            {job.job_type && (
+                              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${jobFamilyBadgeClassName(job.job_family)}`}>
+                                {job.job_type}
+                              </span>
+                            )}
+                          </div>
+                          {job.title && <div className="text-xs text-gray-400 truncate max-w-[260px]">{job.title}</div>}
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-gray-500">{job.reporting_year ?? "—"}</td>
+                        <td className="px-3 py-2.5">
+                          <Badge variant="outline" className="text-xs">{job.status ?? "—"}</Badge>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {dataEntryGated ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleExpanded(job)}
+                              className="flex items-center gap-1.5 text-xs hover:underline"
+                            >
+                              <span className={`h-2 w-2 rounded-full ${job.portal_data_entry_expired ? "bg-red-500" : "bg-emerald-500"}`} />
+                              <span className={job.portal_data_entry_expired ? "text-red-700" : "text-emerald-700"}>
+                                {job.portal_data_entry_expired ? "Closed" : "Open"}
+                              </span>
+                              {job.portal_data_entry_expiry && (
+                                <span className="text-gray-400">
+                                  {job.portal_data_entry_expired ? "since" : "until"} {formatShortDate(job.portal_data_entry_expiry)}
+                                </span>
+                              )}
+                              <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                            </button>
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr className="bg-muted/30">
+                          <td colSpan={5} className="px-3 py-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs text-muted-foreground">
+                                {job.data_collection_due
+                                  ? `Data Collection Deadline milestone: ${formatShortDate(job.data_collection_due)}`
+                                  : "No Data Collection Deadline milestone set"}
+                              </span>
+                              <input
+                                type="date"
+                                value={draftDate}
+                                max={job.portal_data_entry_max_override_date || undefined}
+                                onChange={e => setDraftDate(e.target.value)}
+                                className="rounded-md border px-2 py-1.5 text-sm"
+                              />
+                              <Button
+                                size="sm"
+                                disabled={overrideSaving || !draftDate}
+                                onClick={() => void saveOverride(job.job_id, draftDate)}
+                              >
+                                {overrideSaving ? "Saving…" : "Save"}
+                              </Button>
+                              {job.portal_data_entry_expiry_override && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={overrideSaving}
+                                  onClick={() => void saveOverride(job.job_id, null)}
+                                >
+                                  Clear override
+                                </Button>
+                              )}
+                              <Button size="sm" variant="ghost" onClick={() => setExpandedJobId(null)}>
+                                Cancel
+                              </Button>
+                              {job.portal_data_entry_max_override_date && (
+                                <div className="w-full text-xs text-muted-foreground">
+                                  Latest allowed date: {formatShortDate(job.portal_data_entry_max_override_date)} (30 days from today — extend again any time)
+                                </div>
+                              )}
+                              {overrideError && <div className="w-full text-xs text-red-600">{overrideError}</div>}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

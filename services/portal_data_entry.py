@@ -173,20 +173,13 @@ def get_portal_data_entry_status(con, job_id: int) -> dict[str, Any]:
     }
 
 
-def max_portal_data_entry_override_date(con, job_id: int) -> str | None:
-    """Latest override date allowed -- the Data Collection Deadline plus
-    PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS, however many times staff re-extend
-    it (never measured from "now", so repeated extensions can't drift the
-    deadline arbitrarily far from the original milestone). None if there's
-    no milestone to measure from, meaning any override date is allowed."""
-    row = con.execute(
-        "SELECT data_collection_due FROM job_plan WHERE job_id = %s",
-        [int(job_id)],
-    ).fetchone()
-    data_collection_due = row[0] if row else None
-    if data_collection_due is None:
-        return None
-    return (data_collection_due + timedelta(days=PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS)).isoformat()
+def max_portal_data_entry_override_date() -> str:
+    """Latest override date allowed -- always PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS
+    from today, regardless of the Data Collection Deadline milestone. This is a
+    rolling cap, not anchored to the original milestone: a CRM can extend up to
+    30 days out, and once that runs down, extend again for another 30 days from
+    whatever "today" is then -- there's no limit on how many times this repeats."""
+    return (date.today() + timedelta(days=PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS)).isoformat()
 
 
 def get_job_summary(con, job_id: int) -> dict[str, Any]:

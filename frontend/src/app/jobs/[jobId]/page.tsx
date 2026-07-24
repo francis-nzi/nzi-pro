@@ -15,7 +15,6 @@ import JobFinancialTabs from "@/components/job-workspace/JobFinancialTabs";
 import JobCommunicationsTabs from "@/components/job-workspace/JobCommunicationsTabs";
 import JobUploadSection from "@/components/job-workspace/JobUploadSection";
 import JobProjectMilestonesSection from "@/components/job-workspace/JobProjectMilestonesSection";
-import PortalDataEntryDeadlineCard from "@/components/job-workspace/PortalDataEntryDeadlineCard";
 import JobScopeCard, { type JobScopeCardHandle } from "@/components/job-workspace/JobScopeCard";
 import useJobWorkspaceData from "@/components/job-workspace/useJobWorkspaceData";
 import useJobWorkspaceActions from "@/components/job-workspace/useJobWorkspaceActions";
@@ -136,10 +135,6 @@ type Job = {
   final_report_completed_at?: string | null;
   final_report_completed_by?: string | null;
   final_report_status?: string;
-  portal_data_entry_expiry_override?: string | null;
-  portal_data_entry_expiry?: string | null;
-  portal_data_entry_expired?: boolean;
-  portal_data_entry_max_override_date?: string | null;
 };
 
 type JobTemplate = {
@@ -861,17 +856,6 @@ export default function JobDetailPage() {
                 onToggleBaseMilestone={workspaceActions.toggleMilestone}
                 onToggleAdditionalMilestone={workspaceActions.toggleAdditionalMilestone}
               />
-
-              {job && !["training", "consultancy", "lca", "pcf"].includes(String(job.job_family || "")) ? (
-                <PortalDataEntryDeadlineCard
-                  dataCollectionDue={job.data_collection_due}
-                  portalDataEntryExpiry={job.portal_data_entry_expiry}
-                  portalDataEntryExpired={job.portal_data_entry_expired}
-                  portalDataEntryExpiryOverride={job.portal_data_entry_expiry_override}
-                  maxOverrideDate={job.portal_data_entry_max_override_date}
-                  onSetOverride={workspaceActions.setPortalDataEntryOverride}
-                />
-              ) : null}
 
 
 

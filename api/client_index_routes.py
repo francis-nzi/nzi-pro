@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,7 +10,7 @@ from api.client_route_helpers import ensure_client_org_columns
 from api.permissions import assert_client_access, assert_permission
 from core.database import db_backend, get_conn
 from services.emissions_reporting import exact_job_total_emissions
-from services.portal_data_entry import PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS, ensure_portal_expiry_schema
+from services.portal_data_entry import ensure_portal_expiry_schema, max_portal_data_entry_override_date
 from services.tenancy import require_org
 
 router = APIRouter()
@@ -529,11 +529,7 @@ def client_jobs(
             data_collection_due_date = date.fromisoformat(data_collection_due_str) if data_collection_due_str else None
             expiry_override_date = date.fromisoformat(expiry_override_str) if expiry_override_str else None
             effective_expiry_date = expiry_override_date or data_collection_due_date
-            max_override_str = (
-                (data_collection_due_date + timedelta(days=PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS)).isoformat()
-                if data_collection_due_date
-                else None
-            )
+            max_override_str = max_portal_data_entry_override_date()
 
             items.append(
                 {

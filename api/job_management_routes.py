@@ -880,9 +880,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
                     ).fetchone()
 
             portal_data_entry_status = get_portal_data_entry_status(con, int(job_id))
-            portal_data_entry_status["portal_data_entry_max_override_date"] = max_portal_data_entry_override_date(
-                con, int(job_id)
-            )
+            portal_data_entry_status["portal_data_entry_max_override_date"] = max_portal_data_entry_override_date()
     except HTTPException:
         raise
     except Exception as e:

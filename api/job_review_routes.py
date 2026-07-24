@@ -1070,9 +1070,9 @@ def set_portal_data_entry_expiry(
 ):
     """CRM override for the portal's data-entry expiry (normally derived from
     job_plan.data_collection_due) -- capped at PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS
-    past the actual Data Collection Deadline, however many times staff
-    re-extend it, so repeated extensions can't drift arbitrarily far from
-    the original milestone. See services/portal_data_entry.py."""
+    from today, on a rolling basis: a CRM can extend up to 30 days out, and
+    once that runs down, extend again for another 30 days from whatever
+    "today" is then. See services/portal_data_entry.py."""
     with get_conn() as con:
         job_row = con.execute("SELECT client_db_id FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
         if not job_row:
@@ -1092,13 +1092,13 @@ def set_portal_data_entry_expiry(
             except ValueError:
                 raise HTTPException(status_code=400, detail="override_date must be in YYYY-MM-DD format")
 
-            max_allowed = max_portal_data_entry_override_date(con, int(job_id))
-            if max_allowed is not None and override_date.isoformat() > max_allowed:
+            max_allowed = max_portal_data_entry_override_date()
+            if override_date.isoformat() > max_allowed:
                 raise HTTPException(
                     status_code=400,
                     detail=(
-                        f"Override cannot exceed {PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS} days past the Data "
-                        f"Collection Deadline; the latest allowed date is {max_allowed}."
+                        f"Override cannot be more than {PORTAL_DATA_ENTRY_OVERRIDE_MAX_DAYS} days from today; "
+                        f"the latest allowed date is {max_allowed}."
                     ),
                 )
 
