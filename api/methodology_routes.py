@@ -168,7 +168,11 @@ def list_methodology_rows(
         categories: set[str] = set()
         uoms: set[str] = set()
         if df is not None and not df.empty:
-            df = df.where(df.notna(), None)
+            # astype(object) first -- df.where(df.notna(), None) alone is a
+            # no-op on float64 columns (pandas recasts None back to NaN),
+            # which then blows up int(row.get("suggested_factor_db_id"))
+            # below for any row with that nullable column unset.
+            df = df.astype(object).where(df.notna(), None)
             for _, row in df.iterrows():
                 country_val = str(row.get("country") or "").strip()
                 scope_val = str(row.get("scope") or "").strip()
