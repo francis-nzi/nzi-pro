@@ -273,6 +273,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const [factorCategoryFilter, setFactorCategoryFilter] = useState<string>("All");
   const [factorCategoryOptions, setFactorCategoryOptions] = useState<string[]>([]);
   const [topFactors, setTopFactors] = useState<TemplateFactor[]>([]);
+  const [regNumber, setRegNumber] = useState("");
+  const [regLookupLoading, setRegLookupLoading] = useState(false);
+  const [regLookupError, setRegLookupError] = useState("");
   const [addingFactorId, setAddingFactorId] = useState<string | null>(null);
   const [addingPreviousRowId, setAddingPreviousRowId] = useState<number | null>(null);
   const [selectedPreviousRowIds, setSelectedPreviousRowIds] = useState<Set<number>>(new Set());
@@ -1304,6 +1307,34 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     }
   }
 
+  async function lookupVehicleByRegistration() {
+    if (!regNumber.trim()) return;
+    setRegLookupLoading(true);
+    setRegLookupError("");
+    try {
+      const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/vehicle-lookup`, {
+        method: "POST",
+        headers: withAuditHeaders(
+          { "Content-Type": "application/json" },
+          { page: "Jobs", section: "Data Entry", container: "Browse & Add Factors" }
+        ),
+        credentials: "include",
+        body: JSON.stringify({ registration_number: regNumber }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.factor) {
+        setRegNumber("");
+        await addFactorToJob(d.factor as TemplateFactor);
+      } else {
+        setRegLookupError(d?.detail || "Couldn't look up that registration.");
+      }
+    } catch (e) {
+      setRegLookupError((e as Error).message);
+    } finally {
+      setRegLookupLoading(false);
+    }
+  }
+
   async function addPreviousYearRowToJob(row: PreviousYearRow) {
     setAddingPreviousRowId(row.row_id);
     try {
@@ -1965,6 +1996,26 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
               />
               Add T&D automatically for grid electricity rows
             </label>
+            {(factorCategoryFilter === "Company Vehicles" || factorCategoryFilter === "Business Travel") && (
+              <div className="mb-3 space-y-2 rounded-md border bg-muted/30 p-3">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Have the vehicle&apos;s registration number? We&apos;ll work out the right category and add it directly.
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="e.g. AB12 CDE"
+                    value={regNumber}
+                    onChange={(e) => setRegNumber(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && void lookupVehicleByRegistration()}
+                    className="max-w-xs"
+                  />
+                  <Button disabled={regLookupLoading || !regNumber.trim()} onClick={() => void lookupVehicleByRegistration()}>
+                    {regLookupLoading ? "Looking up..." : "Look up & Add"}
+                  </Button>
+                </div>
+                {regLookupError && <div className="text-xs text-rose-700">{regLookupError}</div>}
+              </div>
+            )}
             <FactorBrowserCard
               title="Browse & Add Factors"
               factorSearchQuery={factorSearchQuery}

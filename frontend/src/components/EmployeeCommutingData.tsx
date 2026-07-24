@@ -172,6 +172,10 @@ export default function EmployeeCommutingData({
   const [manualNotes, setManualNotes] = useState("");
   const [manualReplaceExisting, setManualReplaceExisting] = useState(false);
   const [editingDirectSourceId, setEditingDirectSourceId] = useState<number | null>(null);
+  const [regNumber, setRegNumber] = useState("");
+  const [regAnnualMiles, setRegAnnualMiles] = useState("");
+  const [regLookupLoading, setRegLookupLoading] = useState(false);
+  const [regLookupError, setRegLookupError] = useState("");
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currentStep, setCurrentStep] = useState<number>(1);
   const initialStepSet = useRef(false);
@@ -605,6 +609,50 @@ export default function EmployeeCommutingData({
       setLoading(false);
       setUploadProgress(0);
       setUploadPhase("");
+    }
+  }
+
+  async function submitByVehicleRegistration() {
+    const employeeName = manualEmployeeName.trim();
+    if (!employeeName) {
+      setError("Employee / team name is required for a direct entry.");
+      return;
+    }
+    if (!regNumber.trim() || !regAnnualMiles.trim()) return;
+
+    setRegLookupLoading(true);
+    setRegLookupError("");
+    setError("");
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/employee-commuting/direct-entry-by-vehicle`, {
+        method: "POST",
+        headers: withAuditHeaders(
+          { "Content-Type": "application/json" },
+          { page: "Jobs", section: "Employee Commuting", container: "Direct Entry" }
+        ),
+        credentials: "include",
+        body: JSON.stringify({
+          employee_name: employeeName,
+          registration_number: regNumber.trim(),
+          annual_quantity: Number(regAnnualMiles),
+        }),
+      });
+      if (!res.ok) {
+        const apiError = await readError(res);
+        throw new Error(apiError.message);
+      }
+      setStatus("Direct commuting row added from registration lookup.");
+      setRegNumber("");
+      setRegAnnualMiles("");
+      clearManualForm();
+      await loadSummary();
+      await loadImportedRows();
+      await loadDirectEntries();
+      dispatchJobScopeRefresh("employee-commuting");
+    } catch (e: unknown) {
+      setRegLookupError(e instanceof Error ? e.message : "Couldn't look up that registration.");
+    } finally {
+      setRegLookupLoading(false);
     }
   }
 
@@ -1194,7 +1242,48 @@ export default function EmployeeCommutingData({
                       </Select>
                     </div>
                   </div>
-                ) : (
+                ) : null}
+
+                {manualRowType === "commuting" && (
+                  <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+                    <Label className="text-xs text-muted-foreground">
+                      Or, if they drive their own car: enter the registration and we&apos;ll work out the category
+                      directly (bypasses the mode/service fields above).
+                    </Label>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="manual-reg-number">Vehicle Registration Number</Label>
+                        <Input
+                          id="manual-reg-number"
+                          placeholder="e.g. AB12 CDE"
+                          value={regNumber}
+                          onChange={(e) => setRegNumber(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="manual-reg-miles">Annual Commuting Miles</Label>
+                        <Input
+                          id="manual-reg-miles"
+                          type="number"
+                          min="0"
+                          value={regAnnualMiles}
+                          onChange={(e) => setRegAnnualMiles(e.target.value)}
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <Button
+                          disabled={regLookupLoading || !manualEmployeeName.trim() || !regNumber.trim() || !regAnnualMiles.trim()}
+                          onClick={() => void submitByVehicleRegistration()}
+                        >
+                          {regLookupLoading ? "Looking up & saving..." : "Look up & Save Entry"}
+                        </Button>
+                      </div>
+                    </div>
+                    {regLookupError && <div className="text-xs text-rose-700">{regLookupError}</div>}
+                  </div>
+                )}
+
+                {manualRowType === "wfh" && (
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="manual-annual-days">Annual WFH Days</Label>

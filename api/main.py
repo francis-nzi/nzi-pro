@@ -94,6 +94,7 @@ from api.support_feedback_routes import router as support_feedback_router
 from api.stripe_billing_routes import router as stripe_billing_router
 from api.stripe_billing_routes import webhook_router as stripe_billing_webhook_router
 from api.job_scope_data_routes import router as job_scope_data_router
+from api.vehicle_lookup_routes import router as vehicle_lookup_router
 from api.job_management_routes import router as job_management_router
 from api.job_template_routes import router as job_template_router
 from api.job_setup_routes import router as job_setup_router
@@ -244,6 +245,7 @@ app.include_router(stripe_billing_webhook_router)
 
 # Include job scope data routes
 app.include_router(job_scope_data_router)
+app.include_router(vehicle_lookup_router)
 app.include_router(job_management_router)
 app.include_router(job_template_router)
 app.include_router(job_setup_router)
