@@ -5,12 +5,11 @@ number and get back vehicle specs (fuel type, engine size, revenue weight,
 type approval) for carbon-accounting category resolution, instead of
 manually searching for the right factor.
 
-IMPORTANT (flagged during implementation, not verified live): the request/
-response shape below is based on general knowledge of DVLA's published VES
-API, not confirmed against live DVLA documentation in this environment (no
-internet access here). Before relying on this for real client use, smoke-
-test it against the live API with a real DVLA_VES_API_KEY and a real
-registration -- see CLIENT_PORTAL_DATA_ENTRY_SCOPE.md Phase 3 Verification.
+Smoke-tested 2026-07-24 against the live API with a real registration and a
+real DVLA_VES_API_KEY -- the response field names below (typeApproval,
+fuelType, engineCapacity, revenueWeight, co2Emissions, wheelplan, make) are
+confirmed to match live DVLA output, and categorize_vehicle() correctly
+resolved a real N1 diesel van to the Class III (1.74-3.5t) Diesel factor.
 
 Never persist the registration number itself -- it is used transiently in
 the request only. Callers must not log or store it either.

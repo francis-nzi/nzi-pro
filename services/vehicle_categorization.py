@@ -1,10 +1,12 @@
 """Maps DVLA VES vehicle specs to a real Company Vehicles factor row.
 
 Client Portal Data Entry Phase 3. Band boundaries (engine cc for car size,
-revenue weight for van class) are DEFRA-methodology conventions from general
-knowledge, not verified against this year's live DESNZ methodology paper --
-see CLIENT_PORTAL_DATA_ENTRY_SCOPE.md Phase 3 Verification, which calls for
-sanity-checking these against a handful of known real vehicles before trust.
+revenue weight for van class) are DEFRA-methodology conventions. Spot-checked
+2026-07-24 against two real vehicles via the live DVLA VES API: a 3198cc N1
+diesel van (revenue weight 3270kg) correctly resolved to Vans - Class III
+(1.74-3.5t) - Diesel, and a 1950cc M1 diesel car correctly resolved to Cars
+(by size) - Medium car - Diesel. Boundary edges (exactly 1400/2000cc, Large
+car, HGV bands, motorbikes) remain unexercised by a real lookup.
 
 DVLA type approval codes used to branch: M1 = car, N1 = light goods (van),
 N2/N3 = heavier goods vehicles. Anything else (motorcycles, unrecognised)
@@ -19,8 +21,8 @@ from services.dataset_selector import get_scope_primary_datasets
 
 logger = logging.getLogger(__name__)
 
-# Car engine-size bands (cc) -- DEFRA/DESNZ convention, flagged as an
-# assumption to verify (see module docstring).
+# Car engine-size bands (cc) -- DEFRA/DESNZ convention. See module docstring
+# for what's been spot-checked against real vehicles vs. still assumed.
 _CAR_SIZE_BANDS = [
     (1400, "Small car"),
     (2000, "Medium car"),
