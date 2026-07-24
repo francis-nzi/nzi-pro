@@ -49,7 +49,7 @@ type Category = { category_id: number; name: string };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-// Kanban column order per UX spec §6.4 (Proposed / Approved / In Progress / Verified).
+// Kanban column order per UX spec §6.4 (Proposed / Approved / In Progress / Completed).
 // "cancelled" is a real status but deliberately not a board column — see the
 // collapsible section at the bottom of the board.
 const STATUS_ORDER = ["open", "approved", "in_progress", "completed"] as const;
@@ -58,7 +58,7 @@ const STATUS_LABEL: Record<string, string> = {
   open: "Proposed",
   approved: "Approved",
   in_progress: "In Progress",
-  completed: "Verified",
+  completed: "Completed",
   cancelled: "Cancelled",
 };
 
@@ -345,7 +345,7 @@ function UpdateModal({
     }
   }
 
-  // Auto-set progress to 100 when marking verified
+  // Auto-set progress to 100 when marking completed
   function handleStatusChange(v: string) {
     setStatus(v);
     if (v === "completed") setProgress("100");
@@ -371,7 +371,7 @@ function UpdateModal({
                 <SelectItem value="open">Proposed</SelectItem>
                 <SelectItem value="approved">Approved</SelectItem>
                 <SelectItem value="in_progress">In Progress</SelectItem>
-                <SelectItem value="completed">Verified</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
                 <SelectItem value="cancelled">Cancelled</SelectItem>
               </SelectContent>
             </Select>
@@ -513,7 +513,7 @@ function ActionCard({
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
           {action.owner_name && <span>Owner: <span className="font-medium text-foreground">{action.owner_name}</span></span>}
           {action.target_date && <span>Target: {formatDate(action.target_date)}</span>}
-          {action.completed_at && <span className="text-status-success">Verified: {formatDate(action.completed_at)}</span>}
+          {action.completed_at && <span className="text-status-success">Completed: {formatDate(action.completed_at)}</span>}
         </div>
 
         {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
