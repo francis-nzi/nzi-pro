@@ -7,10 +7,12 @@ import io
 import json
 import pandas as pd
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, UploadFile, File
+from fastapi.responses import Response
 
 from api.auth import _current_user
 from api.permissions import assert_job_access, assert_permission
 from core.database import get_conn
+from services.lca_bom_template import generate_lca_bom_template
 from services.lca_engine import apply_scenario_multipliers, compute_readiness, safe_float, summarize_assessment
 from services.virus_scan import VirusScanError, scan_bytes
 
@@ -1367,6 +1369,27 @@ def lci_search(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to search LCI factors: {e}")
+
+
+@router.get("/jobs/{job_id}/lca/assessments/{assessment_id}/bom-template")
+def download_bom_template(
+    job_id: int,
+    assessment_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    assert_job_access(_user, int(job_id))
+    result = generate_lca_bom_template(int(job_id), int(assessment_id))
+    if result is None:
+        raise HTTPException(status_code=404, detail="LCA assessment not found")
+    content, file_name = result
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{file_name}"',
+            "X-Filename": file_name,
+        },
+    )
 
 
 @router.post("/jobs/{job_id}/lca/assessments/{assessment_id}/bom-upload")

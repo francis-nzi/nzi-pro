@@ -806,6 +806,34 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     }
   }
 
+  async function downloadBomTemplate() {
+    if (!selectedAssessmentId) {
+      setStatus("Select an assessment first.");
+      return;
+    }
+    setError("");
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/lca/assessments/${selectedAssessmentId}/bom-template`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`Template download failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const xFilename = res.headers.get("x-filename");
+      const disposition = res.headers.get("content-disposition") || "";
+      const cdMatch = disposition.match(/filename="?([^"]+)"?/i);
+      link.download = xFilename || cdMatch?.[1] || `lca-bom-template-${selectedAssessmentId}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   async function importBom() {
     if (!selectedAssessmentId) {
       setStatus("Select an assessment first.");
@@ -1395,6 +1423,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                   module/stage, component_code/part_code (links or creates a library component), factor/factor_value.
                   Rows with zero weight are kept as placeholder/assembly-grouping labels and excluded from the calculation.
                 </div>
+                <div className="flex justify-end"><Button variant="outline" onClick={downloadBomTemplate}>Download Template</Button></div>
                 <Input type="file" accept=".csv,.xlsx,.xls" onChange={(e) => setBomFile(e.target.files?.[0] ?? null)} />
                 <div className="flex justify-end"><Button onClick={importBom}>Import BOM + Auto Map</Button></div>
               </CardContent>
