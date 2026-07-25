@@ -13,6 +13,7 @@ from api.auth import _current_user
 from api.permissions import assert_job_access, assert_permission
 from core.database import get_conn
 from services.lca_bom_template import generate_lca_bom_template
+from services.lca_component_tree import ensure_lca_hierarchy_schema, resolve_effective_lines, snapshot_to_lines
 from services.lca_engine import apply_scenario_multipliers, compute_readiness, safe_float, summarize_assessment
 from services.virus_scan import VirusScanError, scan_bytes
 
@@ -309,16 +310,39 @@ def _load_line_items_for_calc(con, assessment_id: int) -> list[dict[str, Any]]:
 
 
 def _recalculate_assessment(con, assessment_id: int, user: dict[str, str]) -> dict[str, Any]:
+    ensure_lca_hierarchy_schema(con)
     assessment_row = con.execute(
-        "SELECT confirmed_quantity, confirmed_quantity_unit, included_modules, assessment_type FROM lca_assessments WHERE assessment_id = %s",
+        """
+        SELECT confirmed_quantity, confirmed_quantity_unit, included_modules, assessment_type,
+               review_status, resolved_lines_snapshot
+        FROM lca_assessments WHERE assessment_id = %s
+        """,
         [int(assessment_id)],
     ).fetchone()
     confirmed_quantity = safe_float(assessment_row[0]) if assessment_row and assessment_row[0] is not None else None
     confirmed_unit = assessment_row[1] if assessment_row else "kg"
     included_modules = _parse_json_list(assessment_row[2]) if assessment_row else []
     assessment_type = str(assessment_row[3] or "product") if assessment_row else "product"
+    review_status = str(assessment_row[4] or "draft") if assessment_row else "draft"
+    frozen_snapshot = snapshot_to_lines(assessment_row[5]) if assessment_row else None
 
-    lines = _load_line_items_for_calc(con, int(assessment_id))
+    # Once an assessment reaches verified/published, its resolved lines freeze
+    # at whatever they were the moment it got there -- a shared assembly
+    # edited elsewhere (or any other line-level change) can't silently move
+    # an already-signed-off ISO 14067 number without a deliberate re-review.
+    # Reopening the assessment (review_status back to draft/in_review) clears
+    # the freeze; the next verify/publish captures a fresh snapshot.
+    is_frozen_status = review_status in ("verified", "published")
+    raw_lines = _load_line_items_for_calc(con, int(assessment_id))
+    if is_frozen_status and frozen_snapshot is not None:
+        lines = frozen_snapshot
+    else:
+        lines = resolve_effective_lines(con, raw_lines)
+        con.execute(
+            "UPDATE lca_assessments SET resolved_lines_snapshot = %s WHERE assessment_id = %s",
+            [json.dumps(lines) if is_frozen_status else None, int(assessment_id)],
+        )
+
     summary = summarize_assessment(lines, confirmed_quantity, confirmed_unit, assessment_type=assessment_type)
     readiness = compute_readiness(lines, summary, included_modules, CONFIDENCE_THRESHOLD, assessment_type=assessment_type)
     summary["readiness"] = readiness
@@ -1861,7 +1885,8 @@ def scenario_comparison(job_id: int, assessment_id: int, _user: dict[str, str] =
             assessment = _assessment_row(con, int(job_id), int(assessment_id))
             if not assessment:
                 raise HTTPException(status_code=404, detail="LCA assessment not found")
-            lines = _load_line_items_for_calc(con, int(assessment_id))
+            ensure_lca_hierarchy_schema(con)
+            lines = resolve_effective_lines(con, _load_line_items_for_calc(con, int(assessment_id)))
             confirmed_quantity = assessment["confirmed_quantity"]
             confirmed_unit = assessment["confirmed_quantity_unit"]
 

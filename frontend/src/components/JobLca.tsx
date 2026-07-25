@@ -158,6 +158,24 @@ type LcaComponent = {
   default_unit: string;
   origin_country?: string | null;
   archived: boolean;
+  is_assembly?: boolean;
+  child_count?: number;
+  resolved_mass_kg?: number | null;
+};
+
+type LcaComponentChild = {
+  child_link_id: number;
+  parent_component_id: number;
+  child_component_id: number | null;
+  line_label: string;
+  material_category_id?: number | null;
+  quantity: number;
+  unit: string;
+  origin_country?: string | null;
+  factor_value?: number | null;
+  factor_unit?: string | null;
+  data_quality?: string;
+  child_is_assembly: boolean;
 };
 
 type LcaActivity = {
@@ -272,6 +290,21 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [newComponentUnit, setNewComponentUnit] = useState("kg");
   const [newComponentCountry, setNewComponentCountry] = useState("");
   const [newComponentSupplier, setNewComponentSupplier] = useState("");
+
+  // Assembly parts editor -- a component with 1+ children becomes a
+  // composite/assembly (see LCA_ASSEMBLY_HIERARCHY_SCOPE.md). A child can
+  // itself be another assembly, so this reuses the same component picker.
+  const [partsComponentId, setPartsComponentId] = useState<number | null>(null);
+  const [partsChildren, setPartsChildren] = useState<LcaComponentChild[]>([]);
+  const [partsResolvedMass, setPartsResolvedMass] = useState<number | null>(null);
+  const [partsLoading, setPartsLoading] = useState(false);
+  const [partsError, setPartsError] = useState("");
+  const [newPartChildId, setNewPartChildId] = useState("");
+  const [newPartLabel, setNewPartLabel] = useState("");
+  const [newPartQuantity, setNewPartQuantity] = useState("");
+  const [newPartUnit, setNewPartUnit] = useState("kg");
+  const [newPartFactor, setNewPartFactor] = useState("");
+  const [newPartFactorUnit, setNewPartFactorUnit] = useState("kgCO2e/kg");
 
   // Add-from-activity-library modal (service assessments -- mirrors the component library above)
   const [libraryActivities, setLibraryActivities] = useState<LcaActivity[]>([]);
@@ -956,6 +989,91 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
       setStatus("Component added to the library.");
     } catch (e) {
       setError((e as Error).message);
+    }
+  }
+
+  async function loadPartsEditor(componentId: number) {
+    if (!assessment?.client_db_id) return;
+    setPartsLoading(true);
+    setPartsError("");
+    try {
+      const res = await apiFetch(`/clients/${assessment.client_db_id}/lca-components/${componentId}/children`);
+      if (res.ok) {
+        const json = await res.json();
+        setPartsChildren(Array.isArray(json?.items) ? json.items : []);
+        setPartsResolvedMass(json?.resolved_mass_kg ?? null);
+      }
+    } finally {
+      setPartsLoading(false);
+    }
+  }
+
+  function openPartsEditor(componentId: number) {
+    setPartsComponentId(componentId);
+    setNewPartChildId("");
+    setNewPartLabel("");
+    setNewPartQuantity("");
+    setNewPartUnit("kg");
+    setNewPartFactor("");
+    setNewPartFactorUnit("kgCO2e/kg");
+    void loadPartsEditor(componentId);
+  }
+
+  async function refreshLibraryComponentsList() {
+    if (!assessment?.client_db_id) return;
+    const listRes = await apiFetch(`/clients/${assessment.client_db_id}/lca-components?include_global=true`);
+    if (listRes.ok) {
+      const json = await listRes.json();
+      setLibraryComponents(Array.isArray(json?.items) ? json.items : []);
+    }
+  }
+
+  async function addPart() {
+    if (!assessment?.client_db_id || !partsComponentId) return;
+    if (!newPartChildId && !newPartLabel.trim()) {
+      setPartsError("Pick a library component or enter a label for this part.");
+      return;
+    }
+    setPartsError("");
+    try {
+      const res = await apiFetch(`/clients/${assessment.client_db_id}/lca-components/${partsComponentId}/children`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          child_component_id: newPartChildId ? Number(newPartChildId) : null,
+          line_label: newPartLabel.trim(),
+          quantity: Number(newPartQuantity || 0),
+          unit: newPartUnit.trim() || "kg",
+          factor_value: newPartFactor ? Number(newPartFactor) : null,
+          factor_unit: newPartFactorUnit.trim() || "kgCO2e/kg",
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed to add part (${res.status})${t ? `: ${t}` : ""}`);
+      }
+      setNewPartChildId("");
+      setNewPartLabel("");
+      setNewPartQuantity("");
+      setNewPartFactor("");
+      await loadPartsEditor(partsComponentId);
+      await refreshLibraryComponentsList();
+    } catch (e) {
+      setPartsError((e as Error).message);
+    }
+  }
+
+  async function deletePart(childLinkId: number) {
+    if (!assessment?.client_db_id || !partsComponentId) return;
+    if (!window.confirm("Remove this part from the assembly?")) return;
+    try {
+      await apiFetch(`/clients/${assessment.client_db_id}/lca-components/${partsComponentId}/children/${childLinkId}`, {
+        method: "DELETE",
+      });
+      await loadPartsEditor(partsComponentId);
+      await refreshLibraryComponentsList();
+    } catch (e) {
+      setPartsError((e as Error).message);
     }
   }
 
@@ -1935,8 +2053,24 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                             <td className="px-3 py-2">
                               <div className="font-medium text-slate-900">{c.description}</div>
                               <div className="text-xs text-slate-500">
-                                {c.component_code || "-"} | {c.origin_country || "Origin not set"} | {c.default_unit_mass ?? "-"} {c.default_unit}
+                                {c.component_code || "-"} | {c.origin_country || "Origin not set"} |{" "}
+                                {c.is_assembly ? (
+                                  <span className="font-medium text-blue-700">
+                                    Assembly ({c.child_count} part{c.child_count === 1 ? "" : "s"}, {c.resolved_mass_kg ?? "-"} kg)
+                                  </span>
+                                ) : (
+                                  <>{c.default_unit_mass ?? "-"} {c.default_unit}</>
+                                )}
                               </div>
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <button
+                                type="button"
+                                className="text-xs text-primary underline"
+                                onClick={(e) => { e.stopPropagation(); openPartsEditor(c.component_id); }}
+                              >
+                                Parts
+                              </button>
                             </td>
                           </tr>
                         ))}
@@ -1958,6 +2092,89 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                 Add {selectedComponentIds.size || ""} Line{selectedComponentIds.size === 1 ? "" : "s"}
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={partsComponentId !== null} onOpenChange={(open) => { if (!open) setPartsComponentId(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Assembly Parts</DialogTitle>
+            <DialogDescription>
+              Add the materials or other library components that make up this assembly. Quantities are multiplied through
+              when this assembly is referenced elsewhere (as a line item, or nested inside another assembly).
+              {partsResolvedMass !== null && <span className="ml-1 font-medium text-slate-900">Total: {partsResolvedMass} kg</span>}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {partsError && <div className="rounded-md bg-rose-50 p-2 text-xs text-rose-700">{partsError}</div>}
+            <div className="max-h-64 overflow-auto rounded-md border">
+              {partsLoading ? (
+                <div className="p-4 text-center text-sm text-muted-foreground">Loading...</div>
+              ) : partsChildren.length === 0 ? (
+                <div className="p-4 text-center text-sm text-muted-foreground">No parts added yet.</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-gray-50 text-left text-xs text-muted-foreground">
+                      <th className="px-3 py-2">Part</th>
+                      <th className="px-3 py-2">Qty</th>
+                      <th className="px-3 py-2">Unit</th>
+                      <th className="px-3 py-2">Factor</th>
+                      <th className="px-3 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {partsChildren.map((child) => (
+                      <tr key={child.child_link_id}>
+                        <td className="px-3 py-2">
+                          {child.line_label}
+                          {child.child_is_assembly && <span className="ml-1 text-xs text-blue-700">(assembly)</span>}
+                        </td>
+                        <td className="px-3 py-2">{child.quantity}</td>
+                        <td className="px-3 py-2">{child.unit}</td>
+                        <td className="px-3 py-2">{child.factor_value ?? "-"}</td>
+                        <td className="px-3 py-2 text-right">
+                          <button type="button" className="text-xs text-rose-700 underline" onClick={() => void deletePart(child.child_link_id)}>
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="grid gap-2 rounded-md border p-3 md:grid-cols-2">
+              <Select value={newPartChildId} onValueChange={(v) => {
+                setNewPartChildId(v);
+                const picked = libraryComponents.find((c) => String(c.component_id) === v);
+                if (picked) setNewPartLabel(picked.description);
+              }}>
+                <SelectTrigger><SelectValue placeholder="Pick a library component (optional)" /></SelectTrigger>
+                <SelectContent>
+                  {libraryComponents.filter((c) => c.component_id !== partsComponentId).map((c) => (
+                    <SelectItem key={c.component_id} value={String(c.component_id)}>{c.description}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input value={newPartLabel} onChange={(e) => setNewPartLabel(e.target.value)} placeholder="Label (auto-filled if picked above)" />
+              <div className="flex gap-2">
+                <Input type="number" value={newPartQuantity} onChange={(e) => setNewPartQuantity(e.target.value)} placeholder="Quantity" />
+                <Input value={newPartUnit} onChange={(e) => setNewPartUnit(e.target.value)} placeholder="Unit" className="w-20" />
+              </div>
+              <div className="flex gap-2">
+                <Input type="number" value={newPartFactor} onChange={(e) => setNewPartFactor(e.target.value)} placeholder="Factor (optional)" />
+                <Input value={newPartFactorUnit} onChange={(e) => setNewPartFactorUnit(e.target.value)} placeholder="Factor unit" className="w-32" />
+              </div>
+              <div className="md:col-span-2 flex justify-end">
+                <Button type="button" size="sm" onClick={() => void addPart()}>Add Part</Button>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPartsComponentId(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
