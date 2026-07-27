@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import SearchableStringSelect from "@/components/SearchableStringSelect";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -1177,6 +1178,29 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   }
 
   const categoryName = (id?: number | null) => categories.find((c) => c.category_id === id)?.name || `Category ${id}`;
+  const categoryNames = useMemo(() => categories.map((c) => c.name), [categories]);
+
+  async function resolveOrCreateCategory(name: string): Promise<MaterialCategory | null> {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    const existing = categories.find((c) => c.name.toLowerCase() === trimmed.toLowerCase());
+    if (existing) return existing;
+    try {
+      const res = await apiFetch("/lca/material-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.category_id) return null;
+      const created: MaterialCategory = { category_id: d.category_id, name: d.name || trimmed };
+      setCategories((prev) => (prev.some((c) => c.category_id === created.category_id) ? prev : [...prev, created].sort((a, b) => a.name.localeCompare(b.name))));
+      return created;
+    } catch {
+      return null;
+    }
+  }
+
   const moduleLabel = (code: string) => modules.find((m) => m.module_code === code)?.label || code;
   const isService = assessment?.assessment_type === "service";
   const serviceModules = useMemo(() => modules.filter((m) => m.module_group === "scope3"), [modules]);
@@ -1582,12 +1606,18 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                 {!isService ? (
                   <div className="space-y-2">
                     <Label>Category</Label>
-                    <Select value={lineCategory} onValueChange={setLineCategory}>
-                      <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
-                      <SelectContent>
-                        {categories.map((c) => (<SelectItem key={c.category_id} value={String(c.category_id)}>{c.name}</SelectItem>))}
-                      </SelectContent>
-                    </Select>
+                    <SearchableStringSelect
+                      value={lineCategory ? categoryName(Number(lineCategory)) : ""}
+                      options={categoryNames}
+                      placeholder="Search or type to add a new category..."
+                      showClearButton
+                      onValueChange={(name) => {
+                        void (async () => {
+                          const cat = await resolveOrCreateCategory(name);
+                          setLineCategory(cat ? String(cat.category_id) : "");
+                        })();
+                      }}
+                    />
                   </div>
                 ) : null}
                 <div className="space-y-2"><Label>Quantity</Label><Input type="number" value={lineQty} onChange={(e) => setLineQty(e.target.value)} /></div>
@@ -2015,12 +2045,18 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                   <div className="grid gap-2 rounded-md border p-3 md:grid-cols-2">
                     <Input value={newComponentCode} onChange={(e) => setNewComponentCode(e.target.value)} placeholder="Component code (optional)" />
                     <Input value={newComponentDescription} onChange={(e) => setNewComponentDescription(e.target.value)} placeholder="Description *" />
-                    <Select value={newComponentCategory} onValueChange={setNewComponentCategory}>
-                      <SelectTrigger><SelectValue placeholder="Material category" /></SelectTrigger>
-                      <SelectContent>
-                        {categories.map((c) => (<SelectItem key={c.category_id} value={String(c.category_id)}>{c.name}</SelectItem>))}
-                      </SelectContent>
-                    </Select>
+                    <SearchableStringSelect
+                      value={newComponentCategory ? categoryName(Number(newComponentCategory)) : ""}
+                      options={categoryNames}
+                      placeholder="Material category -- search or type to add"
+                      showClearButton
+                      onValueChange={(name) => {
+                        void (async () => {
+                          const cat = await resolveOrCreateCategory(name);
+                          setNewComponentCategory(cat ? String(cat.category_id) : "");
+                        })();
+                      }}
+                    />
                     <div className="flex gap-2">
                       <Input type="number" value={newComponentMass} onChange={(e) => setNewComponentMass(e.target.value)} placeholder="Default mass" />
                       <Input value={newComponentUnit} onChange={(e) => setNewComponentUnit(e.target.value)} placeholder="Unit" className="w-20" />

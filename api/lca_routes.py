@@ -15,6 +15,7 @@ from core.database import get_conn
 from services.lca_bom_template import generate_lca_bom_template
 from services.lca_component_tree import ensure_lca_hierarchy_schema, resolve_effective_lines, snapshot_to_lines
 from services.lca_engine import apply_scenario_multipliers, compute_readiness, safe_float, summarize_assessment
+from services.lca_material_categories import ensure_material_categories_deduped, resolve_or_create_material_category
 from services.virus_scan import VirusScanError, scan_bytes
 
 router = APIRouter(tags=["lca"])
@@ -555,6 +556,7 @@ def list_lca_material_categories(_user: dict[str, str] = Depends(_current_user))
     endpoint exists so any user with job access can populate the category
     dropdown without needing admin rights."""
     with get_conn() as con:
+        ensure_material_categories_deduped(con)
         df = con.execute(
             """
             SELECT category_id, name, description
@@ -568,6 +570,22 @@ def list_lca_material_categories(_user: dict[str, str] = Depends(_current_user))
             for _, r in df.iterrows():
                 items.append({"category_id": int(r.get("category_id")), "name": r.get("name"), "description": r.get("description")})
         return {"items": items}
+
+
+@router.post("/lca/material-categories")
+def create_or_resolve_lca_material_category(body: dict = Body(...), _user: dict[str, str] = Depends(_current_user)):
+    """Resolve a typed category name to an existing category (case-insensitive),
+    or create it if it doesn't exist yet. Backs the smart-list category picker
+    in the job LCA UI -- categories aren't a fixed list, so any job user can
+    add a new one on the fly rather than being limited to admin-curated CRUD."""
+    name = str(body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    with get_conn() as con:
+        ensure_material_categories_deduped(con)
+        category_id = resolve_or_create_material_category(con, name)
+        row = con.execute("SELECT name FROM lca_material_categories_lookup WHERE category_id = %s", [category_id]).fetchone()
+    return {"ok": True, "category_id": category_id, "name": row[0] if row else name}
 
 
 @router.get("/lca/modules")
@@ -1462,6 +1480,8 @@ async def upload_bom_file(
             client_db_id = _job_client_id(con, int(job_id))
             valid_modules = _valid_module_codes(con)
             dataset_ids = _resolve_dataset_ids(con, int(job_id), int(assessment_id))
+            ensure_material_categories_deduped(con)
+            category_cache: dict[str, int | None] = {}
 
             for _, row in df.iterrows():
                 line_label = str(getv(row, ["item_name", "material", "material_name", "component", "component_name", "name", "description"], "") or "").strip()
@@ -1475,6 +1495,13 @@ async def upload_bom_file(
                 unit = str(getv(row, ["unit", "uom", "units"], "kg") or "kg").strip()
                 origin_country = str(getv(row, ["origin_country", "country", "raw_material_origin_country"], "") or "").strip()
                 component_code = str(getv(row, ["component_code", "part_code", "part_number", "current_codes", "new_codes"], "") or "").strip()
+                category_raw = str(getv(row, ["material_category", "material_category_name", "category", "category_name"], "") or "").strip()
+                material_category_id = None
+                if category_raw:
+                    cache_key = category_raw.lower()
+                    if cache_key not in category_cache:
+                        category_cache[cache_key] = resolve_or_create_material_category(con, category_raw)
+                    material_category_id = category_cache[cache_key]
                 is_placeholder = qty <= 0
                 explicit_factor = safe_float(getv(row, ["factor", "factor_value", "emission_factor"], 0))
                 explicit_factor_unit = str(getv(row, ["factor_unit", "emission_factor_unit"], "kgCO2e/kg") or "kgCO2e/kg").strip()
@@ -1502,14 +1529,14 @@ async def upload_bom_file(
                 row_insert = con.execute(
                     """
                     INSERT INTO lca_line_items (
-                      assessment_id, component_id, module_code, line_label, quantity, unit, origin_country,
+                      assessment_id, component_id, module_code, line_label, material_category_id, quantity, unit, origin_country,
                       mapped_factor_source, factor_value, factor_unit, data_quality, is_placeholder, created_by, updated_by
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING line_item_id
                     """,
                     [
-                        int(assessment_id), component_id, module_code, line_label, qty, unit or "kg",
+                        int(assessment_id), component_id, module_code, line_label, material_category_id, qty, unit or "kg",
                         origin_country or None, "manual" if explicit_factor > 0 else None,
                         explicit_factor, explicit_factor_unit, "secondary", is_placeholder,
                         _actor(_user), _actor(_user),

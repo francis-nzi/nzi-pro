@@ -15,6 +15,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 
 from core.database import get_conn
 from services.download_filenames import safe_filename_part
+from services.lca_material_categories import ensure_material_categories_deduped
 
 BOM_HEADERS = [
     "item_name",
@@ -23,14 +24,15 @@ BOM_HEADERS = [
     "quantity",
     "unit",
     "origin_country",
+    "material_category",
     "factor",
     "factor_unit",
 ]
 
 EXAMPLE_ROWS = [
-    ["Steel bracket", "BRK-001", "A1", 0.45, "kg", "China", "", ""],
-    ["Cardboard outer box", "PKG-014", "A1", 0.12, "kg", "UK", "", ""],
-    ["Assembly (grouping label only)", "", "A3", 0, "kg", "", "", ""],
+    ["Steel bracket", "BRK-001", "A1", 0.45, "kg", "China", "Metal", "", ""],
+    ["Cardboard outer box", "PKG-014", "A1", 0.12, "kg", "UK", "Cardboard", "", ""],
+    ["Assembly (grouping label only)", "", "A3", 0, "kg", "", "", "", ""],
 ]
 
 
@@ -64,6 +66,16 @@ def _module_reference_rows(con) -> list[tuple[str, str, str]]:
     return [(str(r["module_code"]), str(r["label"]), str(r["module_group"])) for _, r in df.iterrows()]
 
 
+def _material_category_reference_rows(con) -> list[str]:
+    ensure_material_categories_deduped(con)
+    df = con.execute(
+        "SELECT name FROM lca_material_categories_lookup WHERE is_active = TRUE ORDER BY name"
+    ).df()
+    if df is None or df.empty:
+        return []
+    return [str(v) for v in df["name"].tolist()]
+
+
 def generate_lca_bom_template(job_id: int, assessment_id: int) -> tuple[bytes, str] | None:
     """Returns (xlsx_bytes, filename), or None if the job/assessment doesn't exist."""
     with get_conn() as con:
@@ -71,6 +83,7 @@ def generate_lca_bom_template(job_id: int, assessment_id: int) -> tuple[bytes, s
         if context is None:
             return None
         modules = _module_reference_rows(con)
+        material_categories = _material_category_reference_rows(con)
 
     job_number = context["job_number"] or f"job-{job_id}"
     client_name = context["client_name"] or "Client"
@@ -107,7 +120,7 @@ def generate_lca_bom_template(job_id: int, assessment_id: int) -> tuple[bytes, s
 
     ws.freeze_panes = f"A{header_row + 1}"
     ws.sheet_view.showGridLines = False
-    widths = {"A": 32, "B": 16, "C": 10, "D": 12, "E": 10, "F": 16, "G": 10, "H": 14}
+    widths = {"A": 32, "B": 16, "C": 10, "D": 12, "E": 10, "F": 16, "G": 16, "H": 10, "I": 14}
     for col, width in widths.items():
         ws.column_dimensions[col].width = width
 
@@ -124,6 +137,7 @@ def generate_lca_bom_template(job_id: int, assessment_id: int) -> tuple[bytes, s
         ("quantity", "Also accepts: qty, weight, unit_weight, mass. A zero (or blank) quantity is kept as a placeholder/assembly-grouping row and excluded from the calculation -- use this for a sub-assembly label that has no mass of its own."),
         ("unit", "Defaults to kg. Also accepts: uom, units."),
         ("origin_country", "Optional, used for factor matching. Also accepts: country."),
+        ("material_category", "Optional. Matched against the Material Categories sheet (case-insensitive) -- if it doesn't match an existing one, a new category is created automatically. Also accepts: category, category_name."),
         ("factor", "Optional. Leave blank to auto-match a factor; set this to skip auto-matching and use an explicit value. Also accepts: factor_value, emission_factor."),
         ("factor_unit", "Only used if factor is set. Defaults to kgCO2e/kg. Also accepts: emission_factor_unit."),
     ]
@@ -151,6 +165,15 @@ def generate_lca_bom_template(job_id: int, assessment_id: int) -> tuple[bytes, s
         mod_sheet.column_dimensions["A"].width = 10
         mod_sheet.column_dimensions["B"].width = 34
         mod_sheet.column_dimensions["C"].width = 16
+
+    if material_categories:
+        cat_sheet = wb.create_sheet(title="Material Categories")
+        cat_sheet["A1"] = "Existing categories (type a new one if yours isn't listed)"
+        cat_sheet["A1"].font = Font(bold=True, color="FFFFFF")
+        cat_sheet["A1"].fill = fill
+        for i, name in enumerate(material_categories, start=2):
+            cat_sheet.cell(row=i, column=1, value=name)
+        cat_sheet.column_dimensions["A"].width = 34
 
     file_name = (
         f"{safe_filename_part(job_number)} {safe_filename_part(client_name)} "
