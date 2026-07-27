@@ -96,6 +96,8 @@ interface EditState {
   sort_order: string;
 }
 
+const MANUAL_ENTRY_VALUE = "__manual__";
+
 function emptyEdit(): EditState {
   return {
     line_item_id: null,
@@ -252,6 +254,10 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName, jobFamily }, ref) {
   }
 
   function onItemSelect(itemId: string) {
+    if (itemId === MANUAL_ENTRY_VALUE) {
+      setEdit((e) => ({ ...e, item_id: "" }));
+      return;
+    }
     const ji = allJobItems.find((i) => String(i.item_id) === itemId);
     if (ji) {
       setEdit((e) => ({
@@ -670,12 +676,12 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName, jobFamily }, ref) {
 
             <div className="space-y-1.5">
               <Label>From item library (optional)</Label>
-              <Select value={edit.item_id} onValueChange={onItemSelect}>
+              <Select value={edit.item_id || MANUAL_ENTRY_VALUE} onValueChange={onItemSelect}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select from library or fill in manually…" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">— Manual entry —</SelectItem>
+                  <SelectItem value={MANUAL_ENTRY_VALUE}>— Manual entry —</SelectItem>
                   {allJobItems.map((i) => (
                     <SelectItem key={i.item_id} value={String(i.item_id)}>
                       {i.item_name}
