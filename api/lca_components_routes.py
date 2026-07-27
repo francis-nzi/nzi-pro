@@ -100,7 +100,10 @@ def list_lca_components(
             ).df()
             items = []
             if df is not None and not df.empty:
-                df = df.where(df.notna(), None)
+                # astype(object) first -- plain .where() is a no-op on any
+                # column pandas inferred as float64 (all-NULL optional text
+                # columns commonly do), leaving NaN and breaking JSON encoding.
+                df = df.astype(object).where(df.notna(), None)
                 component_ids = [int(v) for v in df["component_id"].tolist()]
                 child_counts: dict[int, int] = {}
                 if component_ids:
@@ -306,7 +309,7 @@ def list_lca_component_children(
             ).df()
             items = []
             if df is not None and not df.empty:
-                df = df.where(df.notna(), None)
+                df = df.astype(object).where(df.notna(), None)
                 for _, r in df.iterrows():
                     child_id = r.get("child_component_id")
                     is_assembly = has_children(con, int(child_id)) if child_id is not None and not _is_missing(child_id) else False

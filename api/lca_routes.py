@@ -907,7 +907,14 @@ def list_line_items(job_id: int, assessment_id: int, _user: dict[str, str] = Dep
             ).df()
             items: list[dict[str, Any]] = []
             if df is not None and not df.empty:
-                df = df.where(df.notna(), None)
+                # astype(object) first -- otherwise .where() is a no-op on any
+                # column pandas inferred as float64 (which happens whenever
+                # every row's value for that column is NULL, common for
+                # optional text fields like transport_mode/notes right after a
+                # bulk BOM import), leaving NaN instead of None and blowing up
+                # JSON serialization downstream ("Out of range float values
+                # are not JSON compliant: nan").
+                df = df.astype(object).where(df.notna(), None)
                 for _, r in df.iterrows():
                     items.append(
                         {

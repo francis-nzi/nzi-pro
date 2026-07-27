@@ -89,7 +89,7 @@ def list_lca_activities(
             ).df()
             items = []
             if df is not None and not df.empty:
-                df = df.where(df.notna(), None)
+                df = df.astype(object).where(df.notna(), None)
                 for _, r in df.iterrows():
                     items.append(_row_to_dict(tuple(r[c] for c in [
                         "activity_id", "client_db_id", "activity_code", "description", "default_module_code",
