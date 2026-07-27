@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -180,6 +180,15 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName, jobFamily }, ref) {
   const confirm = useConfirmDialog();
   const loadedRef = useRef(false);
 
+  // Manage Items -- checkbox multi-select against the catalog (add-from-library
+  // + remove-from-job in one save), separate from the Add Custom Item dialog
+  // below (which is for one-off items not in the job_items catalog at all).
+  const [manageOpen, setManageOpen] = useState(false);
+  const [manageSearch, setManageSearch] = useState("");
+  const [manageSelectedIds, setManageSelectedIds] = useState<Set<number>>(new Set());
+  const [manageSaving, setManageSaving] = useState(false);
+  const [manageError, setManageError] = useState("");
+
   useImperativeHandle(ref, () => ({ applyTemplate }));
 
   const load = useCallback(async () => {
@@ -192,7 +201,7 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName, jobFamily }, ref) {
         setSummary(data.summary || null);
       }
     } catch {
-      setStatus("Failed to load scope items");
+      setStatus("Failed to load items");
     } finally {
       setLoading(false);
     }
@@ -260,6 +269,83 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName, jobFamily }, ref) {
     }
   }
 
+  function openManage() {
+    const currentIds = new Set(
+      items.filter((i) => i.item_id !== null).map((i) => i.item_id as number)
+    );
+    setManageSelectedIds(currentIds);
+    setManageSearch("");
+    setManageError("");
+    setManageOpen(true);
+  }
+
+  function toggleManageItem(itemId: number) {
+    setManageSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
+
+  const filteredCatalogItems = useMemo(() => {
+    const q = manageSearch.trim().toLowerCase();
+    if (!q) return allJobItems;
+    return allJobItems.filter((i) =>
+      [i.item_name, i.item_code, i.category].filter(Boolean).some((v) => String(v).toLowerCase().includes(q))
+    );
+  }, [allJobItems, manageSearch]);
+
+  async function saveManageSelection() {
+    setManageSaving(true);
+    setManageError("");
+    try {
+      const originalIds = new Set(
+        items.filter((i) => i.item_id !== null).map((i) => i.item_id as number)
+      );
+      const toAdd = [...manageSelectedIds].filter((id) => !originalIds.has(id));
+      const toRemoveLineItemIds = items
+        .filter((i) => i.item_id !== null && !manageSelectedIds.has(i.item_id as number))
+        .map((i) => i.line_item_id);
+
+      for (const itemId of toAdd) {
+        const ji = allJobItems.find((i) => i.item_id === itemId);
+        if (!ji) continue;
+        const res = await fetch(`${api()}/jobs/${jobId}/line-items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            item_id: ji.item_id,
+            item_name: ji.item_name,
+            item_code: ji.item_code,
+            category: ji.category,
+            quantity: 1,
+            estimated_hours: ji.estimated_hours,
+            unit: ji.unit,
+            unit_sell: ji.sell_amount,
+            notes: "",
+            sort_order: items.length,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => null);
+          throw new Error(err?.detail || `Failed to add "${ji.item_name}"`);
+        }
+      }
+      for (const lineItemId of toRemoveLineItemIds) {
+        const res = await fetch(`${api()}/jobs/${jobId}/line-items/${lineItemId}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("Failed to remove an item");
+      }
+
+      await load();
+      setManageOpen(false);
+    } catch (e) {
+      setManageError(e instanceof Error ? e.message : "Failed to update items");
+    } finally {
+      setManageSaving(false);
+    }
+  }
+
   async function saveItem() {
     if (!edit.item_name.trim()) {
       setStatus("Item name is required");
@@ -315,8 +401,8 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName, jobFamily }, ref) {
 
   async function deleteItem(item: LineItem) {
     const ok = await confirm({
-      title: "Delete scope item?",
-      description: `"${item.item_name}" will be removed from this job's scope.`,
+      title: "Delete item?",
+      description: `"${item.item_name}" will be removed from this job.`,
       confirmLabel: "Delete",
       destructive: true,
     });
@@ -341,10 +427,10 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName, jobFamily }, ref) {
   async function applyTemplate() {
     const hasItems = items.length > 0;
     const msg = hasItems
-      ? "This will replace all existing scope items with the job type template. Existing items will be deleted."
-      : `Scope items from the "${jobTypeName}" template will be added to this job.`;
+      ? "This will replace all existing items with the job type template. Existing items will be deleted."
+      : `Items from the "${jobTypeName}" template will be added to this job.`;
     const ok = await confirm({
-      title: hasItems ? "Replace scope with template?" : "Apply template?",
+      title: hasItems ? "Replace items with template?" : "Apply template?",
       description: msg,
       confirmLabel: hasItems ? "Replace" : "Apply",
       destructive: hasItems,
@@ -401,9 +487,9 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName, jobFamily }, ref) {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
           <div>
-            <CardTitle style={{ color: "#F26624" }}>Job Scope & Hours</CardTitle>
+            <CardTitle style={{ color: "#F26624" }}>Job Items</CardTitle>
             <p className="mt-0.5 text-xs text-slate-500">
-              Define the scope items and budgeted hours for this job.
+              Items, hours and costs for this job — drives budgeted hours and client invoicing.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -433,12 +519,22 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName, jobFamily }, ref) {
               </Button>
             )}
             <Button
+              variant="outline"
               size="sm"
               onClick={openAdd}
-              className="gap-1.5 bg-[#1c5026] text-xs hover:bg-[#154020]"
+              className="gap-1.5 text-xs"
+              title="Add a one-off item that isn't in the catalog"
             >
               <Plus className="h-3.5 w-3.5" />
-              Add item
+              Custom item
+            </Button>
+            <Button
+              size="sm"
+              onClick={openManage}
+              className="gap-1.5 bg-[#1c5026] text-xs hover:bg-[#154020]"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Manage items
             </Button>
           </div>
         </CardHeader>
@@ -455,7 +551,7 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName, jobFamily }, ref) {
           ) : items.length === 0 ? (
             <div className="rounded-lg border border-dashed border-slate-200 py-8 text-center">
               <Clock className="mx-auto mb-2 h-7 w-7 text-slate-300" />
-              <p className="text-sm font-medium text-slate-600">No scope items yet</p>
+              <p className="text-sm font-medium text-slate-600">No items yet</p>
               {jobTypeId ? (
                 <button
                   onClick={applyTemplate}
@@ -465,7 +561,7 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName, jobFamily }, ref) {
                 </button>
               ) : (
                 <p className="mt-1 text-xs text-slate-400">
-                  Add items manually or assign a Job Type to load from a template.
+                  Use &ldquo;Manage items&rdquo; to pick from the catalog, or assign a Job Type to load from a template.
                 </p>
               )}
             </div>
@@ -565,7 +661,7 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName, jobFamily }, ref) {
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{edit.line_item_id ? "Edit Scope Item" : "Add Scope Item"}</DialogTitle>
+            <DialogTitle>{edit.line_item_id ? "Edit Item" : "Add Custom Item"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             {status && editOpen && (
@@ -681,6 +777,71 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName, jobFamily }, ref) {
                 className="bg-[#1c5026] hover:bg-[#154020]"
               >
                 {loading ? "Saving…" : "Save"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manage Items -- checkbox multi-select against the catalog */}
+      <Dialog open={manageOpen} onOpenChange={setManageOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Manage Items</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {manageError && (
+              <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{manageError}</div>
+            )}
+            <Input
+              value={manageSearch}
+              onChange={(e) => setManageSearch(e.target.value)}
+              placeholder="Search the item catalog…"
+            />
+            <div className="max-h-80 overflow-auto rounded-md border">
+              {filteredCatalogItems.length === 0 ? (
+                <div className="p-4 text-center text-sm text-slate-400">No catalog items found.</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredCatalogItems.map((ji) => (
+                      <tr
+                        key={ji.item_id}
+                        className="cursor-pointer hover:bg-slate-50"
+                        onClick={() => toggleManageItem(ji.item_id)}
+                      >
+                        <td className="w-8 px-3 py-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={manageSelectedIds.has(ji.item_id)}
+                            onChange={() => toggleManageItem(ji.item_id)}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="font-medium text-slate-900">{ji.item_name}</div>
+                          <div className="text-xs text-slate-500">
+                            {ji.category || "—"} | {ji.estimated_hours} hrs | {ji.sell_currency} {ji.sell_amount}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <p className="text-xs text-slate-400">
+              Ticking adds the item to this job; unticking removes it. Adjust quantity or price afterwards from the
+              item&apos;s edit icon. Custom (non-catalog) items aren&apos;t affected by this list.
+            </p>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" onClick={() => setManageOpen(false)}>Cancel</Button>
+              <Button
+                onClick={saveManageSelection}
+                disabled={manageSaving}
+                className="bg-[#1c5026] hover:bg-[#154020]"
+              >
+                {manageSaving ? "Saving…" : "Save Changes"}
               </Button>
             </div>
           </div>
