@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -237,6 +237,8 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
 
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [selectedAssessmentId, setSelectedAssessmentId] = useState<string>("");
+  const assessmentDetailSeqRef = useRef(0);
+  const itemsSeqRef = useRef(0);
   const [assessment, setAssessment] = useState<AssessmentDetail | null>(null);
   const [modules, setModules] = useState<LcaModule[]>([]);
   const [categories, setCategories] = useState<MaterialCategory[]>([]);
@@ -357,12 +359,20 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
       setAssessment(null);
       return;
     }
+    const seq = ++assessmentDetailSeqRef.current;
     try {
       const res = await apiFetch(`/jobs/${jobId}/lca/assessments/${assessmentId}`);
       if (!res.ok) return;
-      setAssessment(await res.json());
+      const json = await res.json();
+      // Several actions (BOM import, add/delete line item, etc.) each trigger
+      // their own reload on top of the mount/selection-change effect, so more
+      // than one of these can be in flight at once. Drop this response if a
+      // newer call has since started -- otherwise a slower, older request can
+      // resolve last and silently overwrite fresh state with stale data.
+      if (seq !== assessmentDetailSeqRef.current) return;
+      setAssessment(json);
     } catch (e) {
-      setError((e as Error).message);
+      if (seq === assessmentDetailSeqRef.current) setError((e as Error).message);
     }
   }
 
@@ -372,19 +382,21 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
       setSummary(null);
       return;
     }
+    const seq = ++itemsSeqRef.current;
     setLoading(true);
     setError("");
     try {
       const res = await apiFetch(`/jobs/${jobId}/lca/assessments/${assessmentId}/line-items`);
       if (!res.ok) throw new Error(`Failed to load line items (${res.status})`);
       const json = await res.json();
+      if (seq !== itemsSeqRef.current) return; // stale response -- a newer loadItems call has already started
       setItems(Array.isArray(json?.items) ? json.items : []);
       setSummary((json?.summary || null) as Summary | null);
       setSelectedDatasetIds(Array.isArray(json?.selected_dataset_ids) ? json.selected_dataset_ids : []);
     } catch (e) {
-      setError((e as Error).message);
+      if (seq === itemsSeqRef.current) setError((e as Error).message);
     } finally {
-      setLoading(false);
+      if (seq === itemsSeqRef.current) setLoading(false);
     }
   }
 
