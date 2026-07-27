@@ -538,6 +538,36 @@ def _normalize_col(col: Any) -> str:
     return str(col or "").strip().lower().replace("-", "_").replace(" ", "_")
 
 
+_BOM_COLUMN_ALIAS_GROUPS = [
+    ["item_name", "material", "material_name", "component", "component_name", "name", "description"],
+    ["module", "module_code", "stage", "stage_key", "lifecycle_stage"],
+    ["quantity", "qty", "weight", "unit_weight", "mass"],
+    ["unit", "uom", "units"],
+    ["origin_country", "country", "raw_material_origin_country"],
+    ["component_code", "part_code", "part_number", "current_codes", "new_codes"],
+    ["material_category", "material_category_name", "category", "category_name"],
+    ["factor", "factor_value", "emission_factor"],
+    ["factor_unit", "emission_factor_unit"],
+]
+_BOM_ALIAS_TOKENS = {_normalize_col(a) for group in _BOM_COLUMN_ALIAS_GROUPS for a in group}
+
+
+def _detect_bom_header_row(raw_df: Any, max_scan: int = 20) -> int:
+    """BOM files can have a title/metadata preamble above the real header row
+    -- our own downloadable template does (job number, client, boundary) --
+    so scan the first few rows for the one that looks most like a
+    column-header row instead of always assuming row 0 is the header."""
+    best_row = 0
+    best_score = 0
+    for i in range(min(max_scan, len(raw_df))):
+        cells = {_normalize_col(v) for v in raw_df.iloc[i].tolist() if v is not None and str(v).strip() != ""}
+        score = len(cells & _BOM_ALIAS_TOKENS)
+        if score > best_score:
+            best_score = score
+            best_row = i
+    return best_row if best_score >= 2 else 0
+
+
 def _valid_module_codes(con) -> set[str]:
     df = con.execute("SELECT module_code FROM lca_modules_lookup WHERE is_active = TRUE").df()
     if df is None or df.empty:
@@ -1452,12 +1482,15 @@ async def upload_bom_file(
             scan_bytes(raw, filename=file.filename)
         except VirusScanError as e:
             raise HTTPException(status_code=400, detail=str(e))
-        if filename.endswith(".csv"):
-            df = pd.read_csv(io.BytesIO(raw))
-        elif filename.endswith((".xlsx", ".xlsm", ".xls")):
-            df = pd.read_excel(io.BytesIO(raw))
-        else:
+        is_csv = filename.endswith(".csv")
+        is_excel = filename.endswith((".xlsx", ".xlsm", ".xls"))
+        if not is_csv and not is_excel:
             raise HTTPException(status_code=400, detail="Unsupported file type. Use CSV or XLSX.")
+        probe_df = pd.read_csv(io.BytesIO(raw), header=None) if is_csv else pd.read_excel(io.BytesIO(raw), header=None)
+        if probe_df is None or probe_df.empty:
+            raise HTTPException(status_code=400, detail="No rows found in BOM file")
+        header_row = _detect_bom_header_row(probe_df)
+        df = pd.read_csv(io.BytesIO(raw), header=header_row) if is_csv else pd.read_excel(io.BytesIO(raw), header=header_row)
         if df is None or df.empty:
             raise HTTPException(status_code=400, detail="No rows found in BOM file")
 

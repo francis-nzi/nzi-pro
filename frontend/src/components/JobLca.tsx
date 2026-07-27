@@ -272,6 +272,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
 
   const [bomFile, setBomFile] = useState<File | null>(null);
   const [bomUploadProgress, setBomUploadProgress] = useState(0);
+  const [bomImportResult, setBomImportResult] = useState<{ kind: "success" | "warning" | "error"; message: string } | null>(null);
 
   const [activeWorkflowStage, setActiveWorkflowStage] = useState<WorkflowStageKey>("goal-scope");
   const [stageLockEnabled, setStageLockEnabled] = useState(false);
@@ -870,14 +871,14 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
 
   async function importBom() {
     if (!selectedAssessmentId) {
-      setStatus("Select an assessment first.");
+      setBomImportResult({ kind: "error", message: "Select an assessment first." });
       return;
     }
     if (!bomFile) {
-      setStatus("Choose a BOM CSV/XLSX file first.");
+      setBomImportResult({ kind: "error", message: "Choose a BOM CSV/XLSX file first." });
       return;
     }
-    setStatus("Importing BOM and auto-mapping factors...");
+    setBomImportResult(null);
     setError("");
     setBomUploadProgress(0);
     try {
@@ -898,13 +899,20 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
       await loadAssessments();
       await loadAssessmentDetail(selectedAssessmentId);
       setBomFile(null);
-      setStatus(
-        `BOM imported. Inserted ${json?.inserted ?? 0}, mapped ${json?.mapped ?? 0}, gap-filled ${json?.gap_filled ?? 0}, ` +
-          `needs review ${json?.needs_review ?? 0}, skipped ${json?.skipped ?? 0}, new library components ${json?.components_created ?? 0}.`
-      );
+      const inserted = json?.inserted ?? 0;
+      const skipped = json?.skipped ?? 0;
+      const summary =
+        `Inserted ${inserted}, mapped ${json?.mapped ?? 0}, gap-filled ${json?.gap_filled ?? 0}, ` +
+        `needs review ${json?.needs_review ?? 0}, skipped ${skipped}, new library components ${json?.components_created ?? 0}.`;
+      setBomImportResult({
+        kind: inserted === 0 ? "error" : skipped > 0 ? "warning" : "success",
+        message:
+          inserted === 0
+            ? `Nothing was imported -- every row was skipped. Check that your file has a header row with recognisable column names (item_name, quantity, etc). ${summary}`
+            : summary,
+      });
     } catch (e) {
-      setError((e as Error).message);
-      setStatus("");
+      setBomImportResult({ kind: "error", message: (e as Error).message });
     } finally {
       setBomUploadProgress(0);
     }
@@ -1566,8 +1574,28 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                   Rows with zero weight are kept as placeholder/assembly-grouping labels and excluded from the calculation.
                 </div>
                 <div className="flex justify-end"><Button variant="outline" onClick={downloadBomTemplate}>Download Template</Button></div>
-                <Input type="file" accept=".csv,.xlsx,.xls" onChange={(e) => setBomFile(e.target.files?.[0] ?? null)} />
+                <Input
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  onChange={(e) => {
+                    setBomFile(e.target.files?.[0] ?? null);
+                    setBomImportResult(null);
+                  }}
+                />
                 <div className="flex justify-end"><Button onClick={importBom}>Import BOM + Auto Map</Button></div>
+                {bomImportResult ? (
+                  <div
+                    className={`rounded-md border px-3 py-2 text-sm ${
+                      bomImportResult.kind === "success"
+                        ? "border-green-200 bg-green-50 text-green-800"
+                        : bomImportResult.kind === "warning"
+                          ? "border-amber-200 bg-amber-50 text-amber-800"
+                          : "border-red-200 bg-red-50 text-red-800"
+                    }`}
+                  >
+                    {bomImportResult.message}
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           ) : null}
