@@ -448,6 +448,11 @@ def _find_factor_candidates(
     out: list[dict[str, Any]] = []
     if df is None or df.empty:
         return out
+    # astype(object) first -- plain .where() is a no-op on any column pandas
+    # infers as float64 (uom/source/region commonly are, whenever every
+    # candidate row has that column NULL), leaving raw NaN in fields like
+    # "uom"/"source"/"region" below and breaking JSON encoding of the response.
+    df = df.astype(object).where(df.notna(), None)
     for _, r in df.iterrows():
         confidence = round(safe_float(r.get("confidence")), 4)
         out.append(
@@ -1508,7 +1513,13 @@ async def upload_bom_file(
                 original = norm_map.get(_normalize_col(name))
                 if original is not None:
                     val = row.get(original)
-                    if val is not None and str(val).strip() != "":
+                    # A blank Excel/CSV cell comes back as pandas' float NaN,
+                    # not None -- str(nan).strip() is the non-empty string
+                    # "nan", so without this check a blank cell would "win"
+                    # over the default and store the literal NaN/"nan" value
+                    # instead of falling through (e.g. an intentionally blank
+                    # factor_unit cell stored the 3-char string "nan").
+                    if val is not None and not pd.isna(val) and str(val).strip() != "":
                         return val
             return default
 
