@@ -898,6 +898,35 @@ def put_assessment_datasets(job_id: int, assessment_id: int, body: dict = Body(.
 # Line items
 # ---------------------------------------------------------------------------
 
+_bom_nan_artifacts_repaired = False
+
+
+def _repair_bom_nan_artifacts(con) -> None:
+    """One-time cleanup for rows written before the getv() NaN-passthrough
+    fix above: a blank BOM cell stored the literal NaN/"nan" value instead of
+    falling through to the intended default. Repairs the damage in place --
+    factor_value NaN -> 0 (unmapped, same as a properly-blank cell would
+    have produced), factor_unit/unit/origin_country 'nan' text -> the normal
+    default, and repoints any line item that landed on a bogus "nan"
+    material category back to uncategorized before deleting that category."""
+    global _bom_nan_artifacts_repaired
+    if _bom_nan_artifacts_repaired:
+        return
+    con.execute("UPDATE lca_line_items SET factor_value = 0 WHERE factor_value = 'NaN'::float8")
+    con.execute("UPDATE lca_line_items SET factor_unit = 'kgCO2e/kg' WHERE lower(trim(factor_unit)) = 'nan'")
+    con.execute("UPDATE lca_line_items SET unit = 'kg' WHERE lower(trim(unit)) = 'nan'")
+    con.execute("UPDATE lca_line_items SET origin_country = NULL WHERE lower(trim(origin_country)) = 'nan'")
+    bogus_category = con.execute(
+        "SELECT category_id FROM lca_material_categories_lookup WHERE lower(trim(name)) = 'nan'"
+    ).fetchone()
+    if bogus_category:
+        cat_id = int(bogus_category[0])
+        for table in ("lca_components", "lca_line_items", "lca_scenario_multipliers", "lca_component_children"):
+            con.execute(f"UPDATE {table} SET material_category_id = NULL WHERE material_category_id = %s", [cat_id])
+        con.execute("DELETE FROM lca_material_categories_lookup WHERE category_id = %s", [cat_id])
+    _bom_nan_artifacts_repaired = True
+
+
 @router.get("/jobs/{job_id}/lca/assessments/{assessment_id}/line-items")
 def list_line_items(job_id: int, assessment_id: int, _user: dict[str, str] = Depends(_current_user)):
     assert_permission(_user, "jobs.view")
@@ -906,6 +935,7 @@ def list_line_items(job_id: int, assessment_id: int, _user: dict[str, str] = Dep
         with get_conn() as con:
             if not _assessment_row(con, int(job_id), int(assessment_id)):
                 raise HTTPException(status_code=404, detail="LCA assessment not found")
+            _repair_bom_nan_artifacts(con)
             df = con.execute(
                 "SELECT * FROM lca_line_items WHERE assessment_id = %s ORDER BY module_code, line_item_id",
                 [int(assessment_id)],
