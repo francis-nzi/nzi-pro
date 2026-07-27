@@ -77,6 +77,15 @@ type FactorCandidate = {
   confidence: number;
 };
 
+type FactorSearchResult = {
+  db_id: number;
+  label: string;
+  uom?: string | null;
+  factor: number;
+  source?: string | null;
+  region?: string | null;
+};
+
 type LcaModule = {
   module_code: string;
   label: string;
@@ -246,6 +255,13 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [report, setReport] = useState<ReportPayload | null>(null);
   const [reviewCandidates, setReviewCandidates] = useState<Record<number, FactorCandidate[]>>({});
+  const [factorSearchOpen, setFactorSearchOpen] = useState<Record<number, boolean>>({});
+  const [factorSearchQuery, setFactorSearchQuery] = useState<Record<number, string>>({});
+  const [factorSearchResults, setFactorSearchResults] = useState<Record<number, FactorSearchResult[]>>({});
+  const [factorSearchLoading, setFactorSearchLoading] = useState<Record<number, boolean>>({});
+  const [editingFactorId, setEditingFactorId] = useState<number | null>(null);
+  const [editFactorValue, setEditFactorValue] = useState("");
+  const [editFactorUnit, setEditFactorUnit] = useState("");
   const [confidenceThreshold, setConfidenceThreshold] = useState<number>(0.45);
 
   const [lcaDatasets, setLcaDatasets] = useState<DatasetOption[]>([]);
@@ -696,10 +712,67 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
         delete next[lineItemId];
         return next;
       });
+      setFactorSearchResults((prev) => {
+        const next = { ...prev };
+        delete next[lineItemId];
+        return next;
+      });
+      setFactorSearchOpen((prev) => ({ ...prev, [lineItemId]: false }));
       await loadItems(selectedAssessmentId);
       await loadAssessments();
       await loadAssessmentDetail(selectedAssessmentId);
       setStatus("Selected factor applied.");
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    }
+  }
+
+  function toggleFactorSearch(lineItemId: number) {
+    setFactorSearchOpen((prev) => ({ ...prev, [lineItemId]: !prev[lineItemId] }));
+  }
+
+  async function runFactorSearch(lineItemId: number) {
+    const q = (factorSearchQuery[lineItemId] || "").trim();
+    setFactorSearchLoading((prev) => ({ ...prev, [lineItemId]: true }));
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/lca/line-items/${lineItemId}/factor-search?q=${encodeURIComponent(q)}`);
+      if (!res.ok) throw new Error(`Factor search failed (${res.status})`);
+      const data = await res.json();
+      setFactorSearchResults((prev) => ({ ...prev, [lineItemId]: data.items || [] }));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setFactorSearchLoading((prev) => ({ ...prev, [lineItemId]: false }));
+    }
+  }
+
+  function startEditFactor(row: LineItem) {
+    setEditingFactorId(row.line_item_id);
+    setEditFactorValue(String(row.factor_value ?? 0));
+    setEditFactorUnit(row.factor_unit || "kgCO2e/kg");
+  }
+
+  async function saveEditFactor(lineItemId: number) {
+    if (!selectedAssessmentId) return;
+    setStatus("Saving factor...");
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/lca/line-items/${lineItemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          factor_value: editFactorValue,
+          factor_unit: editFactorUnit.trim() || "kgCO2e/kg",
+          mapped_factor_source: "manual",
+          is_gap_filled: false,
+        }),
+      });
+      if (!res.ok) throw new Error(`Failed to save factor (${res.status})`);
+      setEditingFactorId(null);
+      await loadItems(selectedAssessmentId);
+      await loadAssessments();
+      await loadAssessmentDetail(selectedAssessmentId);
+      setStatus("Factor updated.");
     } catch (e) {
       setError((e as Error).message);
       setStatus("");
@@ -1702,10 +1775,13 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
               items.map((row) => {
                 const candidates = reviewCandidates[row.line_item_id] || [];
                 const needsReview = !row.mapped_factor_source && typeof row.factor_match_confidence === "number";
+                const isEditingFactor = editingFactorId === row.line_item_id;
+                const isSearchOpen = Boolean(factorSearchOpen[row.line_item_id]);
+                const searchResults = factorSearchResults[row.line_item_id] || [];
                 return (
                   <div key={row.line_item_id} className={`rounded-md border p-3 ${row.is_placeholder ? "opacity-60" : ""}`}>
                     <div className="flex items-center justify-between gap-2">
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <div className="font-medium flex items-center gap-1">
                           {row.line_label}
                           {row.is_placeholder ? <Badge variant="secondary">Placeholder</Badge> : null}
@@ -1716,13 +1792,42 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {moduleLabel(row.module_code)} | {row.material_category_id ? categoryName(row.material_category_id) : "Uncategorized"} |
-                          {" "}Qty {Number(row.quantity || 0).toLocaleString()} {row.unit || "-"} |
-                          {" "}Factor {Number(row.factor_value || 0).toLocaleString()} {row.factor_unit || ""} |
-                          {" "}{row.is_gap_filled ? "Gap-filled" : "Direct/Matched"}
+                          {" "}Qty {Number(row.quantity || 0).toLocaleString()} {row.unit || "-"}
                         </div>
+                        {isEditingFactor ? (
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <span className="text-xs text-muted-foreground">Factor</span>
+                            <Input
+                              type="number"
+                              value={editFactorValue}
+                              onChange={(e) => setEditFactorValue(e.target.value)}
+                              className="h-7 w-28"
+                            />
+                            <Input
+                              value={editFactorUnit}
+                              onChange={(e) => setEditFactorUnit(e.target.value)}
+                              className="h-7 w-32"
+                              placeholder="kgCO2e/kg"
+                            />
+                            <Button size="sm" onClick={() => void saveEditFactor(row.line_item_id)}>Save</Button>
+                            <Button size="sm" variant="outline" onClick={() => setEditingFactorId(null)}>Cancel</Button>
+                          </div>
+                        ) : (
+                          <div className="text-xs text-muted-foreground">
+                            Factor {Number(row.factor_value || 0).toLocaleString()} {row.factor_unit || ""} |
+                            {" "}{row.is_gap_filled ? "Gap-filled" : row.mapped_factor_source === "manual" ? "Manually set" : "Direct/Matched"}
+                            {" "}
+                            <button type="button" className="text-primary underline" onClick={() => startEditFactor(row)}>
+                              Edit
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex shrink-0 gap-2">
                         <Button variant="outline" onClick={() => mapFactor(row.line_item_id)}>Auto Map Factor</Button>
+                        <Button variant="outline" onClick={() => toggleFactorSearch(row.line_item_id)}>
+                          {isSearchOpen ? "Hide Search" : "Search Factor"}
+                        </Button>
                         <Button variant="outline" onClick={() => gapFill(row.line_item_id)}>Gap Fill</Button>
                         <Button variant="outline" onClick={() => removeItem(row.line_item_id)}>Delete</Button>
                       </div>
@@ -1730,7 +1835,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                     {candidates.length > 0 ? (
                       <div className="mt-3 space-y-1 rounded-md border bg-muted/30 p-2">
                         <div className="text-xs text-muted-foreground">
-                          No candidate reached the {Math.round(confidenceThreshold * 100)}% auto-apply threshold -- pick one to apply manually:
+                          No candidate reached the {Math.round(confidenceThreshold * 100)}% auto-apply threshold -- pick one to apply manually, or use Search Factor if none of these are right:
                         </div>
                         {candidates.map((c) => (
                           <div key={c.db_id} className="flex items-center justify-between gap-2 text-xs">
@@ -1742,6 +1847,42 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                             </Button>
                           </div>
                         ))}
+                      </div>
+                    ) : null}
+                    {isSearchOpen ? (
+                      <div className="mt-3 space-y-2 rounded-md border bg-muted/30 p-2">
+                        <div className="flex gap-2">
+                          <Input
+                            value={factorSearchQuery[row.line_item_id] || ""}
+                            onChange={(e) => setFactorSearchQuery((prev) => ({ ...prev, [row.line_item_id]: e.target.value }))}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") void runFactorSearch(row.line_item_id);
+                            }}
+                            placeholder="e.g. plastic, metal, aramid fiber..."
+                            className="h-8"
+                          />
+                          <Button size="sm" onClick={() => void runFactorSearch(row.line_item_id)} disabled={factorSearchLoading[row.line_item_id]}>
+                            {factorSearchLoading[row.line_item_id] ? "Searching..." : "Search"}
+                          </Button>
+                        </div>
+                        {searchResults.length > 0 ? (
+                          <div className="max-h-56 space-y-1 overflow-y-auto">
+                            {searchResults.map((c) => (
+                              <div key={c.db_id} className="flex items-center justify-between gap-2 text-xs">
+                                <span>
+                                  {c.label} ({c.factor} {c.uom})
+                                </span>
+                                <Button size="sm" variant="outline" onClick={() => applyCandidate(row.line_item_id, c.db_id)}>
+                                  Use this
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-muted-foreground">
+                            {factorSearchLoading[row.line_item_id] ? "" : "Type a keyword and press Search."}
+                          </div>
+                        )}
                       </div>
                     ) : null}
                   </div>

@@ -437,9 +437,17 @@ def _find_factor_candidates(
               ) AS confidence
             FROM v_factor_lookup fl
             WHERE {where_clause}
+        ),
+        deduped AS (
+            -- Same report_label can exist in more than one loaded dataset/
+            -- year -- pick the best-scoring one per label instead of
+            -- showing the same candidate several times.
+            SELECT DISTINCT ON (report_label) *
+            FROM candidates
+            WHERE confidence > 0.05
+            ORDER BY report_label, confidence DESC, year DESC NULLS LAST, db_id DESC
         )
-        SELECT * FROM candidates
-        WHERE confidence > 0.05
+        SELECT * FROM deduped
         ORDER BY confidence DESC, year DESC NULLS LAST, db_id DESC
         LIMIT 10
         """,
@@ -1209,6 +1217,68 @@ def delete_line_item(job_id: int, line_item_id: int, _user: dict[str, str] = Dep
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete LCA line item: {e}")
+
+
+@router.get("/jobs/{job_id}/lca/line-items/{line_item_id}/factor-search")
+def search_lca_line_item_factors(
+    job_id: int,
+    line_item_id: int,
+    q: str = Query("", min_length=0),
+    limit: int = Query(20, ge=1, le=50),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Free-text factor lookup for the "search for a factor" box on a line
+    item, for when the auto-match candidates (word-similarity against the
+    line's own label) are all wrong -- e.g. "EVOH" won't textually match
+    "Plastic" factors even though that's the right category. Unlike
+    map-factor's candidates, this isn't ranked by similarity to the line
+    label at all -- it's a plain keyword search the user drives themselves."""
+    assert_permission(_user, "jobs.view")
+    assert_job_access(_user, int(job_id))
+    with get_conn() as con:
+        assessment_id = _line_item_assessment(con, int(job_id), int(line_item_id))
+        dataset_ids = _resolve_dataset_ids(con, int(job_id), assessment_id)
+        where = ["COALESCE(fl.factor, 0) > 0"]
+        params: list[Any] = []
+        selected = sorted({int(x) for x in (dataset_ids or []) if int(x) > 0})
+        if selected:
+            ph = ",".join(["%s"] * len(selected))
+            where.append(f"fl.dataset_id IN ({ph})")
+            params.extend(selected)
+        q_clean = q.strip()
+        if q_clean:
+            where.append(
+                "(COALESCE(fl.report_label,'') ILIKE %s OR COALESCE(fl.column_text,'') ILIKE %s "
+                "OR COALESCE(fl.level_1,'') ILIKE %s OR COALESCE(fl.level_2,'') ILIKE %s)"
+            )
+            pat = f"%{q_clean}%"
+            params.extend([pat, pat, pat, pat])
+        df = con.execute(
+            f"""
+            SELECT DISTINCT ON (COALESCE(fl.report_label, fl.column_text))
+                   fl.db_id, fl.report_label, fl.column_text, fl.uom, fl.factor, fl.source, fl.region, fl.dataset_id
+            FROM v_factor_lookup fl
+            WHERE {' AND '.join(where)}
+            ORDER BY COALESCE(fl.report_label, fl.column_text), fl.dataset_id DESC
+            LIMIT %s
+            """,
+            [*params, int(limit)],
+        ).df()
+        items: list[dict[str, Any]] = []
+        if df is not None and not df.empty:
+            df = df.astype(object).where(df.notna(), None)
+            for _, r in df.iterrows():
+                items.append(
+                    {
+                        "db_id": int(r.get("db_id")),
+                        "label": str(r.get("report_label") or r.get("column_text") or f"Factor {r.get('db_id')}"),
+                        "uom": r.get("uom"),
+                        "factor": safe_float(r.get("factor")),
+                        "source": r.get("source"),
+                        "region": r.get("region"),
+                    }
+                )
+    return {"items": items, "dataset_ids_used": dataset_ids}
 
 
 @router.post("/jobs/{job_id}/lca/line-items/{line_item_id}/map-factor")
