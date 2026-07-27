@@ -31,6 +31,7 @@ from api.spend_data_routes import (
     _safe_optional_int,
 )
 from core.database import get_conn
+from services.dataset_selector import get_applicable_datasets
 from services.portal import PORTAL_ROLE_CAN_MANAGE_ACTIONS
 from services.portal_data_entry import (
     PORTAL_DATA_ENTRY_EXPIRED_MESSAGE,
@@ -309,23 +310,40 @@ def portal_spend_search_categories(
         job_id = _resolve_job_or_404(con, client_db_id)
         category_expr = _factor_category_expr(con, "f")
         label_expr = _factor_label_expr(con, "f")
+
+        # Scope to the job's own Scope 3 dataset(s) -- without this, every
+        # non-archived PG&S dataset ever loaded (one row per year) shows up
+        # for the same category, so "Accommodation" appeared 5x with no way
+        # to tell which one actually applies to this job's reporting period.
+        scope3_dataset_ids = get_applicable_datasets(int(job_id)).get("Scope 3") or []
+        dataset_filter_sql = "AND f.dataset_id = ANY(%s)" if scope3_dataset_ids else ""
+
+        params: list[Any] = [_PGS_CATEGORY]
+        if scope3_dataset_ids:
+            params.append(scope3_dataset_ids)
+        params.append("%PROD%")
+        params.extend([q, f"%{q}%", f"%{q}%", f"%{q}%", int(limit)])
+
         df = con.execute(
             f"""
-            SELECT f.db_id, f.dataset_id, f.original_id, f.scope, {category_expr} AS category, {label_expr} AS report_label
+            SELECT DISTINCT ON ({label_expr})
+                   f.db_id, f.dataset_id, f.original_id, f.scope, {category_expr} AS category, {label_expr} AS report_label
             FROM v_factor_lookup f
             LEFT JOIN datasets d ON d.dataset_id = f.dataset_id
             WHERE (d.archived IS NULL OR d.archived = FALSE)
               AND {category_expr} = %s
+              {dataset_filter_sql}
+              AND f.original_id NOT ILIKE %s
               AND (
                    %s = ''
                    OR {label_expr} ILIKE %s
                    OR f.column_text ILIKE %s
                    OR f.original_id ILIKE %s
               )
-            ORDER BY {label_expr}
+            ORDER BY {label_expr}, f.dataset_id DESC
             LIMIT %s
             """,
-            [_PGS_CATEGORY, q, f"%{q}%", f"%{q}%", f"%{q}%", int(limit)],
+            params,
         ).df()
 
     items: list[dict[str, Any]] = []
@@ -403,6 +421,69 @@ def portal_spend_confirm_category(
         )
 
     return {"ok": True, "entry_id": int(entry_id), "review_status": "pending_review"}
+
+
+@router.post("/portal/spend/suggest-categories-bulk")
+def portal_spend_suggest_categories_bulk(current_user: dict = Depends(portal_user_dep)):
+    """One-click bulk version of suggest-category + confirm-category: for
+    every not-yet-categorised row on this job, keyword-score against the
+    Admin Centre's curated Spend Lines (services/spend_line_matching.py)
+    and auto-apply the top match. suggest_spend_lines() never pads with
+    unrelated guesses -- a non-empty result is already a deliberate,
+    explainable match -- so rows it can't match at all are simply left for
+    manual review rather than forced to a wrong guess."""
+    _assert_can_manage(current_user)
+    client_db_id = int(current_user["client_db_id"])
+    actor = str(current_user.get("email") or "portal")
+
+    with get_conn() as con:
+        _ensure_spend_tables(con)
+        job_id = _resolve_job_or_404(con, client_db_id)
+        _assert_data_entry_open(con, job_id)
+
+        rows = con.execute(
+            """
+            SELECT entry_id, amount_net, vat_pct, spend_description, reference_code
+            FROM job_spend_entries
+            WHERE job_id = %s AND COALESCE(is_deleted, FALSE) = FALSE
+              AND COALESCE(mapping_status, 'unmapped') != 'mapped'
+            """,
+            [int(job_id)],
+        ).fetchall()
+
+        applied = 0
+        skipped = 0
+        for entry_id, amount_net, vat_pct, description, reference_code in rows:
+            text = f"{description or ''} {reference_code or ''}"
+            suggestions = suggest_spend_lines(con, text)
+            factor_db_id = suggestions[0].get("factor_db_id") if suggestions else None
+            factor = _factor_by_id(con, int(factor_db_id)) if factor_db_id else None
+            if not factor or str(factor.get("category") or "") != _PGS_CATEGORY:
+                skipped += 1
+                continue
+
+            amount = _gross_from_net(_safe_float(amount_net, 0.0), _safe_float(vat_pct, 0.0))
+            emissions = amount * _safe_float(factor.get("factor"), 0.0)
+            con.execute(
+                """
+                UPDATE job_spend_entries
+                SET dataset_id=%s, factor_db_id=%s, factor_original_id=%s,
+                    mapped_scope=%s, mapped_category=%s, mapped_report_label=%s,
+                    mapping_status='mapped', mapping_confidence='Medium',
+                    mapped_by=%s, mapped_at=NOW(),
+                    estimated_emissions_tco2e=%s,
+                    review_status='pending_review', review_note=NULL, updated_at=NOW()
+                WHERE entry_id=%s
+                """,
+                [
+                    factor.get("dataset_id"), factor.get("db_id"), factor.get("original_id"),
+                    factor.get("scope"), factor.get("category"), factor.get("report_label"),
+                    actor, emissions, int(entry_id),
+                ],
+            )
+            applied += 1
+
+    return {"ok": True, "job_id": job_id, "applied": applied, "skipped": skipped, "total": applied + skipped}
 
 
 @router.patch("/portal/spend/rows/{entry_id}")

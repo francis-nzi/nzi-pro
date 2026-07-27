@@ -1447,13 +1447,32 @@ def search_spend_factors(job_id: int, q: str = Query("", min_length=0), limit: i
         _job_client_id(con, int(job_id))
         category_expr = _factor_category_expr(con, "f")
         label_expr = _factor_label_expr(con, "f")
+
+        # Scope to the job's own Scope 3 dataset(s) -- without this, every
+        # non-archived dataset ever loaded (one row per year) shows up for
+        # the same category, so e.g. "Accommodation" appeared 5x with no way
+        # to tell which one actually applies to this job's reporting period.
+        # Also exclude PROD-coded factors: PG&S is commercial spend (SIC),
+        # not personal/household consumption.
+        scope3_dataset_ids = get_applicable_datasets(int(job_id)).get("Scope 3") or []
+        dataset_filter_sql = "AND f.dataset_id = ANY(%s)" if scope3_dataset_ids else ""
+
+        params: list[Any] = []
+        if scope3_dataset_ids:
+            params.append(scope3_dataset_ids)
+        params.append("%PROD%")
+        params.extend([q, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", int(limit)])
+
         df = con.execute(
             f"""
-            SELECT f.db_id, f.dataset_id, f.original_id, f.scope, {category_expr} AS category, {label_expr} AS report_label, f.factor, f.ghg_unit,
+            SELECT DISTINCT ON ({label_expr})
+                   f.db_id, f.dataset_id, f.original_id, f.scope, {category_expr} AS category, {label_expr} AS report_label, f.factor, f.ghg_unit,
                    d.name AS dataset_name, d.analysis_type
             FROM v_factor_lookup f
             LEFT JOIN datasets d ON d.dataset_id = f.dataset_id
             WHERE (d.archived IS NULL OR d.archived = FALSE)
+              {dataset_filter_sql}
+              AND f.original_id NOT ILIKE %s
               AND (
                    %s = ''
                    OR {label_expr} ILIKE %s
@@ -1461,10 +1480,10 @@ def search_spend_factors(job_id: int, q: str = Query("", min_length=0), limit: i
                    OR f.column_text ILIKE %s
                    OR f.original_id ILIKE %s
               )
-            ORDER BY {label_expr}
+            ORDER BY {label_expr}, f.dataset_id DESC
             LIMIT %s
             """,
-            [q, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", int(limit)],
+            params,
         ).df()
 
     items: list[dict[str, Any]] = []

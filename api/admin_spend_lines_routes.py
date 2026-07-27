@@ -86,16 +86,18 @@ def search_spend_line_category_options(
         label_expr = _factor_label_expr(con, "f")
         rows = con.execute(
             f"""
-            SELECT f.db_id, f.dataset_id, f.original_id, f.scope, {label_expr} AS report_label
+            SELECT DISTINCT ON ({label_expr})
+                   f.db_id, f.dataset_id, f.original_id, f.scope, {label_expr} AS report_label
             FROM v_factor_lookup f
             LEFT JOIN datasets d ON d.dataset_id = f.dataset_id
             WHERE (d.archived IS NULL OR d.archived = FALSE)
               AND {category_expr} = %s
+              AND f.original_id NOT ILIKE %s
               AND (%s = '' OR {label_expr} ILIKE %s OR f.original_id ILIKE %s)
-            ORDER BY {label_expr}
+            ORDER BY {label_expr}, f.dataset_id DESC
             LIMIT %s
             """,
-            [_PGS_CATEGORY, q, f"%{q}%", f"%{q}%", int(limit)],
+            [_PGS_CATEGORY, "%PROD%", q, f"%{q}%", f"%{q}%", int(limit)],
         ).fetchall()
     return {
         "items": [

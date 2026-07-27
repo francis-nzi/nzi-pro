@@ -113,6 +113,9 @@ export default function PortalSpendTab() {
   const [monthlyValues, setMonthlyValues] = useState<string[]>(Array(12).fill(""));
   const [monthlySaving, setMonthlySaving] = useState(false);
 
+  const [bulkSuggesting, setBulkSuggesting] = useState(false);
+  const [bulkSuggestStatus, setBulkSuggestStatus] = useState("");
+
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadPreview, setUploadPreview] = useState<Record<string, unknown>[]>([]);
@@ -145,6 +148,28 @@ export default function PortalSpendTab() {
       }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function runBulkSuggest() {
+    setBulkSuggesting(true);
+    setBulkSuggestStatus("");
+    setError("");
+    try {
+      const res = await apiFetch("/portal/spend/suggest-categories-bulk", { method: "POST" });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(d?.detail || "Failed to suggest categories.");
+        return;
+      }
+      setBulkSuggestStatus(
+        d.applied > 0
+          ? `Categorised ${d.applied} of ${d.total} line(s). ${d.skipped > 0 ? `${d.skipped} need manual review.` : ""}`
+          : "No confident matches found — pick categories manually below."
+      );
+      void loadRows();
+    } finally {
+      setBulkSuggesting(false);
     }
   }
 
@@ -391,6 +416,8 @@ export default function PortalSpendTab() {
     }
   }
 
+  const uncategorizedCount = rows.filter((r) => r.mapping_status !== "mapped").length;
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
@@ -412,9 +439,17 @@ export default function PortalSpendTab() {
 
       {!noJobMessage && (
       <div className="flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">{rows.length} spend line(s) submitted</div>
+        <div className="text-sm text-muted-foreground">
+          {rows.length} spend line(s) submitted
+          {uncategorizedCount > 0 && ` · ${uncategorizedCount} not yet categorised`}
+        </div>
         {!dataEntryExpired && (
           <div className="flex gap-2">
+            {uncategorizedCount > 0 && (
+              <Button variant="outline" onClick={() => void runBulkSuggest()} disabled={bulkSuggesting}>
+                {bulkSuggesting ? "Suggesting…" : `Suggest Categories (${uncategorizedCount})`}
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={() => {
@@ -432,6 +467,11 @@ export default function PortalSpendTab() {
           </div>
         )}
       </div>
+      )}
+      {bulkSuggestStatus && (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+          {bulkSuggestStatus}
+        </div>
       )}
 
       {!noJobMessage && !dataEntryExpired && showBulkUpload && (
