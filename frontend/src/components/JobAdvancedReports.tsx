@@ -379,7 +379,7 @@ function MetaRow({ label, value }: { label: string; value: string | number | nul
   if (value == null || String(value).trim() === "") return null;
   return (
     <div className="flex gap-3 py-1.5 border-b border-gray-50 last:border-0">
-      <span className="w-44 shrink-0 text-xs text-gray-400">{label}</span>
+      <span className="w-44 shrink-0 text-xs text-gray-500">{label}</span>
       <span className="text-xs text-gray-700 font-medium">{String(value)}</span>
     </div>
   );
@@ -1613,7 +1613,7 @@ export default function JobAdvancedReports({
             {/* Reduction Targets table */}
             {(interimYear || netZeroYear) && (
               <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Reduction Targets</p>
+                <p className="text-sm font-semibold text-gray-700 mb-2">Reduction Targets</p>
                 <div className="overflow-hidden rounded-lg border border-gray-200">
                   <div className="grid grid-cols-[1fr_80px_100px_120px] border-b border-gray-200 bg-gray-100 px-3 py-1.5">
                     <span className="text-xs font-semibold text-gray-500">Target Type</span>
@@ -1696,7 +1696,7 @@ export default function JobAdvancedReports({
 
             {/* Organisation Details */}
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Organisation Details</p>
+              <p className="text-sm font-semibold text-gray-700 mb-2">Organisation Details</p>
               <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-2">
                 <MetaRow label="Organisation" value={data.job_data.client_name} />
                 <MetaRow label="Industry" value={data.job_data.industry} />
@@ -1786,7 +1786,7 @@ export default function JobAdvancedReports({
             {/* Commitment commentary */}
             {report_metadata?.commitment_commentary && (
               <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">Commitment</p>
+                <p className="text-sm font-semibold text-gray-700 mb-1">Commitment</p>
                 <p className="text-sm text-gray-700 leading-relaxed">{report_metadata.commitment_commentary}</p>
               </div>
             )}
