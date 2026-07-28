@@ -214,10 +214,40 @@ _init_sentry()
 app = FastAPI(title="NZI Pro API", version="0.1.0")
 _rate_limiter = build_default_rate_limiter()
 
-# Serve frontend-uploaded assets (e.g., /uploads/system/nzi-logo.png)
+# Serve frontend-uploaded assets (e.g., /uploads/system/nzi-logo.png).
+# Must resolve the same directory as api/client_management_helpers.py's
+# UPLOADS_DIR (PERSISTENT_UPLOADS_DIR in production -- see that file for why:
+# without it, uploads are wiped on every deploy/restart).
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-UPLOADS_DIR = PROJECT_ROOT / "frontend" / "public" / "uploads"
+_persistent_uploads = os.getenv("PERSISTENT_UPLOADS_DIR")
+UPLOADS_DIR = Path(_persistent_uploads) if _persistent_uploads else PROJECT_ROOT / "frontend" / "public" / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@app.get("/uploads/clients/{scope_dir}/{filename}")
+def _serve_client_logo(scope_dir: str, filename: str):
+    """Explicit route, checked before the /uploads mount below: client logos
+    uploaded while SharePoint storage is configured live there, not on local
+    disk (see api/client_management_helpers.py). Falls through to the local
+    file for logos uploaded before that, or when SharePoint isn't configured."""
+    m = re.match(r"^client-(\d+)$", scope_dir)
+    if m:
+        from api.client_management_helpers import fetch_client_logo_bytes
+
+        try:
+            result = fetch_client_logo_bytes(int(m.group(1)))
+        except Exception:
+            result = None
+        if result:
+            content, content_type = result
+            return Response(content=content, media_type=content_type or "application/octet-stream")
+
+    local_path = UPLOADS_DIR / "clients" / scope_dir / filename
+    if local_path.is_file():
+        return FileResponse(str(local_path))
+    raise HTTPException(status_code=404, detail="Logo not found")
+
+
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 # Include admin routes

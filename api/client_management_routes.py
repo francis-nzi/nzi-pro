@@ -10,10 +10,13 @@ from api.client_management_helpers import (
     _client_logo_upload_path,
     _client_site_audit_snapshot,
     _ensure_client_billing_columns,
+    _ensure_client_logo_storage_columns,
     _ensure_client_org_columns,
     _ensure_client_sites_runtime_columns,
     _fetch_client_sites_payload,
+    _onedrive_enabled,
     _resolve_uploaded_logo_path,
+    _upload_client_logo_to_onedrive,
 )
 from api.permissions import assert_client_access, assert_permission
 from core.database import get_conn
@@ -244,32 +247,49 @@ async def upload_client_logo(
     else:
         assert_permission(_user, "clients.create")
 
-    try:
-        if client_db_id is not None and int(client_db_id) > 0 and target_path.parent.exists():
-            for existing in target_path.parent.glob("logo.*"):
-                try:
-                    if existing.is_file():
-                        existing.unlink()
-                except Exception:
-                    pass
+    # SharePoint-backed when configured and the client already has a db_id to
+    # scope a folder to -- Render has no persistent disk, so anything written
+    # to local disk is wiped on the next deploy/restart. A brand-new,
+    # not-yet-saved client keeps the old local-disk behavior for its brief
+    # pre-save window.
+    use_onedrive = _onedrive_enabled() and client_db_id is not None and int(client_db_id) > 0
+    external_item_id = ""
+    if use_onedrive:
+        try:
+            uploaded = _upload_client_logo_to_onedrive(int(client_db_id), target_path.name, raw)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to save client logo to SharePoint: {exc}")
+        external_item_id = uploaded.get("external_item_id", "")
+    else:
+        try:
+            if client_db_id is not None and int(client_db_id) > 0 and target_path.parent.exists():
+                for existing in target_path.parent.glob("logo.*"):
+                    try:
+                        if existing.is_file():
+                            existing.unlink()
+                    except Exception:
+                        pass
 
-        with target_path.open("wb") as buffer:
-            buffer.write(raw)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to save client logo: {exc}")
+            with target_path.open("wb") as buffer:
+                buffer.write(raw)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to save client logo: {exc}")
 
     actor = _user.get("email", "unknown")
     if client_db_id is not None and int(client_db_id) > 0:
         client_db_id = int(client_db_id)
         org_id = require_org(_user)
         with get_conn() as con:
+            _ensure_client_logo_storage_columns(con)
             before = _client_audit_snapshot(con, client_db_id, org_id)
             if not before:
                 raise HTTPException(status_code=404, detail="Client not found")
             existing_logo = str(before.get("logo_url") or "").strip()
             con.execute(
-                "UPDATE clients SET logo_url = ? WHERE db_id = ? AND org_id = ?",
-                [logo_url, client_db_id, org_id],
+                "UPDATE clients SET logo_url = ?, logo_storage_provider = ?, logo_external_item_id = ? WHERE db_id = ? AND org_id = ?",
+                [logo_url, "onedrive" if use_onedrive else "local", external_item_id or None, client_db_id, org_id],
             )
             after = _client_audit_snapshot(con, client_db_id, org_id)
             record_audit_event(
