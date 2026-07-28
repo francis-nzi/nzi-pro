@@ -270,6 +270,11 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [lcaDatasets, setLcaDatasets] = useState<DatasetOption[]>([]);
   const [selectedDatasetIds, setSelectedDatasetIds] = useState<number[]>([]);
   const [inheritedDatasetIds, setInheritedDatasetIds] = useState<number[]>([]);
+  const [datasetSearchQuery, setDatasetSearchQuery] = useState("");
+  const [datasetCountryFilter, setDatasetCountryFilter] = useState("");
+  const [datasetYearFilter, setDatasetYearFilter] = useState("");
+  const [datasetTypeFilter, setDatasetTypeFilter] = useState("");
+  const [showSelectedDatasetsOnly, setShowSelectedDatasetsOnly] = useState(false);
 
   // Goal & scope form (new assessment / edits to selected assessment)
   const [newName, setNewName] = useState("");
@@ -1303,6 +1308,33 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const isLineItemResolved = (row: LineItem) => row.is_placeholder || Boolean(row.mapped_factor_source) || row.is_gap_filled;
   const unresolvedLineItems = useMemo(() => items.filter((r) => !isLineItemResolved(r)), [items]);
   const visibleLineItems = showAllLineItems ? items : unresolvedLineItems;
+
+  const datasetCountryOptions = useMemo(
+    () => Array.from(new Set(lcaDatasets.map((d) => d.country).filter((c): c is string => Boolean(c)))).sort(),
+    [lcaDatasets]
+  );
+  const datasetYearOptions = useMemo(
+    () => Array.from(new Set(lcaDatasets.map((d) => d.year).filter((y): y is number => Boolean(y)))).sort((a, b) => b - a),
+    [lcaDatasets]
+  );
+  const datasetTypeOptions = useMemo(
+    () => Array.from(new Set(lcaDatasets.map((d) => d.analysis_type).filter((t): t is string => Boolean(t)))).sort(),
+    [lcaDatasets]
+  );
+  const filteredLcaDatasets = useMemo(() => {
+    const q = datasetSearchQuery.trim().toLowerCase();
+    return lcaDatasets.filter((ds) => {
+      if (showSelectedDatasetsOnly && !selectedDatasetIds.includes(ds.dataset_id)) return false;
+      if (datasetCountryFilter && ds.country !== datasetCountryFilter) return false;
+      if (datasetYearFilter && String(ds.year || "") !== datasetYearFilter) return false;
+      if (datasetTypeFilter && ds.analysis_type !== datasetTypeFilter) return false;
+      if (q) {
+        const haystack = `${ds.name || ""} ${ds.country || ""} ${ds.analysis_type || ""}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [lcaDatasets, datasetSearchQuery, datasetCountryFilter, datasetYearFilter, datasetTypeFilter, showSelectedDatasetsOnly, selectedDatasetIds]);
   function readinessStatusLabel(score: number) {
     if (score < 40) return "Draft -- significant gaps";
     if (score < 70) return "Developing";
@@ -1612,27 +1644,94 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
               </div>
               {selectedAssessmentId ? (
                 <>
-                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                    {lcaDatasets.map((ds) => {
-                      const selected = selectedDatasetIds.includes(ds.dataset_id);
-                      return (
-                        <button
-                          key={ds.dataset_id}
-                          type="button"
-                          className={`rounded-md border px-3 py-2 text-left text-sm ${selected ? "border-primary bg-primary/5" : ""}`}
-                          onClick={() =>
-                            setSelectedDatasetIds((prev) =>
-                              prev.includes(ds.dataset_id) ? prev.filter((id) => id !== ds.dataset_id) : [...prev, ds.dataset_id]
-                            )
-                          }
-                        >
-                          <div className="font-medium">{ds.name || `Dataset ${ds.dataset_id}`}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {ds.country || "-"}{ds.year ? ` | ${ds.year}` : ""}{ds.analysis_type ? ` | ${ds.analysis_type}` : ""}
-                          </div>
-                        </button>
-                      );
-                    })}
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                    <Input
+                      value={datasetSearchQuery}
+                      onChange={(e) => setDatasetSearchQuery(e.target.value)}
+                      placeholder="Search by name or country..."
+                      className="md:col-span-2"
+                    />
+                    <SearchableStringSelect
+                      value={datasetCountryFilter}
+                      options={datasetCountryOptions}
+                      placeholder="All countries"
+                      showClearButton
+                      onValueChange={setDatasetCountryFilter}
+                    />
+                    <select
+                      value={datasetYearFilter}
+                      onChange={(e) => setDatasetYearFilter(e.target.value)}
+                      className="h-9 rounded-md border bg-background px-2 text-sm"
+                    >
+                      <option value="">All years</option>
+                      {datasetYearOptions.map((y) => (
+                        <option key={y} value={String(y)}>{y}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {datasetTypeOptions.map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        className={`rounded-full border px-3 py-1 text-xs ${datasetTypeFilter === t ? "border-primary bg-primary/10 font-medium" : ""}`}
+                        onClick={() => setDatasetTypeFilter((prev) => (prev === t ? "" : t))}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                    <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={showSelectedDatasetsOnly}
+                        onChange={(e) => setShowSelectedDatasetsOnly(e.target.checked)}
+                      />
+                      Selected only ({selectedDatasetIds.length})
+                    </label>
+                    {datasetSearchQuery || datasetCountryFilter || datasetYearFilter || datasetTypeFilter || showSelectedDatasetsOnly ? (
+                      <button
+                        type="button"
+                        className="text-xs text-primary underline"
+                        onClick={() => {
+                          setDatasetSearchQuery("");
+                          setDatasetCountryFilter("");
+                          setDatasetYearFilter("");
+                          setDatasetTypeFilter("");
+                          setShowSelectedDatasetsOnly(false);
+                        }}
+                      >
+                        Clear filters
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Showing {filteredLcaDatasets.length} of {lcaDatasets.length} dataset(s).
+                  </div>
+                  <div className="grid max-h-96 gap-2 overflow-y-auto md:grid-cols-2 xl:grid-cols-3">
+                    {filteredLcaDatasets.length === 0 ? (
+                      <div className="col-span-full text-sm text-muted-foreground">No datasets match these filters.</div>
+                    ) : (
+                      filteredLcaDatasets.map((ds) => {
+                        const selected = selectedDatasetIds.includes(ds.dataset_id);
+                        return (
+                          <button
+                            key={ds.dataset_id}
+                            type="button"
+                            className={`rounded-md border px-3 py-2 text-left text-sm ${selected ? "border-primary bg-primary/5" : ""}`}
+                            onClick={() =>
+                              setSelectedDatasetIds((prev) =>
+                                prev.includes(ds.dataset_id) ? prev.filter((id) => id !== ds.dataset_id) : [...prev, ds.dataset_id]
+                              )
+                            }
+                          >
+                            <div className="font-medium">{ds.name || `Dataset ${ds.dataset_id}`}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {ds.country || "-"}{ds.year ? ` | ${ds.year}` : ""}{ds.analysis_type ? ` | ${ds.analysis_type}` : ""}
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="text-xs text-muted-foreground">
