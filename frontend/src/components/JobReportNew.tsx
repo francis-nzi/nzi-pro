@@ -678,9 +678,24 @@ export default function JobReportNew({
     setError("");
     setWorkspaceWarnings([]);
     try {
+      // Actions live per-client, not per-job (moved 2026-07-21) -- resolve the
+      // job's client first so the actions fetch below hits the right endpoint.
+      let clientDbId = 0;
+      try {
+        const jobRes = await fetchWithRetry(`${baseUrl}/jobs/${jobId}`, { credentials: "include" }, 1);
+        if (jobRes.ok) {
+          const jobPayload = await jobRes.json();
+          clientDbId = Number(jobPayload?.client_db_id || 0);
+        }
+      } catch {
+        // Fall through -- the actions fetch below will report the failure.
+      }
+
       const [assignmentResult, actionsResult] = await Promise.allSettled([
         fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-template-assignment`, { credentials: "include" }, 1),
-        fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-actions`, { credentials: "include" }, 1),
+        clientDbId
+          ? fetchWithRetry(`${baseUrl}/clients/${clientDbId}/report-actions`, { credentials: "include" }, 1)
+          : Promise.reject(new Error("Could not resolve this job's client")),
       ]);
 
       const warnings: string[] = [];

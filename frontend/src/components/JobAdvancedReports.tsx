@@ -277,10 +277,23 @@ function fmtSignatureDate(raw: string | null | undefined): string {
 }
 
 
+function resolveLogoPreviewSrc(raw: string | null | undefined, baseUrl: string): string {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("data:")) {
+    return value;
+  }
+  if (value.startsWith("/uploads/")) {
+    return `${baseUrl.replace(/\/+$/, "")}${value}`;
+  }
+  return value;
+}
+
 // CoverPage
 
-function CoverPage({ data }: { data: LiveData }) {
+function CoverPage({ data, baseUrl }: { data: LiveData; baseUrl: string }) {
   const { job_data, report_metadata, template_variables, nzi_logo_src } = data;
+  const clientLogoSrc = resolveLogoPreviewSrc(job_data.logo_url, baseUrl);
 
   const reportTitle = String(job_data.title || "Carbon Report").trim();
 
@@ -322,9 +335,9 @@ function CoverPage({ data }: { data: LiveData }) {
       </h1>
 
       {/* Client logo */}
-      {job_data.logo_url && (
+      {clientLogoSrc && (
         <img
-          src={job_data.logo_url}
+          src={clientLogoSrc}
           alt={job_data.client_name ?? "Client"}
           className="mt-5 max-h-16 max-w-[160px] w-auto object-contain"
         />
@@ -1539,7 +1552,7 @@ export default function JobAdvancedReports({
 
         {activeTemplate === "crp" && <>
         {/* 1. Cover page */}
-        <CoverPage data={data} />
+        <CoverPage data={data} baseUrl={baseUrl} />
         {/* 2. Executive Summary */}
         <Card className="live-report-section" data-section="Executive Summary">
           <CardHeader className="pb-3">
@@ -2714,7 +2727,7 @@ export default function JobAdvancedReports({
 
         {activeTemplate === "secr" && <>
           {/* SECR: Cover page */}
-          <CoverPage data={data} />
+          <CoverPage data={data} baseUrl={baseUrl} />
           {/* SECR: Executive Summary */}
           <Card className="live-report-section">
             <CardHeader className="pb-3">
