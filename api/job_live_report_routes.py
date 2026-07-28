@@ -10,6 +10,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import signal
+import subprocess
 import sys
 import threading
 import time
@@ -640,6 +642,41 @@ def _render_live_report_pdf_bytes(
     raise result.get("error") or RuntimeError("PDF rendering failed for an unknown reason.")
 
 
+def _reap_stale_chromium_processes(max_age_seconds: int = 240) -> None:
+    """Best-effort cleanup for a known failure mode: if a browser's teardown
+    ever hangs (e.g. the CDP connection is already dead when the 3-min
+    page.pdf() watchdog force-closes it), _render_live_report_pdf_bytes
+    deliberately abandons that thread rather than block the pipeline --
+    which otherwise leaks one Chromium process forever on this
+    memory-constrained instance. Runs before every new render and SIGKILLs
+    any of our headless Chromium processes (identified by the
+    --single-process flag we always pass) that have lived far longer than
+    any legitimate render should, so a leak is bounded instead of
+    accumulating until the service hits its memory ceiling."""
+    try:
+        ps = subprocess.run(["ps", "-eo", "pid,etimes,args"], capture_output=True, text=True, timeout=5)
+    except Exception:
+        return
+    for line in ps.stdout.splitlines()[1:]:
+        parts = line.strip().split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid_str, etimes_str, cmd = parts
+        if "--single-process" not in cmd or "headless" not in cmd.lower():
+            continue
+        try:
+            pid, etimes = int(pid_str), int(etimes_str)
+        except ValueError:
+            continue
+        if etimes < max_age_seconds:
+            continue
+        try:
+            os.kill(pid, signal.SIGKILL)
+            print(f"[PDF] reaped stale Chromium process pid={pid} age={etimes}s", file=sys.stderr, flush=True)
+        except Exception:
+            pass
+
+
 def _render_live_report_pdf_worker(
     job_id: int,
     bearer: str,
@@ -649,6 +686,8 @@ def _render_live_report_pdf_worker(
     ready: threading.Event,
 ) -> None:
     from playwright.sync_api import sync_playwright
+
+    _reap_stale_chromium_processes()
 
     # Target the Advanced Reports page. The page fetches stored widget PNGs via the
     # nzi_token cookie Playwright sets below; we wait for data-widget-pngs-ready="1"
@@ -1285,6 +1324,7 @@ def compare_canonical_vs_report(
     report_rows: dict[str, dict[str, Any]],
     report_cats: dict[str, float],
     tolerance: float = 0.05,
+    canonical_total_precise: float | None = None,
 ) -> dict[str, Any]:
     """
     Pure comparison function: given pre-built canonical and report dicts,
@@ -1338,7 +1378,9 @@ def compare_canonical_vs_report(
                 "canonical": 0.0, "report": report["emission"], "diff": report["emission"],
             })
 
-    canonical_total = round(canonical_total_precise, 2)
+    canonical_total = round(
+        canonical_total_precise if canonical_total_precise is not None else sum(canonical_cats.values()), 2
+    )
     report_total = round(sum(report_cats.values()), 2)
 
     return {
@@ -1419,4 +1461,5 @@ def check_report_data_integrity(
     return compare_canonical_vs_report(
         canonical_rows, canonical_cats, canonical_scopes,
         report_rows, report_cats,
+        canonical_total_precise=canonical_total_precise,
     )
