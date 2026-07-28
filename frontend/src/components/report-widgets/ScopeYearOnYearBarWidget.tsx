@@ -208,9 +208,9 @@ export function ScopeYearOnYearBarWidget({
       </CardHeader>
       <CardContent>
         <div ref={chartWrapRef}>
-          <div className="h-[280px]">
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={data} margin={{ top: 20, right: 24, left: 8, bottom: 36 }} barCategoryGap="30%" barGap={3}>
+          <div className="h-[300px]">
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={data} margin={{ top: 20, right: 24, left: 8, bottom: 56 }} barCategoryGap="30%" barGap={3}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F0F0F0" />
                 <XAxis
                   dataKey="scope"
@@ -247,7 +247,7 @@ export function ScopeYearOnYearBarWidget({
                   formatter={(v: unknown, name: unknown) => [typeof v === "number" ? `${formatNumber(v, 1)} tCO₂e` : "—", String(name ?? "")]}
                   content={renderTooltip}
                 />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 16 }} />
                 {showBenchmarkBar ? (
                   <Bar isAnimationActive={false} dataKey="benchmark" name={benchmarkLabel} fill={BENCHMARK_COLOR} radius={[3, 3, 0, 0]}>
                     <LabelList
