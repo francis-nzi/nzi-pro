@@ -375,10 +375,10 @@ function SectionHeader({ title }: { title: string }) {
 
 // MetaRow helper
 
-function MetaRow({ label, value }: { label: string; value: string | number | null | undefined }) {
+function MetaRow({ label, value, index }: { label: string; value: string | number | null | undefined; index: number }) {
   if (value == null || String(value).trim() === "") return null;
   return (
-    <div className="flex gap-3 py-1.5 border-b border-gray-50 last:border-0">
+    <div className={`flex gap-3 px-4 py-1.5 border-b border-gray-100 last:border-0 ${index % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
       <span className="w-44 shrink-0 text-xs text-gray-500">{label}</span>
       <span className="text-xs text-gray-700 font-medium">{String(value)}</span>
     </div>
@@ -1697,12 +1697,18 @@ export default function JobAdvancedReports({
             {/* Organisation Details */}
             <div>
               <p className="text-sm font-semibold text-gray-700 mb-2">Organisation Details</p>
-              <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-2">
-                <MetaRow label="Organisation" value={data.job_data.client_name} />
-                <MetaRow label="Industry" value={data.job_data.industry} />
-                <MetaRow label="Location" value={[data.job_data.city, data.job_data.country].filter(Boolean).join(", ")} />
-                <MetaRow label="Company Number" value={report_metadata?.company_number} />
-                <MetaRow label="Registered Address" value={report_metadata?.registered_address?.replace(/,\s*,+/g, ",").replace(/,\s*$/g, "").trim()} />
+              <div className="overflow-hidden rounded-lg border border-gray-100">
+                {([
+                  ["Organisation", data.job_data.client_name],
+                  ["Industry", data.job_data.industry],
+                  ["Location", [data.job_data.city, data.job_data.country].filter(Boolean).join(", ")],
+                  ["Company Number", report_metadata?.company_number],
+                  ["Registered Address", report_metadata?.registered_address?.replace(/,\s*,+/g, ",").replace(/,\s*$/g, "").trim()],
+                ] as [string, string | number | null | undefined][])
+                  .filter(([, value]) => value != null && String(value).trim() !== "")
+                  .map(([label, value], i) => (
+                    <MetaRow key={label} label={label} value={value} index={i} />
+                  ))}
               </div>
             </div>
 
@@ -1716,9 +1722,9 @@ export default function JobAdvancedReports({
                   ["No. of Premises Leased", report_metadata?.premises_leased],
                   ["No. of Vehicles Owned", report_metadata?.vehicles_owned],
                   ["No. of Vehicles Leased", report_metadata?.vehicles_leased],
-                ] as [string, number | null | undefined][]).map(([label, value]) => (
-                  <div key={label} className="grid grid-cols-[200px_1fr] border-b border-gray-100 last:border-0">
-                    <div className="px-3 py-2 text-xs text-gray-500 bg-gray-50">{label}</div>
+                ] as [string, number | null | undefined][]).map(([label, value], i) => (
+                  <div key={label} className={`grid grid-cols-[200px_1fr] border-b border-gray-100 last:border-0 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                    <div className="px-3 py-2 text-xs text-gray-500">{label}</div>
                     <div className="px-3 py-2 text-xs text-gray-700">{value != null ? String(value) : "N/A"}</div>
                   </div>
                 ))}
