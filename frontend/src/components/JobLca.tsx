@@ -75,6 +75,7 @@ type FactorCandidate = {
   source?: string | null;
   region?: string | null;
   confidence: number;
+  source_table?: "factor_lookup" | "job_custom_factor";
 };
 
 type FactorSearchResult = {
@@ -84,6 +85,7 @@ type FactorSearchResult = {
   factor: number;
   source?: string | null;
   region?: string | null;
+  source_table?: "factor_lookup" | "job_custom_factor";
 };
 
 type LcaModule = {
@@ -259,6 +261,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [factorSearchQuery, setFactorSearchQuery] = useState<Record<number, string>>({});
   const [factorSearchResults, setFactorSearchResults] = useState<Record<number, FactorSearchResult[]>>({});
   const [factorSearchLoading, setFactorSearchLoading] = useState<Record<number, boolean>>({});
+  const [showAllLineItems, setShowAllLineItems] = useState(false);
   const [editingFactorId, setEditingFactorId] = useState<number | null>(null);
   const [editFactorValue, setEditFactorValue] = useState("");
   const [editFactorUnit, setEditFactorUnit] = useState("");
@@ -697,14 +700,14 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     }
   }
 
-  async function applyCandidate(lineItemId: number, factorDbId: number) {
+  async function applyCandidate(lineItemId: number, factorDbId: number, sourceTable: "factor_lookup" | "job_custom_factor" = "factor_lookup") {
     if (!selectedAssessmentId) return;
     setStatus("Applying selected factor...");
     try {
       const res = await apiFetch(`/jobs/${jobId}/lca/line-items/${lineItemId}/map-factor`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ factor_db_id: factorDbId }),
+        body: JSON.stringify({ factor_db_id: factorDbId, factor_source_table: sourceTable }),
       });
       if (!res.ok) throw new Error(`Failed to apply factor (${res.status})`);
       setReviewCandidates((prev) => {
@@ -1297,6 +1300,9 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const moduleLabel = (code: string) => modules.find((m) => m.module_code === code)?.label || code;
   const isService = assessment?.assessment_type === "service";
   const serviceModules = useMemo(() => modules.filter((m) => m.module_group === "scope3"), [modules]);
+  const isLineItemResolved = (row: LineItem) => row.is_placeholder || Boolean(row.mapped_factor_source) || row.is_gap_filled;
+  const unresolvedLineItems = useMemo(() => items.filter((r) => !isLineItemResolved(r)), [items]);
+  const visibleLineItems = showAllLineItems ? items : unresolvedLineItems;
   function readinessStatusLabel(score: number) {
     if (score < 40) return "Draft -- significant gaps";
     if (score < 70) return "Developing";
@@ -1765,14 +1771,25 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
 
       {activeWorkflowStage === "factor-mapping" || activeWorkflowStage === "gap-filling" ? (
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
             <CardTitle>{activeWorkflowStage === "factor-mapping" ? "Stage 3: Factor Mapping" : "Stage 4: Data Gap Filling"}</CardTitle>
+            {items.length > 0 ? (
+              <Button variant="outline" size="sm" onClick={() => setShowAllLineItems((v) => !v)}>
+                {showAllLineItems
+                  ? `Show unresolved only (${unresolvedLineItems.length})`
+                  : `Show all (${items.length})`}
+              </Button>
+            ) : null}
           </CardHeader>
           <CardContent className="space-y-3">
             {items.length === 0 ? (
               <div className="text-sm text-muted-foreground">No line items yet.</div>
+            ) : visibleLineItems.length === 0 ? (
+              <div className="text-sm text-muted-foreground">
+                All {items.length} line item(s) are resolved. <button type="button" className="text-primary underline" onClick={() => setShowAllLineItems(true)}>Show all</button>
+              </div>
             ) : (
-              items.map((row) => {
+              visibleLineItems.map((row) => {
                 const candidates = reviewCandidates[row.line_item_id] || [];
                 const needsReview = !row.mapped_factor_source && typeof row.factor_match_confidence === "number";
                 const isEditingFactor = editingFactorId === row.line_item_id;
@@ -1838,11 +1855,12 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                           No candidate reached the {Math.round(confidenceThreshold * 100)}% auto-apply threshold -- pick one to apply manually, or use Search Factor if none of these are right:
                         </div>
                         {candidates.map((c) => (
-                          <div key={c.db_id} className="flex items-center justify-between gap-2 text-xs">
+                          <div key={`${c.source_table || "factor_lookup"}-${c.db_id}`} className="flex items-center justify-between gap-2 text-xs">
                             <span>
+                              {c.source_table === "job_custom_factor" ? <Badge variant="outline" className="mr-1">Client Factor</Badge> : null}
                               {c.label} ({Math.round(c.confidence * 100)}% confidence, {c.factor} {c.uom})
                             </span>
-                            <Button size="sm" variant="outline" onClick={() => applyCandidate(row.line_item_id, c.db_id)}>
+                            <Button size="sm" variant="outline" onClick={() => applyCandidate(row.line_item_id, c.db_id, c.source_table)}>
                               Use this match
                             </Button>
                           </div>
@@ -1868,11 +1886,12 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                         {searchResults.length > 0 ? (
                           <div className="max-h-56 space-y-1 overflow-y-auto">
                             {searchResults.map((c) => (
-                              <div key={c.db_id} className="flex items-center justify-between gap-2 text-xs">
+                              <div key={`${c.source_table || "factor_lookup"}-${c.db_id}`} className="flex items-center justify-between gap-2 text-xs">
                                 <span>
+                                  {c.source_table === "job_custom_factor" ? <Badge variant="outline" className="mr-1">Client Factor</Badge> : null}
                                   {c.label} ({c.factor} {c.uom})
                                 </span>
-                                <Button size="sm" variant="outline" onClick={() => applyCandidate(row.line_item_id, c.db_id)}>
+                                <Button size="sm" variant="outline" onClick={() => applyCandidate(row.line_item_id, c.db_id, c.source_table)}>
                                   Use this
                                 </Button>
                               </div>

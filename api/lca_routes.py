@@ -377,6 +377,73 @@ def _recalculate_assessment(con, assessment_id: int, user: dict[str, str]) -> di
     return summary
 
 
+def _find_client_factor_candidates(con, client_db_id: int | None, line_label: str, module_code: str, unit: str) -> list[dict[str, Any]]:
+    """Same word-similarity scoring as _find_factor_candidates, but against
+    job_custom_factors ("Client Factors") instead of v_factor_lookup -- a
+    factor entered specifically for this client/job (e.g. a supplier EPD
+    figure) is otherwise invisible to LCA auto-map/search entirely."""
+    if not client_db_id:
+        return []
+    keyword_blob = MODULE_KEYWORDS.get(module_code, "")
+    label = line_label.strip()
+    unit_pattern = str(unit or "").strip()
+    words = [w for w in keyword_blob.split() if w]
+    keyword_expr = " OR ".join(
+        [
+            "(COALESCE(jcf.report_label,'') ILIKE %s OR COALESCE(jcf.description,'') ILIKE %s OR COALESCE(jcf.category,'') ILIKE %s)"
+            for _ in words
+        ]
+    )
+    keyword_params: list[Any] = []
+    for word in words:
+        pat = f"%{word}%"
+        keyword_params.extend([pat, pat, pat])
+
+    df = con.execute(
+        f"""
+        SELECT * FROM (
+            SELECT
+              jcf.factor_id, jcf.report_label, jcf.description, jcf.uom, jcf.factor, jcf.source,
+              LEAST(1.0,
+                0.75 * GREATEST(
+                  word_similarity(%s, COALESCE(jcf.report_label, '')),
+                  word_similarity(%s, COALESCE(jcf.description, ''))
+                )
+                + 0.15 * (CASE WHEN COALESCE(jcf.uom, '') <> '' AND lower(jcf.uom) = lower(%s) THEN 1 ELSE 0 END)
+                + 0.10 * (CASE WHEN ({keyword_expr or 'FALSE'}) THEN 1 ELSE 0 END)
+              ) AS confidence
+            FROM job_custom_factors jcf
+            WHERE jcf.client_db_id = %s AND (jcf.archived = FALSE OR jcf.archived IS NULL)
+              AND COALESCE(jcf.is_active, TRUE) = TRUE AND COALESCE(jcf.factor, 0) > 0
+        ) scored
+        WHERE confidence > 0.05
+        ORDER BY confidence DESC, factor_id DESC
+        LIMIT 10
+        """,
+        [label, label, unit_pattern, *keyword_params, int(client_db_id)],
+    ).df()
+    out: list[dict[str, Any]] = []
+    if df is None or df.empty:
+        return out
+    df = df.astype(object).where(df.notna(), None)
+    for _, r in df.iterrows():
+        confidence = round(safe_float(r.get("confidence")), 4)
+        out.append(
+            {
+                "db_id": int(r.get("factor_id")),
+                "label": str(r.get("report_label") or r.get("description") or f"Client Factor {r.get('factor_id')}"),
+                "uom": r.get("uom"),
+                "factor": safe_float(r.get("factor")),
+                "source": r.get("source") or "Client Factor",
+                "region": None,
+                "confidence": confidence,
+                "score": round(confidence * 100, 1),
+                "source_table": "job_custom_factor",
+            }
+        )
+    return out
+
+
 def _find_factor_candidates(
     con,
     line_label: str,
@@ -384,6 +451,7 @@ def _find_factor_candidates(
     unit: str,
     country: str | None,
     dataset_ids: list[int] | None = None,
+    client_db_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Rank candidate factors by a normalized 0-1 confidence score.
 
@@ -473,9 +541,38 @@ def _find_factor_candidates(
                 "region": r.get("region"),
                 "confidence": confidence,
                 "score": round(confidence * 100, 1),
+                "source_table": "factor_lookup",
             }
         )
+    if client_db_id:
+        out.extend(_find_client_factor_candidates(con, client_db_id, line_label, module_code, unit))
+        out.sort(key=lambda c: c["confidence"], reverse=True)
+        out = out[:10]
     return out
+
+
+def _lookup_client_factor_by_id(con, client_db_id: int | None, factor_id: int) -> dict[str, Any] | None:
+    if not client_db_id:
+        return None
+    row = con.execute(
+        """
+        SELECT factor_id, report_label, description, uom, factor, source
+        FROM job_custom_factors
+        WHERE factor_id = %s AND client_db_id = %s AND (archived = FALSE OR archived IS NULL)
+        """,
+        [int(factor_id), int(client_db_id)],
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "db_id": int(row[0]),
+        "label": str(row[1] or row[2] or f"Client Factor {row[0]}"),
+        "uom": row[3],
+        "factor": safe_float(row[4]),
+        "source": row[5] or "Client Factor",
+        "region": None,
+        "source_table": "job_custom_factor",
+    }
 
 
 def _lookup_factor_by_id(con, factor_db_id: int) -> dict[str, Any] | None:
@@ -492,6 +589,7 @@ def _lookup_factor_by_id(con, factor_db_id: int) -> dict[str, Any] | None:
         "factor": safe_float(row[4]),
         "source": row[5],
         "region": row[6],
+        "source_table": "factor_lookup",
     }
 
 
@@ -1238,6 +1336,7 @@ def search_lca_line_item_factors(
     with get_conn() as con:
         assessment_id = _line_item_assessment(con, int(job_id), int(line_item_id))
         dataset_ids = _resolve_dataset_ids(con, int(job_id), assessment_id)
+        client_db_id = _job_client_id(con, int(job_id))
         where = ["COALESCE(fl.factor, 0) > 0"]
         params: list[Any] = []
         selected = sorted({int(x) for x in (dataset_ids or []) if int(x) > 0})
@@ -1276,9 +1375,60 @@ def search_lca_line_item_factors(
                         "factor": safe_float(r.get("factor")),
                         "source": r.get("source"),
                         "region": r.get("region"),
+                        "source_table": "factor_lookup",
                     }
                 )
+
+        if client_db_id:
+            jcf_where = ["jcf.client_db_id = %s", "(jcf.archived = FALSE OR jcf.archived IS NULL)", "COALESCE(jcf.is_active, TRUE) = TRUE", "COALESCE(jcf.factor, 0) > 0"]
+            jcf_params: list[Any] = [int(client_db_id)]
+            if q_clean:
+                jcf_where.append(
+                    "(COALESCE(jcf.report_label,'') ILIKE %s OR COALESCE(jcf.description,'') ILIKE %s OR COALESCE(jcf.category,'') ILIKE %s)"
+                )
+                pat = f"%{q_clean}%"
+                jcf_params.extend([pat, pat, pat])
+            jcf_df = con.execute(
+                f"""
+                SELECT jcf.factor_id, jcf.report_label, jcf.description, jcf.uom, jcf.factor, jcf.source
+                FROM job_custom_factors jcf
+                WHERE {' AND '.join(jcf_where)}
+                ORDER BY jcf.report_label, jcf.factor_id DESC
+                LIMIT %s
+                """,
+                [*jcf_params, int(limit)],
+            ).df()
+            if jcf_df is not None and not jcf_df.empty:
+                jcf_df = jcf_df.astype(object).where(jcf_df.notna(), None)
+                for _, r in jcf_df.iterrows():
+                    items.append(
+                        {
+                            "db_id": int(r.get("factor_id")),
+                            "label": str(r.get("report_label") or r.get("description") or f"Client Factor {r.get('factor_id')}"),
+                            "uom": r.get("uom"),
+                            "factor": safe_float(r.get("factor")),
+                            "source": r.get("source") or "Client Factor",
+                            "region": None,
+                            "source_table": "job_custom_factor",
+                        }
+                    )
     return {"items": items, "dataset_ids_used": dataset_ids}
+
+
+def _apply_chosen_factor(con, line_item_id: int, chosen: dict[str, Any], confidence: Any, user: dict[str, str]) -> None:
+    source_table = str(chosen.get("source_table") or "factor_lookup")
+    con.execute(
+        """
+        UPDATE lca_line_items
+        SET mapped_factor_source = %s, mapped_factor_id = %s, factor_value = %s,
+            factor_unit = %s, factor_source_label = %s, factor_source_url = NULL,
+            factor_match_confidence = %s, is_gap_filled = FALSE, gap_fill_method = NULL,
+            updated_at = NOW(), updated_by = %s
+        WHERE line_item_id = %s
+        """,
+        [source_table, int(chosen["db_id"]), safe_float(chosen["factor"]), str(chosen.get("uom") or "kgCO2e/kg"),
+         str(chosen.get("source") or source_table), confidence, _actor(user), int(line_item_id)],
+    )
 
 
 @router.post("/jobs/{job_id}/lca/line-items/{line_item_id}/map-factor")
@@ -1301,50 +1451,38 @@ def map_line_item_factor(job_id: int, line_item_id: int, body: dict = Body(defau
                 raise HTTPException(status_code=404, detail="LCA line item not found")
             assessment_id = int(row[0])
             dataset_ids = _resolve_dataset_ids(con, int(job_id), assessment_id)
+            client_db_id = _job_client_id(con, int(job_id))
             candidates = _find_factor_candidates(
                 con, line_label=str(row[1] or ""), module_code=str(row[2] or ""),
                 unit=str(row[3] or ""), country=str(row[4] or ""), dataset_ids=dataset_ids,
+                client_db_id=client_db_id,
             )
             top_confidence = safe_float(candidates[0]["confidence"]) if candidates else None
 
             forced_factor_id = body.get("factor_db_id")
+            forced_source_table = str(body.get("factor_source_table") or "factor_lookup")
             applied = None
             auto_applied = False
             if forced_factor_id:
                 # Explicit user pick -- applies regardless of confidence (the
                 # "human confirms" escape hatch for below-threshold matches).
-                chosen = next((c for c in candidates if c["db_id"] == int(forced_factor_id)), None) or _lookup_factor_by_id(con, int(forced_factor_id))
+                chosen = next(
+                    (c for c in candidates if c["db_id"] == int(forced_factor_id) and c.get("source_table", "factor_lookup") == forced_source_table),
+                    None,
+                ) or (
+                    _lookup_client_factor_by_id(con, client_db_id, int(forced_factor_id))
+                    if forced_source_table == "job_custom_factor"
+                    else _lookup_factor_by_id(con, int(forced_factor_id))
+                )
                 if not chosen:
                     raise HTTPException(status_code=404, detail="Selected factor not found")
-                con.execute(
-                    """
-                    UPDATE lca_line_items
-                    SET mapped_factor_source = 'factor_lookup', mapped_factor_id = %s, factor_value = %s,
-                        factor_unit = %s, factor_source_label = %s, factor_source_url = NULL,
-                        factor_match_confidence = %s, is_gap_filled = FALSE, gap_fill_method = NULL,
-                        updated_at = NOW(), updated_by = %s
-                    WHERE line_item_id = %s
-                    """,
-                    [int(chosen["db_id"]), safe_float(chosen["factor"]), str(chosen.get("uom") or "kgCO2e/kg"),
-                     str(chosen.get("source") or "factor_lookup"), chosen.get("confidence"), _actor(_user), int(line_item_id)],
-                )
+                _apply_chosen_factor(con, int(line_item_id), chosen, chosen.get("confidence"), _user)
                 applied = chosen
             else:
                 apply_top = bool(body.get("apply_top_match", True))
                 if candidates and apply_top and top_confidence is not None and top_confidence >= CONFIDENCE_THRESHOLD:
                     top = candidates[0]
-                    con.execute(
-                        """
-                        UPDATE lca_line_items
-                        SET mapped_factor_source = 'factor_lookup', mapped_factor_id = %s, factor_value = %s,
-                            factor_unit = %s, factor_source_label = %s, factor_source_url = NULL,
-                            factor_match_confidence = %s, is_gap_filled = FALSE, gap_fill_method = NULL,
-                            updated_at = NOW(), updated_by = %s
-                        WHERE line_item_id = %s
-                        """,
-                        [int(top["db_id"]), safe_float(top["factor"]), str(top.get("uom") or "kgCO2e/kg"),
-                         str(top.get("source") or "factor_lookup"), top["confidence"], _actor(_user), int(line_item_id)],
-                    )
+                    _apply_chosen_factor(con, int(line_item_id), top, top["confidence"], _user)
                     applied = top
                     auto_applied = True
                 else:
@@ -1699,21 +1837,14 @@ async def upload_bom_file(
                 if is_placeholder or explicit_factor > 0:
                     continue
 
-                candidates = _find_factor_candidates(con, line_label=line_label, module_code=module_code, unit=unit, country=origin_country, dataset_ids=dataset_ids)
+                candidates = _find_factor_candidates(
+                    con, line_label=line_label, module_code=module_code, unit=unit, country=origin_country,
+                    dataset_ids=dataset_ids, client_db_id=client_db_id,
+                )
                 top_confidence = safe_float(candidates[0]["confidence"]) if candidates else None
                 if candidates and top_confidence is not None and top_confidence >= CONFIDENCE_THRESHOLD:
                     top = candidates[0]
-                    con.execute(
-                        """
-                        UPDATE lca_line_items
-                        SET mapped_factor_source = 'factor_lookup', mapped_factor_id = %s, factor_value = %s,
-                            factor_unit = %s, factor_source_label = %s, factor_match_confidence = %s,
-                            is_gap_filled = FALSE, updated_at = NOW(), updated_by = %s
-                        WHERE line_item_id = %s
-                        """,
-                        [int(top["db_id"]), safe_float(top["factor"]), str(top.get("uom") or "kgCO2e/kg"),
-                         str(top.get("source") or "factor_lookup"), top["confidence"], _actor(_user), line_item_id],
-                    )
+                    _apply_chosen_factor(con, line_item_id, top, top["confidence"], _user)
                     mapped += 1
                 elif candidates:
                     # A candidate exists but isn't confident enough to auto-apply --
