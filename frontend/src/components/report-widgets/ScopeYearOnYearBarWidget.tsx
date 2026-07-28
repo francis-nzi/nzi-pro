@@ -247,7 +247,7 @@ export function ScopeYearOnYearBarWidget({
                   formatter={(v: unknown, name: unknown) => [typeof v === "number" ? `${formatNumber(v, 1)} tCO₂e` : "—", String(name ?? "")]}
                   content={renderTooltip}
                 />
-                <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="top" />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
                 {showBenchmarkBar ? (
                   <Bar isAnimationActive={false} dataKey="benchmark" name={benchmarkLabel} fill={BENCHMARK_COLOR} radius={[3, 3, 0, 0]}>
                     <LabelList

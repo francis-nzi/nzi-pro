@@ -1145,6 +1145,26 @@ export default function JobAdvancedReports({
           div.live-report-section > div:first-child + div {
             padding: 0 !important;
           }
+          /* The tightening above only touches the section's OWN outer
+             Card/CardHeader/CardContent (direct children). Chart widgets
+             (donut, bar chart, etc.) render as their own nested <Card>,
+             which otherwise keeps its full on-screen padding in print --
+             producing a much bigger gap between the section title and the
+             widget's own title than between the page header and the
+             section title. Tighten those too. */
+          .live-report-section [data-slot="card"] {
+            padding: 0 !important;
+            gap: 8px !important;
+            border: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+          }
+          .live-report-section [data-slot="card-header"] {
+            padding: 4px 0 !important;
+          }
+          .live-report-section [data-slot="card-content"] {
+            padding: 0 !important;
+          }
           /* Page break before Organisational Boundary */
           .org-boundary-section {
             break-before: page !important;
@@ -2258,7 +2278,14 @@ export default function JobAdvancedReports({
               : "grid-cols-[80px_1fr_120px_120px_60px]";
           const numCols = hasPrevYear ? (hasBenchmark ? 6 : 4) : (hasBenchmark ? 5 : 3);
 
-          const bmYearLabel = toYearLabel(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end) || "BM";
+          // toYearLabel returns "" when the period dates are both missing --
+          // fall back to the plain benchmark_year field (same source the
+          // Y-o-Y bar chart's "BM {year}" legend resolves to) before giving
+          // up, so this never collapses to the literal "BM" and duplicates
+          // into "BM BM" below.
+          const bmYearLabel =
+            toYearLabel(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end) ||
+            (data.job_data.benchmark_year ? String(data.job_data.benchmark_year) : "");
           const currentYearLabel = toYearLabel(data.job_data.reporting_period_start, data.job_data.reporting_period_end) || "Current";
 
           // Shared header cell style: label on line 1, tCO₂e on line 2
@@ -2269,7 +2296,7 @@ export default function JobAdvancedReports({
             </span>
           );
 
-          const benchmarkColHeader = colHdr(`BM ${bmYearLabel}`);
+          const benchmarkColHeader = colHdr(bmYearLabel ? `BM ${bmYearLabel}` : "BM");
 
           const tableRows: React.ReactElement[] = [];
           let rowIdx = 0;
