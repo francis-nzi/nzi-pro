@@ -262,6 +262,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [factorSearchResults, setFactorSearchResults] = useState<Record<number, FactorSearchResult[]>>({});
   const [factorSearchLoading, setFactorSearchLoading] = useState<Record<number, boolean>>({});
   const [showAllLineItems, setShowAllLineItems] = useState(false);
+  const [lineItemSearchQuery, setLineItemSearchQuery] = useState("");
   const [editingFactorId, setEditingFactorId] = useState<number | null>(null);
   const [editFactorValue, setEditFactorValue] = useState("");
   const [editFactorUnit, setEditFactorUnit] = useState("");
@@ -1307,7 +1308,16 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const serviceModules = useMemo(() => modules.filter((m) => m.module_group === "scope3"), [modules]);
   const isLineItemResolved = (row: LineItem) => row.is_placeholder || Boolean(row.mapped_factor_source) || row.is_gap_filled;
   const unresolvedLineItems = useMemo(() => items.filter((r) => !isLineItemResolved(r)), [items]);
-  const visibleLineItems = showAllLineItems ? items : unresolvedLineItems;
+  // A search always searches every item regardless of resolved state --
+  // otherwise a row you already mapped a factor for (and now want to
+  // change) simply vanishes from the default unresolved-only view with no
+  // way to find it again short of remembering the "Show all" toggle exists.
+  const lineItemSearchMatches = useMemo(() => {
+    const q = lineItemSearchQuery.trim().toLowerCase();
+    if (!q) return null;
+    return items.filter((r) => r.line_label.toLowerCase().includes(q));
+  }, [items, lineItemSearchQuery]);
+  const visibleLineItems = lineItemSearchMatches ?? (showAllLineItems ? items : unresolvedLineItems);
 
   const datasetCountryOptions = useMemo(
     () => Array.from(new Set(lcaDatasets.map((d) => d.country).filter((c): c is string => Boolean(c)))).sort(),
@@ -1870,14 +1880,24 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
 
       {activeWorkflowStage === "factor-mapping" || activeWorkflowStage === "gap-filling" ? (
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
             <CardTitle>{activeWorkflowStage === "factor-mapping" ? "Stage 3: Factor Mapping" : "Stage 4: Data Gap Filling"}</CardTitle>
             {items.length > 0 ? (
-              <Button variant="outline" size="sm" onClick={() => setShowAllLineItems((v) => !v)}>
-                {showAllLineItems
-                  ? `Show unresolved only (${unresolvedLineItems.length})`
-                  : `Show all (${items.length})`}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={lineItemSearchQuery}
+                  onChange={(e) => setLineItemSearchQuery(e.target.value)}
+                  placeholder="Find an item by name..."
+                  className="h-8 w-56"
+                />
+                {!lineItemSearchQuery ? (
+                  <Button variant="outline" size="sm" onClick={() => setShowAllLineItems((v) => !v)}>
+                    {showAllLineItems
+                      ? `Show unresolved only (${unresolvedLineItems.length})`
+                      : `Show all (${items.length})`}
+                  </Button>
+                ) : null}
+              </div>
             ) : null}
           </CardHeader>
           <CardContent className="space-y-3">
@@ -1885,7 +1905,9 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
               <div className="text-sm text-muted-foreground">No line items yet.</div>
             ) : visibleLineItems.length === 0 ? (
               <div className="text-sm text-muted-foreground">
-                All {items.length} line item(s) are resolved. <button type="button" className="text-primary underline" onClick={() => setShowAllLineItems(true)}>Show all</button>
+                {lineItemSearchMatches
+                  ? "No items match that search."
+                  : <>All {items.length} line item(s) are resolved. <button type="button" className="text-primary underline" onClick={() => setShowAllLineItems(true)}>Show all</button></>}
               </div>
             ) : (
               visibleLineItems.map((row) => {
