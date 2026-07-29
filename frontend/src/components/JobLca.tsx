@@ -840,6 +840,25 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     }
   }
 
+  const detailItemId = detailItem?.line_item_id ?? null;
+  useEffect(() => {
+    if (detailItemId == null) return;
+    const updated = items.find((it) => it.line_item_id === detailItemId);
+    if (!updated) return;
+    setDetailFactor(String(updated.factor_value ?? ""));
+    setDetailFactorUnit(updated.factor_unit || "");
+    setDetailItem((prev) =>
+      prev && prev.line_item_id === detailItemId
+        ? { ...prev, mapped_factor_source: updated.mapped_factor_source, factor_match_confidence: updated.factor_match_confidence, is_gap_filled: updated.is_gap_filled }
+        : prev
+    );
+    // Re-syncs the factor fields shown in the modal after a factor is applied
+    // via the search box below (which persists immediately via /map-factor,
+    // separate from the modal's own Save Changes action) -- intentionally
+    // scoped to items/detailItemId only so it doesn't clobber unsaved edits
+    // to other fields (label, category, qty) while the modal is open.
+  }, [items, detailItemId]);
+
   function openInventoryDetail(row: LineItem) {
     setDetailItem(row);
     setDetailModule(row.module_code);
@@ -2780,6 +2799,43 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                   </>
                 ) : (
                   "No factor mapped yet -- use Auto Map Factor, Search Factor, or set Factor Value directly above."
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>Change Factor Source</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={factorSearchQuery[detailItem.line_item_id] || ""}
+                    onChange={(e) => setFactorSearchQuery((prev) => ({ ...prev, [detailItem.line_item_id]: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void runFactorSearch(detailItem.line_item_id);
+                    }}
+                    placeholder="e.g. plastic, metal, aramid fiber..."
+                    className="h-8"
+                  />
+                  <Button size="sm" onClick={() => void runFactorSearch(detailItem.line_item_id)} disabled={factorSearchLoading[detailItem.line_item_id]}>
+                    {factorSearchLoading[detailItem.line_item_id] ? "Searching..." : "Search"}
+                  </Button>
+                </div>
+                {(factorSearchResults[detailItem.line_item_id] || []).length > 0 ? (
+                  <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border bg-muted/30 p-2">
+                    {(factorSearchResults[detailItem.line_item_id] || []).map((c) => (
+                      <div key={`${c.source_table || "factor_lookup"}-${c.db_id}`} className="flex items-center justify-between gap-2 text-xs">
+                        <span>
+                          {c.source_table === "job_custom_factor" ? <Badge variant="outline" className="mr-1">Client Factor</Badge> : null}
+                          {c.source_table === "admin_custom_factor" ? <Badge variant="outline" className="mr-1">Admin Factor</Badge> : null}
+                          {c.label} ({c.factor} {c.uom})
+                        </span>
+                        <Button size="sm" variant="outline" onClick={() => void applyCandidate(detailItem.line_item_id, c.db_id, c.source_table)}>
+                          Use this
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground">
+                    {factorSearchLoading[detailItem.line_item_id] ? "" : "Search to replace this item's factor with a different dataset row, client factor, or admin factor."}
+                  </div>
                 )}
               </div>
             </div>
