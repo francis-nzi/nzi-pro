@@ -33,6 +33,9 @@ type JobCustomFactor = {
   uom?: string | null;
   ghg_unit?: string | null;
   source?: string | null;
+  source_url?: string | null;
+  source_file_name?: string | null;
+  has_source_file?: boolean;
   factor?: number | null;
   factor_year?: number | null;
   factors_by_year?: Record<string, number>;
@@ -126,9 +129,12 @@ export default function JobCustomFactors({
   const [uom, setUom] = useState("");
   const [ghgUnit, setGhgUnit] = useState("kg CO2e");
   const [source, setSource] = useState("Client factor");
+  const [sourceUrl, setSourceUrl] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [yearFactors, setYearFactors] = useState<Record<number, string>>({ [defaultFactorYear]: "" });
   const [yearToAdd, setYearToAdd] = useState("");
+  const [sourceFile, setSourceFile] = useState<File | null>(null);
+  const [uploadingSourceFile, setUploadingSourceFile] = useState(false);
 
   const hasUnsavedChanges = useMemo(() => {
     const yearHasValue = Object.values(yearFactors).some((v) => v.trim());
@@ -236,9 +242,11 @@ export default function JobCustomFactors({
     setUom("");
     setGhgUnit("kg CO2e");
     setSource("Client factor");
+    setSourceUrl("");
     setIsActive(true);
     setYearFactors({ [defaultFactorYear]: "" });
     setYearToAdd("");
+    setSourceFile(null);
   }
 
   function startEdit(item: JobCustomFactor) {
@@ -252,9 +260,11 @@ export default function JobCustomFactors({
     setUom(cleanText(item.uom));
     setGhgUnit(cleanText(item.ghg_unit) || "kg CO2e");
     setSource(cleanText(item.source) || "Client factor");
+    setSourceUrl(cleanText(item.source_url));
     setIsActive(Boolean(item.is_active ?? true));
     setYearFactors(yearsFromFactor(item, defaultFactorYear));
     setYearToAdd("");
+    setSourceFile(null);
   }
 
   const formYears = useMemo(() => {
@@ -317,6 +327,7 @@ export default function JobCustomFactors({
         uom: cleanText(uom) || null,
         ghg_unit: cleanText(ghgUnit) || null,
         source: cleanText(source) || "Client factor",
+        source_url: cleanText(sourceUrl) || null,
         factors_by_year: factorsByYear,
         is_active: isActive,
       };
@@ -336,12 +347,65 @@ export default function JobCustomFactors({
         throw new Error(`Save failed (${res.status})${text ? `: ${text}` : ""}`);
       }
 
+      const saved = await res.json().catch(() => ({}));
+      const factorId = Number(saved?.factor_id ?? editingFactor?.factor_id);
+      if (sourceFile && Number.isFinite(factorId)) {
+        setUploadingSourceFile(true);
+        try {
+          await uploadSourceFile(factorId, sourceFile);
+        } catch (e) {
+          setStatus(errorMessage(e, "Client factor saved, but the source file failed to attach"));
+          clearForm();
+          await loadFactors();
+          return;
+        } finally {
+          setUploadingSourceFile(false);
+        }
+      }
+
       setStatus(editingFactor ? "Client factor updated" : "Client factor created");
       clearForm();
       await loadFactors();
       setTimeout(() => setStatus(""), 2500);
     } catch (e) {
       setStatus(errorMessage(e, "Failed to save client factor"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function uploadSourceFile(factorId: number, file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await apiFetch(`/jobs/${jobId}/custom-factors/${factorId}/source-file`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Failed to attach source file (${res.status})${text ? `: ${text}` : ""}`);
+    }
+  }
+
+  async function removeSourceFile(item: JobCustomFactor) {
+    const confirmed = await confirmAction({
+      title: "Remove attached file?",
+      description: `Remove the source file attached to "${item.report_label || item.description}"?`,
+      confirmLabel: "Remove",
+      destructive: true,
+    });
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/custom-factors/${item.factor_id}/source-file`, { method: "DELETE" });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Failed to remove source file (${res.status})${text ? `: ${text}` : ""}`);
+      }
+      await loadFactors();
+    } catch (e) {
+      setStatus(errorMessage(e, "Failed to remove source file"));
     } finally {
       setLoading(false);
     }
@@ -557,14 +621,54 @@ export default function JobCustomFactors({
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="jobCustomSource">Source</Label>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="jobCustomSource">Source</Label>
+                    <Input
+                      id="jobCustomSource"
+                      value={source}
+                      onChange={(e) => setSource(e.target.value)}
+                      placeholder="Optional source note"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="jobCustomSourceUrl">Source Link</Label>
+                    <Input
+                      id="jobCustomSourceUrl"
+                      value={sourceUrl}
+                      onChange={(e) => setSourceUrl(e.target.value)}
+                      placeholder="https://manufacturer.com/epd.pdf"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2 rounded-md border p-3">
+                  <Label>Supporting File (e.g. manufacturer EPD)</Label>
+                  {editingFactor?.has_source_file ? (
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <a
+                        href={`${apiBases[0]}/jobs/${jobId}/custom-factors/${editingFactor.factor_id}/source-file`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary underline"
+                      >
+                        {editingFactor.source_file_name || "Download attached file"}
+                      </a>
+                      <Button type="button" variant="outline" size="sm" onClick={() => void removeSourceFile(editingFactor)}>
+                        Remove
+                      </Button>
+                    </div>
+                  ) : null}
                   <Input
-                    id="jobCustomSource"
-                    value={source}
-                    onChange={(e) => setSource(e.target.value)}
-                    placeholder="Optional source note"
+                    type="file"
+                    onChange={(e) => setSourceFile(e.target.files?.[0] ?? null)}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    {editingFactor
+                      ? "Choosing a file here replaces the current attachment when you save."
+                      : "The file uploads once you save this factor below."}
+                  </p>
+                  {uploadingSourceFile ? <p className="text-xs text-muted-foreground">Uploading...</p> : null}
                 </div>
 
                 <div className="space-y-2">
@@ -691,6 +795,27 @@ export default function JobCustomFactors({
                                 UOM: <span className="font-mono">{item.uom || "-"}</span>{" "}
                                 | GHG: <span className="font-mono">{item.ghg_unit || "-"}</span>{" "}
                                 | Source: <span className="font-mono">{item.source || "Client factor"}</span>
+                                {item.source_url ? (
+                                  <>
+                                    {" "}
+                                    | <a href={item.source_url} target="_blank" rel="noreferrer" className="text-primary underline">
+                                      Link
+                                    </a>
+                                  </>
+                                ) : null}
+                                {item.has_source_file ? (
+                                  <>
+                                    {" "}
+                                    | <a
+                                      href={`${apiBases[0]}/jobs/${jobId}/custom-factors/${item.factor_id}/source-file`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-primary underline"
+                                    >
+                                      {item.source_file_name || "Attached file"}
+                                    </a>
+                                  </>
+                                ) : null}
                               </div>
                             </div>
 

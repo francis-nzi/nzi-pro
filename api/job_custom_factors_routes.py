@@ -1,16 +1,97 @@
 from __future__ import annotations
 
+import io
+import json
 import math
+import os
+import urllib.parse
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import StreamingResponse
 
 from api.auth import _current_user
 from api.permissions import assert_job_access, assert_permission
 from core.database import get_conn
 from services.audit_log import fetch_row_dict, record_audit_event
+from services.virus_scan import VirusScanError, scan_bytes
 
 router = APIRouter(tags=["job-custom-factors"])
+
+
+# ---------------------------------------------------------------------------
+# Source file attachment (e.g. a manufacturer's EPD PDF backing up a client
+# factor). Stored in the same SharePoint document library as job files and
+# client logos -- Render has no persistent disk, so local storage would be
+# wiped on the next deploy/restart (see api/client_management_helpers.py for
+# the full story). Falls back to local disk only when OneDrive isn't
+# configured (local dev).
+# ---------------------------------------------------------------------------
+
+
+def _onedrive_enabled() -> bool:
+    required_auth = [
+        str(os.getenv("MS_TENANT_ID") or "").strip(),
+        str(os.getenv("MS_CLIENT_ID") or "").strip(),
+        str(os.getenv("MS_CLIENT_SECRET") or "").strip(),
+    ]
+    has_target = any(
+        [
+            str(os.getenv("MS_ONEDRIVE_DRIVE_ID") or "").strip(),
+            str(os.getenv("MS_ONEDRIVE_SITE_ID") or "").strip(),
+            (
+                str(os.getenv("MS_ONEDRIVE_SITE_HOST") or "").strip()
+                and str(os.getenv("MS_ONEDRIVE_SITE_PATH") or "").strip()
+            ),
+            str(os.getenv("MS_ONEDRIVE_USER_ID") or "").strip(),
+        ]
+    )
+    return all(required_auth) and bool(has_target)
+
+
+def _onedrive_ensure_folder(token: str, folder_path: str) -> None:
+    from api.onedrive_routes import _drive_base_path, _graph_request
+
+    drive_base = _drive_base_path(token)
+    segments = [seg for seg in str(folder_path or "").strip("/").split("/") if seg]
+    current = ""
+    for segment in segments:
+        current = f"{current}/{segment}" if current else f"/{segment}"
+        encoded = urllib.parse.quote(current, safe="/")
+        try:
+            _graph_request("GET", f"{drive_base}/root:{encoded}:", token)
+            continue
+        except HTTPException as e:
+            if "Graph API error 404" not in str(e.detail):
+                raise
+        parent = current.rsplit("/", 1)[0]
+        parent_target = (
+            f"{drive_base}/root:{urllib.parse.quote(parent, safe='/')}:/children" if parent else f"{drive_base}/root/children"
+        )
+        payload = json.dumps(
+            {"name": segment, "folder": {}, "@microsoft.graph.conflictBehavior": "replace"}
+        ).encode("utf-8")
+        _graph_request("POST", parent_target, token, body=payload, content_type="application/json")
+
+
+def _upload_custom_factor_source_file(factor_id: int, filename: str, content: bytes) -> dict[str, str]:
+    from api.onedrive_routes import _drive_base_path, _graph_request, _graph_token, _joined_remote_path
+
+    token = _graph_token()
+    drive_base = _drive_base_path(token)
+    remote_folder = _joined_remote_path(f"client-factor-evidence/factor-{int(factor_id)}")
+    _onedrive_ensure_folder(token, remote_folder)
+
+    full_path = f"{remote_folder}/{filename}"
+    encoded = urllib.parse.quote(full_path, safe="/")
+    meta = _graph_request(
+        "PUT",
+        f"{drive_base}/root:{encoded}:/content",
+        token,
+        body=content,
+        content_type="application/octet-stream",
+    )
+    return {"external_item_id": str(meta.get("id") or ""), "external_web_url": str(meta.get("webUrl") or "")}
 
 
 def _safe_int(value: Any) -> int | None:
@@ -102,6 +183,12 @@ def _ensure_job_custom_factor_schema(con) -> None:
     con.execute("ALTER TABLE job_custom_factors ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP")
     con.execute("ALTER TABLE job_custom_factors ADD COLUMN IF NOT EXISTS archived_by VARCHAR")
     con.execute("ALTER TABLE job_custom_factors ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE")
+    con.execute("ALTER TABLE job_custom_factors ADD COLUMN IF NOT EXISTS source_url TEXT")
+    con.execute("ALTER TABLE job_custom_factors ADD COLUMN IF NOT EXISTS source_file_name VARCHAR")
+    con.execute("ALTER TABLE job_custom_factors ADD COLUMN IF NOT EXISTS source_file_storage_provider VARCHAR DEFAULT 'local'")
+    con.execute("ALTER TABLE job_custom_factors ADD COLUMN IF NOT EXISTS source_file_external_item_id VARCHAR")
+    con.execute("ALTER TABLE job_custom_factors ADD COLUMN IF NOT EXISTS source_file_external_web_url TEXT")
+    con.execute("ALTER TABLE job_custom_factors ADD COLUMN IF NOT EXISTS source_file_path TEXT")
 
     con.execute(
         """
@@ -304,7 +391,8 @@ def list_job_custom_factors(
                   jcf.country, jcf.scope, jcf.description, jcf.uom, jcf.ghg_unit, jcf.source,
                   jcf.custom_id, jcf.report_label, jcf.category, jcf.factor, jcf.factor_year,
                   jcf.created_by, jcf.created_at, jcf.updated_by, jcf.updated_at,
-                  jcf.archived, jcf.archived_at, jcf.archived_by, jcf.is_active
+                  jcf.archived, jcf.archived_at, jcf.archived_by, jcf.is_active,
+                  jcf.source_url, jcf.source_file_name, jcf.source_file_external_web_url
                 FROM job_custom_factors jcf
                 LEFT JOIN jobs j ON j.job_id = jcf.job_id
                 WHERE {' AND '.join(where_clauses)}
@@ -315,7 +403,12 @@ def list_job_custom_factors(
 
             items: list[dict[str, Any]] = []
             if df is not None and not df.empty:
-                df = df.where(df.notna(), None)
+                # astype(object) first -- plain .where() is a no-op on any
+                # column pandas infers as float64 (which every nullable
+                # column here is prone to whenever every row in it is NULL,
+                # e.g. source_url before anyone's attached one yet), leaving
+                # raw NaN and breaking JSON encoding of the response.
+                df = df.astype(object).where(df.notna(), None)
                 factor_ids = [
                     int(v)
                     for v in df["factor_id"].tolist()
@@ -364,6 +457,9 @@ def list_job_custom_factors(
                             "updated_at": str(row.get("updated_at")) if row.get("updated_at") else None,
                             "archived_at": str(row.get("archived_at")) if row.get("archived_at") else None,
                             "archived_by": str(row.get("archived_by")) if row.get("archived_by") else None,
+                            "source_url": row.get("source_url") or None,
+                            "source_file_name": row.get("source_file_name") or None,
+                            "has_source_file": bool(row.get("source_file_name")),
                         }
                     )
 
@@ -422,8 +518,8 @@ def create_job_custom_factor(
                 """
                 INSERT INTO job_custom_factors
                 (job_id, client_db_id, country, scope, description, uom, ghg_unit, source, custom_id,
-                 report_label, category, factor, factor_year, is_active, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 report_label, category, factor, factor_year, is_active, created_by, source_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING factor_id
                 """,
                 [
@@ -442,6 +538,7 @@ def create_job_custom_factor(
                     factor_year,
                     bool(body.get("is_active", True)),
                     actor,
+                    str(body.get("source_url") or "").strip() or None,
                 ],
             ).fetchone()
 
@@ -537,7 +634,8 @@ def update_job_custom_factor(
                     factor_year = ?,
                     is_active = ?,
                     updated_by = ?,
-                    updated_at = CURRENT_TIMESTAMP
+                    updated_at = CURRENT_TIMESTAMP,
+                    source_url = ?
                 WHERE client_db_id = ? AND factor_id = ?
                 """,
                 [
@@ -554,6 +652,7 @@ def update_job_custom_factor(
                     factor_year,
                     bool(body.get("is_active", True)),
                     actor,
+                    str(body.get("source_url") or "").strip() or None,
                     client_db_id,
                     int(factor_id),
                 ],
@@ -661,3 +760,196 @@ def archive_job_custom_factor(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update job custom factor archive state: {e}")
+
+
+@router.post("/jobs/{job_id}/custom-factors/{factor_id}/source-file")
+async def upload_job_custom_factor_source_file(
+    request: Request,
+    job_id: int,
+    factor_id: int,
+    file: UploadFile = File(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Attach supporting evidence (e.g. a manufacturer's EPD PDF) to a client
+    factor. Replaces any previously attached file."""
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Cannot upload an empty file")
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File exceeds 20MB limit")
+    filename = str(file.filename or "source-file").strip() or "source-file"
+    try:
+        scan_bytes(content, filename=filename)
+    except VirusScanError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    try:
+        with get_conn(autocommit=False) as con:
+            _ensure_job_custom_factor_schema(con)
+            ctx = _job_context(con, int(job_id))
+            client_db_id = ctx["client_db_id"]
+            before = _snapshot(con, client_db_id, int(factor_id))
+            if not before:
+                raise HTTPException(status_code=404, detail="Job custom factor not found")
+
+            if _onedrive_enabled():
+                uploaded = _upload_custom_factor_source_file(int(factor_id), filename, content)
+                con.execute(
+                    """
+                    UPDATE job_custom_factors
+                    SET source_file_name = ?, source_file_storage_provider = 'onedrive',
+                        source_file_external_item_id = ?, source_file_external_web_url = ?,
+                        source_file_path = NULL, updated_at = CURRENT_TIMESTAMP, updated_by = ?
+                    WHERE client_db_id = ? AND factor_id = ?
+                    """,
+                    [
+                        filename,
+                        uploaded.get("external_item_id"),
+                        uploaded.get("external_web_url"),
+                        _actor_identifier(_user),
+                        client_db_id,
+                        int(factor_id),
+                    ],
+                )
+            else:
+                from pathlib import Path
+
+                local_dir = Path("uploads/custom_factor_evidence")
+                local_dir.mkdir(parents=True, exist_ok=True)
+                local_path = local_dir / f"{int(factor_id)}_{filename}"
+                local_path.write_bytes(content)
+                con.execute(
+                    """
+                    UPDATE job_custom_factors
+                    SET source_file_name = ?, source_file_storage_provider = 'local',
+                        source_file_external_item_id = NULL, source_file_external_web_url = NULL,
+                        source_file_path = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?
+                    WHERE client_db_id = ? AND factor_id = ?
+                    """,
+                    [filename, str(local_path), _actor_identifier(_user), client_db_id, int(factor_id)],
+                )
+
+            after = _snapshot(con, client_db_id, int(factor_id))
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="update",
+                entity_type="job_custom_factor",
+                entity_id=int(factor_id),
+                job_id=int(job_id),
+                before=before,
+                after=after,
+                metadata={"field": "source_file", "uploaded_filename": filename},
+            )
+
+        return {"ok": True, "factor_id": int(factor_id), "source_file_name": filename}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to attach source file: {e}")
+
+
+@router.get("/jobs/{job_id}/custom-factors/{factor_id}/source-file")
+def download_job_custom_factor_source_file(
+    job_id: int,
+    factor_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    assert_permission(_user, "jobs.view")
+    assert_job_access(_user, int(job_id))
+    try:
+        with get_conn() as con:
+            _ensure_job_custom_factor_schema(con)
+            ctx = _job_context(con, int(job_id))
+            row = con.execute(
+                """
+                SELECT source_file_name, source_file_storage_provider, source_file_external_item_id, source_file_path
+                FROM job_custom_factors
+                WHERE client_db_id = ? AND factor_id = ?
+                """,
+                [ctx["client_db_id"], int(factor_id)],
+            ).fetchone()
+            if not row or not row[0]:
+                raise HTTPException(status_code=404, detail="No source file attached")
+
+            file_name, storage_provider, external_item_id, local_path = row[0], row[1], row[2], row[3]
+
+        if str(storage_provider or "") == "onedrive":
+            if not external_item_id:
+                raise HTTPException(status_code=404, detail="External file ID missing")
+            from api.onedrive_routes import _drive_base_path, _graph_download, _graph_token
+
+            token = _graph_token()
+            drive_base = _drive_base_path(token)
+            content, content_type = _graph_download(
+                f"{drive_base}/items/{urllib.parse.quote(str(external_item_id))}/content", token
+            )
+            return StreamingResponse(
+                io.BytesIO(content),
+                media_type=content_type or "application/octet-stream",
+                headers={"Content-Disposition": f'inline; filename="{file_name}"'},
+            )
+
+        if not local_path or not os.path.exists(local_path):
+            raise HTTPException(status_code=404, detail="File not found on disk")
+        from fastapi.responses import FileResponse
+
+        return FileResponse(path=local_path, filename=file_name, media_type="application/octet-stream")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to download source file: {e}")
+
+
+@router.delete("/jobs/{job_id}/custom-factors/{factor_id}/source-file")
+def delete_job_custom_factor_source_file(
+    request: Request,
+    job_id: int,
+    factor_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+    try:
+        with get_conn(autocommit=False) as con:
+            _ensure_job_custom_factor_schema(con)
+            ctx = _job_context(con, int(job_id))
+            client_db_id = ctx["client_db_id"]
+            before = _snapshot(con, client_db_id, int(factor_id))
+            if not before:
+                raise HTTPException(status_code=404, detail="Job custom factor not found")
+
+            con.execute(
+                """
+                UPDATE job_custom_factors
+                SET source_file_name = NULL, source_file_storage_provider = 'local',
+                    source_file_external_item_id = NULL, source_file_external_web_url = NULL,
+                    source_file_path = NULL, updated_at = CURRENT_TIMESTAMP, updated_by = ?
+                WHERE client_db_id = ? AND factor_id = ?
+                """,
+                [_actor_identifier(_user), client_db_id, int(factor_id)],
+            )
+
+            after = _snapshot(con, client_db_id, int(factor_id))
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="update",
+                entity_type="job_custom_factor",
+                entity_id=int(factor_id),
+                job_id=int(job_id),
+                before=before,
+                after=after,
+                metadata={"field": "source_file", "removed": True},
+            )
+
+        return {"ok": True, "factor_id": int(factor_id)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to remove source file: {e}")
