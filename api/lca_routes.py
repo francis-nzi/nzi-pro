@@ -377,6 +377,92 @@ def _recalculate_assessment(con, assessment_id: int, user: dict[str, str]) -> di
     return summary
 
 
+# custom_factors (Admin -> Custom Factors) predates job_custom_factors
+# ("Client Factors" on a job) and stores its value per-year across wide
+# factor_2018..factor_2030 columns rather than a single flat "factor"
+# column, plus an optional normalized override table for years beyond
+# 2030. Resolve to "most recent year with a value" for ranking/display --
+# LCA doesn't have a specific target year to match against here.
+_CUSTOM_FACTOR_RESOLVED_VALUE_SQL = """
+    COALESCE(
+      (SELECT cfyv.factor FROM custom_factor_year_values cfyv WHERE cfyv.factor_id = cf.factor_id ORDER BY cfyv.year DESC LIMIT 1),
+      cf.factor_2030, cf.factor_2029, cf.factor_2028, cf.factor_2027, cf.factor_2026,
+      cf.factor_2025, cf.factor_2024, cf.factor_2023, cf.factor_2022, cf.factor_2021,
+      cf.factor_2020, cf.factor_2019, cf.factor_2018
+    )
+"""
+
+
+def _find_admin_custom_factor_candidates(con, client_db_id: int | None, line_label: str, module_code: str, unit: str) -> list[dict[str, Any]]:
+    """Same word-similarity scoring as _find_client_factor_candidates, but
+    against the admin-managed custom_factors table -- a separate, older
+    factor system (Admin -> Custom Factors) that predates job-level Client
+    Factors and is scoped by is_global / client_db_id rather than being
+    tied to one job's client. Both are surfaced here so a factor added via
+    either UI is found by LCA auto-map/search the same way."""
+    keyword_blob = MODULE_KEYWORDS.get(module_code, "")
+    label = line_label.strip()
+    unit_pattern = str(unit or "").strip()
+    words = [w for w in keyword_blob.split() if w]
+    keyword_expr = " OR ".join(
+        [
+            "(COALESCE(cf.report_label,'') ILIKE %s OR COALESCE(cf.description,'') ILIKE %s OR COALESCE(cf.category,'') ILIKE %s)"
+            for _ in words
+        ]
+    )
+    keyword_params: list[Any] = []
+    for word in words:
+        pat = f"%{word}%"
+        keyword_params.extend([pat, pat, pat])
+
+    client_clause = "(cf.client_db_id = %s OR COALESCE(cf.is_global, TRUE) = TRUE)" if client_db_id else "COALESCE(cf.is_global, TRUE) = TRUE"
+    client_params: list[Any] = [int(client_db_id)] if client_db_id else []
+
+    df = con.execute(
+        f"""
+        SELECT * FROM (
+            SELECT
+              cf.factor_id, cf.report_label, cf.description, cf.uom, cf.source,
+              {_CUSTOM_FACTOR_RESOLVED_VALUE_SQL} AS factor,
+              LEAST(1.0,
+                0.75 * GREATEST(
+                  word_similarity(%s, COALESCE(cf.report_label, '')),
+                  word_similarity(%s, COALESCE(cf.description, ''))
+                )
+                + 0.15 * (CASE WHEN COALESCE(cf.uom, '') <> '' AND lower(cf.uom) = lower(%s) THEN 1 ELSE 0 END)
+                + 0.10 * (CASE WHEN ({keyword_expr or 'FALSE'}) THEN 1 ELSE 0 END)
+              ) AS confidence
+            FROM custom_factors cf
+            WHERE {client_clause} AND (cf.archived = FALSE OR cf.archived IS NULL) AND COALESCE(cf.is_active, TRUE) = TRUE
+        ) scored
+        WHERE confidence > 0.05 AND COALESCE(factor, 0) > 0
+        ORDER BY confidence DESC, factor_id DESC
+        LIMIT 10
+        """,
+        [label, label, unit_pattern, *keyword_params, *client_params],
+    ).df()
+    out: list[dict[str, Any]] = []
+    if df is None or df.empty:
+        return out
+    df = df.astype(object).where(df.notna(), None)
+    for _, r in df.iterrows():
+        confidence = round(safe_float(r.get("confidence")), 4)
+        out.append(
+            {
+                "db_id": int(r.get("factor_id")),
+                "label": str(r.get("report_label") or r.get("description") or f"Admin Factor {r.get('factor_id')}"),
+                "uom": r.get("uom"),
+                "factor": safe_float(r.get("factor")),
+                "source": r.get("source") or "Admin Custom Factor",
+                "region": None,
+                "confidence": confidence,
+                "score": round(confidence * 100, 1),
+                "source_table": "admin_custom_factor",
+            }
+        )
+    return out
+
+
 def _find_client_factor_candidates(con, client_db_id: int | None, line_label: str, module_code: str, unit: str) -> list[dict[str, Any]]:
     """Same word-similarity scoring as _find_factor_candidates, but against
     job_custom_factors ("Client Factors") instead of v_factor_lookup -- a
@@ -546,8 +632,11 @@ def _find_factor_candidates(
         )
     if client_db_id:
         out.extend(_find_client_factor_candidates(con, client_db_id, line_label, module_code, unit))
-        out.sort(key=lambda c: c["confidence"], reverse=True)
-        out = out[:10]
+    # admin_custom_factor candidates can apply even without a client_db_id
+    # (is_global rows) so this runs unconditionally, unlike job_custom_factor above.
+    out.extend(_find_admin_custom_factor_candidates(con, client_db_id, line_label, module_code, unit))
+    out.sort(key=lambda c: c["confidence"], reverse=True)
+    out = out[:10]
     return out
 
 
@@ -572,6 +661,33 @@ def _lookup_client_factor_by_id(con, client_db_id: int | None, factor_id: int) -
         "source": row[5] or "Client Factor",
         "region": None,
         "source_table": "job_custom_factor",
+    }
+
+
+def _lookup_admin_custom_factor_by_id(con, client_db_id: int | None, factor_id: int) -> dict[str, Any] | None:
+    client_clause = "(cf.client_db_id = %s OR COALESCE(cf.is_global, TRUE) = TRUE)" if client_db_id else "COALESCE(cf.is_global, TRUE) = TRUE"
+    params: list[Any] = [int(factor_id)]
+    if client_db_id:
+        params.append(int(client_db_id))
+    row = con.execute(
+        f"""
+        SELECT cf.factor_id, cf.report_label, cf.description, cf.uom, cf.source,
+               {_CUSTOM_FACTOR_RESOLVED_VALUE_SQL} AS resolved_factor
+        FROM custom_factors cf
+        WHERE cf.factor_id = %s AND {client_clause} AND (cf.archived = FALSE OR cf.archived IS NULL)
+        """,
+        params,
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "db_id": int(row[0]),
+        "label": str(row[1] or row[2] or f"Admin Factor {row[0]}"),
+        "uom": row[3],
+        "factor": safe_float(row[5]),
+        "source": row[4] or "Admin Custom Factor",
+        "region": None,
+        "source_table": "admin_custom_factor",
     }
 
 
@@ -1412,6 +1528,46 @@ def search_lca_line_item_factors(
                             "source_table": "job_custom_factor",
                         }
                     )
+
+        # admin_custom_factor rows can apply even without a client_db_id
+        # (is_global rows), unlike job_custom_factor above.
+        cf_client_clause = "(cf.client_db_id = %s OR COALESCE(cf.is_global, TRUE) = TRUE)" if client_db_id else "COALESCE(cf.is_global, TRUE) = TRUE"
+        cf_where = [cf_client_clause, "(cf.archived = FALSE OR cf.archived IS NULL)", "COALESCE(cf.is_active, TRUE) = TRUE"]
+        cf_params: list[Any] = [int(client_db_id)] if client_db_id else []
+        if q_clean:
+            cf_where.append(
+                "(COALESCE(cf.report_label,'') ILIKE %s OR COALESCE(cf.description,'') ILIKE %s OR COALESCE(cf.category,'') ILIKE %s)"
+            )
+            pat = f"%{q_clean}%"
+            cf_params.extend([pat, pat, pat])
+        cf_df = con.execute(
+            f"""
+            SELECT * FROM (
+                SELECT cf.factor_id, cf.report_label, cf.description, cf.uom, cf.source,
+                       {_CUSTOM_FACTOR_RESOLVED_VALUE_SQL} AS factor
+                FROM custom_factors cf
+                WHERE {' AND '.join(cf_where)}
+            ) scored
+            WHERE COALESCE(factor, 0) > 0
+            ORDER BY report_label, factor_id DESC
+            LIMIT %s
+            """,
+            [*cf_params, int(limit)],
+        ).df()
+        if cf_df is not None and not cf_df.empty:
+            cf_df = cf_df.astype(object).where(cf_df.notna(), None)
+            for _, r in cf_df.iterrows():
+                items.append(
+                    {
+                        "db_id": int(r.get("factor_id")),
+                        "label": str(r.get("report_label") or r.get("description") or f"Admin Factor {r.get('factor_id')}"),
+                        "uom": r.get("uom"),
+                        "factor": safe_float(r.get("factor")),
+                        "source": r.get("source") or "Admin Custom Factor",
+                        "region": None,
+                        "source_table": "admin_custom_factor",
+                    }
+                )
     return {"items": items, "dataset_ids_used": dataset_ids}
 
 
@@ -1472,6 +1628,8 @@ def map_line_item_factor(job_id: int, line_item_id: int, body: dict = Body(defau
                 ) or (
                     _lookup_client_factor_by_id(con, client_db_id, int(forced_factor_id))
                     if forced_source_table == "job_custom_factor"
+                    else _lookup_admin_custom_factor_by_id(con, client_db_id, int(forced_factor_id))
+                    if forced_source_table == "admin_custom_factor"
                     else _lookup_factor_by_id(con, int(forced_factor_id))
                 )
                 if not chosen:

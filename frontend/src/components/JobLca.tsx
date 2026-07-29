@@ -75,7 +75,7 @@ type FactorCandidate = {
   source?: string | null;
   region?: string | null;
   confidence: number;
-  source_table?: "factor_lookup" | "job_custom_factor";
+  source_table?: "factor_lookup" | "job_custom_factor" | "admin_custom_factor";
 };
 
 type FactorSearchResult = {
@@ -85,7 +85,7 @@ type FactorSearchResult = {
   factor: number;
   source?: string | null;
   region?: string | null;
-  source_table?: "factor_lookup" | "job_custom_factor";
+  source_table?: "factor_lookup" | "job_custom_factor" | "admin_custom_factor";
 };
 
 type LcaModule = {
@@ -723,7 +723,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     }
   }
 
-  async function applyCandidate(lineItemId: number, factorDbId: number, sourceTable: "factor_lookup" | "job_custom_factor" = "factor_lookup") {
+  async function applyCandidate(lineItemId: number, factorDbId: number, sourceTable: "factor_lookup" | "job_custom_factor" | "admin_custom_factor" = "factor_lookup") {
     if (!selectedAssessmentId) return;
     setStatus("Applying selected factor...");
     try {
@@ -2145,6 +2145,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                           <div key={`${c.source_table || "factor_lookup"}-${c.db_id}`} className="flex items-center justify-between gap-2 text-xs">
                             <span>
                               {c.source_table === "job_custom_factor" ? <Badge variant="outline" className="mr-1">Client Factor</Badge> : null}
+                              {c.source_table === "admin_custom_factor" ? <Badge variant="outline" className="mr-1">Admin Factor</Badge> : null}
                               {c.label} ({Math.round(c.confidence * 100)}% confidence, {c.factor} {c.uom})
                             </span>
                             <Button size="sm" variant="outline" onClick={() => applyCandidate(row.line_item_id, c.db_id, c.source_table)}>
@@ -2176,6 +2177,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                               <div key={`${c.source_table || "factor_lookup"}-${c.db_id}`} className="flex items-center justify-between gap-2 text-xs">
                                 <span>
                                   {c.source_table === "job_custom_factor" ? <Badge variant="outline" className="mr-1">Client Factor</Badge> : null}
+                                  {c.source_table === "admin_custom_factor" ? <Badge variant="outline" className="mr-1">Admin Factor</Badge> : null}
                                   {c.label} ({c.factor} {c.uom})
                                 </span>
                                 <Button size="sm" variant="outline" onClick={() => applyCandidate(row.line_item_id, c.db_id, c.source_table)}>
