@@ -125,6 +125,7 @@ type LineItem = {
   data_quality?: string;
   is_gap_filled?: boolean;
   is_placeholder?: boolean;
+  notes?: string | null;
 };
 
 type MassReconciliation = {
@@ -267,6 +268,22 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [editFactorValue, setEditFactorValue] = useState("");
   const [editFactorUnit, setEditFactorUnit] = useState("");
   const [confidenceThreshold, setConfidenceThreshold] = useState<number>(0.45);
+
+  const [inventoryPage, setInventoryPage] = useState(0);
+  const inventoryPageSize = 20;
+  const [detailItem, setDetailItem] = useState<LineItem | null>(null);
+  const [detailModule, setDetailModule] = useState("");
+  const [detailLabel, setDetailLabel] = useState("");
+  const [detailCategoryId, setDetailCategoryId] = useState("");
+  const [detailQty, setDetailQty] = useState("");
+  const [detailUnit, setDetailUnit] = useState("");
+  const [detailCountry, setDetailCountry] = useState("");
+  const [detailFactor, setDetailFactor] = useState("");
+  const [detailFactorUnit, setDetailFactorUnit] = useState("");
+  const [detailDataQuality, setDetailDataQuality] = useState("secondary");
+  const [detailPlaceholder, setDetailPlaceholder] = useState(false);
+  const [detailNotes, setDetailNotes] = useState("");
+  const [savingDetail, setSavingDetail] = useState(false);
 
   const [lcaDatasets, setLcaDatasets] = useState<DatasetOption[]>([]);
   const [selectedDatasetIds, setSelectedDatasetIds] = useState<number[]>([]);
@@ -821,6 +838,68 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
       setError((e as Error).message);
       setStatus("");
     }
+  }
+
+  function openInventoryDetail(row: LineItem) {
+    setDetailItem(row);
+    setDetailModule(row.module_code);
+    setDetailLabel(row.line_label);
+    setDetailCategoryId(row.material_category_id ? String(row.material_category_id) : "");
+    setDetailQty(String(row.quantity ?? ""));
+    setDetailUnit(row.unit || "");
+    setDetailCountry(row.origin_country || "");
+    setDetailFactor(String(row.factor_value ?? ""));
+    setDetailFactorUnit(row.factor_unit || "");
+    setDetailDataQuality(row.data_quality || "secondary");
+    setDetailPlaceholder(Boolean(row.is_placeholder));
+    setDetailNotes(row.notes || "");
+  }
+
+  async function saveInventoryDetail() {
+    if (!detailItem) return;
+    setSavingDetail(true);
+    setStatus("Saving item...");
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/lca/line-items/${detailItem.line_item_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          module_code: detailModule,
+          line_label: detailLabel.trim(),
+          material_category_id: detailCategoryId || null,
+          quantity: Number(detailQty || 0),
+          unit: detailUnit.trim() || "kg",
+          origin_country: detailCountry.trim(),
+          factor_value: Number(detailFactor || 0),
+          factor_unit: detailFactorUnit.trim() || "kgCO2e/kg",
+          data_quality: detailDataQuality,
+          is_placeholder: detailPlaceholder,
+          notes: detailNotes.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed to save item (${res.status})${t ? `: ${t}` : ""}`);
+      }
+      setDetailItem(null);
+      if (selectedAssessmentId) {
+        await loadItems(selectedAssessmentId);
+        await loadAssessments();
+        await loadAssessmentDetail(selectedAssessmentId);
+      }
+      setStatus("Item updated.");
+    } catch (e) {
+      setStatus("");
+      setError((e as Error).message);
+    } finally {
+      setSavingDetail(false);
+    }
+  }
+
+  async function deleteInventoryDetail() {
+    if (!detailItem) return;
+    await removeItem(detailItem.line_item_id);
+    setDetailItem(null);
   }
 
   async function createScenario() {
@@ -1764,6 +1843,93 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
 
       {activeWorkflowStage === "inventory" ? (
         <div className="space-y-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+              <CardTitle>Inventory Items ({items.length})</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {items.length === 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  No line items yet -- import a BOM, add from the library, or add one manually below.
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-[1fr_100px_120px_110px_130px_90px] gap-2 border-b px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                    <span>Item</span>
+                    <span>Module</span>
+                    <span>Category</span>
+                    <span className="text-right">Qty</span>
+                    <span className="text-right">Factor</span>
+                    <span>Status</span>
+                  </div>
+                  {items
+                    .slice(
+                      Math.min(inventoryPage, Math.max(0, Math.ceil(items.length / inventoryPageSize) - 1)) * inventoryPageSize,
+                      (Math.min(inventoryPage, Math.max(0, Math.ceil(items.length / inventoryPageSize) - 1)) + 1) * inventoryPageSize
+                    )
+                    .map((row) => {
+                      const resolved = row.is_placeholder || Boolean(row.mapped_factor_source) || row.is_gap_filled;
+                      return (
+                        <button
+                          key={row.line_item_id}
+                          type="button"
+                          onClick={() => openInventoryDetail(row)}
+                          className="grid w-full grid-cols-[1fr_100px_120px_110px_130px_90px] items-center gap-2 rounded-md border-b px-2 py-2 text-left text-xs last:border-0 hover:bg-muted/50"
+                        >
+                          <span className="truncate font-medium text-foreground">{row.line_label}</span>
+                          <span className="text-muted-foreground">{moduleLabel(row.module_code)}</span>
+                          <span className="truncate text-muted-foreground">
+                            {row.material_category_id ? categoryName(row.material_category_id) : "Uncategorized"}
+                          </span>
+                          <span className="text-right text-muted-foreground">
+                            {Number(row.quantity || 0).toLocaleString()} {row.unit || ""}
+                          </span>
+                          <span className="text-right text-muted-foreground">
+                            {Number(row.factor_value || 0).toLocaleString()} {row.factor_unit || ""}
+                          </span>
+                          <span>
+                            {row.is_placeholder ? (
+                              <Badge variant="secondary">Placeholder</Badge>
+                            ) : resolved ? (
+                              <Badge variant="outline">Mapped</Badge>
+                            ) : (
+                              <Badge variant="destructive">Needs review</Badge>
+                            )}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  {items.length > inventoryPageSize ? (
+                    <div className="flex items-center justify-between pt-2 text-xs text-muted-foreground">
+                      <span>
+                        Showing {inventoryPage * inventoryPageSize + 1}-
+                        {Math.min((inventoryPage + 1) * inventoryPageSize, items.length)} of {items.length}
+                      </span>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={inventoryPage === 0}
+                          onClick={() => setInventoryPage((p) => Math.max(0, p - 1))}
+                        >
+                          Previous
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={(inventoryPage + 1) * inventoryPageSize >= items.length}
+                          onClick={() => setInventoryPage((p) => p + 1)}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </CardContent>
+          </Card>
+
           {!isService ? (
             <Card>
               <CardHeader><CardTitle>Stage 2A: BOM Import</CardTitle></CardHeader>
@@ -2532,6 +2698,98 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPartsComponentId(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={detailItem !== null} onOpenChange={(open) => { if (!open) setDetailItem(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Inventory Item</DialogTitle>
+            <DialogDescription>
+              Every field captured for this line -- module, category, quantity, factor, and dataset-matched status.
+            </DialogDescription>
+          </DialogHeader>
+          {detailItem ? (
+            <div className="space-y-4">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>{isService ? "Scope 3 Category" : "Module"}</Label>
+                  <Select value={detailModule} onValueChange={setDetailModule}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {(isService ? serviceModules : modules).map((m) => (
+                        <SelectItem key={m.module_code} value={m.module_code}>{m.module_code} - {m.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Line Label</Label>
+                  <Input value={detailLabel} onChange={(e) => setDetailLabel(e.target.value)} />
+                </div>
+                {!isService ? (
+                  <div className="space-y-2">
+                    <Label>Category</Label>
+                    <SearchableStringSelect
+                      value={detailCategoryId ? categoryName(Number(detailCategoryId)) : ""}
+                      options={categoryNames}
+                      placeholder="Search or type to add a new category..."
+                      showClearButton
+                      onValueChange={(name) => {
+                        void (async () => {
+                          const cat = await resolveOrCreateCategory(name);
+                          setDetailCategoryId(cat ? String(cat.category_id) : "");
+                        })();
+                      }}
+                    />
+                  </div>
+                ) : null}
+                <div className="space-y-2">
+                  <Label>Data Quality</Label>
+                  <Select value={detailDataQuality} onValueChange={setDetailDataQuality}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="primary">Primary</SelectItem>
+                      <SelectItem value="secondary">Secondary</SelectItem>
+                      <SelectItem value="proxy">Proxy</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2"><Label>Quantity</Label><Input type="number" value={detailQty} onChange={(e) => setDetailQty(e.target.value)} /></div>
+                <div className="space-y-2"><Label>Unit</Label><Input value={detailUnit} onChange={(e) => setDetailUnit(e.target.value)} /></div>
+                <div className="space-y-2"><Label>Origin Country</Label><Input value={detailCountry} onChange={(e) => setDetailCountry(e.target.value)} /></div>
+                <div className="space-y-2"><Label>Factor Value</Label><Input type="number" value={detailFactor} onChange={(e) => setDetailFactor(e.target.value)} /></div>
+                <div className="space-y-2"><Label>Factor Unit</Label><Input value={detailFactorUnit} onChange={(e) => setDetailFactorUnit(e.target.value)} /></div>
+                <div className="flex items-end">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={detailPlaceholder} onChange={(e) => setDetailPlaceholder(e.target.checked)} />
+                    No weight yet (placeholder / assembly grouping)
+                  </label>
+                </div>
+              </div>
+              <div className="space-y-2"><Label>Notes</Label><Textarea value={detailNotes} onChange={(e) => setDetailNotes(e.target.value)} rows={2} /></div>
+              <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+                {detailItem.mapped_factor_source ? (
+                  <>
+                    Factor source: <span className="font-medium text-foreground">{detailItem.mapped_factor_source}</span>
+                    {typeof detailItem.factor_match_confidence === "number" ? ` (${Math.round(detailItem.factor_match_confidence * 100)}% confidence)` : ""}
+                    {detailItem.is_gap_filled ? " -- gap-filled estimate" : ""}
+                  </>
+                ) : (
+                  "No factor mapped yet -- use Auto Map Factor, Search Factor, or set Factor Value directly above."
+                )}
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter className="flex items-center justify-between sm:justify-between">
+            <Button variant="destructive" onClick={() => void deleteInventoryDetail()}>Delete Item</Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setDetailItem(null)}>Cancel</Button>
+              <Button onClick={() => void saveInventoryDetail()} disabled={savingDetail}>
+                {savingDetail ? "Saving..." : "Save Changes"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
