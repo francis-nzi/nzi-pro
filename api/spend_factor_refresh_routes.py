@@ -2,12 +2,16 @@
 Governed per-job refresh of DEFRA spend-based emission factors.
 
 DEFRA retroactively revised its SIC-code spend factors across every year
-2019-2026 (imported as separate "DEFRA Spend (2023 Revision) {year}"
-datasets -- the original per-year datasets are untouched, so no job is
-affected unless explicitly refreshed here). Because this can move a
-client's already-reported emissions figure, moving a job onto the revised
-factors requires a request (any staff member) and an approval
-(SuperAdmin only) rather than a direct edit.
+2019-2026. The revised values were updated in place inside the existing
+per-year "UK Activity & Spend {year}" datasets (same factor_lookup db_id,
+just a new factor value), so every *new* job automatically picks up the
+current figures with no extra step. But job_scope_rows.factor and
+job_spend_entries.estimated_emissions_tco2e are frozen snapshots copied at
+mapping time -- they do NOT move when the underlying factor_lookup row
+changes. Because deliberately moving an *existing* job onto the revised
+figures can change a client's already-reported emissions, doing so
+requires a request (any staff member) and an approval (SuperAdmin only)
+rather than a direct edit.
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ from services.audit_log import fetch_row_dict, record_audit_event
 router = APIRouter()
 
 SIC_PREFIX = "SPEND-SIC-"
-REVISION_SOURCE = "DEFRA (2023 Revision)"
+FACTOR_EPSILON = 1e-9
 
 
 def _ensure_spend_factor_refresh_schema(con) -> None:
@@ -50,21 +54,15 @@ def _ensure_spend_factor_refresh_schema(con) -> None:
     con.execute("CREATE INDEX IF NOT EXISTS idx_sfrr_status ON spend_factor_refresh_requests(status)")
 
 
-def _revision_dataset_ids(con) -> dict[int, int]:
-    rows = con.execute(
-        "SELECT year, dataset_id FROM datasets WHERE source = %s AND year IS NOT NULL",
-        [REVISION_SOURCE],
-    ).fetchall()
-    return {int(year): int(dataset_id) for year, dataset_id in rows}
-
-
 def _preview_job_spend_factor_refresh(con, job_id: int) -> dict[str, Any]:
-    """Finds every job_scope_rows / job_spend_entries row on this job still
-    pointing at a pre-revision DEFRA SIC factor, resolves the equivalent row
-    in the revision dataset for the same year, and recomputes what its
-    emissions figure would become. Nothing is written here -- this is also
-    re-run fresh at approval time rather than trusting a stored snapshot."""
-    revision_ids = _revision_dataset_ids(con)
+    """Finds every job_scope_rows / job_spend_entries row on this job whose
+    frozen value no longer matches the live factor_lookup value for the same
+    factor_db_id (e.g. after DEFRA's in-place revision) and recomputes what
+    its emissions figure would become. Nothing is written here -- this is
+    also re-run fresh at approval time rather than trusting a stored
+    snapshot. dataset_id/factor_db_id/original_id never change here -- the
+    row already points at the right factor_lookup row, only that row's
+    value did."""
     rows_out: list[dict[str, Any]] = []
     no_match: list[dict[str, Any]] = []
     current_total = 0.0
@@ -73,9 +71,10 @@ def _preview_job_spend_factor_refresh(con, job_id: int) -> dict[str, Any]:
     scope_rows = con.execute(
         """
         SELECT jsr.row_id, jsr.original_id, jsr.dataset_id, jsr.factor_db_id, jsr.uom, jsr.ghg_unit,
-               jsr.factor, jsr.calc_tco2e, jsr.qty, jsr.apply_pct, jsr.report_label, d.year
+               jsr.factor, jsr.calc_tco2e, jsr.qty, jsr.apply_pct, jsr.report_label,
+               fl.factor AS live_factor, fl.uom AS live_uom, fl.ghg_unit AS live_ghg_unit
         FROM job_scope_rows jsr
-        JOIN datasets d ON d.dataset_id = jsr.dataset_id
+        JOIN factor_lookup fl ON fl.db_id = jsr.factor_db_id
         WHERE jsr.job_id = %s AND COALESCE(jsr.enabled, TRUE) = TRUE
           AND jsr.original_id ILIKE %s
         """,
@@ -83,14 +82,8 @@ def _preview_job_spend_factor_refresh(con, job_id: int) -> dict[str, Any]:
     ).fetchall()
 
     for (row_id, original_id, dataset_id, factor_db_id, uom, ghg_unit,
-         factor, calc_tco2e, qty, apply_pct, report_label, year) in scope_rows:
-        revision_dataset_id = revision_ids.get(int(year)) if year is not None else None
-        if not revision_dataset_id or int(dataset_id) == revision_dataset_id:
-            continue  # no revision published for this year, or already on it
-        new_row = con.execute(
-            "SELECT db_id, factor, uom, ghg_unit FROM factor_lookup WHERE dataset_id = %s AND original_id = %s",
-            [revision_dataset_id, original_id],
-        ).fetchone()
+         factor, calc_tco2e, qty, apply_pct, report_label,
+         live_factor, live_uom, live_ghg_unit) in scope_rows:
         # calc_tco2e is NULL on many directly-imported rows (never populated at
         # write time) -- derive the "current" figure the same way rather than
         # trusting a column that's often empty, so the preview's before/after
@@ -103,26 +96,26 @@ def _preview_job_spend_factor_refresh(con, job_id: int) -> dict[str, Any]:
                 current_val /= 1000.0
             current_val = round(current_val, 4)
         current_total += current_val
-        if not new_row:
-            no_match.append({"kind": "job_scope_row", "row_id": row_id, "original_id": original_id, "reason": "No revised factor found for this code"})
+
+        live_factor_val = float(live_factor or 0.0)
+        if abs(float(factor or 0.0) - live_factor_val) < FACTOR_EPSILON:
+            projected_total += current_val  # frozen factor already matches live -- nothing to do
+            continue
+
+        if str(uom or "").strip().lower() != str(live_uom or "").strip().lower():
+            no_match.append({"kind": "job_scope_row", "row_id": row_id, "original_id": original_id, "reason": f"Unit mismatch ({uom} vs {live_uom})"})
             projected_total += current_val
             continue
-        new_db_id, new_factor, new_uom, new_ghg_unit = new_row
-        if str(uom or "").strip().lower() != str(new_uom or "").strip().lower():
-            no_match.append({"kind": "job_scope_row", "row_id": row_id, "original_id": original_id, "reason": f"Unit mismatch ({uom} vs {new_uom})"})
-            projected_total += current_val
-            continue
-        new_calc = float(qty or 0.0) * float(new_factor or 0.0) * (float(apply_pct if apply_pct is not None else 100.0) / 100.0)
-        if "kg" in str(new_ghg_unit or ghg_unit or "kgCO2e").lower():
+        new_calc = float(qty or 0.0) * live_factor_val * (float(apply_pct if apply_pct is not None else 100.0) / 100.0)
+        if "kg" in str(live_ghg_unit or ghg_unit or "kgCO2e").lower():
             new_calc /= 1000.0
         new_calc = round(new_calc, 4)
         projected_total += new_calc
         rows_out.append({
             "kind": "job_scope_row", "row_id": int(row_id), "original_id": original_id, "report_label": report_label,
-            "old_dataset_id": int(dataset_id), "old_factor_db_id": int(factor_db_id) if factor_db_id is not None else None,
+            "dataset_id": int(dataset_id), "factor_db_id": int(factor_db_id) if factor_db_id is not None else None,
             "old_factor": float(factor or 0.0), "old_calc_tco2e": current_val,
-            "new_dataset_id": revision_dataset_id, "new_factor_db_id": int(new_db_id), "new_ghg_unit": new_ghg_unit,
-            "new_factor": float(new_factor or 0.0), "new_calc_tco2e": new_calc,
+            "new_ghg_unit": live_ghg_unit, "new_factor": live_factor_val, "new_calc_tco2e": new_calc,
         })
 
     # job_spend_entries.estimated_emissions_tco2e is computed as amount * factor
@@ -132,10 +125,9 @@ def _preview_job_spend_factor_refresh(con, job_id: int) -> dict[str, Any]:
     spend_rows = con.execute(
         """
         SELECT e.entry_id, fl.original_id, e.dataset_id, e.factor_db_id, e.amount_gross,
-               e.estimated_emissions_tco2e, e.mapped_report_label, d.year
+               e.estimated_emissions_tco2e, e.mapped_report_label, fl.factor AS live_factor
         FROM job_spend_entries e
         JOIN factor_lookup fl ON fl.db_id = e.factor_db_id
-        JOIN datasets d ON d.dataset_id = e.dataset_id
         WHERE e.job_id = %s AND COALESCE(e.is_deleted, FALSE) = FALSE
           AND fl.original_id ILIKE %s
         """,
@@ -143,29 +135,17 @@ def _preview_job_spend_factor_refresh(con, job_id: int) -> dict[str, Any]:
     ).fetchall()
 
     for (entry_id, original_id, dataset_id, factor_db_id, amount_gross,
-         estimated_emissions_tco2e, report_label, year) in spend_rows:
-        revision_dataset_id = revision_ids.get(int(year)) if year is not None else None
-        if not revision_dataset_id or int(dataset_id) == revision_dataset_id:
-            continue
-        new_row = con.execute(
-            "SELECT db_id, factor FROM factor_lookup WHERE dataset_id = %s AND original_id = %s",
-            [revision_dataset_id, original_id],
-        ).fetchone()
+         estimated_emissions_tco2e, report_label, live_factor) in spend_rows:
         current_val = float(estimated_emissions_tco2e or 0.0)
         current_total += current_val
-        if not new_row:
-            no_match.append({"kind": "job_spend_entry", "row_id": entry_id, "original_id": original_id, "reason": "No revised factor found for this code"})
-            projected_total += current_val
-            continue
-        new_db_id, new_factor = new_row
-        new_calc = round(float(amount_gross or 0.0) * float(new_factor or 0.0), 4)
+        new_calc = round(float(amount_gross or 0.0) * float(live_factor or 0.0), 4)
         projected_total += new_calc
+        if abs(new_calc - current_val) < FACTOR_EPSILON:
+            continue  # already matches what the live factor would produce
         rows_out.append({
             "kind": "job_spend_entry", "row_id": int(entry_id), "original_id": original_id, "report_label": report_label,
-            "old_dataset_id": int(dataset_id), "old_factor_db_id": int(factor_db_id) if factor_db_id is not None else None,
-            "old_calc_tco2e": current_val,
-            "new_dataset_id": revision_dataset_id, "new_factor_db_id": int(new_db_id),
-            "new_factor": float(new_factor or 0.0), "new_calc_tco2e": new_calc,
+            "dataset_id": int(dataset_id), "factor_db_id": int(factor_db_id) if factor_db_id is not None else None,
+            "old_calc_tco2e": current_val, "new_factor": float(live_factor or 0.0), "new_calc_tco2e": new_calc,
         })
 
     return {
@@ -350,11 +330,10 @@ def decide_spend_factor_refresh_request(request_id: int, body: dict = Body(...),
                     con.execute(
                         """
                         UPDATE job_scope_rows
-                        SET dataset_id = %s, factor_db_id = %s, factor = %s, ghg_unit = %s, calc_tco2e = %s, updated_at = NOW()
+                        SET factor = %s, ghg_unit = %s, calc_tco2e = %s, updated_at = NOW()
                         WHERE row_id = %s AND job_id = %s
                         """,
-                        [row["new_dataset_id"], row["new_factor_db_id"], row["new_factor"], row["new_ghg_unit"],
-                         row["new_calc_tco2e"], row["row_id"], job_id],
+                        [row["new_factor"], row["new_ghg_unit"], row["new_calc_tco2e"], row["row_id"], job_id],
                     )
                     after = fetch_row_dict(con, "SELECT * FROM job_scope_rows WHERE row_id = %s AND job_id = %s", [row["row_id"], job_id])
                     record_audit_event(
@@ -370,12 +349,10 @@ def decide_spend_factor_refresh_request(request_id: int, body: dict = Body(...),
                     con.execute(
                         """
                         UPDATE job_spend_entries
-                        SET dataset_id = %s, factor_db_id = %s, factor_original_id = %s,
-                            estimated_emissions_tco2e = %s, updated_at = NOW()
+                        SET estimated_emissions_tco2e = %s, updated_at = NOW()
                         WHERE entry_id = %s AND job_id = %s
                         """,
-                        [row["new_dataset_id"], row["new_factor_db_id"], row["original_id"],
-                         row["new_calc_tco2e"], row["row_id"], job_id],
+                        [row["new_calc_tco2e"], row["row_id"], job_id],
                     )
                     after = fetch_row_dict(con, "SELECT * FROM job_spend_entries WHERE entry_id = %s AND job_id = %s", [row["row_id"], job_id])
                     record_audit_event(
