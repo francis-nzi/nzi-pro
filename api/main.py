@@ -157,6 +157,7 @@ from api.lca_components_routes import router as lca_components_router
 from api.lca_activities_routes import router as lca_activities_router
 from api.onedrive_routes import router as onedrive_router
 from api.spend_data_routes import router as spend_data_router
+from api.spend_factor_refresh_routes import router as spend_factor_refresh_router
 from api.employee_commuting_routes import router as employee_commuting_router
 from api.quotes_routes import router as quotes_router
 from api.xero_routes import router as xero_router
@@ -386,6 +387,7 @@ app.include_router(methodology_router)
 app.include_router(feedback_router)
 app.include_router(auth_router)
 app.include_router(spend_data_router)
+app.include_router(spend_factor_refresh_router)
 app.include_router(employee_commuting_router)
 app.include_router(quotes_router)
 app.include_router(xero_router)

@@ -5,7 +5,10 @@ from fastapi import Depends, HTTPException
 from api.auth import _current_user
 from services.permissions import ADMIN_ACCESS_PERMISSION, user_can_access_client, user_can_access_job, user_has_permission
 
-__all__ = ["ADMIN_ACCESS_PERMISSION", "assert_client_access", "assert_job_access", "assert_permission", "require_permission"]
+__all__ = [
+    "ADMIN_ACCESS_PERMISSION", "assert_client_access", "assert_job_access", "assert_permission",
+    "assert_super_admin", "require_permission",
+]
 
 
 def require_permission(permission_key: str):
@@ -33,3 +36,14 @@ def assert_job_access(user: dict | None, job_id: int) -> None:
     if user_can_access_job(user, job_id):
         return
     raise HTTPException(status_code=403, detail="You do not have access to this job")
+
+
+def assert_super_admin(user: dict | None) -> None:
+    """Stricter than any permission string -- Admin and SuperAdmin are granted
+    the same permission set (see ROLE_PERMISSION_GRANTS in services/permissions.py),
+    so a handful of genuinely high-stakes actions (e.g. approving a bulk factor
+    refresh that can move an already-delivered client's numbers) gate on the
+    is_super_admin flag directly instead."""
+    if bool(user and user.get("is_super_admin")):
+        return
+    raise HTTPException(status_code=403, detail="Only a SuperAdmin can approve this action")

@@ -234,6 +234,15 @@ export const ADMIN_MODULES: AdminModule[] = [
     icon: History,
   },
   {
+    title: "Spend Factor Refresh Requests",
+    description: "Approve or reject requests to move a job's DEFRA spend factors onto a revised dataset -- SuperAdmin approval required.",
+    href: "/admin/spend-factor-refresh-requests",
+    cta: "Review requests",
+    domain: "System & Governance",
+    icon: ShieldCheck,
+    highlight: true,
+  },
+  {
     title: "Missing Data",
     description: "Find clients and jobs with blank fields, then update those values in one place.",
     href: "/admin/missing-data",
