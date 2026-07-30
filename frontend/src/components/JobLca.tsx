@@ -122,6 +122,9 @@ type LineItem = {
   factor_value: number;
   factor_unit?: string | null;
   mapped_factor_source?: string | null;
+  mapped_factor_dataset_name?: string | null;
+  mapped_factor_dataset_year?: number | null;
+  mapped_factor_original_id?: string | null;
   factor_match_confidence?: number | null;
   data_quality?: string;
   is_gap_filled?: boolean;
@@ -852,7 +855,15 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     setDetailFactorUnit(updated.factor_unit || "");
     setDetailItem((prev) =>
       prev && prev.line_item_id === detailItemId
-        ? { ...prev, mapped_factor_source: updated.mapped_factor_source, factor_match_confidence: updated.factor_match_confidence, is_gap_filled: updated.is_gap_filled }
+        ? {
+            ...prev,
+            mapped_factor_source: updated.mapped_factor_source,
+            mapped_factor_dataset_name: updated.mapped_factor_dataset_name,
+            mapped_factor_dataset_year: updated.mapped_factor_dataset_year,
+            mapped_factor_original_id: updated.mapped_factor_original_id,
+            factor_match_confidence: updated.factor_match_confidence,
+            is_gap_filled: updated.is_gap_filled,
+          }
         : prev
     );
     // Re-syncs the factor fields shown in the modal after a factor is applied
@@ -2810,6 +2821,14 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                     Factor source: <span className="font-medium text-foreground">{detailItem.mapped_factor_source}</span>
                     {typeof detailItem.factor_match_confidence === "number" ? ` (${Math.round(detailItem.factor_match_confidence * 100)}% confidence)` : ""}
                     {detailItem.is_gap_filled ? " -- gap-filled estimate" : ""}
+                    {detailItem.mapped_factor_dataset_name ? (
+                      <>
+                        <br />
+                        Dataset: <span className="font-medium text-foreground">{detailItem.mapped_factor_dataset_name}</span>
+                        {detailItem.mapped_factor_dataset_year ? ` (${detailItem.mapped_factor_dataset_year})` : ""}
+                        {detailItem.mapped_factor_original_id ? ` -- row ID: ${detailItem.mapped_factor_original_id}` : ""}
+                      </>
+                    ) : null}
                   </>
                 ) : (
                   "No factor mapped yet -- use Auto Map Factor, Search Factor, or set Factor Value directly above."

@@ -1149,6 +1149,63 @@ def _repair_bom_nan_artifacts(con) -> None:
     _bom_nan_artifacts_repaired = True
 
 
+def _attach_factor_source_audit_info(con, items: list[dict[str, Any]]) -> None:
+    """Adds mapped_factor_dataset_name / _dataset_year / _original_id to each
+    line item in place, so the Inventory item modal can show exactly which
+    dataset row a mapped factor came from -- needed to cross-check against
+    the source spreadsheet (e.g. CEDA's sector code, ICE's row id)."""
+    by_source: dict[str, list[int]] = {"factor_lookup": [], "job_custom_factor": [], "admin_custom_factor": []}
+    for it in items:
+        src = it.get("mapped_factor_source")
+        fid = it.get("mapped_factor_id")
+        if src in by_source and fid is not None:
+            by_source[src].append(int(fid))
+
+    fl_info: dict[int, dict[str, Any]] = {}
+    if by_source["factor_lookup"]:
+        ph = ",".join(["%s"] * len(by_source["factor_lookup"]))
+        rows = con.execute(
+            f"""
+            SELECT fl.db_id, fl.original_id, d.name, d.year
+            FROM factor_lookup fl
+            LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
+            WHERE fl.db_id IN ({ph})
+            """,
+            by_source["factor_lookup"],
+        ).fetchall()
+        for db_id, original_id, dataset_name, dataset_year in rows:
+            fl_info[int(db_id)] = {"dataset_name": dataset_name, "dataset_year": dataset_year, "original_id": original_id}
+
+    jcf_info: dict[int, dict[str, Any]] = {}
+    if by_source["job_custom_factor"]:
+        ph = ",".join(["%s"] * len(by_source["job_custom_factor"]))
+        rows = con.execute(
+            f"SELECT factor_id, factor_year FROM job_custom_factors WHERE factor_id IN ({ph})",
+            by_source["job_custom_factor"],
+        ).fetchall()
+        for factor_id, factor_year in rows:
+            jcf_info[int(factor_id)] = {"dataset_name": "Client Factor", "dataset_year": factor_year, "original_id": factor_id}
+
+    cf_info: dict[int, dict[str, Any]] = {}
+    if by_source["admin_custom_factor"]:
+        ph = ",".join(["%s"] * len(by_source["admin_custom_factor"]))
+        rows = con.execute(
+            f"SELECT factor_id FROM custom_factors WHERE factor_id IN ({ph})",
+            by_source["admin_custom_factor"],
+        ).fetchall()
+        for (factor_id,) in rows:
+            cf_info[int(factor_id)] = {"dataset_name": "Admin Custom Factor", "dataset_year": None, "original_id": factor_id}
+
+    lookups = {"factor_lookup": fl_info, "job_custom_factor": jcf_info, "admin_custom_factor": cf_info}
+    for it in items:
+        src = it.get("mapped_factor_source")
+        fid = it.get("mapped_factor_id")
+        info = lookups.get(src, {}).get(int(fid)) if src in lookups and fid is not None else None
+        it["mapped_factor_dataset_name"] = info["dataset_name"] if info else None
+        it["mapped_factor_dataset_year"] = info["dataset_year"] if info else None
+        it["mapped_factor_original_id"] = info["original_id"] if info else None
+
+
 @router.get("/jobs/{job_id}/lca/assessments/{assessment_id}/line-items")
 def list_line_items(job_id: int, assessment_id: int, _user: dict[str, str] = Depends(_current_user)):
     assert_permission(_user, "jobs.view")
@@ -1203,6 +1260,7 @@ def list_line_items(job_id: int, assessment_id: int, _user: dict[str, str] = Dep
                             "updated_at": str(r.get("updated_at")) if r.get("updated_at") else None,
                         }
                     )
+            _attach_factor_source_audit_info(con, items)
             summary = _recalculate_assessment(con, int(assessment_id), _user)
             return {
                 "job_id": int(job_id),
