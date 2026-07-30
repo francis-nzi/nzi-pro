@@ -1433,12 +1433,29 @@ def delete_line_item(job_id: int, line_item_id: int, _user: dict[str, str] = Dep
         raise HTTPException(status_code=500, detail=f"Failed to delete LCA line item: {e}")
 
 
+def _currency_codes(con) -> set[str]:
+    """Every currency code any dataset is denominated in -- used to tell a
+    spend-based factor (uom is a currency, e.g. "GBP") from an activity-based
+    one (uom is a physical unit, e.g. "kg", "kWh") since a single dataset
+    (e.g. DESNZ "Activity & Spend") can mix both row-by-row, so this can't be
+    determined at the dataset level."""
+    df = con.execute("SELECT DISTINCT currency FROM datasets WHERE currency IS NOT NULL AND currency <> ''").df()
+    if df is None or df.empty:
+        return set()
+    return {str(v).strip().upper() for v in df["currency"].tolist() if str(v).strip()}
+
+
+def _classify_factor_kind(uom: Any, currency_codes: set[str]) -> str:
+    return "spend" if str(uom or "").strip().upper() in currency_codes else "activity"
+
+
 @router.get("/jobs/{job_id}/lca/line-items/{line_item_id}/factor-search")
 def search_lca_line_item_factors(
     job_id: int,
     line_item_id: int,
     q: str = Query("", min_length=0),
     limit: int = Query(20, ge=1, le=50),
+    kind: str = Query("all", pattern="^(all|activity|spend)$"),
     _user: dict[str, str] = Depends(_current_user),
 ):
     """Free-text factor lookup for the "search for a factor" box on a line
@@ -1479,6 +1496,7 @@ def search_lca_line_item_factors(
             """,
             [*params, int(limit)],
         ).df()
+        currency_codes = _currency_codes(con)
         items: list[dict[str, Any]] = []
         if df is not None and not df.empty:
             df = df.astype(object).where(df.notna(), None)
@@ -1492,6 +1510,7 @@ def search_lca_line_item_factors(
                         "source": r.get("source"),
                         "region": r.get("region"),
                         "source_table": "factor_lookup",
+                        "kind": _classify_factor_kind(r.get("uom"), currency_codes),
                     }
                 )
 
@@ -1526,6 +1545,7 @@ def search_lca_line_item_factors(
                             "source": r.get("source") or "Client Factor",
                             "region": None,
                             "source_table": "job_custom_factor",
+                            "kind": _classify_factor_kind(r.get("uom"), currency_codes),
                         }
                     )
 
@@ -1566,8 +1586,12 @@ def search_lca_line_item_factors(
                         "source": r.get("source") or "Admin Custom Factor",
                         "region": None,
                         "source_table": "admin_custom_factor",
+                        "kind": _classify_factor_kind(r.get("uom"), currency_codes),
                     }
                 )
+
+        if kind != "all":
+            items = [it for it in items if it.get("kind") == kind]
     return {"items": items, "dataset_ids_used": dataset_ids}
 
 

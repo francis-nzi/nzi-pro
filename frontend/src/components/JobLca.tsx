@@ -86,6 +86,7 @@ type FactorSearchResult = {
   source?: string | null;
   region?: string | null;
   source_table?: "factor_lookup" | "job_custom_factor" | "admin_custom_factor";
+  kind?: "activity" | "spend";
 };
 
 type LcaModule = {
@@ -262,6 +263,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [factorSearchQuery, setFactorSearchQuery] = useState<Record<number, string>>({});
   const [factorSearchResults, setFactorSearchResults] = useState<Record<number, FactorSearchResult[]>>({});
   const [factorSearchLoading, setFactorSearchLoading] = useState<Record<number, boolean>>({});
+  const [factorSearchKind, setFactorSearchKind] = useState<Record<number, "all" | "activity" | "spend">>({});
   const [showAllLineItems, setShowAllLineItems] = useState(false);
   const [lineItemSearchQuery, setLineItemSearchQuery] = useState("");
   const [editingFactorId, setEditingFactorId] = useState<number | null>(null);
@@ -760,9 +762,10 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
 
   async function runFactorSearch(lineItemId: number) {
     const q = (factorSearchQuery[lineItemId] || "").trim();
+    const kind = factorSearchKind[lineItemId] || "all";
     setFactorSearchLoading((prev) => ({ ...prev, [lineItemId]: true }));
     try {
-      const res = await apiFetch(`/jobs/${jobId}/lca/line-items/${lineItemId}/factor-search?q=${encodeURIComponent(q)}`);
+      const res = await apiFetch(`/jobs/${jobId}/lca/line-items/${lineItemId}/factor-search?q=${encodeURIComponent(q)}&kind=${encodeURIComponent(kind)}`);
       if (!res.ok) throw new Error(`Factor search failed (${res.status})`);
       const data = await res.json();
       setFactorSearchResults((prev) => ({ ...prev, [lineItemId]: data.items || [] }));
@@ -2186,6 +2189,17 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                             placeholder="e.g. plastic, metal, aramid fiber..."
                             className="h-8"
                           />
+                          <Select
+                            value={factorSearchKind[row.line_item_id] || "all"}
+                            onValueChange={(v) => setFactorSearchKind((prev) => ({ ...prev, [row.line_item_id]: v as "all" | "activity" | "spend" }))}
+                          >
+                            <SelectTrigger className="h-8 w-[110px]"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All types</SelectItem>
+                              <SelectItem value="activity">Activity</SelectItem>
+                              <SelectItem value="spend">Spend</SelectItem>
+                            </SelectContent>
+                          </Select>
                           <Button size="sm" onClick={() => void runFactorSearch(row.line_item_id)} disabled={factorSearchLoading[row.line_item_id]}>
                             {factorSearchLoading[row.line_item_id] ? "Searching..." : "Search"}
                           </Button>
@@ -2813,6 +2827,17 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                     placeholder="e.g. plastic, metal, aramid fiber..."
                     className="h-8"
                   />
+                  <Select
+                    value={factorSearchKind[detailItem.line_item_id] || "all"}
+                    onValueChange={(v) => setFactorSearchKind((prev) => ({ ...prev, [detailItem.line_item_id]: v as "all" | "activity" | "spend" }))}
+                  >
+                    <SelectTrigger className="h-8 w-[110px]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All types</SelectItem>
+                      <SelectItem value="activity">Activity</SelectItem>
+                      <SelectItem value="spend">Spend</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <Button size="sm" onClick={() => void runFactorSearch(detailItem.line_item_id)} disabled={factorSearchLoading[detailItem.line_item_id]}>
                     {factorSearchLoading[detailItem.line_item_id] ? "Searching..." : "Search"}
                   </Button>
