@@ -14,7 +14,7 @@ from api.permissions import assert_job_access, assert_permission
 from core.database import get_conn
 from services.lca_bom_template import generate_lca_bom_template
 from services.lca_component_tree import ensure_lca_hierarchy_schema, resolve_effective_lines, snapshot_to_lines
-from services.lca_engine import apply_scenario_multipliers, compute_readiness, safe_float, summarize_assessment
+from services.lca_engine import apply_scenario_multipliers, compute_line_emissions_tco2e, compute_readiness, safe_float, summarize_assessment
 from services.lca_material_categories import ensure_material_categories_deduped, resolve_or_create_material_category
 from services.virus_scan import VirusScanError, scan_bytes
 
@@ -1258,6 +1258,14 @@ def list_line_items(job_id: int, assessment_id: int, _user: dict[str, str] = Dep
                             "is_placeholder": bool(r.get("is_placeholder") or False),
                             "notes": r.get("notes"),
                             "updated_at": str(r.get("updated_at")) if r.get("updated_at") else None,
+                            # Same function summarize_assessment uses for the assessment total,
+                            # so a row's figure and the page total always reconcile. Placeholder
+                            # rows are excluded from the total there too, so 0 here matches.
+                            "emissions_tco2e": (
+                                0.0
+                                if bool(r.get("is_placeholder") or False)
+                                else round(compute_line_emissions_tco2e(safe_float(r.get("quantity")), safe_float(r.get("factor_value")), r.get("factor_unit")), 6)
+                            ),
                         }
                     )
             _attach_factor_source_audit_info(con, items)

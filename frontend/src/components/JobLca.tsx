@@ -130,6 +130,7 @@ type LineItem = {
   is_gap_filled?: boolean;
   is_placeholder?: boolean;
   notes?: string | null;
+  emissions_tco2e?: number | null;
 };
 
 type MassReconciliation = {
@@ -241,6 +242,37 @@ const LIFECYCLE_BOUNDARIES = [
   { value: "custom", label: "Custom module selection" },
 ];
 
+function InventoryPager({
+  page,
+  pageSize,
+  total,
+  onPrev,
+  onNext,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  if (total <= pageSize) return null;
+  return (
+    <div className="flex items-center justify-between py-1 text-xs text-muted-foreground">
+      <span>
+        Showing {page * pageSize + 1}-{Math.min((page + 1) * pageSize, total)} of {total}
+      </span>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" disabled={page === 0} onClick={onPrev}>
+          Previous
+        </Button>
+        <Button variant="outline" size="sm" disabled={(page + 1) * pageSize >= total} onClick={onNext}>
+          Next
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const effectiveFamily = jobFamily === "pcf" ? "pcf" : "lca";
   const familyLabel = formatJobFamilyLabel(effectiveFamily);
@@ -275,7 +307,8 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [confidenceThreshold, setConfidenceThreshold] = useState<number>(0.45);
 
   const [inventoryPage, setInventoryPage] = useState(0);
-  const inventoryPageSize = 20;
+  const [inventoryPageSize, setInventoryPageSize] = useState(20);
+  const [inventoryQuery, setInventoryQuery] = useState("");
   const [detailItem, setDetailItem] = useState<LineItem | null>(null);
   const [detailModule, setDetailModule] = useState("");
   const [detailLabel, setDetailLabel] = useState("");
@@ -1431,6 +1464,28 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   }, [items, lineItemSearchQuery]);
   const visibleLineItems = lineItemSearchMatches ?? (showAllLineItems ? items : unresolvedLineItems);
 
+  // Inventory Items table (top of the Inventory stage) -- separate from the
+  // unresolved/all toggle above, which belongs to the Factor Mapping list.
+  const filteredInventoryItems = useMemo(() => {
+    const q = inventoryQuery.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((r) => {
+      const category = r.material_category_id ? categoryName(r.material_category_id) : "";
+      return (
+        r.line_label.toLowerCase().includes(q) ||
+        moduleLabel(r.module_code).toLowerCase().includes(q) ||
+        category.toLowerCase().includes(q)
+      );
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, inventoryQuery]);
+  const inventoryTotalTco2e = useMemo(
+    () => filteredInventoryItems.reduce((sum, r) => sum + (r.emissions_tco2e || 0), 0),
+    [filteredInventoryItems]
+  );
+  const inventoryPageCount = Math.max(1, Math.ceil(filteredInventoryItems.length / inventoryPageSize));
+  const inventoryPageClamped = Math.min(inventoryPage, inventoryPageCount - 1);
+
   const datasetCountryOptions = useMemo(
     () => Array.from(new Set(lcaDatasets.map((d) => d.country).filter((c): c is string => Boolean(c)))).sort(),
     [lcaDatasets]
@@ -1878,7 +1933,13 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
         <div className="space-y-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-              <CardTitle>Inventory Items ({items.length})</CardTitle>
+              <CardTitle>
+                Inventory Items ({filteredInventoryItems.length}
+                {filteredInventoryItems.length !== items.length ? ` of ${items.length}` : ""})
+              </CardTitle>
+              <div className="text-sm font-medium text-foreground">
+                Total: {inventoryTotalTco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO2e
+              </div>
             </CardHeader>
             <CardContent className="space-y-2">
               {items.length === 0 ? (
@@ -1887,77 +1948,103 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                 </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-[1fr_100px_120px_110px_130px_90px] gap-2 border-b px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                    <span>Item</span>
-                    <span>Module</span>
-                    <span>Category</span>
-                    <span className="text-right">Qty</span>
-                    <span className="text-right">Factor</span>
-                    <span>Status</span>
-                  </div>
-                  {items
-                    .slice(
-                      Math.min(inventoryPage, Math.max(0, Math.ceil(items.length / inventoryPageSize) - 1)) * inventoryPageSize,
-                      (Math.min(inventoryPage, Math.max(0, Math.ceil(items.length / inventoryPageSize) - 1)) + 1) * inventoryPageSize
-                    )
-                    .map((row) => {
-                      const resolved = row.is_placeholder || Boolean(row.mapped_factor_source) || row.is_gap_filled;
-                      return (
-                        <button
-                          key={row.line_item_id}
-                          type="button"
-                          onClick={() => openInventoryDetail(row)}
-                          className="grid w-full grid-cols-[1fr_100px_120px_110px_130px_90px] items-center gap-2 rounded-md border-b px-2 py-2 text-left text-xs last:border-0 hover:bg-muted/50"
-                        >
-                          <span className="truncate font-medium text-foreground">{row.line_label}</span>
-                          <span className="text-muted-foreground">{moduleLabel(row.module_code)}</span>
-                          <span className="truncate text-muted-foreground">
-                            {row.material_category_id ? categoryName(row.material_category_id) : "Uncategorized"}
-                          </span>
-                          <span className="text-right text-muted-foreground">
-                            {Number(row.quantity || 0).toLocaleString()} {row.unit || ""}
-                          </span>
-                          <span className="text-right text-muted-foreground">
-                            {Number(row.factor_value || 0).toLocaleString()} {row.factor_unit || ""}
-                          </span>
-                          <span>
-                            {row.is_placeholder ? (
-                              <Badge variant="secondary">Placeholder</Badge>
-                            ) : resolved ? (
-                              <Badge variant="outline">Mapped</Badge>
-                            ) : (
-                              <Badge variant="destructive">Needs review</Badge>
-                            )}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  {items.length > inventoryPageSize ? (
-                    <div className="flex items-center justify-between pt-2 text-xs text-muted-foreground">
-                      <span>
-                        Showing {inventoryPage * inventoryPageSize + 1}-
-                        {Math.min((inventoryPage + 1) * inventoryPageSize, items.length)} of {items.length}
-                      </span>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={inventoryPage === 0}
-                          onClick={() => setInventoryPage((p) => Math.max(0, p - 1))}
-                        >
-                          Previous
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={(inventoryPage + 1) * inventoryPageSize >= items.length}
-                          onClick={() => setInventoryPage((p) => p + 1)}
-                        >
-                          Next
-                        </Button>
-                      </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Input
+                      value={inventoryQuery}
+                      onChange={(e) => {
+                        setInventoryQuery(e.target.value);
+                        setInventoryPage(0);
+                      }}
+                      placeholder="Search by item, module, or category..."
+                      className="h-8 max-w-xs"
+                    />
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span>Rows per page</span>
+                      <Select
+                        value={String(inventoryPageSize)}
+                        onValueChange={(v) => {
+                          setInventoryPageSize(Number(v));
+                          setInventoryPage(0);
+                        }}
+                      >
+                        <SelectTrigger className="h-8 w-[80px]"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="10">10</SelectItem>
+                          <SelectItem value="20">20</SelectItem>
+                          <SelectItem value="50">50</SelectItem>
+                          <SelectItem value="100">100</SelectItem>
+                          <SelectItem value="250">250</SelectItem>
+                          <SelectItem value="500">500</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
-                  ) : null}
+                  </div>
+                  {filteredInventoryItems.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">No items match that search.</div>
+                  ) : (
+                    <>
+                      <InventoryPager
+                        page={inventoryPageClamped}
+                        pageSize={inventoryPageSize}
+                        total={filteredInventoryItems.length}
+                        onPrev={() => setInventoryPage((p) => Math.max(0, p - 1))}
+                        onNext={() => setInventoryPage((p) => Math.min(inventoryPageCount - 1, p + 1))}
+                      />
+                      <div className="grid grid-cols-[1fr_100px_120px_110px_130px_100px_90px] gap-2 border-b px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                        <span>Item</span>
+                        <span>Module</span>
+                        <span>Category</span>
+                        <span className="text-right">Qty</span>
+                        <span className="text-right">Factor</span>
+                        <span className="text-right">tCO2e</span>
+                        <span>Status</span>
+                      </div>
+                      {filteredInventoryItems
+                        .slice(inventoryPageClamped * inventoryPageSize, (inventoryPageClamped + 1) * inventoryPageSize)
+                        .map((row) => {
+                          const resolved = row.is_placeholder || Boolean(row.mapped_factor_source) || row.is_gap_filled;
+                          return (
+                            <button
+                              key={row.line_item_id}
+                              type="button"
+                              onClick={() => openInventoryDetail(row)}
+                              className="grid w-full grid-cols-[1fr_100px_120px_110px_130px_100px_90px] items-center gap-2 rounded-md border-b px-2 py-2 text-left text-xs last:border-0 hover:bg-muted/50"
+                            >
+                              <span className="truncate font-medium text-foreground">{row.line_label}</span>
+                              <span className="text-muted-foreground">{moduleLabel(row.module_code)}</span>
+                              <span className="truncate text-muted-foreground">
+                                {row.material_category_id ? categoryName(row.material_category_id) : "Uncategorized"}
+                              </span>
+                              <span className="text-right text-muted-foreground">
+                                {Number(row.quantity || 0).toLocaleString()} {row.unit || ""}
+                              </span>
+                              <span className="text-right text-muted-foreground">
+                                {Number(row.factor_value || 0).toLocaleString()} {row.factor_unit || ""}
+                              </span>
+                              <span className="text-right text-muted-foreground">
+                                {Number(row.emissions_tco2e || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                              </span>
+                              <span>
+                                {row.is_placeholder ? (
+                                  <Badge variant="secondary">Placeholder</Badge>
+                                ) : resolved ? (
+                                  <Badge variant="outline">Mapped</Badge>
+                                ) : (
+                                  <Badge variant="destructive">Needs review</Badge>
+                                )}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      <InventoryPager
+                        page={inventoryPageClamped}
+                        pageSize={inventoryPageSize}
+                        total={filteredInventoryItems.length}
+                        onPrev={() => setInventoryPage((p) => Math.max(0, p - 1))}
+                        onNext={() => setInventoryPage((p) => Math.min(inventoryPageCount - 1, p + 1))}
+                      />
+                    </>
+                  )}
                 </>
               )}
             </CardContent>
