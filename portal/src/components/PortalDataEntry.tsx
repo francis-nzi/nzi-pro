@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -87,6 +87,19 @@ const COMING_SOON_BUCKETS: Bucket[] = [];
 const SPEND_BUCKET: Bucket = { bucket_key: "purchased_goods_and_services", label: "Purchased Goods & Services" };
 const COMMUTING_BUCKET: Bucket = { bucket_key: "employee_commuting", label: "Employee Commuting" };
 
+// Skips an unnecessary "Select a site" click for the (common) case of a
+// client with only one site on their account.
+function defaultSiteId(siteList: Site[]): string {
+  return siteList.length === 1 ? String(siteList[0].site_id) : "";
+}
+
+function isPositiveQty(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  const n = Number(trimmed);
+  return Number.isFinite(n) && n > 0;
+}
+
 export default function PortalDataEntry() {
   const [buckets, setBuckets] = useState<Bucket[]>([]);
   const [activeBucket, setActiveBucket] = useState<string>("");
@@ -110,6 +123,9 @@ export default function PortalDataEntry() {
   const [selectedFactor, setSelectedFactor] = useState<FactorOption | null>(null);
   const [qty, setQty] = useState("");
   const [saving, setSaving] = useState(false);
+  const [justAdded, setJustAdded] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const justAddedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Every row is now attributed to a site -- the CRM can only ever have one
   // *approved* row per site+scope+factor, so knowing the site up front is
@@ -147,7 +163,22 @@ export default function PortalDataEntry() {
       .then((d: { sites: Site[] }) => setSites(d.sites || []))
       .catch(() => setSites([]))
       .finally(() => setSitesLoaded(true));
+
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      if (justAddedTimerRef.current) clearTimeout(justAddedTimerRef.current);
+    };
   }, []);
+
+  // Sites can finish loading after the first bucket has already switched (they're
+  // fetched in parallel above), so this catches the single-site auto-select in
+  // that ordering too -- the bucket-switch effect below covers every subsequent switch.
+  useEffect(() => {
+    if (sites.length === 1 && !selectedSiteId) {
+      setSelectedSiteId(String(sites[0].site_id));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sites]);
 
   const isComingSoon = COMING_SOON_BUCKETS.some((b) => b.bucket_key === activeBucket);
   const isSpendTab = activeBucket === SPEND_BUCKET.bucket_key;
@@ -161,7 +192,7 @@ export default function PortalDataEntry() {
     setFactorOptions([]);
     setSelectedFactor(null);
     setQty("");
-    setSelectedSiteId("");
+    setSelectedSiteId(defaultSiteId(sites));
     setRegNumber("");
     setRegLookupError("");
     setRegLookupVehicle(null);
@@ -169,6 +200,9 @@ export default function PortalDataEntry() {
     setDataEntryExpired(false);
     setPreviousRows([]);
     setTopFactors([]);
+    setJustAdded(false);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (justAddedTimerRef.current) clearTimeout(justAddedTimerRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBucket]);
 
@@ -262,9 +296,10 @@ export default function PortalDataEntry() {
   }
 
   async function submitRow() {
-    if (!selectedFactor || !qty.trim() || !selectedSiteId) return;
+    if (!selectedFactor || !isPositiveQty(qty) || !selectedSiteId) return;
     setSaving(true);
     setError("");
+    setJustAdded(false);
     try {
       const res = await apiFetch(`/portal/data-entry/${activeBucket}/rows`, {
         method: "POST",
@@ -280,13 +315,18 @@ export default function PortalDataEntry() {
         }),
       });
       if (res.ok) {
-        setShowAdd(false);
+        // Deliberately keeps the panel open and the site selected (only the
+        // factor/qty/search reset) -- entering several rows in one sitting is
+        // the common case, and re-opening the panel + re-picking the site for
+        // every single row was the biggest friction point in this flow.
         setSelectedFactor(null);
         setQty("");
-        setSelectedSiteId("");
         setSearch("");
         setFactorOptions([]);
         setRegLookupVehicle(null);
+        setJustAdded(true);
+        if (justAddedTimerRef.current) clearTimeout(justAddedTimerRef.current);
+        justAddedTimerRef.current = setTimeout(() => setJustAdded(false), 4000);
         void loadRows(activeBucket);
       } else {
         const d = await res.json().catch(() => ({}));
@@ -298,7 +338,7 @@ export default function PortalDataEntry() {
   }
 
   async function saveRowEdit(rowId: number) {
-    if (!editQty.trim()) return;
+    if (!isPositiveQty(editQty)) return;
     setRowActionSaving(true);
     setError("");
     try {
@@ -340,6 +380,70 @@ export default function PortalDataEntry() {
   const isVehicleBucket = activeBucket === "company_vehicles" || activeBucket === "business_travel";
   const allTabs = [...buckets, COMMUTING_BUCKET, SPEND_BUCKET, ...COMING_SOON_BUCKETS];
   const activeBucketLabel = allTabs.find((b) => b.bucket_key === activeBucket)?.label || "";
+
+  // Shared between the table (desktop) and card (mobile) layouts below so the
+  // edit/delete/save-cancel behavior can't drift between the two.
+  function renderQtyValue(row: Row) {
+    if (editingRowId !== row.row_id) return row.qty ?? "-";
+    return (
+      <Input
+        type="number"
+        min="0"
+        step="any"
+        value={editQty}
+        onChange={(e) => setEditQty(e.target.value)}
+        className="h-7 w-24 text-right"
+      />
+    );
+  }
+
+  function renderStatus(row: Row) {
+    const review = REVIEW_LABEL[row.review_status || "pending_review"];
+    return (
+      <>
+        <span className={`rounded-full px-2 py-0.5 text-xs ${review.className}`}>{review.label}</span>
+        {row.review_status === "rejected" && row.review_note && (
+          <div className="mt-1 text-xs text-muted-foreground">{row.review_note}</div>
+        )}
+      </>
+    );
+  }
+
+  function renderActions(row: Row, align: "start" | "end") {
+    const justify = align === "end" ? "justify-end" : "justify-start";
+    if (row.review_status === "approved" || dataEntryExpired) {
+      return <span className="text-xs text-muted-foreground">—</span>;
+    }
+    if (editingRowId === row.row_id) {
+      return (
+        <div className={`flex items-center ${justify} gap-2`}>
+          <Button size="sm" variant="outline" disabled={rowActionSaving || !isPositiveQty(editQty)} onClick={() => void saveRowEdit(row.row_id)}>
+            Save
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => { setEditingRowId(null); setEditQty(""); }}>
+            Cancel
+          </Button>
+        </div>
+      );
+    }
+    return (
+      <div className={`flex items-center ${justify} gap-3 text-xs`}>
+        <button
+          className="text-primary hover:underline"
+          onClick={() => { setEditingRowId(row.row_id); setEditQty(row.qty !== null && row.qty !== undefined ? String(row.qty) : ""); }}
+        >
+          Edit
+        </button>
+        <button
+          className="text-rose-700 hover:underline disabled:opacity-50"
+          disabled={rowActionSaving}
+          onClick={() => void deleteRow(row.row_id)}
+        >
+          Delete
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -414,6 +518,11 @@ export default function PortalDataEntry() {
       {!isComingSoon && !isSpendTab && !isCommutingTab && !noJobMessage && !dataEntryExpired && showAdd && (
         <Card>
           <CardContent className="space-y-3 pt-4">
+            {justAdded && (
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                Row added — ready for the next one.
+              </div>
+            )}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Site</label>
               {sitesLoaded && sites.length === 0 ? (
@@ -494,20 +603,25 @@ export default function PortalDataEntry() {
                 </div>
               </div>
             )}
-            <Input
-              placeholder={`Search ${activeBucketLabel.toLowerCase()}...`}
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                void searchFactors(e.target.value);
-              }}
-              onFocus={() => {
-                if (factorOptions.length === 0) void searchFactors("");
-              }}
-            />
-            {searching ? (
-              <div className="text-sm text-muted-foreground">Searching...</div>
-            ) : selectedFactor ? (
+            {!selectedFactor && (
+              <Input
+                placeholder={`Search ${activeBucketLabel.toLowerCase()}...`}
+                value={search}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setSearch(value);
+                  if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+                  if (!value.trim()) {
+                    setFactorOptions([]);
+                    setSearching(false);
+                    return;
+                  }
+                  setSearching(true);
+                  searchDebounceRef.current = setTimeout(() => void searchFactors(value), 300);
+                }}
+              />
+            )}
+            {selectedFactor ? (
               <div className="rounded-md border p-3 text-sm">
                 <div className="font-medium">{selectedFactor.report_label}</div>
                 <div className="text-xs text-muted-foreground">
@@ -517,34 +631,41 @@ export default function PortalDataEntry() {
                   Change
                 </Button>
               </div>
-            ) : (
-              <div className="max-h-64 overflow-y-auto rounded-md border">
-                {factorOptions.length === 0 ? (
-                  <div className="p-3 text-sm text-muted-foreground">No matches — try a different search term.</div>
-                ) : (
-                  factorOptions.slice(0, 50).map((f, idx) => (
-                    <button
-                      key={`${f.original_id}-${idx}`}
-                      className="block w-full border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-muted"
-                      onClick={() => setSelectedFactor(f)}
-                    >
-                      <div className="font-medium">{f.report_label}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {f.scope} &middot; {f.category} &middot; unit: {f.uom}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
+            ) : search.trim() ? (
+              searching ? (
+                <div className="text-sm text-muted-foreground">Searching...</div>
+              ) : (
+                <div className="max-h-64 overflow-y-auto rounded-md border">
+                  {factorOptions.length === 0 ? (
+                    <div className="p-3 text-sm text-muted-foreground">No matches — try a different search term.</div>
+                  ) : (
+                    factorOptions.slice(0, 50).map((f, idx) => (
+                      <button
+                        key={`${f.original_id}-${idx}`}
+                        className="block w-full border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-muted"
+                        onClick={() => setSelectedFactor(f)}
+                      >
+                        <div className="font-medium">{f.report_label}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {f.scope} &middot; {f.category} &middot; unit: {f.uom}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )
+            ) : null}
 
             {selectedFactor && (
               <div className="flex items-end gap-2">
                 <div className="flex-1">
                   <label className="text-xs text-muted-foreground">Quantity ({selectedFactor.uom || "units"}, annual total)</label>
-                  <Input type="number" value={qty} onChange={(e) => setQty(e.target.value)} />
+                  <Input type="number" min="0" step="any" value={qty} onChange={(e) => setQty(e.target.value)} />
+                  {qty.trim() && !isPositiveQty(qty) && (
+                    <div className="mt-1 text-xs text-rose-700">Enter a quantity greater than 0.</div>
+                  )}
                 </div>
-                <Button disabled={saving || !qty.trim() || !selectedSiteId} onClick={() => void submitRow()}>
+                <Button disabled={saving || !isPositiveQty(qty) || !selectedSiteId} onClick={() => void submitRow()}>
                   {saving ? "Submitting..." : "Submit"}
                 </Button>
               </div>
@@ -562,90 +683,70 @@ export default function PortalDataEntry() {
         ) : rows.length === 0 ? (
           <EmptyStatePanel title={`No ${activeBucketLabel.toLowerCase()} data submitted yet.`} />
         ) : (
-          <div className="overflow-x-auto rounded-md border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="p-2 text-left">Report Label</th>
-                  <th className="p-2 text-right">Qty</th>
-                  <th className="p-2 text-left">Unit</th>
-                  <th className="p-2 text-left">Status</th>
-                  <th className="p-2 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const review = REVIEW_LABEL[row.review_status || "pending_review"];
-                  const isEditing = editingRowId === row.row_id;
-                  const isApproved = row.review_status === "approved";
-                  return (
+          <>
+            {/* Desktop/tablet: table. A wide fixed-column table just scrolls
+                horizontally on a phone, which is a poor experience for a
+                client-facing tool people may well use on mobile -- so below
+                sm it switches to a stacked card layout instead (same data,
+                same actions, reusing renderQtyValue/renderStatus/renderActions
+                so the two layouts can't drift out of sync). */}
+            <div className="hidden overflow-x-auto rounded-md border sm:block">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="p-2 text-left">Report Label</th>
+                    <th className="p-2 text-right">Qty</th>
+                    <th className="p-2 text-left">Unit</th>
+                    <th className="p-2 text-left">Status</th>
+                    <th className="p-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
                     <tr key={row.row_id} className="border-b last:border-0">
                       <td className="p-2">{row.report_label || row.original_id}</td>
                       <td className="p-2 text-right font-mono">
-                        {isEditing ? (
-                          <Input
-                            type="number"
-                            value={editQty}
-                            onChange={(e) => setEditQty(e.target.value)}
-                            className="ml-auto h-7 w-24 text-right"
-                          />
-                        ) : (
-                          row.qty ?? "-"
-                        )}
+                        <div className="flex justify-end">{renderQtyValue(row)}</div>
                       </td>
                       <td className="p-2">{row.uom || "-"}</td>
-                      <td className="p-2">
-                        <span className={`rounded-full px-2 py-0.5 text-xs ${review.className}`}>{review.label}</span>
-                        {row.review_status === "rejected" && row.review_note && (
-                          <div className="mt-1 text-xs text-muted-foreground">{row.review_note}</div>
-                        )}
-                      </td>
-                      <td className="p-2 text-right">
-                        {isApproved || dataEntryExpired ? (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        ) : isEditing ? (
-                          <div className="flex items-center justify-end gap-2">
-                            <Button size="sm" variant="outline" disabled={rowActionSaving || !editQty.trim()} onClick={() => void saveRowEdit(row.row_id)}>
-                              Save
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => { setEditingRowId(null); setEditQty(""); }}>
-                              Cancel
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-end gap-3 text-xs">
-                            <button
-                              className="text-primary hover:underline"
-                              onClick={() => { setEditingRowId(row.row_id); setEditQty(row.qty !== null && row.qty !== undefined ? String(row.qty) : ""); }}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              className="text-rose-700 hover:underline disabled:opacity-50"
-                              disabled={rowActionSaving}
-                              onClick={() => void deleteRow(row.row_id)}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        )}
-                      </td>
+                      <td className="p-2">{renderStatus(row)}</td>
+                      <td className="p-2 text-right">{renderActions(row, "end")}</td>
                     </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                {sumByUnit(rows).map(({ uom, total }) => (
-                  <tr key={uom} className="border-t bg-muted/30 font-medium">
-                    <td className="p-2 text-right" colSpan={1}>Total</td>
-                    <td className="p-2 text-right font-mono">{total.toLocaleString()}</td>
-                    <td className="p-2">{uom}</td>
-                    <td className="p-2" colSpan={2} />
-                  </tr>
-                ))}
-              </tfoot>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+                <tfoot>
+                  {sumByUnit(rows).map(({ uom, total }) => (
+                    <tr key={uom} className="border-t bg-muted/30 font-medium">
+                      <td className="p-2 text-right" colSpan={1}>Total</td>
+                      <td className="p-2 text-right font-mono">{total.toLocaleString()}</td>
+                      <td className="p-2">{uom}</td>
+                      <td className="p-2" colSpan={2} />
+                    </tr>
+                  ))}
+                </tfoot>
+              </table>
+            </div>
+
+            <div className="space-y-2 sm:hidden">
+              {rows.map((row) => (
+                <div key={row.row_id} className="rounded-md border p-3 text-sm">
+                  <div className="font-medium">{row.report_label || row.original_id}</div>
+                  <div className="mt-1 flex items-baseline justify-between">
+                    <span className="font-mono">
+                      {renderQtyValue(row)} <span className="text-xs text-muted-foreground">{row.uom || ""}</span>
+                    </span>
+                    <span>{renderStatus(row)}</span>
+                  </div>
+                  <div className="mt-2 border-t pt-2">{renderActions(row, "start")}</div>
+                </div>
+              ))}
+              {sumByUnit(rows).map(({ uom, total }) => (
+                <div key={uom} className="rounded-md border bg-muted/30 p-3 text-sm font-medium">
+                  Total: {total.toLocaleString()} {uom}
+                </div>
+              ))}
+            </div>
+          </>
         )
       )}
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -92,6 +92,8 @@ export default function PortalSpendTab() {
   const [netValue, setNetValue] = useState("");
   const [vatPct, setVatPct] = useState("20");
   const [saving, setSaving] = useState(false);
+  const [justAdded, setJustAdded] = useState(false);
+  const justAddedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [categorizingEntryId, setCategorizingEntryId] = useState<number | null>(null);
   const [categorySearch, setCategorySearch] = useState("");
@@ -126,6 +128,9 @@ export default function PortalSpendTab() {
 
   useEffect(() => {
     void loadRows();
+    return () => {
+      if (justAddedTimerRef.current) clearTimeout(justAddedTimerRef.current);
+    };
   }, []);
 
   async function loadRows() {
@@ -177,6 +182,7 @@ export default function PortalSpendTab() {
     if (!description.trim() || !netValue.trim()) return;
     setSaving(true);
     setError("");
+    setJustAdded(false);
     try {
       const res = await apiFetch("/portal/spend/rows", {
         method: "POST",
@@ -189,11 +195,15 @@ export default function PortalSpendTab() {
         }),
       });
       if (res.ok) {
-        setShowAdd(false);
+        // Panel stays open (no site to re-pick here) so entering several
+        // spend lines back-to-back doesn't require reopening the form each time.
         setRefCode("");
         setDescription("");
         setNetValue("");
         setVatPct("20");
+        setJustAdded(true);
+        if (justAddedTimerRef.current) clearTimeout(justAddedTimerRef.current);
+        justAddedTimerRef.current = setTimeout(() => setJustAdded(false), 4000);
         void loadRows();
       } else {
         const d = await res.json().catch(() => ({}));
@@ -418,6 +428,135 @@ export default function PortalSpendTab() {
 
   const uncategorizedCount = rows.filter((r) => r.mapping_status !== "mapped").length;
 
+  // Shared between the table (desktop) and card (mobile) layouts below.
+  function renderStatus(row: SpendRow) {
+    const review = row.review_status ? REVIEW_LABEL[row.review_status] : null;
+    if (!review) return <span className="text-xs text-muted-foreground">Not yet categorised</span>;
+    return (
+      <>
+        <span className={`rounded-full px-2 py-0.5 text-xs ${review.className}`}>{review.label}</span>
+        {row.review_status === "rejected" && row.review_note && (
+          <div className="mt-1 text-xs text-muted-foreground">{row.review_note}</div>
+        )}
+      </>
+    );
+  }
+
+  function renderActions(row: SpendRow, align: "start" | "end") {
+    const justify = align === "end" ? "justify-end" : "justify-start";
+    if (row.review_status === "approved" || dataEntryExpired) {
+      return <span className="text-xs text-muted-foreground">—</span>;
+    }
+    if (editingEntryId === row.entry_id) {
+      return (
+        <div className={`flex items-center ${justify} gap-2`}>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={rowActionSaving || !editDescription.trim() || !isValidNetValue(editNetValue) || !isValidVatPct(editVatPct) || !isValidRefCode(editRefCode)}
+            onClick={() => void saveEdit(row.entry_id)}
+          >
+            Save
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setEditingEntryId(null)}>
+            Cancel
+          </Button>
+        </div>
+      );
+    }
+    return (
+      <div className={`flex items-center ${justify} gap-3 text-xs`}>
+        <button className="text-primary hover:underline" onClick={() => startEdit(row)}>Edit</button>
+        <button className="text-primary hover:underline" onClick={() => openMonthlyModal(row)}>Monthly</button>
+        <button className="text-rose-700 hover:underline disabled:opacity-50" disabled={rowActionSaving} onClick={() => void deleteRow(row.entry_id)}>
+          Delete
+        </button>
+      </div>
+    );
+  }
+
+  function renderCategoryPicker(row: SpendRow) {
+    return (
+      <>
+        {suggesting && (
+          <div className="mb-2 text-xs text-muted-foreground">Suggesting a Spend Line from this row&apos;s description...</div>
+        )}
+        {!categorySearch.trim() && suggestedSpendLines.length > 0 && (
+          <div className="mb-2 space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Suggested from this line&apos;s description</label>
+            <div className="flex flex-wrap gap-1.5">
+              {suggestedSpendLines.map((sl) => (
+                <button
+                  key={sl.spend_line_id}
+                  className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs text-emerald-800 hover:bg-emerald-100"
+                  disabled={!sl.factor_db_id}
+                  onClick={() => sl.factor_db_id && void confirmCategory(row.entry_id, { db_id: sl.factor_db_id })}
+                >
+                  {sl.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {!categorySearch.trim() && topCategories.length > 0 && (
+          <div className="mb-2 space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Frequently used</label>
+            <div className="flex flex-wrap gap-1.5">
+              {topCategories.map((cat) => (
+                <button
+                  key={cat.db_id}
+                  className="rounded-full border bg-background px-3 py-1 text-xs hover:bg-muted"
+                  onClick={() => void confirmCategory(row.entry_id, cat)}
+                >
+                  {cat.report_label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <Input
+          placeholder="Search spend categories..."
+          value={categorySearch}
+          onChange={(e) => {
+            setCategorySearch(e.target.value);
+            void searchCategories(e.target.value);
+          }}
+          className="mb-2"
+        />
+        {searchingCategories ? (
+          <div className="text-sm text-muted-foreground">Searching...</div>
+        ) : (
+          <div className="max-h-48 overflow-y-auto rounded-md border bg-background">
+            {categoryOptions.length === 0 ? (
+              <div className="p-2 text-sm text-muted-foreground">No matches.</div>
+            ) : (
+              categoryOptions.slice(0, 30).map((cat) => (
+                <button
+                  key={cat.db_id}
+                  className="block w-full border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-muted"
+                  onClick={() => void confirmCategory(row.entry_id, cat)}
+                >
+                  {cat.report_label}
+                </button>
+              ))
+            )}
+          </div>
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          className="mt-2"
+          onClick={() => {
+            setCategorizingEntryId(null);
+            setSuggestedSpendLines([]);
+          }}
+        >
+          Cancel
+        </Button>
+      </>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
@@ -554,6 +693,11 @@ export default function PortalSpendTab() {
       {!noJobMessage && !dataEntryExpired && showAdd && (
         <Card>
           <CardContent className="space-y-2 pt-4">
+            {justAdded && (
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                Spend line added — ready for the next one.
+              </div>
+            )}
             <div className="flex flex-wrap items-end gap-2">
               <div className="w-28">
                 <label className="text-xs text-muted-foreground">GL / Nominal Code</label>
@@ -601,215 +745,167 @@ export default function PortalSpendTab() {
       ) : rows.length === 0 ? (
         <EmptyStatePanel title="No spend data submitted yet." />
       ) : (
-        <div className="overflow-x-auto rounded-md border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="p-2 text-left">Code</th>
-                <th className="p-2 text-left">Description</th>
-                <th className="p-2 text-right">Net</th>
-                <th className="p-2 text-right">VAT%</th>
-                <th className="p-2 text-left">Category</th>
-                <th className="p-2 text-left">Status</th>
-                <th className="p-2 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const review = row.review_status ? REVIEW_LABEL[row.review_status] : null;
-                const isApproved = row.review_status === "approved";
-                const isEditing = editingEntryId === row.entry_id;
-                return (
-                  <>
-                    <tr key={row.entry_id} className="border-b last:border-0">
-                      <td className="p-2">
-                        {isEditing ? (
-                          <Input
-                            value={editRefCode}
-                            maxLength={MAX_GL_CODE_LENGTH}
-                            onChange={(e) => setEditRefCode(e.target.value)}
-                            className="h-7 w-24"
-                          />
-                        ) : (
-                          row.reference_code || "-"
-                        )}
-                      </td>
-                      <td className="p-2">
-                        {isEditing ? <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} className="h-7" /> : row.spend_description}
-                      </td>
-                      <td className="p-2 text-right font-mono">
-                        {isEditing ? (
-                          <Input
-                            type="number"
-                            min={0}
-                            max={MAX_NET_VALUE}
-                            value={editNetValue}
-                            onChange={(e) => setEditNetValue(e.target.value)}
-                            className="ml-auto h-7 w-24 text-right"
-                          />
-                        ) : (
-                          row.amount_net?.toFixed(2) ?? "-"
-                        )}
-                      </td>
-                      <td className="p-2 text-right font-mono">
-                        {isEditing ? (
-                          <Input
-                            type="number"
-                            min={0}
-                            max={MAX_VAT_PCT}
-                            value={editVatPct}
-                            onChange={(e) => setEditVatPct(e.target.value)}
-                            className="ml-auto h-7 w-16 text-right"
-                          />
-                        ) : (
-                          row.vat_pct ?? 0
-                        )}
-                      </td>
-                      <td className="p-2">
-                        {row.mapped_report_label || row.mapped_category || (
-                          <button className="text-primary underline" onClick={() => openCategoryPicker(row.entry_id)}>
-                            Pick a category
-                          </button>
-                        )}
-                        {row.mapping_status === "mapped" && row.review_status !== "approved" && (
-                          <button className="ml-2 text-xs text-primary underline" onClick={() => openCategoryPicker(row.entry_id)}>
-                            change
-                          </button>
-                        )}
-                      </td>
-                      <td className="p-2">
-                        {review ? (
-                          <>
-                            <span className={`rounded-full px-2 py-0.5 text-xs ${review.className}`}>{review.label}</span>
-                            {row.review_status === "rejected" && row.review_note && (
-                              <div className="mt-1 text-xs text-muted-foreground">{row.review_note}</div>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">Not yet categorised</span>
-                        )}
-                      </td>
-                      <td className="p-2 text-right">
-                        {isApproved || dataEntryExpired ? (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        ) : isEditing ? (
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={
-                                rowActionSaving ||
-                                !editDescription.trim() ||
-                                !isValidNetValue(editNetValue) ||
-                                !isValidVatPct(editVatPct) ||
-                                !isValidRefCode(editRefCode)
-                              }
-                              onClick={() => void saveEdit(row.entry_id)}
-                            >
-                              Save
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setEditingEntryId(null)}>
-                              Cancel
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-end gap-3 text-xs">
-                            <button className="text-primary hover:underline" onClick={() => startEdit(row)}>Edit</button>
-                            <button className="text-primary hover:underline" onClick={() => openMonthlyModal(row)}>Monthly</button>
-                            <button className="text-rose-700 hover:underline disabled:opacity-50" disabled={rowActionSaving} onClick={() => void deleteRow(row.entry_id)}>
-                              Delete
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                    {categorizingEntryId === row.entry_id && (
-                      <tr>
-                        <td colSpan={7} className="border-b bg-muted/30 p-3">
-                          {suggesting && (
-                            <div className="mb-2 text-xs text-muted-foreground">Suggesting a Spend Line from this row&apos;s description...</div>
-                          )}
-                          {!categorySearch.trim() && suggestedSpendLines.length > 0 && (
-                            <div className="mb-2 space-y-1.5">
-                              <label className="text-xs font-medium text-muted-foreground">Suggested from this line&apos;s description</label>
-                              <div className="flex flex-wrap gap-1.5">
-                                {suggestedSpendLines.map((sl) => (
-                                  <button
-                                    key={sl.spend_line_id}
-                                    className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs text-emerald-800 hover:bg-emerald-100"
-                                    disabled={!sl.factor_db_id}
-                                    onClick={() => sl.factor_db_id && void confirmCategory(row.entry_id, { db_id: sl.factor_db_id })}
-                                  >
-                                    {sl.label}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          {!categorySearch.trim() && topCategories.length > 0 && (
-                            <div className="mb-2 space-y-1.5">
-                              <label className="text-xs font-medium text-muted-foreground">Frequently used</label>
-                              <div className="flex flex-wrap gap-1.5">
-                                {topCategories.map((cat) => (
-                                  <button
-                                    key={cat.db_id}
-                                    className="rounded-full border bg-background px-3 py-1 text-xs hover:bg-muted"
-                                    onClick={() => void confirmCategory(row.entry_id, cat)}
-                                  >
-                                    {cat.report_label}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          <Input
-                            placeholder="Search spend categories..."
-                            value={categorySearch}
-                            onChange={(e) => {
-                              setCategorySearch(e.target.value);
-                              void searchCategories(e.target.value);
-                            }}
-                            className="mb-2"
-                          />
-                          {searchingCategories ? (
-                            <div className="text-sm text-muted-foreground">Searching...</div>
+        <>
+          <div className="hidden overflow-x-auto rounded-md border sm:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="p-2 text-left">Code</th>
+                  <th className="p-2 text-left">Description</th>
+                  <th className="p-2 text-right">Net</th>
+                  <th className="p-2 text-right">VAT%</th>
+                  <th className="p-2 text-left">Category</th>
+                  <th className="p-2 text-left">Status</th>
+                  <th className="p-2 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const isEditing = editingEntryId === row.entry_id;
+                  return (
+                    <Fragment key={row.entry_id}>
+                      <tr className="border-b last:border-0">
+                        <td className="p-2">
+                          {isEditing ? (
+                            <Input
+                              value={editRefCode}
+                              maxLength={MAX_GL_CODE_LENGTH}
+                              onChange={(e) => setEditRefCode(e.target.value)}
+                              className="h-7 w-24"
+                            />
                           ) : (
-                            <div className="max-h-48 overflow-y-auto rounded-md border bg-background">
-                              {categoryOptions.length === 0 ? (
-                                <div className="p-2 text-sm text-muted-foreground">No matches.</div>
-                              ) : (
-                                categoryOptions.slice(0, 30).map((cat) => (
-                                  <button
-                                    key={cat.db_id}
-                                    className="block w-full border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-muted"
-                                    onClick={() => void confirmCategory(row.entry_id, cat)}
-                                  >
-                                    {cat.report_label}
-                                  </button>
-                                ))
-                              )}
-                            </div>
+                            row.reference_code || "-"
                           )}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="mt-2"
-                            onClick={() => {
-                              setCategorizingEntryId(null);
-                              setSuggestedSpendLines([]);
-                            }}
-                          >
-                            Cancel
-                          </Button>
                         </td>
+                        <td className="p-2">
+                          {isEditing ? <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} className="h-7" /> : row.spend_description}
+                        </td>
+                        <td className="p-2 text-right font-mono">
+                          {isEditing ? (
+                            <Input
+                              type="number"
+                              min={0}
+                              max={MAX_NET_VALUE}
+                              value={editNetValue}
+                              onChange={(e) => setEditNetValue(e.target.value)}
+                              className="ml-auto h-7 w-24 text-right"
+                            />
+                          ) : (
+                            row.amount_net?.toFixed(2) ?? "-"
+                          )}
+                        </td>
+                        <td className="p-2 text-right font-mono">
+                          {isEditing ? (
+                            <Input
+                              type="number"
+                              min={0}
+                              max={MAX_VAT_PCT}
+                              value={editVatPct}
+                              onChange={(e) => setEditVatPct(e.target.value)}
+                              className="ml-auto h-7 w-16 text-right"
+                            />
+                          ) : (
+                            row.vat_pct ?? 0
+                          )}
+                        </td>
+                        <td className="p-2">
+                          {row.mapped_report_label || row.mapped_category || (
+                            <button className="text-primary underline" onClick={() => openCategoryPicker(row.entry_id)}>
+                              Pick a category
+                            </button>
+                          )}
+                          {row.mapping_status === "mapped" && row.review_status !== "approved" && (
+                            <button className="ml-2 text-xs text-primary underline" onClick={() => openCategoryPicker(row.entry_id)}>
+                              change
+                            </button>
+                          )}
+                        </td>
+                        <td className="p-2">{renderStatus(row)}</td>
+                        <td className="p-2 text-right">{renderActions(row, "end")}</td>
                       </tr>
+                      {categorizingEntryId === row.entry_id && (
+                        <tr>
+                          <td colSpan={7} className="border-b bg-muted/30 p-3">
+                            {renderCategoryPicker(row)}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="space-y-2 sm:hidden">
+            {rows.map((row) => (
+              <div key={row.entry_id} className="rounded-md border p-3 text-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    {editingEntryId === row.entry_id ? (
+                      <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} className="h-7" />
+                    ) : (
+                      <div className="truncate font-medium">{row.spend_description}</div>
                     )}
-                  </>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                    <div className="text-xs text-muted-foreground">
+                      {editingEntryId === row.entry_id ? (
+                        <Input
+                          value={editRefCode}
+                          maxLength={MAX_GL_CODE_LENGTH}
+                          onChange={(e) => setEditRefCode(e.target.value)}
+                          className="mt-1 h-7 w-24"
+                        />
+                      ) : (
+                        row.reference_code || "-"
+                      )}
+                    </div>
+                  </div>
+                  {renderStatus(row)}
+                </div>
+                <div className="mt-2 flex items-center justify-between font-mono text-sm">
+                  {editingEntryId === row.entry_id ? (
+                    <div className="flex gap-2">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={MAX_NET_VALUE}
+                        value={editNetValue}
+                        onChange={(e) => setEditNetValue(e.target.value)}
+                        className="h-7 w-24"
+                      />
+                      <Input
+                        type="number"
+                        min={0}
+                        max={MAX_VAT_PCT}
+                        value={editVatPct}
+                        onChange={(e) => setEditVatPct(e.target.value)}
+                        className="h-7 w-16"
+                      />
+                    </div>
+                  ) : (
+                    <span>
+                      Net {row.amount_net?.toFixed(2) ?? "-"} &middot; VAT {row.vat_pct ?? 0}%
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2 text-sm">
+                  {row.mapped_report_label || row.mapped_category || (
+                    <button className="text-primary underline" onClick={() => openCategoryPicker(row.entry_id)}>
+                      Pick a category
+                    </button>
+                  )}
+                  {row.mapping_status === "mapped" && row.review_status !== "approved" && (
+                    <button className="ml-2 text-xs text-primary underline" onClick={() => openCategoryPicker(row.entry_id)}>
+                      change
+                    </button>
+                  )}
+                </div>
+                {categorizingEntryId === row.entry_id && <div className="mt-2 border-t pt-2">{renderCategoryPicker(row)}</div>}
+                <div className="mt-2 border-t pt-2">{renderActions(row, "start")}</div>
+              </div>
+            ))}
+          </div>
+        </>
       ))}
 
       <Dialog open={monthlyEntryId !== null} onOpenChange={(open) => !open && setMonthlyEntryId(null)}>
