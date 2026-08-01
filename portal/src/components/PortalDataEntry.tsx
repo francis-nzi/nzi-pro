@@ -18,7 +18,7 @@ import PortalCommutingTab from "@/components/PortalCommutingTab";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type Bucket = { bucket_key: string; label: string };
+type Bucket = { bucket_key: string; label: string; has_data?: boolean };
 
 type Site = { site_id: number; site_name: string | null };
 
@@ -235,8 +235,15 @@ export default function PortalDataEntry() {
         apiFetch(`/portal/data-entry/${bucketKey}/previous-rows`),
         apiFetch(`/portal/data-entry/${bucketKey}/top-factors`),
       ]);
-      setPreviousRows(prevRes.ok ? (await prevRes.json()).items || [] : []);
-      setTopFactors(topRes.ok ? (await topRes.json()).items || [] : []);
+      const prevItems: PreviousRow[] = prevRes.ok ? (await prevRes.json()).items || [] : [];
+      const topItems: TopFactor[] = topRes.ok ? (await topRes.json()).items || [] : [];
+      setPreviousRows(prevItems);
+      // "Frequently used" is drawn from the same client's job_scope_rows history
+      // as "Previously used" with no shared exclusion, so a factor used often is
+      // almost always also the most recent -- drop anything already shown above
+      // rather than showing the same pill twice.
+      const seen = new Set(prevItems.map((item) => item.original_id));
+      setTopFactors(topItems.filter((item) => !seen.has(item.original_id)));
     } catch {
       setPreviousRows([]);
       setTopFactors([]);
@@ -378,7 +385,11 @@ export default function PortalDataEntry() {
   }
 
   const isVehicleBucket = activeBucket === "company_vehicles" || activeBucket === "business_travel";
-  const allTabs = [...buckets, COMMUTING_BUCKET, SPEND_BUCKET, ...COMING_SOON_BUCKETS];
+  // Employee Commuting and Purchased Goods & Services now arrive from the
+  // buckets API too (with their has_data flag) -- COMMUTING_BUCKET/SPEND_BUCKET
+  // above stay only as bucket_key constants for the isSpendTab/isCommutingTab
+  // checks, not appended again here.
+  const allTabs = [...buckets, ...COMING_SOON_BUCKETS];
   const activeBucketLabel = allTabs.find((b) => b.bucket_key === activeBucket)?.label || "";
 
   // Shared between the table (desktop) and card (mobile) layouts below so the
@@ -463,11 +474,15 @@ export default function PortalDataEntry() {
           <button
             key={b.bucket_key}
             onClick={() => setActiveBucket(b.bucket_key)}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+            title={b.has_data ? "Data submitted" : undefined}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium ${
               activeBucket === b.bucket_key ? "bg-primary text-primary-foreground" : "hover:bg-muted"
             }`}
           >
             {b.label}
+            {b.has_data && (
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-current opacity-60" aria-hidden="true" />
+            )}
           </button>
         ))}
       </div>
@@ -543,6 +558,18 @@ export default function PortalDataEntry() {
                   </SelectContent>
                 </Select>
               )}
+            </div>
+            {/* The qty field only appears once a factor is picked (see the
+                selectedFactor block below) -- without this, nothing on the
+                idle panel signals that picking a pill/search result is step
+                one of two, not the whole action. */}
+            <div className="text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {selectedFactor ? "Step 2 of 2:" : "Step 1 of 2:"}
+              </span>{" "}
+              {selectedFactor
+                ? "enter the quantity and submit."
+                : "choose what you're logging below — you'll enter the quantity next."}
             </div>
             {isVehicleBucket && !selectedFactor && (
               <div className="space-y-2 rounded-md border bg-muted/30 p-3">

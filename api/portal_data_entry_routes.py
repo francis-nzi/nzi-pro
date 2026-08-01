@@ -11,12 +11,14 @@ import logging
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 
+from api.job_emission_register_routes import _ensure_schema as _ensure_emission_register_schema
 from api.job_scope_data_routes import (
     _ensure_job_scope_rows_schema,
     _resolve_scope_row_factor_for_creation,
     get_template_factors,
 )
 from api.portal_auth_routes import portal_user_dep
+from api.spend_data_routes import _ensure_spend_tables
 from core.database import get_conn
 from services.audit_log import record_audit_event
 from services.portal import PORTAL_ROLE_CAN_MANAGE_ACTIONS
@@ -58,7 +60,64 @@ def _resolve_job_or_404(con, client_db_id: int) -> int:
 
 @router.get("/portal/data-entry/buckets")
 def portal_data_entry_buckets(current_user: dict = Depends(portal_user_dep)):
-    return {"buckets": [{"bucket_key": key, "label": BUCKET_LABELS[key]} for key in BUCKET_KEYS]}
+    """Sub-tab list plus a has_data flag per tab, so the tab bar can show
+    clients which categories they've already submitted something under. The
+    two non-generic tabs (Employee Commuting, Purchased Goods & Services)
+    aren't in BUCKET_KEYS -- see services/portal_data_entry.py -- so they're
+    appended here with the same keys/labels PortalDataEntry.tsx hardcodes."""
+    buckets = [{"bucket_key": key, "label": BUCKET_LABELS[key]} for key in BUCKET_KEYS]
+    buckets.append({"bucket_key": "employee_commuting", "label": "Employee Commuting"})
+    buckets.append({"bucket_key": "purchased_goods_and_services", "label": "Purchased Goods & Services"})
+    has_data = {b["bucket_key"]: False for b in buckets}
+
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        ensure_portal_data_entry_schema(con)
+        job_id = resolve_current_job_for_client(con, client_db_id)
+        if job_id is not None:
+            category_map = load_bucket_category_map(con)
+            # Same visibility rule as GET .../{bucket_key}/rows: a still-pending
+            # or rejected portal submission counts as "there's something here",
+            # a CRM soft-delete (enabled=FALSE, review_status untouched) doesn't.
+            cat_df = con.execute(
+                """
+                SELECT DISTINCT category FROM job_scope_rows
+                WHERE job_id = %s AND (enabled = TRUE OR review_status IN ('pending_review', 'rejected'))
+                """,
+                [int(job_id)],
+            ).df()
+            if cat_df is not None and not cat_df.empty:
+                for category in cat_df["category"].tolist():
+                    bucket_key = bucket_for_category(category_map, category)
+                    if bucket_key in has_data:
+                        has_data[bucket_key] = True
+
+            _ensure_emission_register_schema(con)
+            commuting_row = con.execute(
+                """
+                SELECT 1 FROM job_emission_sources
+                WHERE job_id = %s AND source_type = 'employee_commuting' AND submitted_by_portal = TRUE
+                  AND (enabled = TRUE OR review_status IN ('pending_review', 'rejected'))
+                LIMIT 1
+                """,
+                [int(job_id)],
+            ).fetchone()
+            has_data["employee_commuting"] = bool(commuting_row)
+
+            _ensure_spend_tables(con)
+            spend_row = con.execute(
+                """
+                SELECT 1 FROM job_spend_entries
+                WHERE job_id = %s AND COALESCE(is_deleted, FALSE) = FALSE AND submitted_by_portal = TRUE
+                LIMIT 1
+                """,
+                [int(job_id)],
+            ).fetchone()
+            has_data["purchased_goods_and_services"] = bool(spend_row)
+
+    for b in buckets:
+        b["has_data"] = has_data[b["bucket_key"]]
+    return {"buckets": buckets}
 
 
 @router.get("/portal/data-entry/sites")
