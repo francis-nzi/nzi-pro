@@ -538,168 +538,190 @@ export default function PortalDataEntry() {
                 Row added — ready for the next one.
               </div>
             )}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Site</label>
-              {sitesLoaded && sites.length === 0 ? (
-                <div className="text-xs text-rose-700">
-                  No sites are set up for your account yet — contact your NZI consultant before submitting data.
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Site</label>
+                  {sitesLoaded && sites.length === 0 ? (
+                    <div className="text-xs text-rose-700">
+                      No sites are set up for your account yet — contact your NZI consultant before submitting data.
+                    </div>
+                  ) : (
+                    <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder={sitesLoaded ? "Select a site…" : "Loading sites…"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sites.map((site) => (
+                          <SelectItem key={site.site_id} value={String(site.site_id)}>
+                            {site.site_name || `Site #${site.site_id}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
-              ) : (
-                <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={sitesLoaded ? "Select a site…" : "Loading sites…"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sites.map((site) => (
-                      <SelectItem key={site.site_id} value={String(site.site_id)}>
-                        {site.site_name || `Site #${site.site_id}`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {/* The qty field only appears once a factor is picked (see the
+                    selectedFactor block below) -- this step indicator is what
+                    signals that picking a quick pick/search result is step one
+                    of two, not the whole action. Given its own colored/numbered
+                    treatment rather than muted text so it doesn't read as one
+                    more line of fine print. */}
+                <div className="flex items-center gap-2 rounded-md bg-primary/10 px-3 py-2">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground">
+                    {selectedFactor ? "2" : "1"}
+                  </span>
+                  <span className="text-sm font-medium">
+                    {selectedFactor
+                      ? "Enter the quantity and submit."
+                      : "Choose what you're logging — quick picks are on the right, or search below."}
+                  </span>
+                </div>
+                {isVehicleBucket && !selectedFactor && (
+                  <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Have the vehicle&apos;s registration number? We&apos;ll work out the right category for you.
+                    </label>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="e.g. AB12 CDE"
+                        value={regNumber}
+                        onChange={(e) => setRegNumber(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && void lookupByRegistration()}
+                      />
+                      <Button disabled={regLookupLoading || !regNumber.trim()} onClick={() => void lookupByRegistration()}>
+                        {regLookupLoading ? "Looking up..." : "Look up"}
+                      </Button>
+                    </div>
+                    {regLookupError && <div className="text-xs text-rose-700">{regLookupError}</div>}
+                    <div className="text-xs text-muted-foreground">— or search for the vehicle type manually below —</div>
+                  </div>
+                )}
+                {regLookupVehicle && selectedFactor && (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
+                    Found: {regLookupVehicle.make || "vehicle"} ({regLookupVehicle.fuel_type || "unknown fuel"}) — matched to{" "}
+                    {selectedFactor.report_label}
+                  </div>
+                )}
+                {!selectedFactor && (
+                  <Input
+                    placeholder={`Search ${activeBucketLabel.toLowerCase()}...`}
+                    value={search}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setSearch(value);
+                      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+                      if (!value.trim()) {
+                        setFactorOptions([]);
+                        setSearching(false);
+                        return;
+                      }
+                      setSearching(true);
+                      searchDebounceRef.current = setTimeout(() => void searchFactors(value), 300);
+                    }}
+                  />
+                )}
+                {selectedFactor ? (
+                  <div className="rounded-md border p-3 text-sm">
+                    <div className="font-medium">{selectedFactor.report_label}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {selectedFactor.scope} &middot; {selectedFactor.category} &middot; unit: {selectedFactor.uom}
+                    </div>
+                    <Button size="sm" variant="outline" className="mt-2" onClick={() => setSelectedFactor(null)}>
+                      Change
+                    </Button>
+                  </div>
+                ) : search.trim() ? (
+                  searching ? (
+                    <div className="text-sm text-muted-foreground">Searching...</div>
+                  ) : (
+                    <div className="max-h-64 overflow-y-auto rounded-md border">
+                      {factorOptions.length === 0 ? (
+                        <div className="p-3 text-sm text-muted-foreground">No matches — try a different search term.</div>
+                      ) : (
+                        factorOptions.slice(0, 50).map((f, idx) => (
+                          <button
+                            key={`${f.original_id}-${idx}`}
+                            className="block w-full border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-muted"
+                            onClick={() => setSelectedFactor(f)}
+                          >
+                            <div className="font-medium">{f.report_label}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {f.scope} &middot; {f.category} &middot; unit: {f.uom}
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )
+                ) : null}
+
+                {selectedFactor && (
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <label className="text-xs text-muted-foreground">Quantity ({selectedFactor.uom || "units"}, annual total)</label>
+                      <Input type="number" min="0" step="any" value={qty} onChange={(e) => setQty(e.target.value)} />
+                      {qty.trim() && !isPositiveQty(qty) && (
+                        <div className="mt-1 text-xs text-rose-700">Enter a quantity greater than 0.</div>
+                      )}
+                    </div>
+                    <Button disabled={saving || !isPositiveQty(qty) || !selectedSiteId} onClick={() => void submitRow()}>
+                      {saving ? "Submitting..." : "Submit"}
+                    </Button>
+                  </div>
+                )}
+                {selectedFactor && !selectedSiteId && (
+                  <div className="text-xs text-rose-700">Select a site above before submitting.</div>
+                )}
+              </div>
+
+              {/* Quick picks live in their own column throughout, rather than
+                  as inline pill rows above the search box -- keeps the primary
+                  flow (site -> pick -> qty) visually linear instead of forcing
+                  the eye through two chip lists before it reaches the search
+                  input. Stays visible while searching too, since it's no
+                  longer competing with the results list for the same space. */}
+              {!selectedFactor && (previousRows.length > 0 || topFactors.length > 0) && (
+                <div className="space-y-3 rounded-md border bg-muted/20 p-3 md:self-start">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Quick picks
+                  </div>
+                  {previousRows.length > 0 && (
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">Previously used</div>
+                      <div className="space-y-0.5">
+                        {previousRows.map((item, idx) => (
+                          <button
+                            key={`prev-${item.original_id}-${idx}`}
+                            className="block w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-background"
+                            onClick={() => pickQuickFactor(item)}
+                            title={item.last_reporting_year ? `Last used in ${item.last_reporting_year}` : undefined}
+                          >
+                            {item.report_label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {topFactors.length > 0 && (
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">Frequently used</div>
+                      <div className="space-y-0.5">
+                        {topFactors.map((item, idx) => (
+                          <button
+                            key={`top-${item.original_id}-${idx}`}
+                            className="block w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-background"
+                            onClick={() => pickQuickFactor(item)}
+                          >
+                            {item.report_label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
-            {/* The qty field only appears once a factor is picked (see the
-                selectedFactor block below) -- without this, nothing on the
-                idle panel signals that picking a pill/search result is step
-                one of two, not the whole action. */}
-            <div className="text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">
-                {selectedFactor ? "Step 2 of 2:" : "Step 1 of 2:"}
-              </span>{" "}
-              {selectedFactor
-                ? "enter the quantity and submit."
-                : "choose what you're logging below — you'll enter the quantity next."}
-            </div>
-            {isVehicleBucket && !selectedFactor && (
-              <div className="space-y-2 rounded-md border bg-muted/30 p-3">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Have the vehicle&apos;s registration number? We&apos;ll work out the right category for you.
-                </label>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="e.g. AB12 CDE"
-                    value={regNumber}
-                    onChange={(e) => setRegNumber(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && void lookupByRegistration()}
-                  />
-                  <Button disabled={regLookupLoading || !regNumber.trim()} onClick={() => void lookupByRegistration()}>
-                    {regLookupLoading ? "Looking up..." : "Look up"}
-                  </Button>
-                </div>
-                {regLookupError && <div className="text-xs text-rose-700">{regLookupError}</div>}
-                <div className="text-xs text-muted-foreground">— or search for the vehicle type manually below —</div>
-              </div>
-            )}
-            {regLookupVehicle && selectedFactor && (
-              <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
-                Found: {regLookupVehicle.make || "vehicle"} ({regLookupVehicle.fuel_type || "unknown fuel"}) — matched to{" "}
-                {selectedFactor.report_label}
-              </div>
-            )}
-            {!selectedFactor && !search.trim() && previousRows.length > 0 && (
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Previously used</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {previousRows.map((item, idx) => (
-                    <button
-                      key={`prev-${item.original_id}-${idx}`}
-                      className="rounded-full border bg-muted/40 px-3 py-1 text-xs hover:bg-muted"
-                      onClick={() => pickQuickFactor(item)}
-                      title={item.last_reporting_year ? `Last used in ${item.last_reporting_year}` : undefined}
-                    >
-                      {item.report_label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {!selectedFactor && !search.trim() && topFactors.length > 0 && (
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Frequently used</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {topFactors.map((item, idx) => (
-                    <button
-                      key={`top-${item.original_id}-${idx}`}
-                      className="rounded-full border bg-muted/40 px-3 py-1 text-xs hover:bg-muted"
-                      onClick={() => pickQuickFactor(item)}
-                    >
-                      {item.report_label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {!selectedFactor && (
-              <Input
-                placeholder={`Search ${activeBucketLabel.toLowerCase()}...`}
-                value={search}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setSearch(value);
-                  if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-                  if (!value.trim()) {
-                    setFactorOptions([]);
-                    setSearching(false);
-                    return;
-                  }
-                  setSearching(true);
-                  searchDebounceRef.current = setTimeout(() => void searchFactors(value), 300);
-                }}
-              />
-            )}
-            {selectedFactor ? (
-              <div className="rounded-md border p-3 text-sm">
-                <div className="font-medium">{selectedFactor.report_label}</div>
-                <div className="text-xs text-muted-foreground">
-                  {selectedFactor.scope} &middot; {selectedFactor.category} &middot; unit: {selectedFactor.uom}
-                </div>
-                <Button size="sm" variant="outline" className="mt-2" onClick={() => setSelectedFactor(null)}>
-                  Change
-                </Button>
-              </div>
-            ) : search.trim() ? (
-              searching ? (
-                <div className="text-sm text-muted-foreground">Searching...</div>
-              ) : (
-                <div className="max-h-64 overflow-y-auto rounded-md border">
-                  {factorOptions.length === 0 ? (
-                    <div className="p-3 text-sm text-muted-foreground">No matches — try a different search term.</div>
-                  ) : (
-                    factorOptions.slice(0, 50).map((f, idx) => (
-                      <button
-                        key={`${f.original_id}-${idx}`}
-                        className="block w-full border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-muted"
-                        onClick={() => setSelectedFactor(f)}
-                      >
-                        <div className="font-medium">{f.report_label}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {f.scope} &middot; {f.category} &middot; unit: {f.uom}
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              )
-            ) : null}
-
-            {selectedFactor && (
-              <div className="flex items-end gap-2">
-                <div className="flex-1">
-                  <label className="text-xs text-muted-foreground">Quantity ({selectedFactor.uom || "units"}, annual total)</label>
-                  <Input type="number" min="0" step="any" value={qty} onChange={(e) => setQty(e.target.value)} />
-                  {qty.trim() && !isPositiveQty(qty) && (
-                    <div className="mt-1 text-xs text-rose-700">Enter a quantity greater than 0.</div>
-                  )}
-                </div>
-                <Button disabled={saving || !isPositiveQty(qty) || !selectedSiteId} onClick={() => void submitRow()}>
-                  {saving ? "Submitting..." : "Submit"}
-                </Button>
-              </div>
-            )}
-            {selectedFactor && !selectedSiteId && (
-              <div className="text-xs text-rose-700">Select a site above before submitting.</div>
-            )}
           </CardContent>
         </Card>
       )}
