@@ -60,6 +60,24 @@ def compute_line_emissions_tco2e(quantity: float, factor_value: float, factor_un
     return raw * factor_unit_to_tonnes_multiplier(factor_unit)
 
 
+def resolve_line_emissions_tco2e(row: dict[str, Any]) -> float:
+    """A transport-module line item (A2/A4/C2) with legs has its emissions
+    driven by services.lca_transport's per-leg mass x distance x factor
+    calc, cached on transport_emissions_tco2e -- quantity x factor_value
+    doesn't apply to it (there's no single line-level factor once a journey
+    has multiple legs, each with its own mode/distance/factor). Every other
+    line falls back to the original quantity x factor_value path unchanged.
+    Both summarize_assessment and the line-items API response go through
+    this so a row's displayed figure and the assessment total always agree.
+    """
+    transport_emissions = row.get("transport_emissions_tco2e")
+    if transport_emissions is not None:
+        return safe_float(transport_emissions)
+    return compute_line_emissions_tco2e(
+        safe_float(row.get("quantity")), safe_float(row.get("factor_value")), row.get("factor_unit"),
+    )
+
+
 def apply_scenario_multipliers(
     lines: list[dict[str, Any]],
     multiplier_rules: list[dict[str, Any]],
@@ -141,7 +159,7 @@ def summarize_assessment(
         qty = safe_float(row.get("quantity"))
         factor = safe_float(row.get("factor_value"))
         factor_unit = str(row.get("factor_unit") or "kgCO2e/kg")
-        emissions = compute_line_emissions_tco2e(qty, factor, factor_unit)
+        emissions = resolve_line_emissions_tco2e(row)
 
         module_totals[module_code] = module_totals.get(module_code, 0.0) + emissions
         total += emissions

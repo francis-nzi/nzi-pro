@@ -131,6 +131,36 @@ type LineItem = {
   is_placeholder?: boolean;
   notes?: string | null;
   emissions_tco2e?: number | null;
+  transport_emissions_tco2e?: number | null;
+};
+
+// The three modules literally named "Transport..." in lca_modules_lookup
+// (sql_migrations/0058_lca_pcf_rebuild.sql) -- these get a Transport Legs
+// section in the inventory-detail modal instead of a single factor_value.
+const TRANSPORT_MODULE_CODES = ["A2", "A4", "C2"];
+
+type TransportLeg = {
+  leg_id: number;
+  leg_order: number;
+  mode: string;
+  origin_label: string | null;
+  origin_latitude: number | null;
+  origin_longitude: number | null;
+  origin_geocode_precision: string | null;
+  destination_label: string | null;
+  destination_latitude: number | null;
+  destination_longitude: number | null;
+  destination_geocode_precision: string | null;
+  straight_line_km: number | null;
+  detour_factor: number | null;
+  distance_km: number | null;
+  distance_source: string | null;
+  mapped_factor_id: number | null;
+  factor_value: number | null;
+  factor_unit: string | null;
+  factor_source_label: string | null;
+  emissions_tco2e: number;
+  notes: string | null;
 };
 
 type MassReconciliation = {
@@ -322,6 +352,21 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [detailPlaceholder, setDetailPlaceholder] = useState(false);
   const [detailNotes, setDetailNotes] = useState("");
   const [savingDetail, setSavingDetail] = useState(false);
+
+  // Transport Legs (A2/A4/C2) -- only one line item's legs are ever shown at
+  // once (the open detail modal), so this is flat state rather than the
+  // Record<lineItemId, ...> maps the multi-row Stage 3/4 list needs.
+  const [transportLegs, setTransportLegs] = useState<TransportLeg[]>([]);
+  const [transportLegsLoading, setTransportLegsLoading] = useState(false);
+  const [newLegMode, setNewLegMode] = useState<string>("road");
+  const [newLegOrigin, setNewLegOrigin] = useState("");
+  const [newLegDestination, setNewLegDestination] = useState("");
+  const [newLegManualDistance, setNewLegManualDistance] = useState("");
+  const [newLegFactor, setNewLegFactor] = useState<FactorSearchResult | null>(null);
+  const [legFactorSearchQuery, setLegFactorSearchQuery] = useState("");
+  const [legFactorSearchResults, setLegFactorSearchResults] = useState<FactorSearchResult[]>([]);
+  const [legFactorSearchLoading, setLegFactorSearchLoading] = useState(false);
+  const [savingLeg, setSavingLeg] = useState(false);
 
   const [lcaDatasets, setLcaDatasets] = useState<DatasetOption[]>([]);
   const [selectedDatasetIds, setSelectedDatasetIds] = useState<number[]>([]);
@@ -919,7 +964,106 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     setDetailDataQuality(row.data_quality || "secondary");
     setDetailPlaceholder(Boolean(row.is_placeholder));
     setDetailNotes(row.notes || "");
+    resetLegDraft();
+    setTransportLegs([]);
+    if (TRANSPORT_MODULE_CODES.includes(row.module_code)) {
+      void loadTransportLegs(row.line_item_id);
+    }
   }
+
+  function resetLegDraft() {
+    setNewLegMode("road");
+    setNewLegOrigin("");
+    setNewLegDestination("");
+    setNewLegManualDistance("");
+    setNewLegFactor(null);
+    setLegFactorSearchQuery("");
+    setLegFactorSearchResults([]);
+  }
+
+  async function loadTransportLegs(lineItemId: number) {
+    setTransportLegsLoading(true);
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/lca/line-items/${lineItemId}/transport-legs`);
+      if (!res.ok) throw new Error(`Failed to load transport legs (${res.status})`);
+      const data = await res.json();
+      setTransportLegs(data.legs || []);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setTransportLegsLoading(false);
+    }
+  }
+
+  async function runLegFactorSearch() {
+    const q = legFactorSearchQuery.trim();
+    setLegFactorSearchLoading(true);
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/lca/line-items/${detailItem?.line_item_id}/factor-search?q=${encodeURIComponent(q)}&kind=all`);
+      if (!res.ok) throw new Error(`Factor search failed (${res.status})`);
+      const data = await res.json();
+      setLegFactorSearchResults(data.items || []);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLegFactorSearchLoading(false);
+    }
+  }
+
+  async function addTransportLeg() {
+    if (!detailItem || !newLegOrigin.trim() || !newLegDestination.trim()) return;
+    setSavingLeg(true);
+    setError("");
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/lca/line-items/${detailItem.line_item_id}/transport-legs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: newLegMode,
+          origin_label: newLegOrigin.trim(),
+          destination_label: newLegDestination.trim(),
+          distance_km: newLegManualDistance.trim() ? Number(newLegManualDistance) : null,
+          mapped_factor_id: newLegFactor?.db_id ?? null,
+          factor_value: newLegFactor?.factor ?? null,
+          factor_unit: newLegFactor?.uom ?? null,
+          factor_source_label: newLegFactor?.label ?? null,
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d?.detail || `Failed to add leg (${res.status})`);
+      }
+      resetLegDraft();
+      await loadTransportLegs(detailItem.line_item_id);
+      if (selectedAssessmentId) {
+        await loadItems(selectedAssessmentId);
+        await loadAssessments();
+        await loadAssessmentDetail(selectedAssessmentId);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSavingLeg(false);
+    }
+  }
+
+  async function deleteTransportLeg(legId: number) {
+    if (!detailItem) return;
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/lca/transport-legs/${legId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`Failed to delete leg (${res.status})`);
+      await loadTransportLegs(detailItem.line_item_id);
+      if (selectedAssessmentId) {
+        await loadItems(selectedAssessmentId);
+        await loadAssessments();
+        await loadAssessmentDetail(selectedAssessmentId);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  const transportLegsTotal = transportLegs.reduce((sum, leg) => sum + (leg.emissions_tco2e || 0), 0);
 
   async function saveInventoryDetail() {
     if (!detailItem) return;
@@ -2892,8 +3036,12 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                 <div className="space-y-2"><Label>Quantity</Label><Input type="number" value={detailQty} onChange={(e) => setDetailQty(e.target.value)} /></div>
                 <div className="space-y-2"><Label>Unit</Label><Input value={detailUnit} onChange={(e) => setDetailUnit(e.target.value)} /></div>
                 <div className="space-y-2"><Label>Origin Country</Label><Input value={detailCountry} onChange={(e) => setDetailCountry(e.target.value)} /></div>
-                <div className="space-y-2"><Label>Factor Value</Label><Input type="number" value={detailFactor} onChange={(e) => setDetailFactor(e.target.value)} /></div>
-                <div className="space-y-2"><Label>Factor Unit</Label><Input value={detailFactorUnit} onChange={(e) => setDetailFactorUnit(e.target.value)} /></div>
+                {!TRANSPORT_MODULE_CODES.includes(detailModule) ? (
+                  <>
+                    <div className="space-y-2"><Label>Factor Value</Label><Input type="number" value={detailFactor} onChange={(e) => setDetailFactor(e.target.value)} /></div>
+                    <div className="space-y-2"><Label>Factor Unit</Label><Input value={detailFactorUnit} onChange={(e) => setDetailFactorUnit(e.target.value)} /></div>
+                  </>
+                ) : null}
                 <div className="flex items-end">
                   <label className="flex items-center gap-2 text-sm">
                     <input type="checkbox" checked={detailPlaceholder} onChange={(e) => setDetailPlaceholder(e.target.checked)} />
@@ -2902,73 +3050,206 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                 </div>
               </div>
               <div className="space-y-2"><Label>Notes</Label><Textarea value={detailNotes} onChange={(e) => setDetailNotes(e.target.value)} rows={2} /></div>
-              <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-                {detailItem.mapped_factor_source ? (
-                  <>
-                    Factor source: <span className="font-medium text-foreground">{detailItem.mapped_factor_source}</span>
-                    {typeof detailItem.factor_match_confidence === "number" ? ` (${Math.round(detailItem.factor_match_confidence * 100)}% confidence)` : ""}
-                    {detailItem.is_gap_filled ? " -- gap-filled estimate" : ""}
-                    {detailItem.mapped_factor_dataset_name ? (
+
+              {!TRANSPORT_MODULE_CODES.includes(detailModule) ? (
+                <>
+                  <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+                    {detailItem.mapped_factor_source ? (
                       <>
-                        <br />
-                        Dataset: <span className="font-medium text-foreground">{detailItem.mapped_factor_dataset_name}</span>
-                        {detailItem.mapped_factor_dataset_year ? ` (${detailItem.mapped_factor_dataset_year})` : ""}
-                        {detailItem.mapped_factor_original_id ? ` -- row ID: ${detailItem.mapped_factor_original_id}` : ""}
+                        Factor source: <span className="font-medium text-foreground">{detailItem.mapped_factor_source}</span>
+                        {typeof detailItem.factor_match_confidence === "number" ? ` (${Math.round(detailItem.factor_match_confidence * 100)}% confidence)` : ""}
+                        {detailItem.is_gap_filled ? " -- gap-filled estimate" : ""}
+                        {detailItem.mapped_factor_dataset_name ? (
+                          <>
+                            <br />
+                            Dataset: <span className="font-medium text-foreground">{detailItem.mapped_factor_dataset_name}</span>
+                            {detailItem.mapped_factor_dataset_year ? ` (${detailItem.mapped_factor_dataset_year})` : ""}
+                            {detailItem.mapped_factor_original_id ? ` -- row ID: ${detailItem.mapped_factor_original_id}` : ""}
+                          </>
+                        ) : null}
                       </>
-                    ) : null}
-                  </>
-                ) : (
-                  "No factor mapped yet -- use Auto Map Factor, Search Factor, or set Factor Value directly above."
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label>Change Factor Source</Label>
-                <div className="flex gap-2">
-                  <Input
-                    value={factorSearchQuery[detailItem.line_item_id] || ""}
-                    onChange={(e) => setFactorSearchQuery((prev) => ({ ...prev, [detailItem.line_item_id]: e.target.value }))}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") void runFactorSearch(detailItem.line_item_id);
-                    }}
-                    placeholder="e.g. plastic, metal, aramid fiber..."
-                    className="h-8"
-                  />
-                  <Select
-                    value={factorSearchKind[detailItem.line_item_id] || "all"}
-                    onValueChange={(v) => setFactorSearchKind((prev) => ({ ...prev, [detailItem.line_item_id]: v as "all" | "activity" | "spend" }))}
-                  >
-                    <SelectTrigger className="h-8 w-[110px]"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All types</SelectItem>
-                      <SelectItem value="activity">Activity</SelectItem>
-                      <SelectItem value="spend">Spend</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button size="sm" onClick={() => void runFactorSearch(detailItem.line_item_id)} disabled={factorSearchLoading[detailItem.line_item_id]}>
-                    {factorSearchLoading[detailItem.line_item_id] ? "Searching..." : "Search"}
-                  </Button>
-                </div>
-                {(factorSearchResults[detailItem.line_item_id] || []).length > 0 ? (
-                  <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border bg-muted/30 p-2">
-                    {(factorSearchResults[detailItem.line_item_id] || []).map((c) => (
-                      <div key={`${c.source_table || "factor_lookup"}-${c.db_id}`} className="flex items-center justify-between gap-2 text-xs">
-                        <span>
-                          {c.source_table === "job_custom_factor" ? <Badge variant="outline" className="mr-1">Client Factor</Badge> : null}
-                          {c.source_table === "admin_custom_factor" ? <Badge variant="outline" className="mr-1">Admin Factor</Badge> : null}
-                          {c.label} ({c.factor} {c.uom})
-                        </span>
-                        <Button size="sm" variant="outline" onClick={() => void applyCandidate(detailItem.line_item_id, c.db_id, c.source_table)}>
-                          Use this
-                        </Button>
+                    ) : (
+                      "No factor mapped yet -- use Auto Map Factor, Search Factor, or set Factor Value directly above."
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Change Factor Source</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={factorSearchQuery[detailItem.line_item_id] || ""}
+                        onChange={(e) => setFactorSearchQuery((prev) => ({ ...prev, [detailItem.line_item_id]: e.target.value }))}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void runFactorSearch(detailItem.line_item_id);
+                        }}
+                        placeholder="e.g. plastic, metal, aramid fiber..."
+                        className="h-8"
+                      />
+                      <Select
+                        value={factorSearchKind[detailItem.line_item_id] || "all"}
+                        onValueChange={(v) => setFactorSearchKind((prev) => ({ ...prev, [detailItem.line_item_id]: v as "all" | "activity" | "spend" }))}
+                      >
+                        <SelectTrigger className="h-8 w-[110px]"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All types</SelectItem>
+                          <SelectItem value="activity">Activity</SelectItem>
+                          <SelectItem value="spend">Spend</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button size="sm" onClick={() => void runFactorSearch(detailItem.line_item_id)} disabled={factorSearchLoading[detailItem.line_item_id]}>
+                        {factorSearchLoading[detailItem.line_item_id] ? "Searching..." : "Search"}
+                      </Button>
+                    </div>
+                    {(factorSearchResults[detailItem.line_item_id] || []).length > 0 ? (
+                      <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border bg-muted/30 p-2">
+                        {(factorSearchResults[detailItem.line_item_id] || []).map((c) => (
+                          <div key={`${c.source_table || "factor_lookup"}-${c.db_id}`} className="flex items-center justify-between gap-2 text-xs">
+                            <span>
+                              {c.source_table === "job_custom_factor" ? <Badge variant="outline" className="mr-1">Client Factor</Badge> : null}
+                              {c.source_table === "admin_custom_factor" ? <Badge variant="outline" className="mr-1">Admin Factor</Badge> : null}
+                              {c.label} ({c.factor} {c.uom})
+                            </span>
+                            <Button size="sm" variant="outline" onClick={() => void applyCandidate(detailItem.line_item_id, c.db_id, c.source_table)}>
+                              Use this
+                            </Button>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    ) : (
+                      <div className="text-xs text-muted-foreground">
+                        {factorSearchLoading[detailItem.line_item_id] ? "" : "Search to replace this item's factor with a different dataset row, client factor, or admin factor."}
+                      </div>
+                    )}
                   </div>
-                ) : (
+                </>
+              ) : (
+                <div className="space-y-3 rounded-md border bg-muted/30 p-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Transport Legs</Label>
+                    <span className="text-xs font-medium text-foreground">
+                      Computed from {transportLegs.length} leg{transportLegs.length === 1 ? "" : "s"}: {transportLegsTotal.toLocaleString(undefined, { maximumFractionDigits: 6 })} tCO2e
+                    </span>
+                  </div>
                   <div className="text-xs text-muted-foreground">
-                    {factorSearchLoading[detailItem.line_item_id] ? "" : "Search to replace this item's factor with a different dataset row, client factor, or admin factor."}
+                    Distance is a straight-line estimate between geocoded locations, scaled by a mode-specific
+                    detour factor -- not real road/sea routing. Override the distance manually below if you know
+                    the real figure (e.g. from a freight invoice).
                   </div>
-                )}
-              </div>
+
+                  {transportLegsLoading ? (
+                    <div className="text-xs text-muted-foreground">Loading legs...</div>
+                  ) : transportLegs.length === 0 ? (
+                    <div className="text-xs text-muted-foreground">No legs yet -- add the journey below (e.g. factory to port, port to port, port to site).</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {transportLegs.map((leg, idx) => (
+                        <div key={leg.leg_id} className="rounded-md border bg-background p-2 text-xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <span className="font-medium text-foreground">Leg {idx + 1}: {leg.mode}</span>{" "}
+                              {leg.origin_label} &rarr; {leg.destination_label}
+                              <div className="text-muted-foreground">
+                                {leg.distance_km != null ? `${Math.round(leg.distance_km).toLocaleString()} km` : "no distance"}
+                                {leg.distance_source === "manual" ? " (manual)" : ""}
+                                {" -- "}
+                                {leg.factor_source_label ? `${leg.factor_source_label} (${leg.factor_value} ${leg.factor_unit})` : "no factor mapped"}
+                                {" -- "}
+                                {leg.emissions_tco2e.toLocaleString(undefined, { maximumFractionDigits: 6 })} tCO2e
+                              </div>
+                              {leg.origin_geocode_precision === "failed" || leg.destination_geocode_precision === "failed" ? (
+                                <div className="text-amber-700">Couldn&apos;t place one or both locations on the map -- distance is manual only.</div>
+                              ) : null}
+                            </div>
+                            <Button size="sm" variant="ghost" className="text-rose-700" onClick={() => void deleteTransportLeg(leg.leg_id)}>
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="space-y-2 rounded-md border bg-background p-2">
+                    <div className="text-xs font-medium text-foreground">Add a leg</div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <Select value={newLegMode} onValueChange={setNewLegMode}>
+                        <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="road">Road</SelectItem>
+                          <SelectItem value="rail">Rail</SelectItem>
+                          <SelectItem value="sea">Sea</SelectItem>
+                          <SelectItem value="air">Air</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        value={newLegManualDistance}
+                        onChange={(e) => setNewLegManualDistance(e.target.value)}
+                        placeholder="Manual distance (km, optional)"
+                        type="number"
+                        className="h-8"
+                      />
+                      <Input
+                        value={newLegOrigin}
+                        onChange={(e) => setNewLegOrigin(e.target.value)}
+                        placeholder="Origin, e.g. Changsha, Hunan, China"
+                        className="h-8"
+                      />
+                      <Input
+                        value={newLegDestination}
+                        onChange={(e) => setNewLegDestination(e.target.value)}
+                        placeholder="Destination, e.g. Felixstowe, UK"
+                        className="h-8"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">
+                        {newLegFactor ? (
+                          <>
+                            Factor: <span className="font-medium text-foreground">{newLegFactor.label}</span> ({newLegFactor.factor} {newLegFactor.uom}){" "}
+                            <button type="button" className="text-primary underline" onClick={() => setNewLegFactor(null)}>Change</button>
+                          </>
+                        ) : (
+                          "No emission factor picked yet -- search below (e.g. \"HGV\", \"cargo ship\", \"freight flight\")."
+                        )}
+                      </div>
+                      {!newLegFactor ? (
+                        <>
+                          <div className="flex gap-2">
+                            <Input
+                              value={legFactorSearchQuery}
+                              onChange={(e) => setLegFactorSearchQuery(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter") void runLegFactorSearch(); }}
+                              placeholder="e.g. HGV, cargo ship, rail freight..."
+                              className="h-8"
+                            />
+                            <Button size="sm" onClick={() => void runLegFactorSearch()} disabled={legFactorSearchLoading}>
+                              {legFactorSearchLoading ? "Searching..." : "Search"}
+                            </Button>
+                          </div>
+                          {legFactorSearchResults.length > 0 ? (
+                            <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border bg-muted/30 p-2">
+                              {legFactorSearchResults.map((c) => (
+                                <div key={`${c.source_table || "factor_lookup"}-${c.db_id}`} className="flex items-center justify-between gap-2 text-xs">
+                                  <span>{c.label} ({c.factor} {c.uom})</span>
+                                  <Button size="sm" variant="outline" onClick={() => setNewLegFactor(c)}>Use this</Button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </div>
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        onClick={() => void addTransportLeg()}
+                        disabled={savingLeg || !newLegOrigin.trim() || !newLegDestination.trim()}
+                      >
+                        {savingLeg ? "Adding..." : "Add Leg"}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ) : null}
           <DialogFooter className="flex items-center justify-between sm:justify-between">

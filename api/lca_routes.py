@@ -14,7 +14,15 @@ from api.permissions import assert_job_access, assert_permission
 from core.database import get_conn
 from services.lca_bom_template import generate_lca_bom_template
 from services.lca_component_tree import ensure_lca_hierarchy_schema, resolve_effective_lines, snapshot_to_lines
-from services.lca_engine import apply_scenario_multipliers, compute_line_emissions_tco2e, compute_readiness, safe_float, summarize_assessment
+from services.lca_engine import (
+    apply_scenario_multipliers,
+    compute_readiness,
+    resolve_line_emissions_tco2e,
+    safe_float,
+    summarize_assessment,
+)
+from services.geocoding import geocode_location
+from services.lca_transport import DETOUR_FACTORS, VALID_MODES, compute_leg_emissions_tco2e, estimate_leg_distance_km
 from services.lca_material_categories import ensure_material_categories_deduped, resolve_or_create_material_category
 from services.virus_scan import VirusScanError, scan_bytes
 
@@ -272,7 +280,7 @@ def _load_line_items_for_calc(con, assessment_id: int) -> list[dict[str, Any]]:
         """
         SELECT line_item_id, component_id, activity_id, module_code, line_label, material_category_id, quantity, unit,
                factor_value, factor_unit, is_gap_filled, is_placeholder, data_quality,
-               mapped_factor_source, factor_match_confidence
+               mapped_factor_source, factor_match_confidence, transport_emissions_tco2e
         FROM lca_line_items
         WHERE assessment_id = %s
         ORDER BY line_item_id
@@ -305,6 +313,9 @@ def _load_line_items_for_calc(con, assessment_id: int) -> list[dict[str, Any]]:
                 "data_quality": str(r.get("data_quality") or "secondary"),
                 "mapped_factor_source": (str(r.get("mapped_factor_source")) if not _is_missing(r.get("mapped_factor_source")) else None),
                 "factor_match_confidence": _float_or_none(r.get("factor_match_confidence")),
+                # Same NaN hazard as factor_value above -- a line with no
+                # transport legs legitimately has NULL here.
+                "transport_emissions_tco2e": _float_or_none(r.get("transport_emissions_tco2e")),
             }
         )
     return rows
@@ -1243,6 +1254,7 @@ def list_line_items(job_id: int, assessment_id: int, _user: dict[str, str] = Dep
                             "origin_country": r.get("origin_country"),
                             "transport_mode": r.get("transport_mode"),
                             "distance_km": _float_or_none(r.get("distance_km")),
+                            "transport_emissions_tco2e": _float_or_none(r.get("transport_emissions_tco2e")),
                             "energy_kwh": _float_or_none(r.get("energy_kwh")),
                             "end_of_life_route": r.get("end_of_life_route"),
                             "mapped_factor_source": r.get("mapped_factor_source"),
@@ -1261,10 +1273,12 @@ def list_line_items(job_id: int, assessment_id: int, _user: dict[str, str] = Dep
                             # Same function summarize_assessment uses for the assessment total,
                             # so a row's figure and the page total always reconcile. Placeholder
                             # rows are excluded from the total there too, so 0 here matches.
+                            # resolve_line_emissions_tco2e prefers transport_emissions_tco2e
+                            # (a transport-module line with legs) over quantity x factor_value.
                             "emissions_tco2e": (
                                 0.0
                                 if bool(r.get("is_placeholder") or False)
-                                else round(compute_line_emissions_tco2e(safe_float(r.get("quantity")), safe_float(r.get("factor_value")), r.get("factor_unit")), 6)
+                                else round(resolve_line_emissions_tco2e(dict(r)), 6)
                             ),
                         }
                     )
@@ -1497,6 +1511,334 @@ def delete_line_item(job_id: int, line_item_id: int, _user: dict[str, str] = Dep
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete LCA line item: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Transport legs (A2/A4/C2) -- see sql_migrations/0061_lca_transport_legs.sql
+# and services/lca_transport.py. A transport-module line item's emissions are
+# driven by its legs (mass x distance x factor, summed) rather than a single
+# line-level factor_value, since a real journey usually mixes modes.
+# ---------------------------------------------------------------------------
+
+def _line_item_for_legs(con, job_id: int, line_item_id: int) -> tuple[int, float, str]:
+    """Returns (assessment_id, quantity, unit) for a line item, 404ing if it
+    doesn't belong to this job -- same ownership check as _line_item_assessment,
+    plus the quantity/unit the leg mass math needs."""
+    row = con.execute(
+        """
+        SELECT li.assessment_id, li.quantity, li.unit
+        FROM lca_line_items li
+        JOIN lca_assessments la ON la.assessment_id = li.assessment_id
+        WHERE li.line_item_id = %s AND la.job_id = %s
+        LIMIT 1
+        """,
+        [int(line_item_id), int(job_id)],
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="LCA line item not found")
+    return int(row[0]), safe_float(row[1]), str(row[2] or "")
+
+
+def _leg_line_item(con, job_id: int, leg_id: int) -> tuple[int, int]:
+    """Returns (line_item_id, assessment_id) for a leg, 404ing if it doesn't
+    belong to this job."""
+    row = con.execute(
+        """
+        SELECT t.line_item_id, li.assessment_id
+        FROM lca_transport_legs t
+        JOIN lca_line_items li ON li.line_item_id = t.line_item_id
+        JOIN lca_assessments la ON la.assessment_id = li.assessment_id
+        WHERE t.leg_id = %s AND la.job_id = %s
+        LIMIT 1
+        """,
+        [int(leg_id), int(job_id)],
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Transport leg not found")
+    return int(row[0]), int(row[1])
+
+
+def _resolve_leg_geo_and_distance(mode: str, origin_label: str, destination_label: str, manual_distance_km: Any) -> dict[str, Any]:
+    """Geocodes both ends and estimates distance (haversine x mode detour
+    factor). Falls back to a manual distance if either end fails to geocode
+    -- Nominatim is a free, imperfect service and a leg shouldn't be
+    unsaveable just because it couldn't resolve "Changsha, Hunan, China"."""
+    manual_provided = manual_distance_km not in (None, "")
+    origin_geo = geocode_location(origin_label)
+    destination_geo = geocode_location(destination_label)
+
+    result: dict[str, Any] = {
+        "origin_latitude": origin_geo["latitude"] if origin_geo else None,
+        "origin_longitude": origin_geo["longitude"] if origin_geo else None,
+        "origin_geocode_precision": origin_geo["precision"] if origin_geo else "failed",
+        "destination_latitude": destination_geo["latitude"] if destination_geo else None,
+        "destination_longitude": destination_geo["longitude"] if destination_geo else None,
+        "destination_geocode_precision": destination_geo["precision"] if destination_geo else "failed",
+        "straight_line_km": None,
+        "detour_factor": DETOUR_FACTORS.get(mode, 1.0),
+    }
+
+    if origin_geo and destination_geo:
+        straight_line_km, calculated_km = estimate_leg_distance_km(
+            mode, origin_geo["latitude"], origin_geo["longitude"], destination_geo["latitude"], destination_geo["longitude"],
+        )
+        result["straight_line_km"] = straight_line_km
+        if manual_provided:
+            result["distance_km"] = safe_float(manual_distance_km)
+            result["distance_source"] = "manual"
+        else:
+            result["distance_km"] = calculated_km
+            result["distance_source"] = "calculated"
+    else:
+        if not manual_provided:
+            raise HTTPException(
+                status_code=400,
+                detail="Couldn't locate one or both of those places -- enter a distance (km) manually to save this leg.",
+            )
+        result["distance_km"] = safe_float(manual_distance_km)
+        result["distance_source"] = "manual"
+
+    return result
+
+
+def _recompute_line_transport_emissions(con, line_item_id: int) -> None:
+    """Sums every leg's emissions_tco2e into the parent line's
+    transport_emissions_tco2e -- the cached value resolve_line_emissions_tco2e
+    (services/lca_engine.py) reads instead of quantity x factor_value."""
+    row = con.execute(
+        "SELECT COUNT(*), COALESCE(SUM(emissions_tco2e), 0) FROM lca_transport_legs WHERE line_item_id = %s",
+        [int(line_item_id)],
+    ).fetchone()
+    leg_count = int(row[0]) if row else 0
+    total = float(row[1]) if row else 0.0
+    con.execute(
+        "UPDATE lca_line_items SET transport_emissions_tco2e = %s WHERE line_item_id = %s",
+        [total if leg_count > 0 else None, int(line_item_id)],
+    )
+
+
+@router.get("/jobs/{job_id}/lca/line-items/{line_item_id}/transport-legs")
+def list_transport_legs(job_id: int, line_item_id: int, _user: dict[str, str] = Depends(_current_user)):
+    assert_permission(_user, "jobs.view")
+    assert_job_access(_user, int(job_id))
+    try:
+        with get_conn() as con:
+            _line_item_for_legs(con, int(job_id), int(line_item_id))
+            df = con.execute(
+                "SELECT * FROM lca_transport_legs WHERE line_item_id = %s ORDER BY leg_order, leg_id",
+                [int(line_item_id)],
+            ).df()
+            if df is None or df.empty:
+                return {"line_item_id": int(line_item_id), "legs": []}
+            df = df.astype(object).where(df.notna(), None)
+            legs = [
+                {
+                    "leg_id": int(r.get("leg_id")),
+                    "leg_order": int(r.get("leg_order") or 0),
+                    "mode": r.get("mode"),
+                    "origin_label": r.get("origin_label"),
+                    "origin_latitude": _float_or_none(r.get("origin_latitude")),
+                    "origin_longitude": _float_or_none(r.get("origin_longitude")),
+                    "origin_geocode_precision": r.get("origin_geocode_precision"),
+                    "destination_label": r.get("destination_label"),
+                    "destination_latitude": _float_or_none(r.get("destination_latitude")),
+                    "destination_longitude": _float_or_none(r.get("destination_longitude")),
+                    "destination_geocode_precision": r.get("destination_geocode_precision"),
+                    "straight_line_km": _float_or_none(r.get("straight_line_km")),
+                    "detour_factor": _float_or_none(r.get("detour_factor")),
+                    "distance_km": _float_or_none(r.get("distance_km")),
+                    "distance_source": r.get("distance_source"),
+                    "mapped_factor_id": _int_or_none(r.get("mapped_factor_id")),
+                    "factor_value": _float_or_none(r.get("factor_value")),
+                    "factor_unit": r.get("factor_unit"),
+                    "factor_source_label": r.get("factor_source_label"),
+                    "emissions_tco2e": round(safe_float(r.get("emissions_tco2e")), 6),
+                    "notes": r.get("notes"),
+                }
+                for _, r in df.iterrows()
+            ]
+            return {"line_item_id": int(line_item_id), "legs": legs}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load transport legs: {e}")
+
+
+@router.post("/jobs/{job_id}/lca/line-items/{line_item_id}/transport-legs")
+def create_transport_leg(job_id: int, line_item_id: int, body: dict = Body(...), _user: dict[str, str] = Depends(_current_user)):
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+    try:
+        with get_conn(autocommit=False) as con:
+            assessment_id, quantity, unit = _line_item_for_legs(con, int(job_id), int(line_item_id))
+
+            mode = str(body.get("mode") or "").strip().lower()
+            if mode not in VALID_MODES:
+                raise HTTPException(status_code=400, detail=f"mode must be one of {', '.join(VALID_MODES)}")
+            origin_label = str(body.get("origin_label") or "").strip()
+            destination_label = str(body.get("destination_label") or "").strip()
+            if not origin_label or not destination_label:
+                raise HTTPException(status_code=400, detail="origin_label and destination_label are required")
+
+            geo = _resolve_leg_geo_and_distance(mode, origin_label, destination_label, body.get("distance_km"))
+
+            factor_value = safe_float(body.get("factor_value")) if body.get("factor_value") not in (None, "") else None
+            factor_unit = str(body.get("factor_unit") or "").strip() or None
+            mass_kg = quantity if unit.strip().lower() in ("kg", "kilogram", "kilograms") else 0.0
+            leg_emissions = (
+                compute_leg_emissions_tco2e(mass_kg, geo["distance_km"], factor_value, factor_unit)
+                if factor_value is not None else 0.0
+            )
+
+            next_order = con.execute(
+                "SELECT COALESCE(MAX(leg_order), -1) + 1 FROM lca_transport_legs WHERE line_item_id = %s",
+                [int(line_item_id)],
+            ).fetchone()[0]
+
+            row = con.execute(
+                """
+                INSERT INTO lca_transport_legs (
+                  line_item_id, leg_order, mode, origin_label, origin_latitude, origin_longitude,
+                  origin_geocode_precision, destination_label, destination_latitude, destination_longitude,
+                  destination_geocode_precision, straight_line_km, detour_factor, distance_km, distance_source,
+                  mapped_factor_id, factor_value, factor_unit, factor_source_label, emissions_tco2e, notes,
+                  created_by, updated_by
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING leg_id
+                """,
+                [
+                    int(line_item_id), int(next_order), mode, origin_label,
+                    geo["origin_latitude"], geo["origin_longitude"], geo["origin_geocode_precision"],
+                    destination_label, geo["destination_latitude"], geo["destination_longitude"],
+                    geo["destination_geocode_precision"], geo["straight_line_km"], geo["detour_factor"],
+                    geo["distance_km"], geo["distance_source"],
+                    int(body.get("mapped_factor_id")) if str(body.get("mapped_factor_id") or "").strip().isdigit() else None,
+                    factor_value, factor_unit,
+                    str(body.get("factor_source_label") or "").strip() or None,
+                    leg_emissions,
+                    str(body.get("notes") or "").strip() or None,
+                    _actor(_user), _actor(_user),
+                ],
+            ).fetchone()
+            leg_id = int(row[0])
+
+            _recompute_line_transport_emissions(con, int(line_item_id))
+            summary = _recalculate_assessment(con, assessment_id, _user)
+            return {"ok": True, "leg_id": leg_id, "summary": summary}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create transport leg: {e}")
+
+
+@router.patch("/jobs/{job_id}/lca/transport-legs/{leg_id}")
+def update_transport_leg(job_id: int, leg_id: int, body: dict = Body(...), _user: dict[str, str] = Depends(_current_user)):
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+    try:
+        with get_conn(autocommit=False) as con:
+            line_item_id, assessment_id = _leg_line_item(con, int(job_id), int(leg_id))
+            existing = con.execute(
+                "SELECT mode, origin_label, destination_label, factor_value, factor_unit FROM lca_transport_legs WHERE leg_id = %s",
+                [int(leg_id)],
+            ).fetchone()
+            if not existing:
+                raise HTTPException(status_code=404, detail="Transport leg not found")
+
+            mode = str(body.get("mode") or existing[0] or "").strip().lower()
+            if mode not in VALID_MODES:
+                raise HTTPException(status_code=400, detail=f"mode must be one of {', '.join(VALID_MODES)}")
+            origin_label = str(body.get("origin_label") or existing[1] or "").strip()
+            destination_label = str(body.get("destination_label") or existing[2] or "").strip()
+            geo_changed = any(field in body for field in ("mode", "origin_label", "destination_label", "distance_km"))
+
+            _, quantity, unit = _line_item_for_legs(con, int(job_id), int(line_item_id))
+            mass_kg = quantity if unit.strip().lower() in ("kg", "kilogram", "kilograms") else 0.0
+
+            factor_value = (
+                safe_float(body.get("factor_value")) if body.get("factor_value") not in (None, "")
+                else (existing[3] if "factor_value" not in body else None)
+            )
+            factor_unit = str(body.get("factor_unit") or existing[4] or "").strip() or None
+
+            if geo_changed:
+                geo = _resolve_leg_geo_and_distance(mode, origin_label, destination_label, body.get("distance_km"))
+                leg_emissions = (
+                    compute_leg_emissions_tco2e(mass_kg, geo["distance_km"], factor_value, factor_unit)
+                    if factor_value is not None else 0.0
+                )
+                con.execute(
+                    """
+                    UPDATE lca_transport_legs SET
+                      mode = %s, origin_label = %s, origin_latitude = %s, origin_longitude = %s,
+                      origin_geocode_precision = %s, destination_label = %s, destination_latitude = %s,
+                      destination_longitude = %s, destination_geocode_precision = %s, straight_line_km = %s,
+                      detour_factor = %s, distance_km = %s, distance_source = %s,
+                      factor_value = %s, factor_unit = %s, emissions_tco2e = %s, updated_at = NOW(), updated_by = %s
+                    WHERE leg_id = %s
+                    """,
+                    [
+                        mode, origin_label, geo["origin_latitude"], geo["origin_longitude"], geo["origin_geocode_precision"],
+                        destination_label, geo["destination_latitude"], geo["destination_longitude"],
+                        geo["destination_geocode_precision"], geo["straight_line_km"], geo["detour_factor"],
+                        geo["distance_km"], geo["distance_source"], factor_value, factor_unit, leg_emissions,
+                        _actor(_user), int(leg_id),
+                    ],
+                )
+            else:
+                # Only the factor and/or notes changed -- distance/geocoding untouched.
+                current_distance = con.execute("SELECT distance_km FROM lca_transport_legs WHERE leg_id = %s", [int(leg_id)]).fetchone()[0]
+                leg_emissions = (
+                    compute_leg_emissions_tco2e(mass_kg, safe_float(current_distance), factor_value, factor_unit)
+                    if factor_value is not None else 0.0
+                )
+                con.execute(
+                    "UPDATE lca_transport_legs SET factor_value = %s, factor_unit = %s, emissions_tco2e = %s, updated_at = NOW(), updated_by = %s WHERE leg_id = %s",
+                    [factor_value, factor_unit, leg_emissions, _actor(_user), int(leg_id)],
+                )
+
+            if "mapped_factor_id" in body:
+                mfid = str(body.get("mapped_factor_id") or "").strip()
+                con.execute(
+                    "UPDATE lca_transport_legs SET mapped_factor_id = %s WHERE leg_id = %s",
+                    [int(mfid) if mfid.isdigit() else None, int(leg_id)],
+                )
+            if "factor_source_label" in body:
+                con.execute(
+                    "UPDATE lca_transport_legs SET factor_source_label = %s WHERE leg_id = %s",
+                    [str(body.get("factor_source_label") or "").strip() or None, int(leg_id)],
+                )
+            if "notes" in body:
+                con.execute(
+                    "UPDATE lca_transport_legs SET notes = %s WHERE leg_id = %s",
+                    [str(body.get("notes") or "").strip() or None, int(leg_id)],
+                )
+
+            _recompute_line_transport_emissions(con, line_item_id)
+            summary = _recalculate_assessment(con, assessment_id, _user)
+            return {"ok": True, "summary": summary}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update transport leg: {e}")
+
+
+@router.delete("/jobs/{job_id}/lca/transport-legs/{leg_id}")
+def delete_transport_leg(job_id: int, leg_id: int, _user: dict[str, str] = Depends(_current_user)):
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+    try:
+        with get_conn(autocommit=False) as con:
+            line_item_id, assessment_id = _leg_line_item(con, int(job_id), int(leg_id))
+            con.execute("DELETE FROM lca_transport_legs WHERE leg_id = %s", [int(leg_id)])
+            _recompute_line_transport_emissions(con, line_item_id)
+            summary = _recalculate_assessment(con, assessment_id, _user)
+            return {"ok": True, "summary": summary}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete transport leg: {e}")
 
 
 def _currency_codes(con) -> set[str]:
