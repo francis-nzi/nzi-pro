@@ -160,11 +160,11 @@ def backfill_spend_rows(args: argparse.Namespace) -> int:
               AND factor_db_id IS NOT NULL
               AND (
                 COALESCE(data_source, '') = 'Spend Data'
-                OR COALESCE(original_id, '') LIKE 'SPEND-%'
+                OR COALESCE(original_id, '') LIKE %s
               )
             ORDER BY row_id
             """,
-            params,
+            [*params, "SPEND-%"],
         ).df()
 
         if rows is None or rows.empty:
