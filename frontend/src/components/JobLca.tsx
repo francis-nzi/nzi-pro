@@ -367,6 +367,12 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [legFactorSearchResults, setLegFactorSearchResults] = useState<FactorSearchResult[]>([]);
   const [legFactorSearchLoading, setLegFactorSearchLoading] = useState(false);
   const [savingLeg, setSavingLeg] = useState(false);
+  // Which existing leg (by leg_id) has its factor-search box open, if any --
+  // shares legFactorSearchQuery/Results/Loading with the "Add a leg" form
+  // (only one of the two is ever shown at a time, gated by this being null
+  // vs. set), so opening one clears the other rather than showing stale
+  // results in the wrong place.
+  const [editingLegFactorId, setEditingLegFactorId] = useState<number | null>(null);
 
   const [lcaDatasets, setLcaDatasets] = useState<DatasetOption[]>([]);
   const [selectedDatasetIds, setSelectedDatasetIds] = useState<number[]>([]);
@@ -977,6 +983,14 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     setNewLegDestination("");
     setNewLegManualDistance("");
     setNewLegFactor(null);
+    setEditingLegFactorId(null);
+    setLegFactorSearchQuery("");
+    setLegFactorSearchResults([]);
+  }
+
+  function startEditLegFactor(legId: number) {
+    setEditingLegFactorId(legId);
+    setNewLegFactor(null);
     setLegFactorSearchQuery("");
     setLegFactorSearchResults([]);
   }
@@ -1060,6 +1074,39 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
       }
     } catch (e) {
       setError((e as Error).message);
+    }
+  }
+
+  async function applyLegFactor(legId: number, candidate: FactorSearchResult) {
+    if (!detailItem) return;
+    setSavingLeg(true);
+    setError("");
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/lca/transport-legs/${legId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mapped_factor_id: candidate.db_id,
+          factor_value: candidate.factor,
+          factor_unit: candidate.uom,
+          factor_source_label: candidate.label,
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d?.detail || `Failed to update leg (${res.status})`);
+      }
+      setEditingLegFactorId(null);
+      await loadTransportLegs(detailItem.line_item_id);
+      if (selectedAssessmentId) {
+        await loadItems(selectedAssessmentId);
+        await loadAssessments();
+        await loadAssessmentDetail(selectedAssessmentId);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSavingLeg(false);
     }
   }
 
@@ -2989,6 +3036,11 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
           </DialogHeader>
           {detailItem ? (
             <div className="space-y-4">
+              {/* The page-level error banner (line ~1788) renders behind this
+                  Dialog's overlay -- invisible while the modal is open. Any
+                  action taken from in here (saving the item, adding/editing a
+                  leg) needs its own visible copy of the same error state. */}
+              {error ? <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</div> : null}
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{isService ? "Scope 3 Category" : "Module"}</Label>
@@ -3151,12 +3203,48 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                                 {leg.distance_km != null ? `${Math.round(leg.distance_km).toLocaleString()} km` : "no distance"}
                                 {leg.distance_source === "manual" ? " (manual)" : ""}
                                 {" -- "}
-                                {leg.factor_source_label ? `${leg.factor_source_label} (${leg.factor_value} ${leg.factor_unit})` : "no factor mapped"}
+                                {leg.factor_source_label ? (
+                                  <>{leg.factor_source_label} ({leg.factor_value} {leg.factor_unit})</>
+                                ) : (
+                                  <span className="text-amber-700">no factor mapped</span>
+                                )}{" "}
+                                <button type="button" className="text-primary underline" onClick={() => startEditLegFactor(leg.leg_id)}>
+                                  {leg.factor_source_label ? "Change" : "Add factor"}
+                                </button>
                                 {" -- "}
                                 {leg.emissions_tco2e.toLocaleString(undefined, { maximumFractionDigits: 6 })} tCO2e
                               </div>
                               {leg.origin_geocode_precision === "failed" || leg.destination_geocode_precision === "failed" ? (
                                 <div className="text-amber-700">Couldn&apos;t place one or both locations on the map -- distance is manual only.</div>
+                              ) : null}
+                              {editingLegFactorId === leg.leg_id ? (
+                                <div className="mt-2 space-y-1 rounded-md border bg-muted/30 p-2">
+                                  <div className="flex gap-2">
+                                    <Input
+                                      value={legFactorSearchQuery}
+                                      onChange={(e) => setLegFactorSearchQuery(e.target.value)}
+                                      onKeyDown={(e) => { if (e.key === "Enter") void runLegFactorSearch(); }}
+                                      placeholder="e.g. HGV, cargo ship, rail freight..."
+                                      className="h-8"
+                                    />
+                                    <Button size="sm" onClick={() => void runLegFactorSearch()} disabled={legFactorSearchLoading}>
+                                      {legFactorSearchLoading ? "Searching..." : "Search"}
+                                    </Button>
+                                    <Button size="sm" variant="outline" onClick={() => setEditingLegFactorId(null)}>Cancel</Button>
+                                  </div>
+                                  {legFactorSearchResults.length > 0 ? (
+                                    <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border bg-background p-2">
+                                      {legFactorSearchResults.map((c) => (
+                                        <div key={`${c.source_table || "factor_lookup"}-${c.db_id}`} className="flex items-center justify-between gap-2 text-xs">
+                                          <span>{c.label} ({c.factor} {c.uom})</span>
+                                          <Button size="sm" variant="outline" disabled={savingLeg} onClick={() => void applyLegFactor(leg.leg_id, c)}>
+                                            Use this
+                                          </Button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </div>
                               ) : null}
                             </div>
                             <Button size="sm" variant="ghost" className="text-rose-700" onClick={() => void deleteTransportLeg(leg.leg_id)}>
@@ -3211,7 +3299,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                           "No emission factor picked yet -- search below (e.g. \"HGV\", \"cargo ship\", \"freight flight\")."
                         )}
                       </div>
-                      {!newLegFactor ? (
+                      {!newLegFactor && editingLegFactorId === null ? (
                         <>
                           <div className="flex gap-2">
                             <Input
