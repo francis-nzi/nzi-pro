@@ -365,6 +365,7 @@ def compute_readiness(
         details["factor_confidence"] = f"{trustworthy}/{non_placeholder_count} lines have a trustworthy factor"
 
     modules_in_scope = [m for m in (included_modules or []) if m]
+    missing_modules: list[str] = []
     if not modules_in_scope:
         sub_scores["module_coverage"] = 0.0
         details["module_coverage"] = "No modules in scope" if not is_service else "No Scope 3 categories in scope"
@@ -374,6 +375,11 @@ def compute_readiness(
         sub_scores["module_coverage"] = covered / len(modules_in_scope)
         noun = "in-scope Scope 3 categories" if is_service else "in-scope modules"
         details["module_coverage"] = f"{covered}/{len(modules_in_scope)} {noun} have data"
+        # Preserves modules_in_scope's order (lca_modules_lookup.sort_order,
+        # per how included_modules is built) rather than set iteration order,
+        # so Stage 4's list reads in the same A1/A2/A3.../D sequence as
+        # everywhere else this vocabulary is shown.
+        missing_modules = [m for m in modules_in_scope if m not in modules_with_data]
 
     checks = []
     total_score = 0.0
@@ -396,4 +402,5 @@ def compute_readiness(
         "score": round(total_score, 1),
         "status_label": _readiness_status_label(total_score),
         "checks": checks,
+        "missing_modules": missing_modules,
     }

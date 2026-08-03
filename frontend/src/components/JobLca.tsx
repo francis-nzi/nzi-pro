@@ -65,7 +65,7 @@ type ReadinessCheck = {
   detail: string;
 };
 
-type Readiness = { score: number; status_label: string; checks: ReadinessCheck[] };
+type Readiness = { score: number; status_label: string; checks: ReadinessCheck[]; missing_modules?: string[] };
 
 type FactorCandidate = {
   db_id: number;
@@ -1640,6 +1640,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   }
 
   const moduleLabel = (code: string) => modules.find((m) => m.module_code === code)?.label || code;
+  const missingModules = summary?.readiness?.missing_modules || [];
   const isService = assessment?.assessment_type === "service";
   const serviceModules = useMemo(() => modules.filter((m) => m.module_group === "scope3"), [modules]);
   const isLineItemResolved = (row: LineItem) => row.is_placeholder || Boolean(row.mapped_factor_source) || row.is_gap_filled;
@@ -2378,6 +2379,37 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
             ) : null}
           </CardHeader>
           <CardContent className="space-y-3">
+            {/* Stage 4 only ever resolves factors on lines that already
+                exist (see the visibleLineItems logic below) -- it has no
+                mechanism to prompt for a module with zero lines at all, so
+                a whole missing module (e.g. A2) produced no signal here
+                despite the readiness score already knowing about the gap.
+                This surfaces that gap explicitly and links back to where
+                it's actually fixed (Stage 2: Inventory). */}
+            {activeWorkflowStage === "gap-filling" && missingModules.length > 0 ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="font-medium">
+                  {missingModules.length} in-scope {isService ? "categor" : "module"}
+                  {isService ? (missingModules.length === 1 ? "y" : "ies") : (missingModules.length === 1 ? "" : "s")}{" "}
+                  {missingModules.length === 1 ? "has" : "have"} no data yet
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {missingModules.map((code) => (
+                    <button
+                      key={code}
+                      type="button"
+                      className="rounded-full border border-amber-300 bg-white px-2.5 py-1 text-xs hover:bg-amber-100"
+                      onClick={() => setActiveWorkflowStage("inventory")}
+                    >
+                      {code} - {moduleLabel(code)}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-1.5 text-xs text-amber-800">
+                  This stage only resolves factors on items that already exist -- click a module above to jump to Inventory and add its data.
+                </div>
+              </div>
+            ) : null}
             {items.length === 0 ? (
               <div className="text-sm text-muted-foreground">No line items yet.</div>
             ) : visibleLineItems.length === 0 ? (
