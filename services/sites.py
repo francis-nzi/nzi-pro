@@ -79,20 +79,10 @@ def ensure_registered_office_site(client_db_id: int, con=None) -> int | None:
     ).fetchone()
 
     if existing_site:
-        site_id = int(existing_site[0])
-        existing_location = str(existing_site[2] or "").strip()
-        # Preserve any user-edited site name; only keep the address/location and
-        # registered-office linkage in sync.
-        if existing_location != location:
-            con.execute(
-                """
-                UPDATE client_sites
-                SET location = ?, is_registered_office = ?
-                WHERE site_id = ?
-                """,
-                [location, True, site_id],
-            )
-        return site_id
+        # ``create_site_from_address`` is a creation preference, not an
+        # instruction to keep overwriting the site forever. Once the site
+        # exists, its editable name and location belong to the site record.
+        return int(existing_site[0])
 
     if db_backend() == "postgres":
         inserted = con.execute(
