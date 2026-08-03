@@ -23,6 +23,24 @@ def test_land_segment_dropped_and_colon_inserted():
     )
 
 
+def test_cars_by_size_segment_dropped():
+    assert (
+        titlecase_report_label("Passenger vehicles - Cars (by size) - Average car - Diesel")
+        == "Passenger Vehicles: Average Car Diesel"
+    )
+    assert (
+        titlecase_report_label("Business travel- land - Cars (by size) - Small car - Petrol")
+        == "Business Travel: Small Car Petrol"
+    )
+
+
+def test_managed_cars_by_size_segment_dropped_without_losing_managed():
+    assert (
+        titlecase_report_label("Managed assets- vehicles - Managed cars (by size) - Average car - Diesel")
+        == "Managed Assets: Vehicles Average Car Diesel"
+    )
+
+
 def test_air_and_sea_segments_kept_not_treated_as_redundant():
     assert (
         titlecase_report_label("Business travel- air - Flights - Domestic, to/from UK - Average passenger")
@@ -100,7 +118,7 @@ def test_repeated_wtt_marker_with_mode_qualifier_segment_between():
 def test_repeated_wtt_marker_with_land_segment_between_both_removed():
     assert (
         titlecase_report_label("WTT- pass vehs & travel- land - WTT- cars (by size) - Small car - Petrol")
-        == "WTT: Pass Vehs & Travel Cars (by Size) Small Car Petrol"
+        == "WTT: Pass Vehs & Travel Small Car Petrol"
     )
 
 
@@ -114,8 +132,8 @@ def test_single_wtt_marker_left_alone():
 
 def test_compound_word_hyphen_and_small_word_by():
     assert (
-        titlecase_report_label("Passenger vehicles - Cars (by size) - Medium car - Plug-in Hybrid Electric Vehicle")
-        == "Passenger Vehicles: Cars (by Size) Medium Car Plug-in Hybrid Electric Vehicle"
+        titlecase_report_label("Passenger vehicles - Vans (by size) - Medium van - Plug-in Hybrid Electric Vehicle")
+        == "Passenger Vehicles: Vans (by Size) Medium Van Plug-in Hybrid Electric Vehicle"
     )
 
 

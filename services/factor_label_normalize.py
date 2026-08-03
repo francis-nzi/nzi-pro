@@ -132,6 +132,17 @@ _REDUNDANT_SEGMENTS = {"land"}
 # fine, left alone), so "keep the first, drop the rest" is unambiguous.
 _REPEATED_MARKER_SEGMENTS = {"wtt"}
 
+# "Cars (by size)" / "Managed cars (by size)" is a data-source method
+# descriptor, not content -- the following segment always already states the
+# actual size class ("Average car", "Large car", "Small car", "Medium car"),
+# so both the "cars" and "(by size)" parts are redundant with it. "Managed"
+# is also redundant given the category itself is always "Managed assets-
+# vehicles" (-> "Managed Assets: Vehicles ..."), so dropping the whole
+# segment loses no information. Confirmed live: exactly these two exact
+# segment strings exist across the dataset (4,187 rows) -- no "Vans (by
+# size)"/"HGVs (by size)" or similar variants.
+_REDUNDANT_VEHICLE_CLASS_SEGMENTS = {"cars (by size)", "managed cars (by size)"}
+
 
 def _apply_word_casing(text: str) -> str:
     """Title-cases free text without mangling acronyms, units, Roman
@@ -204,7 +215,8 @@ def split_top_level_segments(text: str) -> list[str]:
 
 
 def _restructure_segments(segments: list[str]) -> list[str]:
-    """Drops redundant mode-qualifier segments (see _REDUNDANT_SEGMENTS),
+    """Drops redundant mode-qualifier segments (see _REDUNDANT_SEGMENTS) and
+    redundant vehicle-class segments (see _REDUNDANT_VEHICLE_CLASS_SEGMENTS),
     collapses a repeated marker segment like "WTT" down to its first
     occurrence (see _REPEATED_MARKER_SEGMENTS), and collapses
     immediately-repeated segments (e.g. "Water supply - Water supply -
@@ -213,7 +225,11 @@ def _restructure_segments(segments: list[str]) -> list[str]:
     dedup pass on purpose: removing a repeated "WTT" (or a "land" segment
     sitting between two "WTT"s) can bring an already-duplicated segment like
     "heat and steam" into adjacency, which the final pass then catches."""
-    filtered = [s for s in segments if s.strip().lower() not in _REDUNDANT_SEGMENTS]
+    filtered = [
+        s for s in segments
+        if s.strip().lower() not in _REDUNDANT_SEGMENTS
+        and s.strip().lower() not in _REDUNDANT_VEHICLE_CLASS_SEGMENTS
+    ]
 
     seen_marker: set[str] = set()
     marker_filtered: list[str] = []
