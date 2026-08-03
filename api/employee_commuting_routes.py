@@ -297,6 +297,16 @@ def _distance_unit_base(value: Any) -> str:
     return unit
 
 
+def _hours_equivalent_unit(value: Any) -> bool:
+    """True if `value` describes an hours-denominated rate -- e.g. the WFH
+    factor's uom "per FTE Working Hour", which is numerically 1:1 with plain
+    "hours", just phrased descriptively in the source data. _convert_quantity
+    only understands distance units (miles/km/passenger.km), so calling it
+    for the WFH "hours" -> "per FTE Working Hour" pair always returned None
+    and made every WFH submission unresolvable -- confirmed live 2026-08."""
+    return "hour" in _norm_text(value)
+
+
 def _default_variant_for_mode(mode: str) -> str | None:
     if mode.startswith("car - "):
         return "average"
@@ -1060,7 +1070,11 @@ def _resolve_preview_rows(
             continue
 
         factor_uom = _safe_str(factor_record.get("uom")) or "hours"
-        converted_qty = _convert_quantity(float(quantity), "hours", factor_uom)
+        converted_qty = (
+            float(quantity)
+            if _hours_equivalent_unit(factor_uom)
+            else _convert_quantity(float(quantity), "hours", factor_uom)
+        )
         if converted_qty is None:
             unresolved_rows.append(
                 {
@@ -1493,7 +1507,11 @@ def _resolve_manual_commuting_rows(
             continue
 
         factor_uom = _safe_str(factor_record.get("uom")) or "hours"
-        converted_qty = _convert_quantity(float(quantity), "hours", factor_uom)
+        converted_qty = (
+            float(quantity)
+            if _hours_equivalent_unit(factor_uom)
+            else _convert_quantity(float(quantity), "hours", factor_uom)
+        )
         if converted_qty is None:
             unresolved_rows.append(
                 {
