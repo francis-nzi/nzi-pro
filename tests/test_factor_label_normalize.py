@@ -5,76 +5,89 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from services.factor_label_normalize import titlecase_report_label
+from services.factor_label_normalize import split_top_level_segments, titlecase_report_label
 
 
-def test_already_clean_label_unchanged():
+def test_already_clean_single_segment_label_unchanged():
     assert titlecase_report_label("Business Travel Medium Car Petrol") == "Business Travel Medium Car Petrol"
 
 
-def test_stray_dash_and_mixed_case():
+def test_land_segment_dropped_and_colon_inserted():
+    assert (
+        titlecase_report_label("Business travel- land - Medium car - Diesel")
+        == "Business Travel: Medium Car Diesel"
+    )
     assert (
         titlecase_report_label("Employee commuting- land - Large car - Petrol")
-        == "Employee Commuting- Land - Large Car - Petrol"
+        == "Employee Commuting: Large Car Petrol"
     )
 
 
-def test_hgv_acronym_preserved():
+def test_air_and_sea_segments_kept_not_treated_as_redundant():
+    assert (
+        titlecase_report_label("Business travel- air - Flights - Domestic, to/from UK - Average passenger")
+        == "Business Travel: Air Flights Domestic, to/from UK Average Passenger"
+    )
+
+
+def test_hgv_acronym_preserved_with_colon_restructure():
     assert (
         titlecase_report_label("Freighting goods - HGV (all diesel) - All artics - Average laden")
-        == "Freighting Goods - HGV (All Diesel) - All Artics - Average Laden"
+        == "Freighting Goods: HGV (All Diesel) All Artics Average Laden"
     )
 
 
-def test_dwt_unit_preserved_lowercase():
+def test_dwt_and_numeric_range_outside_parens_untouched():
     assert (
         titlecase_report_label("Freighting goods - Sea tanker - Crude tanker - 80,000-119,999 dwt")
-        == "Freighting Goods - Sea Tanker - Crude Tanker - 80,000-119,999 dwt"
+        == "Freighting Goods: Sea Tanker Crude Tanker 80,000-119,999 dwt"
     )
 
 
-def test_lng_and_m3_preserved():
+def test_paren_protected_numeric_range_survives_intact():
+    # The " - " inside "(>3.5 - 33t)" must NOT be treated as a segment
+    # separator -- confirmed live, 2,524 rows have this exact shape.
     assert (
-        titlecase_report_label("Freighting goods - Sea tanker - LNG tanker - 0-199,999 m3")
-        == "Freighting Goods - Sea Tanker - LNG Tanker - 0-199,999 m3"
+        titlecase_report_label("Delivery vehicles - HGV (all diesel) - Articulated (>3.5 - 33t) - 0% Laden")
+        == "Delivery Vehicles: HGV (All Diesel) Articulated (>3.5 - 33t) 0% Laden"
     )
-
-
-def test_numeric_range_with_percent_untouched():
     assert (
         titlecase_report_label("Freighting goods - HGV refrigerated (all diesel) - Rigid (>7.5 tonnes-17 tonnes) - 100% Laden")
-        == "Freighting Goods - HGV Refrigerated (All Diesel) - Rigid (>7.5 Tonnes-17 Tonnes) - 100% Laden"
+        == "Freighting Goods: HGV Refrigerated (All Diesel) Rigid (>7.5 Tonnes-17 Tonnes) 100% Laden"
     )
 
 
-def test_uk_acronym_preserved_with_colon():
-    assert (
-        titlecase_report_label("UK Renewable Electricity - Electricity generated - Renewable Electricity: Grid")
-        == "UK Renewable Electricity - Electricity Generated - Renewable Electricity: Grid"
-    )
+def test_consecutive_duplicate_segments_collapsed_to_single_segment():
+    assert titlecase_report_label("Water supply - Water supply - Water supply") == "Water Supply"
 
 
-def test_compound_word_hyphen_and_small_word_in():
-    # "by" is a small connector word, stays lowercase mid-label (not the
-    # first word of the whole string) -- standard title-case convention.
+def test_consecutive_duplicate_segment_collapsed_leaving_remainder():
+    assert titlecase_report_label("Hotel stay - Hotel stay - Egypt") == "Hotel Stay: Egypt"
+
+
+def test_consecutive_duplicate_segment_collapsed_different_words_after():
+    assert titlecase_report_label("Bioenergy - Biogas - Biogas") == "Bioenergy: Biogas"
+
+
+def test_non_adjacent_repeat_not_collapsed_by_design():
+    # The "WTT- X - WTT- Y" prefix pattern repeats non-adjacently -- this is
+    # a different, known, deliberately out-of-scope duplication shape (see
+    # module docstring / _restructure_segments), not a bug in this test.
+    result = titlecase_report_label("WTT- heat and steam - WTT- heat and steam - Onsite heat and steam - kWh")
+    assert result == "WTT: Heat and Steam WTT Heat and Steam Onsite Heat and Steam kWh"
+
+
+def test_compound_word_hyphen_and_small_word_by():
     assert (
         titlecase_report_label("Passenger vehicles - Cars (by size) - Medium car - Plug-in Hybrid Electric Vehicle")
-        == "Passenger Vehicles - Cars (by Size) - Medium Car - Plug-in Hybrid Electric Vehicle"
-    )
-
-
-def test_percent_and_parens_untouched():
-    assert (
-        titlecase_report_label("Fuels - Liquid fuels - Diesel (100% mineral diesel)")
-        == "Fuels - Liquid Fuels - Diesel (100% Mineral Diesel)"
+        == "Passenger Vehicles: Cars (by Size) Medium Car Plug-in Hybrid Electric Vehicle"
     )
 
 
 def test_roman_numeral_class_and_to_lowercase():
-    # "to" is a small connector word, stays lowercase mid-label.
     assert (
         titlecase_report_label("Freighting goods - Vans - Class II (1.305 to 1.74 tonnes) - Petrol")
-        == "Freighting Goods - Vans - Class II (1.305 to 1.74 Tonnes) - Petrol"
+        == "Freighting Goods: Vans Class II (1.305 to 1.74 Tonnes) Petrol"
     )
 
 
@@ -83,12 +96,34 @@ def test_co2e_digit_glued_acronym():
 
 
 def test_kwh_mixed_case_unit():
-    assert titlecase_report_label("grid electricity - kwh basis") == "Grid Electricity - kWh Basis"
+    assert titlecase_report_label("grid electricity - kwh basis") == "Grid Electricity: kWh Basis"
 
 
 def test_all_is_capitalized_not_lowercased():
-    assert titlecase_report_label("Freighting goods - HGV (all diesel) - All HGVs - 0% Laden") == (
-        "Freighting Goods - HGV (All Diesel) - All HGVs - 0% Laden"
+    assert (
+        titlecase_report_label("Freighting goods - HGV (all diesel) - All HGVs - 0% Laden")
+        == "Freighting Goods: HGV (All Diesel) All HGVs 0% Laden"
+    )
+
+
+def test_tonne_abbreviation_stays_lowercase():
+    assert (
+        titlecase_report_label("Delivery vehicles - HGV (all diesel) - Articulated (>33t) - Average laden")
+        == "Delivery Vehicles: HGV (All Diesel) Articulated (>33t) Average Laden"
+    )
+
+
+def test_kg_unit_preserved_lowercase():
+    assert (
+        titlecase_report_label("Concrete - average UK cement replacement rate - with total cementitious content of 180 kg per m3 of concrete")
+        == "Concrete: Average UK Cement Replacement Rate with Total Cementitious Content of 180 kg per m3 of Concrete"
+    )
+
+
+def test_from_stays_lowercase_across_slash():
+    assert (
+        titlecase_report_label("Business travel- air - Flights - Domestic, to/from UK - Average passenger")
+        == "Business Travel: Air Flights Domestic, to/from UK Average Passenger"
     )
 
 
@@ -97,34 +132,38 @@ def test_empty_and_none_pass_through():
     assert titlecase_report_label(None) == ""
 
 
-def test_tonne_abbreviation_stays_lowercase():
-    assert (
-        titlecase_report_label("Delivery vehicles - HGV (all diesel) - Articulated (>33t) - Average laden")
-        == "Delivery Vehicles - HGV (All Diesel) - Articulated (>33t) - Average Laden"
-    )
-    assert (
-        titlecase_report_label("Freighting goods - HGV refrigerated (all diesel) - Articulated (>3.5 - 33t) - 100% Laden")
-        == "Freighting Goods - HGV Refrigerated (All Diesel) - Articulated (>3.5 - 33t) - 100% Laden"
-    )
-
-
-def test_kg_unit_preserved_lowercase():
-    # "with" is mid-label here (not the first word of the whole string), so
-    # it stays lowercase along with the "kg"/"m3" units and "per"/"of".
-    assert (
-        titlecase_report_label("Concrete - average UK cement replacement rate - with total cementitious content of 180 kg per m3 of concrete")
-        == "Concrete - Average UK Cement Replacement Rate - with Total Cementitious Content of 180 kg per m3 of Concrete"
-    )
-
-
-def test_from_stays_lowercase_across_slash():
-    assert (
-        titlecase_report_label("Business travel- air - Flights - Domestic, to/from UK - Average passenger")
-        == "Business Travel- Air - Flights - Domestic, to/from UK - Average Passenger"
-    )
-
-
 def test_idempotent_on_already_normalized_input():
     once = titlecase_report_label("Freighting goods - Sea tanker - LNG tanker - 0-199,999 m3")
     twice = titlecase_report_label(once)
     assert once == twice
+
+
+def test_idempotent_on_deduplicated_input():
+    once = titlecase_report_label("Water supply - Water supply - Water supply")
+    twice = titlecase_report_label(once)
+    assert once == twice
+
+
+# --- split_top_level_segments (the paren-aware splitter directly) ---
+
+def test_split_ignores_dash_inside_parens():
+    assert split_top_level_segments("Rigid (>3.5 - 33t) - Average laden") == [
+        "Rigid (>3.5 - 33t)",
+        "Average laden",
+    ]
+
+
+def test_split_handles_tight_hyphen_no_spaces():
+    assert split_top_level_segments("80,000-119,999 dwt") == ["80,000-119,999 dwt"]
+
+
+def test_split_handles_word_dash_space_form():
+    assert split_top_level_segments("Business travel- land - Medium car") == [
+        "Business travel",
+        "land",
+        "Medium car",
+    ]
+
+
+def test_split_single_segment_no_dash():
+    assert split_top_level_segments("Business Travel Medium Car Petrol") == ["Business Travel Medium Car Petrol"]

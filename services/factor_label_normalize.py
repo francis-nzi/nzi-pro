@@ -100,12 +100,20 @@ EXCLUDED_CATEGORIES = {"Refrigerants", "Cement and Mortar", "Concrete", "Steel",
 
 _WORD_RE = re.compile(r"[A-Za-z]+")
 
+# Mode-qualifier segments that are redundant given the activity itself (cars,
+# rail, walking, buses, etc. can only be land transport) -- dropped outright.
+# "air"/"sea" are NOT in this set: those genuinely distinguish one activity
+# from another (confirmed live: "land" never co-occurs with "air"/"sea" in
+# the same label, and is never the label's last segment -- always safe to
+# drop with real content left over).
+_REDUNDANT_SEGMENTS = {"land"}
 
-def titlecase_report_label(text: str) -> str:
-    """Title-cases a DEFRA-style report label without mangling acronyms,
-    units, Roman numerals, or numeric ranges (which have no letters and so
-    pass through this untouched regardless)."""
-    text = str(text or "")
+
+def _apply_word_casing(text: str) -> str:
+    """Title-cases free text without mangling acronyms, units, Roman
+    numerals, or numeric ranges (which have no letters and so pass through
+    this untouched regardless). The first word of the whole string is always
+    capitalized; small connector words elsewhere stay lowercase."""
     if not text.strip():
         return text
 
@@ -132,6 +140,79 @@ def titlecase_report_label(text: str) -> str:
     result = re.sub(*_TONNE_ABBREVIATION_FIXUP, result)
 
     return result
+
+
+def split_top_level_segments(text: str) -> list[str]:
+    """Splits on a genuine separator dash (space-adjacent, e.g. " - " or
+    "word- ") but never inside parentheses -- so a numeric range like
+    "(>3.5 - 33t)" survives as one segment instead of being torn in half.
+    Confirmed live: 2,524 rows have a " - "-shaped numeric range inside
+    parens that a paren-naive splitter would have corrupted."""
+    segments: list[str] = []
+    current: list[str] = []
+    depth = 0
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "(":
+            depth += 1
+            current.append(ch)
+            i += 1
+            continue
+        if ch == ")":
+            depth = max(0, depth - 1)
+            current.append(ch)
+            i += 1
+            continue
+        if depth == 0 and ch == "-":
+            space_before = i > 0 and text[i - 1] == " "
+            space_after = i + 1 < n and text[i + 1] == " "
+            if space_before or space_after:
+                segments.append("".join(current))
+                current = []
+                i += 2 if space_after else 1
+                continue
+        current.append(ch)
+        i += 1
+    segments.append("".join(current))
+    return [s.strip() for s in segments if s.strip()]
+
+
+def _restructure_segments(segments: list[str]) -> list[str]:
+    """Drops redundant mode-qualifier segments (see _REDUNDANT_SEGMENTS) and
+    collapses immediately-repeated segments (e.g. "Water supply - Water
+    supply - Water supply" -> "Water supply"; "Hotel stay - Hotel stay -
+    Egypt" -> "Hotel stay - Egypt"). Deliberately does NOT catch
+    non-adjacent repeats like the "WTT- X - WTT- Y" prefix pattern used
+    throughout Fuels and Energy Related Activities -- that's a repeated
+    2-segment prefix, not a simple duplicate, and needs its own pass."""
+    filtered = [s for s in segments if s.strip().lower() not in _REDUNDANT_SEGMENTS]
+    deduped: list[str] = []
+    for seg in filtered:
+        if deduped and seg.strip().lower() == deduped[-1].strip().lower():
+            continue
+        deduped.append(seg)
+    return deduped
+
+
+def titlecase_report_label(text: str) -> str:
+    """Full normalization pipeline for a DEFRA-style report label: drop
+    redundant "land" mode qualifiers, collapse adjacent duplicate segments,
+    rejoin as "First segment: remaining segments space-joined", then apply
+    acronym-safe title casing to the result. A single-segment label (no
+    separator dash) passes through the casing pass with no colon inserted."""
+    text = str(text or "")
+    if not text.strip():
+        return text
+
+    segments = _restructure_segments(split_top_level_segments(text))
+    if len(segments) <= 1:
+        rejoined = segments[0] if segments else text
+    else:
+        rejoined = f"{segments[0]}: {' '.join(segments[1:])}"
+
+    return _apply_word_casing(rejoined)
 
 
 # A label is in-scope for this cleanup only if it has a genuine separator
