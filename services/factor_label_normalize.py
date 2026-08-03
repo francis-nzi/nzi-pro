@@ -108,6 +108,14 @@ _WORD_RE = re.compile(r"[A-Za-z]+")
 # drop with real content left over).
 _REDUNDANT_SEGMENTS = {"land"}
 
+# "WTT" (Well-to-Tank) is a genuine prefix marker, applied at two tiers of a
+# category in the source data -- "WTT- <category> - WTT- <subcategory> -
+# <detail>" -- not duplicate information, but written twice per label as a
+# structural convention. Confirmed live: never appears 3+ times in a single
+# label (268 distinct labels have exactly 2, 51 have exactly 1 -- already
+# fine, left alone), so "keep the first, drop the rest" is unambiguous.
+_REPEATED_MARKER_SEGMENTS = {"wtt"}
+
 
 def _apply_word_casing(text: str) -> str:
     """Title-cases free text without mangling acronyms, units, Roman
@@ -180,16 +188,29 @@ def split_top_level_segments(text: str) -> list[str]:
 
 
 def _restructure_segments(segments: list[str]) -> list[str]:
-    """Drops redundant mode-qualifier segments (see _REDUNDANT_SEGMENTS) and
-    collapses immediately-repeated segments (e.g. "Water supply - Water
-    supply - Water supply" -> "Water supply"; "Hotel stay - Hotel stay -
-    Egypt" -> "Hotel stay - Egypt"). Deliberately does NOT catch
-    non-adjacent repeats like the "WTT- X - WTT- Y" prefix pattern used
-    throughout Fuels and Energy Related Activities -- that's a repeated
-    2-segment prefix, not a simple duplicate, and needs its own pass."""
+    """Drops redundant mode-qualifier segments (see _REDUNDANT_SEGMENTS),
+    collapses a repeated marker segment like "WTT" down to its first
+    occurrence (see _REPEATED_MARKER_SEGMENTS), and collapses
+    immediately-repeated segments (e.g. "Water supply - Water supply -
+    Water supply" -> "Water supply"; "Hotel stay - Hotel stay - Egypt" ->
+    "Hotel stay - Egypt"). The marker-collapse runs before the adjacent
+    dedup pass on purpose: removing a repeated "WTT" (or a "land" segment
+    sitting between two "WTT"s) can bring an already-duplicated segment like
+    "heat and steam" into adjacency, which the final pass then catches."""
     filtered = [s for s in segments if s.strip().lower() not in _REDUNDANT_SEGMENTS]
-    deduped: list[str] = []
+
+    seen_marker: set[str] = set()
+    marker_filtered: list[str] = []
     for seg in filtered:
+        key = seg.strip().lower()
+        if key in _REPEATED_MARKER_SEGMENTS:
+            if key in seen_marker:
+                continue
+            seen_marker.add(key)
+        marker_filtered.append(seg)
+
+    deduped: list[str] = []
+    for seg in marker_filtered:
         if deduped and seg.strip().lower() == deduped[-1].strip().lower():
             continue
         deduped.append(seg)

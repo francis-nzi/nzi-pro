@@ -69,12 +69,47 @@ def test_consecutive_duplicate_segment_collapsed_different_words_after():
     assert titlecase_report_label("Bioenergy - Biogas - Biogas") == "Bioenergy: Biogas"
 
 
-def test_non_adjacent_repeat_not_collapsed_by_design():
-    # The "WTT- X - WTT- Y" prefix pattern repeats non-adjacently -- this is
-    # a different, known, deliberately out-of-scope duplication shape (see
-    # module docstring / _restructure_segments), not a bug in this test.
-    result = titlecase_report_label("WTT- heat and steam - WTT- heat and steam - Onsite heat and steam - kWh")
-    assert result == "WTT: Heat and Steam WTT Heat and Steam Onsite Heat and Steam kWh"
+def test_repeated_wtt_marker_collapsed_to_first_occurrence():
+    # "WTT" is a genuine two-tier prefix marker in the source data, not
+    # duplicate information, but it's written twice per label -- confirmed
+    # live, never 3+ times. Collapsing it to the first occurrence also
+    # brings the (also-repeated) "heat and steam" segment into adjacency,
+    # which the ordinary adjacent-dedup pass then collapses too.
+    assert (
+        titlecase_report_label("WTT- heat and steam - WTT- heat and steam - Onsite heat and steam - kWh")
+        == "WTT: Heat and Steam Onsite Heat and Steam kWh"
+    )
+
+
+def test_repeated_wtt_marker_with_non_duplicate_segments_between():
+    assert (
+        titlecase_report_label("WTT- delivery vehs & freight - WTT- HGV refrigerated (all diesel) - Rigid (>3.5 - 7.5 tonnes) - 0% Laden")
+        == "WTT: Delivery Vehs & Freight HGV Refrigerated (All Diesel) Rigid (>3.5 - 7.5 Tonnes) 0% Laden"
+    )
+
+
+def test_repeated_wtt_marker_with_mode_qualifier_segment_between():
+    # "air" sits between the two WTT markers here -- must survive (it's not
+    # in _REDUNDANT_SEGMENTS) while both WTT occurrences still collapse to one.
+    assert (
+        titlecase_report_label("WTT- business travel- air - WTT- flights - Long-haul, to/from UK - Economy class")
+        == "WTT: Business Travel Air Flights Long-Haul, to/from UK Economy Class"
+    )
+
+
+def test_repeated_wtt_marker_with_land_segment_between_both_removed():
+    assert (
+        titlecase_report_label("WTT- pass vehs & travel- land - WTT- cars (by size) - Small car - Petrol")
+        == "WTT: Pass Vehs & Travel Cars (by Size) Small Car Petrol"
+    )
+
+
+def test_single_wtt_marker_left_alone():
+    # Only one WTT segment here -- nothing to collapse, this is already fine.
+    assert (
+        titlecase_report_label("WTT- fuels - Liquid fuels - Marine fuel oil")
+        == "WTT: Fuels Liquid Fuels Marine Fuel Oil"
+    )
 
 
 def test_compound_word_hyphen_and_small_word_by():
