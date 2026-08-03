@@ -1087,7 +1087,8 @@ def bulk_normalize_factor_report_labels(
                     fl.currency,
                     fl.method,
                     fl.valid_from,
-                    fl.valid_to
+                    fl.valid_to,
+                    fl.factor_definition_id
                 FROM v_factor_lookup fl
                 LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
                 WHERE {where_sql}
@@ -1097,7 +1098,9 @@ def bulk_normalize_factor_report_labels(
             ).df()
 
             preview_items: list[dict[str, Any]] = []
-            changed_rows: list[tuple[int, str]] = []
+            # (db_id, new_label, factor_definition_id) -- factor_definition_id
+            # is None for rows with no emission_factor_definitions match.
+            changed_rows: list[tuple[int, str, int | None]] = []
             matched_count = 0
             if df is not None and not df.empty:
                 matched_count = int(len(df.index))
@@ -1107,7 +1110,10 @@ def bulk_normalize_factor_report_labels(
                     new_label = _normalize_report_label_text(current_label, remove_terms)
                     if not current_label or not new_label or new_label == current_label:
                         continue
-                    changed_rows.append((int(record["db_id"]), new_label))
+                    factor_definition_id = (
+                        int(record["factor_definition_id"]) if record.get("factor_definition_id") is not None else None
+                    )
+                    changed_rows.append((int(record["db_id"]), new_label, factor_definition_id))
                     if len(preview_items) < preview_limit:
                         preview_items.append(
                             {
@@ -1126,11 +1132,23 @@ def bulk_normalize_factor_report_labels(
 
             updated_count = 0
             if not dry_run and changed_rows:
-                for db_id_value, new_label in changed_rows:
+                # v_factor_lookup.report_label prefers emission_factor_definitions.
+                # report_label over factor_lookup.report_label whenever the former
+                # is set (sql_migrations/0050_phase2_dual_read_view.sql) -- for the
+                # ~91% of rows now backed by a definitions row (confirmed live,
+                # 2026-08-03), writing factor_lookup alone left the displayed label
+                # completely unchanged. Both tables get the new label so it takes
+                # effect regardless of which one the view is currently preferring.
+                for db_id_value, new_label, factor_definition_id in changed_rows:
                     con.execute(
                         "UPDATE factor_lookup SET report_label = %s WHERE db_id = %s",
                         [new_label, db_id_value],
                     )
+                    if factor_definition_id is not None:
+                        con.execute(
+                            "UPDATE emission_factor_definitions SET report_label = %s WHERE factor_id = %s",
+                            [new_label, factor_definition_id],
+                        )
                 updated_count = len(changed_rows)
 
         return {

@@ -7,7 +7,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import api.admin_routes as admin_routes
+import api.admin_datasets_routes as admin_routes
 
 
 class _BulkConn:
@@ -16,7 +16,12 @@ class _BulkConn:
         self.executed: list[tuple[str, list[object] | None]] = []
         self._last_sql = ""
         self._last_params: list[object] | None = None
+        # Real writes go to two different tables depending on whether a row
+        # is backed by emission_factor_definitions (see the dual-read view,
+        # sql_migrations/0050_phase2_dual_read_view.sql) -- tracked separately
+        # so the test can confirm both actually happen, not just the legacy one.
         self.updated: list[tuple[int, str]] = []
+        self.updated_defs: list[tuple[int, str]] = []
 
     def __enter__(self):
         return self
@@ -30,10 +35,12 @@ class _BulkConn:
         self._last_params = params
         if "UPDATE factor_lookup SET report_label = %s WHERE db_id = %s" in sql and params:
             self.updated.append((int(params[1]), str(params[0])))
+        if "UPDATE emission_factor_definitions SET report_label = %s WHERE factor_id = %s" in sql and params:
+            self.updated_defs.append((int(params[1]), str(params[0])))
         return self
 
     def df(self):
-        if "FROM factor_lookup" in self._last_sql:
+        if "FROM v_factor_lookup" in self._last_sql:
             rows = self.rows
             if self._last_params:
                 needles = [
@@ -53,8 +60,23 @@ class _BulkConn:
 
 
 def _bulk_rows() -> list[dict[str, object]]:
+    base = {
+        "level_1": None,
+        "level_2": None,
+        "level_3": None,
+        "level_4": None,
+        "uom": "kgCO2e",
+        "ghg_unit": "kgCO2e",
+        "source": "source",
+        "region": "UK",
+        "currency": None,
+        "method": None,
+        "valid_from": None,
+        "valid_to": None,
+    }
     return [
         {
+            **base,
             "db_id": 101,
             "dataset_id": 10,
             "dataset": "UK Activity & Spend 2022",
@@ -65,24 +87,16 @@ def _bulk_rows() -> list[dict[str, object]]:
             "original_id": "SPEND-BT-1",
             "scope": "Scope 3",
             "category": "Business Travel",
-            "level_1": None,
-            "level_2": None,
-            "level_3": None,
-            "level_4": None,
             "column_text": "Business travel- land - Cars (by size) - Average car",
             "current_label": "Business travel- land - Cars (by size) - Average car",
             "report_label": "Business travel- land - Cars (by size) - Average car",
-            "uom": "kgCO2e",
-            "ghg_unit": "kgCO2e",
             "factor": 0.20416,
-            "source": "source",
-            "region": "UK",
-            "currency": None,
-            "method": None,
-            "valid_from": None,
-            "valid_to": None,
+            # Backed by emission_factor_definitions -- the view prefers this
+            # table's report_label, so the apply path must write here too.
+            "factor_definition_id": 501,
         },
         {
+            **base,
             "db_id": 102,
             "dataset_id": 10,
             "dataset": "UK Activity & Spend 2022",
@@ -93,24 +107,15 @@ def _bulk_rows() -> list[dict[str, object]]:
             "original_id": "EMP-COMM-1",
             "scope": "Scope 3",
             "category": "Employee Commuting",
-            "level_1": None,
-            "level_2": None,
-            "level_3": None,
-            "level_4": None,
             "column_text": "Employee commuting - Cars (by size) - Average car",
             "current_label": "Employee commuting - Cars (by size) - Average car",
             "report_label": "Employee commuting - Cars (by size) - Average car",
-            "uom": "kgCO2e",
-            "ghg_unit": "kgCO2e",
             "factor": 0.14876,
-            "source": "source",
-            "region": "UK",
-            "currency": None,
-            "method": None,
-            "valid_from": None,
-            "valid_to": None,
+            # No emission_factor_definitions match -- legacy factor_lookup-only row.
+            "factor_definition_id": None,
         },
         {
+            **base,
             "db_id": 103,
             "dataset_id": 11,
             "dataset": "Company Vehicles 2022",
@@ -121,24 +126,14 @@ def _bulk_rows() -> list[dict[str, object]]:
             "original_id": "VEH-1",
             "scope": "Scope 3",
             "category": "Company Vehicles",
-            "level_1": None,
-            "level_2": None,
-            "level_3": None,
-            "level_4": None,
             "column_text": "Company vehicles - Cars (by size) - Average car",
             "current_label": "Company vehicles - Cars (by size) - Average car",
             "report_label": "Company vehicles - Cars (by size) - Average car",
-            "uom": "kgCO2e",
-            "ghg_unit": "kgCO2e",
             "factor": 0.99,
-            "source": "source",
-            "region": "UK",
-            "currency": None,
-            "method": None,
-            "valid_from": None,
-            "valid_to": None,
+            "factor_definition_id": 503,
         },
         {
+            **base,
             "db_id": 104,
             "dataset_id": 12,
             "dataset": "Other 2022",
@@ -149,22 +144,11 @@ def _bulk_rows() -> list[dict[str, object]]:
             "original_id": "OTHER-1",
             "scope": "Scope 3",
             "category": "Purchased Goods & Services",
-            "level_1": None,
-            "level_2": None,
-            "level_3": None,
-            "level_4": None,
             "column_text": "Purchased goods and services - Office supplies",
             "current_label": "Purchased goods and services - Office supplies",
             "report_label": "Purchased goods and services - Office supplies",
-            "uom": "kgCO2e",
-            "ghg_unit": "kgCO2e",
             "factor": 0.1,
-            "source": "source",
-            "region": "UK",
-            "currency": None,
-            "method": None,
-            "valid_from": None,
-            "valid_to": None,
+            "factor_definition_id": 504,
         },
     ]
 
@@ -190,6 +174,9 @@ def test_bulk_normalize_report_labels_preview_and_apply(monkeypatch):
     assert preview["preview"][0]["new_label"] == "Business travel- land - Average car"
     assert all("Cars (by size)" not in item["new_label"] for item in preview["preview"])
     assert all(item["db_id"] != 104 for item in preview["preview"])
+    # dry_run must not write anything, to either table.
+    assert fake.updated == []
+    assert fake.updated_defs == []
 
     applied = admin_routes.bulk_normalize_factor_report_labels(
         {
@@ -202,8 +189,17 @@ def test_bulk_normalize_report_labels_preview_and_apply(monkeypatch):
 
     assert applied["dry_run"] is False
     assert applied["updated_count"] == 3
+    # factor_lookup is written for every changed row, matched or not.
     assert fake.updated == [
         (101, "Business travel- land - Average car"),
         (102, "Employee commuting - Average car"),
         (103, "Company vehicles - Average car"),
+    ]
+    # emission_factor_definitions is written only for rows with a definitions
+    # match (101, 103) -- 102 has no factor_definition_id and must be skipped.
+    # This is the fix: previously only factor_lookup was written, which the
+    # dual-read view's COALESCE silently ignored for ~91% of production rows.
+    assert fake.updated_defs == [
+        (501, "Business travel- land - Average car"),
+        (503, "Company vehicles - Average car"),
     ]
