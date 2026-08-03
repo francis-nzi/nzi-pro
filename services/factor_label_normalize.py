@@ -98,6 +98,22 @@ _TONNE_ABBREVIATION_FIXUP = (r"(?<=\d)T\b", "t")
 # one at a time.
 EXCLUDED_CATEGORIES = {"Refrigerants", "Cement and Mortar", "Concrete", "Steel", "Timber"}
 
+# The exact set of categories that matched the messy-label scope query
+# (SEPARATOR_DASH_REGEX), minus EXCLUDED_CATEGORIES -- confirmed live.
+# Needed as an explicit list (not re-derivable from the regex) for anything
+# that has to find these rows *after* cleanup, once their labels no longer
+# contain a dash to match on -- e.g. resync_definitions in
+# utils/normalize_defra_style_report_labels.py. Re-deriving this from
+# "does the current label contain a colon" instead is NOT safe: several
+# unrelated categories (Bricks, Paper) have pre-existing, unrelated colons
+# in their already-correct USEEIO-style labels.
+TARGET_CATEGORIES = {
+    "Business Travel", "Employee Commuting", "Company Vehicles", "Fuels", "Energy",
+    "Purchased Goods and Services", "Upstream Transportation and Distribution",
+    "Downstream Transportation and Distribution", "Fuels and Energy Related Activities",
+    "Upstream Leased Assets", "Waste Generated in Operations", "Capital Goods",
+}
+
 _WORD_RE = re.compile(r"[A-Za-z]+")
 
 # Mode-qualifier segments that are redundant given the activity itself (cars,
