@@ -792,7 +792,7 @@ def geocode_client_sites(
     Nominatim (services/geocoding.py). Admin/staff-triggered only -- never
     called from a live client-portal request path, since Nominatim's public
     instance is rate-limited to 1 request/second."""
-    from services.geocoding import geocode_location
+    from services.geocoding import geocode_location_detailed
 
     try:
         assert_permission(_user, "clients.sites.manage")
@@ -805,8 +805,10 @@ def geocode_client_sites(
                 SELECT site_id, location
                 FROM client_sites
                 WHERE client_db_id = ?
-                  AND latitude IS NULL
+                  AND (latitude IS NULL OR longitude IS NULL)
                   AND location IS NOT NULL AND TRIM(location) != ''
+                  AND vacated_date IS NULL
+                  AND (archived = FALSE OR archived IS NULL)
                 """,
                 [int(client_db_id)],
             ).fetchall()
@@ -814,14 +816,17 @@ def geocode_client_sites(
             geocoded = 0
             skipped = 0
             results: list[dict[str, object]] = []
+            failure_counts: dict[str, int] = {}
             for i, (site_id, location) in enumerate(rows or []):
                 if i > 0:
                     import time
                     time.sleep(1)
-                hit = geocode_location(str(location))
+                hit, failure_reason = geocode_location_detailed(str(location))
                 if not hit:
                     skipped += 1
-                    results.append({"site_id": int(site_id), "ok": False})
+                    reason = failure_reason or "not_found"
+                    failure_counts[reason] = failure_counts.get(reason, 0) + 1
+                    results.append({"site_id": int(site_id), "ok": False, "reason": reason})
                     continue
                 con.execute(
                     """
@@ -833,7 +838,12 @@ def geocode_client_sites(
                     [hit["latitude"], hit["longitude"], hit["precision"], int(site_id)],
                 )
                 geocoded += 1
-                results.append({"site_id": int(site_id), "ok": True, "precision": hit["precision"]})
+                results.append({
+                    "site_id": int(site_id),
+                    "ok": True,
+                    "precision": hit["precision"],
+                    "fallback_used": bool(hit.get("fallback_used")),
+                })
 
             if rows:
                 record_audit_event(
@@ -844,10 +854,22 @@ def geocode_client_sites(
                     entity_type="client_site",
                     entity_id=None,
                     client_id=int(client_db_id),
-                    metadata={"attempted": len(rows), "geocoded": geocoded, "skipped": skipped},
+                    metadata={
+                        "attempted": len(rows),
+                        "geocoded": geocoded,
+                        "skipped": skipped,
+                        "failure_counts": failure_counts,
+                    },
                 )
 
-            return {"ok": True, "attempted": len(rows), "geocoded": geocoded, "skipped": skipped, "results": results}
+            return {
+                "ok": True,
+                "attempted": len(rows),
+                "geocoded": geocoded,
+                "skipped": skipped,
+                "failure_counts": failure_counts,
+                "results": results,
+            }
     except HTTPException:
         raise
     except Exception as e:

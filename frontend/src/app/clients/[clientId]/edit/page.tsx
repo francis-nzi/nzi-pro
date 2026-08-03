@@ -537,12 +537,24 @@ export default function EditClientPage() {
         headers: withAuditHeaders({}, { page: "Clients", section: "Sites", container: "Geocode Sites" }),
       });
       if (!res.ok) throw new Error("Failed to geocode sites");
-      const data = await res.json() as { attempted: number; geocoded: number; skipped: number };
+      const data = await res.json() as {
+        attempted: number;
+        geocoded: number;
+        skipped: number;
+        failure_counts?: Record<string, number>;
+      };
       await loadSites();
       if (data.attempted === 0) {
         toast.success("All sites already have coordinates");
+      } else if (data.geocoded === 0) {
+        const serviceProblem = (data.failure_counts?.service_unavailable ?? 0) > 0;
+        toast.warning(serviceProblem
+          ? "The geocoding service is temporarily unavailable. Please try again later."
+          : `Could not resolve ${data.attempted} active site(s). You can enter coordinates manually.`);
+      } else if (data.skipped > 0) {
+        toast.warning(`Geocoded ${data.geocoded} of ${data.attempted} active site(s); ${data.skipped} could not be resolved`);
       } else {
-        toast.success(`Geocoded ${data.geocoded} of ${data.attempted} site(s)${data.skipped ? `, ${data.skipped} could not be resolved` : ""}`);
+        toast.success(`Geocoded all ${data.geocoded} active site(s)`);
       }
     } catch (e) {
       toast.error((e as Error).message);
@@ -1497,7 +1509,7 @@ export default function EditClientPage() {
                               {site.latitude != null && site.longitude != null ? (
                                 <div className="mt-0.5 text-xs text-muted-foreground">
                                   {site.latitude.toFixed(4)}, {site.longitude.toFixed(4)}
-                                  {site.geocode_source === "manual" ? " (manual)" : site.geocode_precision === "city" ? " (city-level)" : ""}
+                                  {site.geocode_source === "manual" ? " (manual)" : site.geocode_precision === "city" ? " (city-level)" : site.geocode_precision === "postcode" ? " (postcode-level)" : ""}
                                 </div>
                               ) : (
                                 <div className="mt-0.5 text-xs text-muted-foreground">Not geocoded yet</div>

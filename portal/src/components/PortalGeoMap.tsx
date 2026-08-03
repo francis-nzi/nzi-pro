@@ -24,7 +24,7 @@ const MIN_RADIUS = 6;
 const MAX_RADIUS = 24;
 
 /**
- * Bubbles sites geocoded to address/city precision, sized by latest-year
+ * Bubbles sites geocoded to address/postcode/city precision, sized by latest-year
  * emissions from the same by_site data the Facility Leaderboard uses.
  * Sites with no coordinates yet, or resolved only to country level (too
  * coarse to plot meaningfully next to real addresses), are listed
@@ -61,7 +61,7 @@ export default function PortalGeoMap() {
     const unmapped: SiteGeo[] = [];
     for (const site of sites) {
       const hasCoords = site.latitude != null && site.longitude != null;
-      const preciseEnough = site.geocode_precision === "address" || site.geocode_precision === "city";
+      const preciseEnough = ["address", "postcode", "city"].includes(site.geocode_precision ?? "");
       if (hasCoords && preciseEnough) {
         const emissions = latest ? Number(latest[site.site_name] ?? 0) : 0;
         mapped.push({ ...site, latitude: site.latitude as number, longitude: site.longitude as number, emissions });
