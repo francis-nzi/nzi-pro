@@ -2139,7 +2139,18 @@ def sync_spend_to_scope_data(
 
             amount = grp["amount_gross"]
             factor_value = _safe_float(factor.get("factor"), 0.0)
-            calc_tco2e = amount * factor_value
+            # amount x factor is in kg (factor is kgCO2e-denominated, matching
+            # the hardcoded ghg_unit='kgCO2e' below) -- calc_tco2e must be in
+            # tonnes like everywhere else this column is used (e.g.
+            # services/monthly_emissions.py's _calc_tco2e). Confirmed live:
+            # this division was missing entirely, storing calc_tco2e 1000x
+            # too large for every spend-derived row this function ever
+            # touched. Doesn't affect the real reported total (that's always
+            # recomputed fresh from qty x factor, never trusts this stored
+            # column -- see row_metrics()), but it's wrong/misleading
+            # wherever this column IS displayed directly (e.g. the Row
+            # Detail audit modal).
+            calc_tco2e = (amount * factor_value) / 1000.0
             report_label = grp["mapped_report_label"] or factor.get("report_label") or f"Spend factor {factor_db_id_key}"
             category = grp["mapped_category"] or factor.get("category") or "Spend"
             data_conf = _confidence_to_hml(grp.get("mapping_confidence"))

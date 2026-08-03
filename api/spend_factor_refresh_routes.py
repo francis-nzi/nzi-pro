@@ -76,7 +76,7 @@ def _preview_job_spend_factor_refresh(con, job_id: int) -> dict[str, Any]:
         FROM job_scope_rows jsr
         JOIN factor_lookup fl ON fl.db_id = jsr.factor_db_id
         WHERE jsr.job_id = %s AND COALESCE(jsr.enabled, TRUE) = TRUE
-          AND jsr.original_id ILIKE %s
+          AND fl.original_id ILIKE %s
         """,
         [int(job_id), f"{SIC_PREFIX}%"],
     ).fetchall()
@@ -84,17 +84,17 @@ def _preview_job_spend_factor_refresh(con, job_id: int) -> dict[str, Any]:
     for (row_id, original_id, dataset_id, factor_db_id, uom, ghg_unit,
          factor, calc_tco2e, qty, apply_pct, report_label,
          live_factor, live_uom, live_ghg_unit) in scope_rows:
-        # calc_tco2e is NULL on many directly-imported rows (never populated at
-        # write time) -- derive the "current" figure the same way rather than
-        # trusting a column that's often empty, so the preview's before/after
-        # comparison is meaningful.
-        if calc_tco2e is not None:
-            current_val = float(calc_tco2e)
-        else:
-            current_val = float(qty or 0.0) * float(factor or 0.0) * (float(apply_pct if apply_pct is not None else 100.0) / 100.0)
-            if "kg" in str(ghg_unit or "kgCO2e").lower():
-                current_val /= 1000.0
-            current_val = round(current_val, 4)
+        # Always derive "current" from qty x factor rather than trusting the
+        # stored calc_tco2e column -- confirmed live, that column is itself
+        # wrong (off by 1000x, a missing kg->tonne conversion somewhere
+        # upstream) for at least some rows, and blindly trusting it produced
+        # a preview total in the millions of tCO2e for a single job. Using
+        # the same formula on both sides of the before/after comparison also
+        # keeps it internally consistent regardless of what wrote calc_tco2e.
+        current_val = float(qty or 0.0) * float(factor or 0.0) * (float(apply_pct if apply_pct is not None else 100.0) / 100.0)
+        if "kg" in str(ghg_unit or "kgCO2e").lower():
+            current_val /= 1000.0
+        current_val = round(current_val, 4)
         current_total += current_val
 
         live_factor_val = float(live_factor or 0.0)
