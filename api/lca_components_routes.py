@@ -52,13 +52,17 @@ def _row_to_dict(row: tuple) -> dict[str, Any]:
         "created_at": str(row[13]) if row[13] else None,
         "updated_by": row[14],
         "updated_at": str(row[15]) if row[15] else None,
+        # Optional link into the LCA Supplier Library (api/lca_suppliers_
+        # routes.py) -- supplier_name/supplier_contact above stay as free
+        # text for backward compat / ad hoc cases with no library entry.
+        "supplier_id": None if _is_missing(row[16]) else int(row[16]),
     }
 
 
 _SELECT_COLS = """
     component_id, client_db_id, component_code, description, material_category_id,
     default_unit_mass, default_unit, origin_country, supplier_name, supplier_contact,
-    notes, archived, created_by, created_at, updated_by, updated_at
+    notes, archived, created_by, created_at, updated_by, updated_at, supplier_id
 """
 
 
@@ -119,7 +123,7 @@ def list_lca_components(
                     item = _row_to_dict(tuple(r[c] for c in [
                         "component_id", "client_db_id", "component_code", "description", "material_category_id",
                         "default_unit_mass", "default_unit", "origin_country", "supplier_name", "supplier_contact",
-                        "notes", "archived", "created_by", "created_at", "updated_by", "updated_at",
+                        "notes", "archived", "created_by", "created_at", "updated_by", "updated_at", "supplier_id",
                     ]))
                     child_count = child_counts.get(item["component_id"], 0)
                     item["is_assembly"] = child_count > 0
@@ -146,9 +150,9 @@ def create_lca_component(client_db_id: int, body: dict = Body(...), _user: dict[
                 """
                 INSERT INTO lca_components (
                   client_db_id, component_code, description, material_category_id, default_unit_mass,
-                  default_unit, origin_country, supplier_name, supplier_contact, notes, created_by, updated_by
+                  default_unit, origin_country, supplier_name, supplier_contact, notes, supplier_id, created_by, updated_by
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING component_id
                 """,
                 [
@@ -162,6 +166,7 @@ def create_lca_component(client_db_id: int, body: dict = Body(...), _user: dict[
                     str(body.get("supplier_name") or "").strip() or None,
                     str(body.get("supplier_contact") or "").strip() or None,
                     str(body.get("notes") or "").strip() or None,
+                    int(body.get("supplier_id")) if str(body.get("supplier_id") or "").strip().isdigit() else None,
                     _actor(_user), _actor(_user),
                 ],
             ).fetchone()
@@ -200,6 +205,10 @@ def update_lca_component(client_db_id: int, component_id: int, body: dict = Body
                 updates.append("default_unit_mass = %s")
                 raw = body.get("default_unit_mass")
                 params.append(safe_float(raw) if raw not in (None, "") else None)
+            if "supplier_id" in body:
+                updates.append("supplier_id = %s")
+                raw = str(body.get("supplier_id") or "").strip()
+                params.append(int(raw) if raw.isdigit() else None)
             if not updates:
                 return {"ok": True}
             updates.extend(["updated_at = NOW()", "updated_by = %s"])

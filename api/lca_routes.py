@@ -1558,14 +1558,51 @@ def _leg_line_item(con, job_id: int, leg_id: int) -> tuple[int, int]:
     return int(row[0]), int(row[1])
 
 
-def _resolve_leg_geo_and_distance(mode: str, origin_label: str, destination_label: str, manual_distance_km: Any) -> dict[str, Any]:
+def _origin_geo_from_supplier_location(con, location_id: int) -> dict[str, Any] | None:
+    """Pre-geocoded supplier location (lca_supplier_locations) -- reused
+    as-is instead of calling Nominatim again for a supplier the job (or a
+    different client's job) has already used."""
+    row = con.execute(
+        "SELECT latitude, longitude, geocode_precision FROM lca_supplier_locations WHERE location_id = %s AND is_active = TRUE",
+        [int(location_id)],
+    ).fetchone()
+    if not row or row[0] is None or row[1] is None:
+        return None
+    return {"latitude": safe_float(row[0]), "longitude": safe_float(row[1]), "precision": row[2] or "address"}
+
+
+def _destination_geo_from_client_site(con, site_id: int) -> dict[str, Any] | None:
+    """Pre-geocoded client site (client_sites) -- same idea for the leg's
+    destination end."""
+    row = con.execute(
+        "SELECT latitude, longitude, geocode_precision FROM client_sites WHERE site_id = %s",
+        [int(site_id)],
+    ).fetchone()
+    if not row or row[0] is None or row[1] is None:
+        return None
+    return {"latitude": safe_float(row[0]), "longitude": safe_float(row[1]), "precision": row[2] or "address"}
+
+
+def _resolve_leg_geo_and_distance(
+    mode: str,
+    origin_label: str,
+    destination_label: str,
+    manual_distance_km: Any,
+    origin_geo_override: dict[str, Any] | None = None,
+    destination_geo_override: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Geocodes both ends and estimates distance (haversine x mode detour
     factor). Falls back to a manual distance if either end fails to geocode
     -- Nominatim is a free, imperfect service and a leg shouldn't be
-    unsaveable just because it couldn't resolve "Changsha, Hunan, China"."""
+    unsaveable just because it couldn't resolve "Changsha, Hunan, China".
+
+    `origin_geo_override`/`destination_geo_override` (already-geocoded {
+    latitude, longitude, precision } dicts from the supplier library /
+    client_sites) skip the live Nominatim call entirely for that end --
+    see _origin_geo_from_supplier_location / _destination_geo_from_client_site."""
     manual_provided = manual_distance_km not in (None, "")
-    origin_geo = geocode_location(origin_label)
-    destination_geo = geocode_location(destination_label)
+    origin_geo = origin_geo_override if origin_geo_override is not None else geocode_location(origin_label)
+    destination_geo = destination_geo_override if destination_geo_override is not None else geocode_location(destination_label)
 
     result: dict[str, Any] = {
         "origin_latitude": origin_geo["latitude"] if origin_geo else None,
@@ -1675,12 +1712,45 @@ def create_transport_leg(job_id: int, line_item_id: int, body: dict = Body(...),
             mode = str(body.get("mode") or "").strip().lower()
             if mode not in VALID_MODES:
                 raise HTTPException(status_code=400, detail=f"mode must be one of {', '.join(VALID_MODES)}")
+
+            # A supplier-library / client-site pick supplies its own label
+            # and skips live geocoding for that end -- see
+            # _origin_geo_from_supplier_location/_destination_geo_from_client_site.
+            # An explicit origin_label/destination_label in the body still
+            # wins as the display text if the caller wants to override it.
+            origin_supplier_location_id = str(body.get("origin_supplier_location_id") or "").strip()
+            origin_geo_override = None
+            if origin_supplier_location_id.isdigit():
+                origin_geo_override = _origin_geo_from_supplier_location(con, int(origin_supplier_location_id))
+                if not body.get("origin_label"):
+                    loc_row = con.execute(
+                        "SELECT location_label FROM lca_supplier_locations WHERE location_id = %s",
+                        [int(origin_supplier_location_id)],
+                    ).fetchone()
+                    if loc_row:
+                        body["origin_label"] = loc_row[0]
+
+            destination_client_site_id = str(body.get("destination_client_site_id") or "").strip()
+            destination_geo_override = None
+            if destination_client_site_id.isdigit():
+                destination_geo_override = _destination_geo_from_client_site(con, int(destination_client_site_id))
+                if not body.get("destination_label"):
+                    site_row = con.execute(
+                        "SELECT site_name FROM client_sites WHERE site_id = %s",
+                        [int(destination_client_site_id)],
+                    ).fetchone()
+                    if site_row:
+                        body["destination_label"] = site_row[0]
+
             origin_label = str(body.get("origin_label") or "").strip()
             destination_label = str(body.get("destination_label") or "").strip()
             if not origin_label or not destination_label:
                 raise HTTPException(status_code=400, detail="origin_label and destination_label are required")
 
-            geo = _resolve_leg_geo_and_distance(mode, origin_label, destination_label, body.get("distance_km"))
+            geo = _resolve_leg_geo_and_distance(
+                mode, origin_label, destination_label, body.get("distance_km"),
+                origin_geo_override=origin_geo_override, destination_geo_override=destination_geo_override,
+            )
 
             factor_value = safe_float(body.get("factor_value")) if body.get("factor_value") not in (None, "") else None
             factor_unit = str(body.get("factor_unit") or "").strip() or None
@@ -1702,9 +1772,10 @@ def create_transport_leg(job_id: int, line_item_id: int, body: dict = Body(...),
                   origin_geocode_precision, destination_label, destination_latitude, destination_longitude,
                   destination_geocode_precision, straight_line_km, detour_factor, distance_km, distance_source,
                   mapped_factor_id, factor_value, factor_unit, factor_source_label, emissions_tco2e, notes,
+                  origin_supplier_location_id, destination_client_site_id,
                   created_by, updated_by
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING leg_id
                 """,
                 [
@@ -1718,6 +1789,8 @@ def create_transport_leg(job_id: int, line_item_id: int, body: dict = Body(...),
                     str(body.get("factor_source_label") or "").strip() or None,
                     leg_emissions,
                     str(body.get("notes") or "").strip() or None,
+                    int(origin_supplier_location_id) if origin_supplier_location_id.isdigit() else None,
+                    int(destination_client_site_id) if destination_client_site_id.isdigit() else None,
                     _actor(_user), _actor(_user),
                 ],
             ).fetchone()
@@ -1740,7 +1813,11 @@ def update_transport_leg(job_id: int, leg_id: int, body: dict = Body(...), _user
         with get_conn(autocommit=False) as con:
             line_item_id, assessment_id = _leg_line_item(con, int(job_id), int(leg_id))
             existing = con.execute(
-                "SELECT mode, origin_label, destination_label, factor_value, factor_unit FROM lca_transport_legs WHERE leg_id = %s",
+                """
+                SELECT mode, origin_label, destination_label, factor_value, factor_unit,
+                       origin_supplier_location_id, destination_client_site_id
+                FROM lca_transport_legs WHERE leg_id = %s
+                """,
                 [int(leg_id)],
             ).fetchone()
             if not existing:
@@ -1749,9 +1826,52 @@ def update_transport_leg(job_id: int, leg_id: int, body: dict = Body(...), _user
             mode = str(body.get("mode") or existing[0] or "").strip().lower()
             if mode not in VALID_MODES:
                 raise HTTPException(status_code=400, detail=f"mode must be one of {', '.join(VALID_MODES)}")
+
+            # Preserve the existing provenance FK when the caller doesn't
+            # touch it -- e.g. changing just the mode/distance on a leg that
+            # already points at a supplier location must not silently wipe
+            # that link back to None.
+            if "origin_supplier_location_id" in body:
+                raw = str(body.get("origin_supplier_location_id") or "").strip()
+                origin_supplier_location_id = int(raw) if raw.isdigit() else None
+            else:
+                origin_supplier_location_id = int(existing[5]) if existing[5] is not None else None
+            origin_geo_override = None
+            if origin_supplier_location_id is not None and "origin_supplier_location_id" in body:
+                origin_geo_override = _origin_geo_from_supplier_location(con, origin_supplier_location_id)
+                if not body.get("origin_label"):
+                    loc_row = con.execute(
+                        "SELECT location_label FROM lca_supplier_locations WHERE location_id = %s",
+                        [origin_supplier_location_id],
+                    ).fetchone()
+                    if loc_row:
+                        body["origin_label"] = loc_row[0]
+
+            if "destination_client_site_id" in body:
+                raw = str(body.get("destination_client_site_id") or "").strip()
+                destination_client_site_id = int(raw) if raw.isdigit() else None
+            else:
+                destination_client_site_id = int(existing[6]) if existing[6] is not None else None
+            destination_geo_override = None
+            if destination_client_site_id is not None and "destination_client_site_id" in body:
+                destination_geo_override = _destination_geo_from_client_site(con, destination_client_site_id)
+                if not body.get("destination_label"):
+                    site_row = con.execute(
+                        "SELECT site_name FROM client_sites WHERE site_id = %s",
+                        [destination_client_site_id],
+                    ).fetchone()
+                    if site_row:
+                        body["destination_label"] = site_row[0]
+
             origin_label = str(body.get("origin_label") or existing[1] or "").strip()
             destination_label = str(body.get("destination_label") or existing[2] or "").strip()
-            geo_changed = any(field in body for field in ("mode", "origin_label", "destination_label", "distance_km"))
+            geo_changed = any(
+                field in body
+                for field in (
+                    "mode", "origin_label", "destination_label", "distance_km",
+                    "origin_supplier_location_id", "destination_client_site_id",
+                )
+            )
 
             _, quantity, unit = _line_item_for_legs(con, int(job_id), int(line_item_id))
             mass_kg = quantity if unit.strip().lower() in ("kg", "kilogram", "kilograms") else 0.0
@@ -1763,7 +1883,10 @@ def update_transport_leg(job_id: int, leg_id: int, body: dict = Body(...), _user
             factor_unit = str(body.get("factor_unit") or existing[4] or "").strip() or None
 
             if geo_changed:
-                geo = _resolve_leg_geo_and_distance(mode, origin_label, destination_label, body.get("distance_km"))
+                geo = _resolve_leg_geo_and_distance(
+                    mode, origin_label, destination_label, body.get("distance_km"),
+                    origin_geo_override=origin_geo_override, destination_geo_override=destination_geo_override,
+                )
                 leg_emissions = (
                     compute_leg_emissions_tco2e(mass_kg, geo["distance_km"], factor_value, factor_unit)
                     if factor_value is not None else 0.0
@@ -1775,7 +1898,9 @@ def update_transport_leg(job_id: int, leg_id: int, body: dict = Body(...), _user
                       origin_geocode_precision = %s, destination_label = %s, destination_latitude = %s,
                       destination_longitude = %s, destination_geocode_precision = %s, straight_line_km = %s,
                       detour_factor = %s, distance_km = %s, distance_source = %s,
-                      factor_value = %s, factor_unit = %s, emissions_tco2e = %s, updated_at = NOW(), updated_by = %s
+                      factor_value = %s, factor_unit = %s, emissions_tco2e = %s,
+                      origin_supplier_location_id = %s, destination_client_site_id = %s,
+                      updated_at = NOW(), updated_by = %s
                     WHERE leg_id = %s
                     """,
                     [
@@ -1783,6 +1908,7 @@ def update_transport_leg(job_id: int, leg_id: int, body: dict = Body(...), _user
                         destination_label, geo["destination_latitude"], geo["destination_longitude"],
                         geo["destination_geocode_precision"], geo["straight_line_km"], geo["detour_factor"],
                         geo["distance_km"], geo["distance_source"], factor_value, factor_unit, leg_emissions,
+                        origin_supplier_location_id, destination_client_site_id,
                         _actor(_user), int(leg_id),
                     ],
                 )

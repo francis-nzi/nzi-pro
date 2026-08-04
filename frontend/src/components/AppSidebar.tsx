@@ -51,6 +51,7 @@ const ADMIN_CENTER_LINKS = [
   { label: "Lookups",                 href: "/admin-center/lookups",       domain: "Reference Data" },
   { label: "Job Items",               href: "/admin-center/job-items",     domain: "Reference Data" },
   { label: "Suppliers",               href: "/admin-center/suppliers",     domain: "Reference Data" },
+  { label: "LCA Supplier Library",     href: "/admin-center/lca-suppliers", domain: "Reference Data" },
   { label: "Datasets & Factors",      href: "/admin-center/datasets",      domain: "Reference Data" },
   { label: "Reusable Factors",        href: "/admin-center/custom-factors",domain: "Reference Data" },
   { label: "Templates",               href: "/admin-center/templates",     domain: "Reporting & Delivery" },

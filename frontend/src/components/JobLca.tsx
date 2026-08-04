@@ -89,6 +89,21 @@ type FactorSearchResult = {
   kind?: "activity" | "spend";
 };
 
+type SupplierSearchLocation = {
+  location_id: number;
+  location_label: string;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+};
+
+type SupplierSearchResult = {
+  supplier_id: number;
+  supplier_name: string;
+  locations: SupplierSearchLocation[];
+  matched_components: { component_link_id: number; component_description: string }[];
+};
+
 type LcaModule = {
   module_code: string;
   label: string;
@@ -362,6 +377,17 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [newLegOrigin, setNewLegOrigin] = useState("");
   const [newLegDestination, setNewLegDestination] = useState("");
   const [newLegManualDistance, setNewLegManualDistance] = useState("");
+  // Supplier-library / client-site picks -- when set, the leg's origin/
+  // destination is pulled from an already-geocoded library row instead of
+  // triggering a fresh Nominatim call (see api/lca_routes.py create_
+  // transport_leg's origin_supplier_location_id/destination_client_site_id).
+  const [newLegOriginSupplierLocationId, setNewLegOriginSupplierLocationId] = useState<number | null>(null);
+  const [supplierSearchOpen, setSupplierSearchOpen] = useState(false);
+  const [supplierSearchQuery, setSupplierSearchQuery] = useState("");
+  const [supplierSearchResults, setSupplierSearchResults] = useState<SupplierSearchResult[]>([]);
+  const [supplierSearchLoading, setSupplierSearchLoading] = useState(false);
+  const [newLegDestinationClientSiteId, setNewLegDestinationClientSiteId] = useState<number | null>(null);
+  const [clientSites, setClientSites] = useState<{ site_id: number; site_name: string }[]>([]);
   const [newLegFactor, setNewLegFactor] = useState<FactorSearchResult | null>(null);
   const [legFactorSearchQuery, setLegFactorSearchQuery] = useState("");
   const [legFactorSearchResults, setLegFactorSearchResults] = useState<FactorSearchResult[]>([]);
@@ -982,6 +1008,11 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     setNewLegOrigin("");
     setNewLegDestination("");
     setNewLegManualDistance("");
+    setNewLegOriginSupplierLocationId(null);
+    setNewLegDestinationClientSiteId(null);
+    setSupplierSearchOpen(false);
+    setSupplierSearchQuery("");
+    setSupplierSearchResults([]);
     setNewLegFactor(null);
     setEditingLegFactorId(null);
     setLegFactorSearchQuery("");
@@ -1024,6 +1055,45 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     }
   }
 
+  async function runSupplierSearch() {
+    const q = supplierSearchQuery.trim();
+    if (!q) {
+      setSupplierSearchResults([]);
+      return;
+    }
+    setSupplierSearchLoading(true);
+    try {
+      const res = await apiFetch(`/lca/suppliers/search?q=${encodeURIComponent(q)}`);
+      if (!res.ok) throw new Error(`Supplier search failed (${res.status})`);
+      const data = await res.json();
+      setSupplierSearchResults(data.items || []);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSupplierSearchLoading(false);
+    }
+  }
+
+  function pickSupplierLocation(supplierName: string, location: SupplierSearchLocation) {
+    setNewLegOrigin(`${supplierName} -- ${location.location_label}`);
+    setNewLegOriginSupplierLocationId(location.location_id);
+    setSupplierSearchOpen(false);
+    setSupplierSearchQuery("");
+    setSupplierSearchResults([]);
+  }
+
+  async function loadClientSitesForLegs() {
+    if (!assessment?.client_db_id || clientSites.length > 0) return;
+    try {
+      const res = await apiFetch(`/clients/${assessment.client_db_id}/sites`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setClientSites((data.sites || data.items || []).map((s: { site_id: number; site_name: string }) => ({ site_id: s.site_id, site_name: s.site_name })));
+    } catch {
+      // Non-critical -- the free-text destination input still works without this.
+    }
+  }
+
   async function addTransportLeg() {
     if (!detailItem || !newLegOrigin.trim() || !newLegDestination.trim()) return;
     setSavingLeg(true);
@@ -1041,6 +1111,8 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
           factor_value: newLegFactor?.factor ?? null,
           factor_unit: newLegFactor?.uom ?? null,
           factor_source_label: newLegFactor?.label ?? null,
+          origin_supplier_location_id: newLegOriginSupplierLocationId,
+          destination_client_site_id: newLegDestinationClientSiteId,
         }),
       });
       if (!res.ok) {
@@ -3307,18 +3379,102 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                         type="number"
                         className="h-8"
                       />
-                      <Input
-                        value={newLegOrigin}
-                        onChange={(e) => setNewLegOrigin(e.target.value)}
-                        placeholder="Origin, e.g. Changsha, Hunan, China"
-                        className="h-8"
-                      />
-                      <Input
-                        value={newLegDestination}
-                        onChange={(e) => setNewLegDestination(e.target.value)}
-                        placeholder="Destination, e.g. Felixstowe, UK"
-                        className="h-8"
-                      />
+                      <div className="space-y-1">
+                        <div className="flex gap-1">
+                          <Input
+                            value={newLegOrigin}
+                            onChange={(e) => {
+                              setNewLegOrigin(e.target.value);
+                              setNewLegOriginSupplierLocationId(null); // typed manually -- no longer matches a picked library row
+                            }}
+                            placeholder="Origin, e.g. Changsha, Hunan, China"
+                            className="h-8"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={newLegOriginSupplierLocationId ? "default" : "outline"}
+                            className="h-8 flex-shrink-0 px-2 text-xs"
+                            onClick={() => setSupplierSearchOpen((v) => !v)}
+                            title="Pick a supplier location from the library"
+                          >
+                            🏭
+                          </Button>
+                        </div>
+                        {supplierSearchOpen && (
+                          <div className="space-y-1 rounded-md border bg-muted/20 p-2">
+                            <div className="flex gap-1">
+                              <Input
+                                value={supplierSearchQuery}
+                                onChange={(e) => setSupplierSearchQuery(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter") void runSupplierSearch(); }}
+                                placeholder="Search suppliers or components..."
+                                className="h-7 text-xs"
+                              />
+                              <Button size="sm" className="h-7 flex-shrink-0 px-2 text-xs" onClick={() => void runSupplierSearch()} disabled={supplierSearchLoading}>
+                                {supplierSearchLoading ? "..." : "Search"}
+                              </Button>
+                            </div>
+                            <div className="max-h-40 space-y-1 overflow-y-auto">
+                              {supplierSearchResults.map((s) => (
+                                <div key={s.supplier_id} className="rounded border bg-background p-1.5">
+                                  <div className="text-xs font-medium text-foreground">{s.supplier_name}</div>
+                                  {s.locations.length === 0 ? (
+                                    <div className="text-[11px] text-muted-foreground">No locations on file yet.</div>
+                                  ) : (
+                                    s.locations.map((loc) => (
+                                      <button
+                                        key={loc.location_id}
+                                        type="button"
+                                        className="block w-full rounded px-1 py-0.5 text-left text-[11px] text-muted-foreground hover:bg-muted"
+                                        onClick={() => pickSupplierLocation(s.supplier_name, loc)}
+                                        disabled={loc.latitude === null}
+                                        title={loc.latitude === null ? "Not geocoded yet -- edit it in the Supplier Library" : loc.address}
+                                      >
+                                        {loc.location_label} ({loc.latitude === null ? "not geocoded" : "geocoded"})
+                                      </button>
+                                    ))
+                                  )}
+                                </div>
+                              ))}
+                              {supplierSearchQuery.trim() && supplierSearchResults.length === 0 && !supplierSearchLoading && (
+                                <div className="text-[11px] text-muted-foreground">No matches. Manage suppliers in Admin &rarr; LCA Supplier Library.</div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <Input
+                          value={newLegDestination}
+                          onChange={(e) => {
+                            setNewLegDestination(e.target.value);
+                            setNewLegDestinationClientSiteId(null);
+                          }}
+                          onFocus={() => void loadClientSitesForLegs()}
+                          placeholder="Destination, e.g. Felixstowe, UK"
+                          className="h-8"
+                        />
+                        {clientSites.length > 0 && (
+                          <Select
+                            value={newLegDestinationClientSiteId ? String(newLegDestinationClientSiteId) : ""}
+                            onValueChange={(v) => {
+                              const site = clientSites.find((s) => String(s.site_id) === v);
+                              if (site) {
+                                setNewLegDestination(site.site_name);
+                                setNewLegDestinationClientSiteId(site.site_id);
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="...or pick a client site" /></SelectTrigger>
+                            <SelectContent>
+                              {clientSites.map((s) => (
+                                <SelectItem key={s.site_id} value={String(s.site_id)}>{s.site_name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
                     </div>
                     <div className="space-y-1">
                       <div className="text-xs text-muted-foreground">

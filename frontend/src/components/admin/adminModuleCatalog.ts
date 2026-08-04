@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Sparkles,
   Table2,
+  Truck,
   UploadCloud,
   Users,
   Workflow,
@@ -116,6 +117,14 @@ export const ADMIN_MODULES: AdminModule[] = [
     cta: "Manage suppliers",
     domain: "Reference Data",
     icon: Boxes,
+  },
+  {
+    title: "LCA Supplier Library",
+    description: "Global, geocoded suppliers, their locations, and the components they supply -- reused across every client's LCA transport legs.",
+    href: "/admin/lca-suppliers",
+    cta: "Manage suppliers",
+    domain: "Reference Data",
+    icon: Truck,
   },
   {
     title: "Datasets & Factors",
