@@ -1710,6 +1710,11 @@ class _PortalUpdateActionPayload(_BaseModel):
     note: str | None = None
     target_date: str | None = None
     owner_contact_id: int | None = None
+    action_name: str | None = None
+    description: str | None = None
+    action_category: str | None = None
+    scope_focus: str | None = None
+    action_term: str | None = None
 
 
 class _PortalAddActionPayload(_BaseModel):

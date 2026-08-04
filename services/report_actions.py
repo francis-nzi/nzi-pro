@@ -828,7 +828,8 @@ def update_client_action(
     source: str = "crm",
     con=None,
 ) -> dict[str, Any]:
-    """Update progress/status/owner/target_date for a single action and log the change."""
+    """Update progress/status/owner/target_date/name/description/category/
+    scope/term for a single action and log the change."""
     if con is None:
         with get_conn(autocommit=False) as managed:
             return update_client_action(
@@ -840,7 +841,8 @@ def update_client_action(
 
     existing = con.execute(
         """
-        SELECT client_action_id, status, progress, target_date, completed_at, owner_contact_id
+        SELECT client_action_id, status, progress, target_date, completed_at, owner_contact_id,
+               action_name, description, action_category, scope_focus, action_term
         FROM client_report_actions
         WHERE client_action_id = %s AND client_db_id = %s
         """,
@@ -873,6 +875,34 @@ def update_client_action(
 
     note = _clean_text(payload.get("note"))
 
+    if "action_name" in payload:
+        new_name = _clean_text(payload.get("action_name"))
+        if not new_name:
+            raise HTTPException(status_code=400, detail="action_name cannot be blank")
+    else:
+        new_name = existing[6]
+
+    if new_name != existing[6]:
+        duplicate = con.execute(
+            """
+            SELECT client_action_id FROM client_report_actions
+            WHERE client_db_id = %s AND LOWER(action_name) = LOWER(%s) AND client_action_id <> %s
+            LIMIT 1
+            """,
+            [int(client_db_id), new_name, int(client_action_id)],
+        ).fetchone()
+        if duplicate:
+            raise HTTPException(status_code=400, detail="An action with this name already exists")
+
+    new_description = _clean_text(payload.get("description")) if "description" in payload else existing[7]
+    new_category = _clean_text(payload.get("action_category")) if "action_category" in payload else existing[8]
+    new_scope = _clean_text(payload.get("scope_focus")) if "scope_focus" in payload else existing[9]
+    new_term = (
+        normalize_action_term(payload.get("action_term"), default=str(existing[10] or "medium"))
+        if "action_term" in payload
+        else existing[10]
+    )
+
     # Auto-set completed_at on first transition to completed; clear it when re-opened
     old_completed_at = existing[4]
     if new_status == "completed" and old_status != "completed":
@@ -887,10 +917,16 @@ def update_client_action(
         UPDATE client_report_actions
         SET status = %s, progress = %s, target_date = %s,
             completed_at = %s, owner_contact_id = %s,
+            action_name = %s, description = %s, action_category = %s,
+            scope_focus = %s, action_term = %s,
             updated_at = NOW(), updated_by = %s
         WHERE client_action_id = %s
         """,
-        [new_status, new_progress, new_target, new_completed_at, new_owner, actor, int(client_action_id)],
+        [
+            new_status, new_progress, new_target, new_completed_at, new_owner,
+            new_name, new_description, new_category, new_scope, new_term,
+            actor, int(client_action_id),
+        ],
     )
 
     if new_status != old_status or new_progress != old_progress or note:
