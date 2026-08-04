@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Check, X } from "lucide-react";
 import { apiFetch } from "@/lib/auth";
 
 import { Card } from "@/components/ui/card";
@@ -507,43 +508,14 @@ function UpdateModal({
 
 // ── Inline progress slider ──────────────────────────────────────────────────
 
-function InlineProgress({
-  value,
-  onCommit,
-}: {
-  value: number;
-  onCommit: (value: number) => void;
-}) {
-  const [dragValue, setDragValue] = useState<number | null>(null);
-  const shown = dragValue ?? value;
-
+// Read-only -- editing progress happens in the Update modal only; this just
+// mirrors the current value so the table stays glanceable.
+function ProgressDisplay({ value }: { value: number }) {
   return (
     <div className="flex items-center gap-2">
-      <div className="relative w-24 flex-shrink-0">
-        <Progress value={shown} className="pointer-events-none" />
-        <input
-          type="range"
-          min={0}
-          max={100}
-          step={5}
-          value={shown}
-          onChange={(e) => setDragValue(parseInt(e.target.value, 10))}
-          onMouseUp={(e) => {
-            const v = parseInt((e.target as HTMLInputElement).value, 10);
-            setDragValue(null);
-            if (v !== value) onCommit(v);
-          }}
-          onTouchEnd={(e) => {
-            const v = parseInt((e.target as HTMLInputElement).value, 10);
-            setDragValue(null);
-            if (v !== value) onCommit(v);
-          }}
-          className="absolute inset-0 h-2 w-full cursor-pointer opacity-0"
-          aria-label="Progress"
-        />
-      </div>
+      <Progress value={value} className="w-20 flex-shrink-0" />
       <span className="w-8 flex-shrink-0 text-right text-xs font-medium tabular-nums text-muted-foreground">
-        {shown}%
+        {value}%
       </span>
     </div>
   );
@@ -553,14 +525,10 @@ function InlineProgress({
 
 function ActionRow({
   action,
-  contacts,
-  categories,
   onUpdate,
   onOpenModal,
 }: {
   action: Action;
-  contacts: Contact[];
-  categories: Category[];
   onUpdate: (fields: Record<string, unknown>) => Promise<boolean>;
   onOpenModal: () => void;
 }) {
@@ -591,7 +559,7 @@ function ActionRow({
 
   return (
     <tr className="border-b last:border-0 align-top">
-      <td className="p-2 min-w-[12rem]">
+      <td className="p-2">
         {editingTitle ? (
           <div className="flex items-center gap-1">
             <Input
@@ -610,15 +578,16 @@ function ActionRow({
           </div>
         ) : (
           <button
-            className="w-full rounded px-1 py-0.5 text-left text-sm font-medium hover:bg-muted"
+            className="w-full truncate rounded px-1 py-0.5 text-left text-sm font-medium hover:bg-muted"
             onClick={() => setEditingTitle(true)}
+            title={action.action_name}
           >
             {action.action_name}
           </button>
         )}
       </td>
 
-      <td className="p-2 min-w-[14rem] max-w-sm">
+      <td className="p-2">
         {action.description ? (
           <button
             className={`text-left text-xs text-muted-foreground hover:text-foreground ${descExpanded ? "" : "line-clamp-1"}`}
@@ -632,55 +601,20 @@ function ActionRow({
         )}
       </td>
 
-      <td className="p-2 min-w-[10rem]">
-        <Select
-          value={action.owner_contact_id ? String(action.owner_contact_id) : NO_OWNER}
-          onValueChange={(v) => void commit({ owner_contact_id: v === NO_OWNER ? null : parseInt(v, 10) })}
-        >
-          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="No owner" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NO_OWNER}>No owner</SelectItem>
-            {contacts.map(c => (
-              <SelectItem key={c.contact_id} value={String(c.contact_id)}>{c.full_name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <td className="p-2">
+        <Badge variant="outline" className="text-[10px]">{TERM_LABEL[action.action_term] ?? action.action_term}</Badge>
       </td>
 
-      <td className="p-2 min-w-[9rem]">
-        <Select
-          value={action.scope_focus || NO_OWNER}
-          onValueChange={(v) => void commit({ scope_focus: v === NO_OWNER ? null : v })}
-        >
-          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="No scope" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NO_OWNER}>No scope</SelectItem>
-            {SCOPE_OPTIONS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </td>
-
-      <td className="p-2 min-w-[8rem]">
-        <Select value={action.action_term} onValueChange={(v) => void commit({ action_term: v })}>
-          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="short">Short term</SelectItem>
-            <SelectItem value="medium">Medium term</SelectItem>
-            <SelectItem value="long">Long term</SelectItem>
-          </SelectContent>
-        </Select>
-      </td>
-
-      <td className="p-2 min-w-[9rem]">
+      <td className="p-2">
         <Input
           type="date"
           value={action.target_date?.slice(0, 10) ?? ""}
           onChange={(e) => void commit({ target_date: e.target.value || null })}
-          className="h-7 text-xs"
+          className="h-7 w-full text-xs"
         />
       </td>
 
-      <td className="p-2 min-w-[9rem]">
+      <td className="p-2">
         <Select
           value={action.status}
           onValueChange={(v) => {
@@ -690,7 +624,7 @@ function ActionRow({
             void commit(fields);
           }}
         >
-          <SelectTrigger className="h-7 text-xs">
+          <SelectTrigger className="h-7 w-full text-xs">
             <SelectValue>
               <Badge variant={STATUS_BADGE_VARIANT[action.status]}>{STATUS_LABEL[action.status]}</Badge>
             </SelectValue>
@@ -705,8 +639,16 @@ function ActionRow({
         </Select>
       </td>
 
-      <td className="p-2 min-w-[9rem]">
-        <InlineProgress value={action.progress} onCommit={(v) => void commit({ progress: v })} />
+      <td className="p-2">
+        <ProgressDisplay value={action.progress} />
+      </td>
+
+      <td className="p-2 text-center" title={action.owner_name ? `Owner: ${action.owner_name}` : "No owner assigned"}>
+        {action.owner_name ? (
+          <Check className="mx-auto h-4 w-4 text-status-success" />
+        ) : (
+          <X className="mx-auto h-4 w-4 text-muted-foreground" />
+        )}
       </td>
 
       <td className="p-2 text-right">
@@ -722,8 +664,6 @@ function ActionRow({
 function CategorySection({
   category,
   actions,
-  contacts,
-  categories,
   expanded,
   onToggle,
   onUpdate,
@@ -731,8 +671,6 @@ function CategorySection({
 }: {
   category: string;
   actions: Action[];
-  contacts: Contact[];
-  categories: Category[];
   expanded: boolean;
   onToggle: () => void;
   onUpdate: (actionId: number, fields: Record<string, unknown>) => Promise<boolean>;
@@ -751,17 +689,26 @@ function CategorySection({
       </button>
       {expanded && (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm">
+            <colgroup>
+              <col className="w-[16rem]" />
+              <col />
+              <col className="w-20" />
+              <col className="w-32" />
+              <col className="w-32" />
+              <col className="w-28" />
+              <col className="w-14" />
+              <col className="w-16" />
+            </colgroup>
             <thead>
               <tr className="border-b bg-muted/20 text-xs text-muted-foreground">
                 <th className="p-2 text-left">Title</th>
                 <th className="p-2 text-left">Description</th>
-                <th className="p-2 text-left">Owner</th>
-                <th className="p-2 text-left">Scope</th>
                 <th className="p-2 text-left">Term</th>
                 <th className="p-2 text-left">Target Date</th>
                 <th className="p-2 text-left">Status</th>
                 <th className="p-2 text-left">Progress</th>
+                <th className="p-2 text-center">Owner</th>
                 <th className="p-2 text-right"></th>
               </tr>
             </thead>
@@ -770,8 +717,6 @@ function CategorySection({
                 <ActionRow
                   key={action.client_action_id}
                   action={action}
-                  contacts={contacts}
-                  categories={categories}
                   onUpdate={(fields) => onUpdate(action.client_action_id, fields)}
                   onOpenModal={() => onOpenModal(action)}
                 />
@@ -868,14 +813,14 @@ export default function PortalActions() {
     return keys.map(key => ({ category: key, actions: map.get(key)! }));
   }, [filtered]);
 
-  // Default: every category expanded, unless the user has explicitly toggled one.
+  // Default: every category collapsed, unless the user has explicitly expanded it.
   const isExpanded = useCallback(
-    (category: string) => (expandedCategories ? expandedCategories.has(category) : true),
+    (category: string) => (expandedCategories ? expandedCategories.has(category) : false),
     [expandedCategories]
   );
   function toggleCategory(category: string) {
     setExpandedCategories(prev => {
-      const base = prev ?? new Set(grouped.map(g => g.category));
+      const base = prev ?? new Set<string>();
       const next = new Set(base);
       if (next.has(category)) next.delete(category);
       else next.add(category);
@@ -975,8 +920,6 @@ export default function PortalActions() {
               key={category}
               category={category}
               actions={groupActions}
-              contacts={contacts}
-              categories={categories}
               expanded={isExpanded(category)}
               onToggle={() => toggleCategory(category)}
               onUpdate={updateField}
