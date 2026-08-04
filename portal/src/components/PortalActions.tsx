@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, Info, X } from "lucide-react";
 import { apiFetch } from "@/lib/auth";
 
@@ -540,25 +541,61 @@ function ProgressDisplay({ value }: { value: number }) {
 // instead (no tooltip/popover primitive is installed in the portal yet).
 function DescriptionInfo({ description }: { description: string }) {
   const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  // Close (rather than try to re-track position) on scroll -- simpler and
+  // avoids the popover drifting away from the icon while the page moves.
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("scroll", close, { capture: true, passive: true });
+    return () => window.removeEventListener("scroll", close, { capture: true });
+  }, [open]);
+
+  function toggle(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!open && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      const popoverWidth = 256; // w-64
+      setCoords({
+        top: rect.bottom + 4,
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - popoverWidth - 8)),
+      });
+    }
+    setOpen(v => !v);
+  }
+
   return (
-    <div className="relative inline-block">
+    <>
       <button
+        ref={btnRef}
         type="button"
         className="text-muted-foreground hover:text-foreground"
-        onClick={(e) => { e.stopPropagation(); setOpen(v => !v); }}
+        onClick={toggle}
         aria-label="Show description"
       >
         <Info className="mx-auto h-4 w-4" />
       </button>
-      {open && (
+      {open && coords && typeof document !== "undefined" && createPortal(
         <>
+          {/* Portal to <body> -- a table row inside a rounded, overflow-hidden
+              category section clips any absolutely-positioned popover that
+              would extend past the section's own edge (or the page scrolls
+              the row away from where the popover was drawn). Fixed
+              positioning at a viewport coordinate captured on open sidesteps
+              both problems. */}
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-md border border-border bg-popover p-2.5 text-left text-xs leading-snug text-popover-foreground shadow-md">
+          <div
+            className="fixed z-50 w-64 rounded-md border border-border bg-popover p-2.5 text-left text-xs leading-snug text-popover-foreground shadow-md"
+            style={{ top: coords.top, left: coords.left }}
+          >
             {description}
           </div>
-        </>
+        </>,
+        document.body
       )}
-    </div>
+    </>
   );
 }
 
