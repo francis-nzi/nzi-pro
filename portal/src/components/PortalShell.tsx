@@ -226,7 +226,7 @@ export default function PortalShell({
         </div>
       )}
 
-      <div className="flex-1 flex flex-col md:ml-56">
+      <div className="min-w-0 flex-1 flex flex-col md:ml-56">
         <div
           className="md:hidden flex items-center gap-3 px-4 py-3 text-white"
           style={{ backgroundColor: sidebarBg }}
@@ -252,7 +252,7 @@ export default function PortalShell({
           <span className="text-sm font-bold">NZ Insights Pro</span>
         </div>
 
-        <main className="flex-1 px-6 py-8">
+        <main className="min-w-0 flex-1 px-6 py-8">
           {children}
         </main>
 

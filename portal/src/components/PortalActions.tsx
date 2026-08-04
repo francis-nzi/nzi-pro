@@ -672,7 +672,7 @@ function CategorySection({
   onOpenModal: (action: Action) => void;
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-border">
+    <div className="min-w-0 overflow-hidden rounded-lg border border-border">
       <button
         className="flex w-full items-center justify-between bg-muted/40 px-3 py-2 text-left hover:bg-muted/60"
         onClick={onToggle}
@@ -683,14 +683,14 @@ function CategorySection({
         <Badge variant="outline">{actions.length}</Badge>
       </button>
       {expanded && (
-        <div className="overflow-x-auto">
-          <table className="w-full table-fixed text-sm">
+        <div className="min-w-0 overflow-x-auto">
+          <table className="w-full min-w-0 table-fixed text-sm">
             <colgroup>
-              <col />
+              <col className="w-56" />
               <col className="w-10" />
               <col className="w-20" />
-              <col className="w-32" />
-              <col className="w-32" />
+              <col className="w-36" />
+              <col className="w-28" />
               <col className="w-28" />
               <col className="w-14" />
               <col className="w-16" />
