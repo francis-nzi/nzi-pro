@@ -157,6 +157,7 @@ def load_client_category_history(con, client_db_id: int, category_filter) -> lis
     resolver_by_job: dict[int, Any] = {}
     emissions_vals: list[float] = []
     quantity_vals: list[float] = []
+    uom_vals: list[str] = []
     for _, row in scope_df.iterrows():
         row_type = str(row.get("record_type") or "legacy").strip().lower()
         if row_type == "source_register":
@@ -170,10 +171,12 @@ def load_client_category_history(con, client_db_id: int, category_filter) -> lis
             metrics = combined_row_metrics(row, resolver)
         emissions_vals.append(round(float(metrics.get("calc_tco2e") or 0.0), 2))
         quantity_vals.append(float(metrics.get("display_qty") or 0.0))
+        uom_vals.append(str(metrics.get("display_uom") or "").strip())
 
     scope_df = scope_df.copy()
     scope_df["emissions"] = emissions_vals
     scope_df["quantity"] = quantity_vals
+    scope_df["uom"] = uom_vals
     scope_df["category"] = scope_df.apply(lambda row: _dataset_category_label(row), axis=1)
     if "activity_name" in scope_df.columns:
         scope_df["activity_name"] = scope_df["activity_name"].apply(lambda v: _clean_label(v, "Unknown"))
@@ -184,9 +187,18 @@ def load_client_category_history(con, client_db_id: int, category_filter) -> lis
     if scope_df.empty:
         return []
 
+    # first-non-blank uom per (year, activity) -- quantities aren't
+    # summable across differing units, so the frontend needs to know what
+    # unit each cell's quantity figure is actually in.
+    def _first_uom(values: Any) -> str:
+        for value in values:
+            if value:
+                return value
+        return ""
+
     detail_groups = (
-        scope_df.groupby(["dashboard_year", "activity_name"])[["emissions", "quantity"]]
-        .sum()
+        scope_df.groupby(["dashboard_year", "activity_name"])
+        .agg(emissions=("emissions", "sum"), quantity=("quantity", "sum"), uom=("uom", _first_uom))
         .reset_index()
     )
     out: list[dict[str, Any]] = []
@@ -199,6 +211,7 @@ def load_client_category_history(con, client_db_id: int, category_filter) -> lis
                 "activity": _clean_label(row["activity_name"], "Unknown"),
                 "emissions_tco2e": round(float(row["emissions"]), 2),
                 "quantity": round(float(row["quantity"]), 2),
+                "uom": str(row["uom"] or "").strip() or None,
             }
         )
     out.sort(key=lambda r: (r["year"], r["activity"]))
