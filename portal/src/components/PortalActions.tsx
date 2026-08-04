@@ -603,10 +603,12 @@ function DescriptionInfo({ description }: { description: string }) {
 
 function ActionRow({
   action,
+  index,
   onUpdate,
   onOpenModal,
 }: {
   action: Action;
+  index: number;
   onUpdate: (fields: Record<string, unknown>) => Promise<boolean>;
   onOpenModal: () => void;
 }) {
@@ -637,31 +639,36 @@ function ActionRow({
   return (
     <tr className="border-b last:border-0 align-top hover:bg-muted/30">
       <td className="p-2">
-        {editingTitle ? (
-          <div className="flex items-center gap-1">
-            <Input
-              autoFocus
-              value={titleDraft}
-              onChange={(e) => setTitleDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void saveTitle();
-                if (e.key === "Escape") { setEditingTitle(false); setTitleDraft(action.action_name); }
-              }}
-              className="h-7 text-xs"
-            />
-            <Button size="sm" className="h-7 px-2 text-xs" disabled={saving} onClick={() => void saveTitle()}>
-              {saving ? "…" : "Save"}
-            </Button>
-          </div>
-        ) : (
-          <button
-            className="w-full truncate rounded px-1 py-0.5 text-left text-sm font-medium hover:bg-muted"
-            onClick={() => setEditingTitle(true)}
-            title={action.action_name}
-          >
-            {action.action_name}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-brand text-[10px] font-semibold text-white">
+            {index}
+          </span>
+          {editingTitle ? (
+            <div className="flex min-w-0 flex-1 items-center gap-1">
+              <Input
+                autoFocus
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void saveTitle();
+                  if (e.key === "Escape") { setEditingTitle(false); setTitleDraft(action.action_name); }
+                }}
+                className="h-7 text-xs"
+              />
+              <Button size="sm" className="h-7 px-2 text-xs" disabled={saving} onClick={() => void saveTitle()}>
+                {saving ? "…" : "Save"}
+              </Button>
+            </div>
+          ) : (
+            <button
+              className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-sm font-medium hover:bg-muted"
+              onClick={() => setEditingTitle(true)}
+              title={action.action_name}
+            >
+              {action.action_name}
+            </button>
+          )}
+        </div>
       </td>
 
       <td className="p-2 text-center">
@@ -794,10 +801,11 @@ function CategorySection({
               </tr>
             </thead>
             <tbody>
-              {actions.map(action => (
+              {actions.map((action, idx) => (
                 <ActionRow
                   key={action.client_action_id}
                   action={action}
+                  index={idx + 1}
                   onUpdate={(fields) => onUpdate(action.client_action_id, fields)}
                   onOpenModal={() => onOpenModal(action)}
                 />
