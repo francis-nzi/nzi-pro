@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, Info, X } from "lucide-react";
 import { apiFetch } from "@/lib/auth";
 
 import { Card } from "@/components/ui/card";
@@ -534,7 +534,6 @@ function ActionRow({
 }) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(action.action_name);
-  const [descExpanded, setDescExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -558,7 +557,7 @@ function ActionRow({
   }
 
   return (
-    <tr className="border-b last:border-0 align-top">
+    <tr className="border-b last:border-0 align-top hover:bg-muted/30">
       <td className="p-2">
         {editingTitle ? (
           <div className="flex items-center gap-1">
@@ -587,15 +586,11 @@ function ActionRow({
         )}
       </td>
 
-      <td className="p-2">
+      <td className="p-2 text-center">
         {action.description ? (
-          <button
-            className={`text-left text-xs text-muted-foreground hover:text-foreground ${descExpanded ? "" : "line-clamp-1"}`}
-            onClick={() => setDescExpanded(v => !v)}
-            title={descExpanded ? "Collapse" : "Expand"}
-          >
-            {action.description}
-          </button>
+          <span title={action.description} className="inline-block cursor-help">
+            <Info className="mx-auto h-4 w-4 text-muted-foreground" />
+          </span>
         ) : (
           <span className="text-xs text-muted-foreground">—</span>
         )}
@@ -691,8 +686,8 @@ function CategorySection({
         <div className="overflow-x-auto">
           <table className="w-full table-fixed text-sm">
             <colgroup>
-              <col className="w-[16rem]" />
               <col />
+              <col className="w-10" />
               <col className="w-20" />
               <col className="w-32" />
               <col className="w-32" />
@@ -703,7 +698,7 @@ function CategorySection({
             <thead>
               <tr className="border-b bg-muted/20 text-xs text-muted-foreground">
                 <th className="p-2 text-left">Title</th>
-                <th className="p-2 text-left">Description</th>
+                <th className="p-2 text-center">Info</th>
                 <th className="p-2 text-left">Term</th>
                 <th className="p-2 text-left">Target Date</th>
                 <th className="p-2 text-left">Status</th>
@@ -741,6 +736,7 @@ export default function PortalActions() {
   const [showCancelled, setShowCancelled] = useState(false);
   const [editingAction, setEditingAction] = useState<Action | null>(null);
   const [expandedCategories, setExpandedCategories] = useState<Set<string> | null>(null);
+  const sectionRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState(ALL);
@@ -825,6 +821,24 @@ export default function PortalActions() {
       if (next.has(category)) next.delete(category);
       else next.add(category);
       return next;
+    });
+  }
+  function expandAll() {
+    setExpandedCategories(new Set(grouped.map(g => g.category)));
+  }
+  function collapseAll() {
+    setExpandedCategories(new Set());
+  }
+  function jumpToCategory(category: string) {
+    setExpandedCategories(prev => {
+      const base = prev ?? new Set<string>();
+      const next = new Set(base);
+      next.add(category);
+      return next;
+    });
+    // Scroll after the section has had a chance to expand/re-render.
+    requestAnimationFrame(() => {
+      sectionRefs.current.get(category)?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   }
 
@@ -914,19 +928,39 @@ export default function PortalActions() {
       ) : grouped.length === 0 ? (
         <EmptyStatePanel title="No actions match your filters" description="Try clearing some filters above." />
       ) : (
-        <div className="space-y-3">
-          {grouped.map(({ category, actions: groupActions }) => (
-            <CategorySection
-              key={category}
-              category={category}
-              actions={groupActions}
-              expanded={isExpanded(category)}
-              onToggle={() => toggleCategory(category)}
-              onUpdate={updateField}
-              onOpenModal={setEditingAction}
-            />
-          ))}
-        </div>
+        <>
+          {/* Quick nav: jump straight to (and expand) a category */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {grouped.map(({ category, actions: groupActions }) => (
+              <button
+                key={category}
+                onClick={() => jumpToCategory(category)}
+                className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground hover:border-brand hover:text-foreground"
+              >
+                {category} <span className="opacity-70">({groupActions.length})</span>
+              </button>
+            ))}
+            <span className="mx-1 h-4 w-px bg-border" />
+            <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={expandAll}>Expand all</Button>
+            <span className="text-xs text-muted-foreground">·</span>
+            <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={collapseAll}>Collapse all</Button>
+          </div>
+
+          <div className="space-y-3">
+            {grouped.map(({ category, actions: groupActions }) => (
+              <div key={category} ref={(el) => { sectionRefs.current.set(category, el); }}>
+                <CategorySection
+                  category={category}
+                  actions={groupActions}
+                  expanded={isExpanded(category)}
+                  onToggle={() => toggleCategory(category)}
+                  onUpdate={updateField}
+                  onOpenModal={setEditingAction}
+                />
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {editingAction && (
