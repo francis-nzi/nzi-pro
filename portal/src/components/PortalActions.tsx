@@ -5,7 +5,7 @@ import { Check, Info, X } from "lucide-react";
 import { apiFetch } from "@/lib/auth";
 
 import { Card } from "@/components/ui/card";
-import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -60,18 +60,30 @@ const STATUS_LABEL: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
-const STATUS_BADGE_VARIANT: Record<string, BadgeProps["variant"]> = {
-  open: "outline",
-  approved: "secondary",
-  in_progress: "warning",
-  completed: "success",
-  cancelled: "risk",
+// Distinct colour per status -- explicit classes rather than the generic
+// Badge variants, since "outline"/"secondary" read as the same neutral grey
+// and gave no visual distinction between Proposed and Approved.
+const STATUS_PILL_CLASS: Record<string, string> = {
+  open: "border-slate-300 bg-slate-100 text-slate-700",
+  approved: "border-blue-400 bg-blue-50 text-blue-700",
+  in_progress: "border-amber-400 bg-amber-50 text-amber-700",
+  completed: "border-green-400 bg-green-50 text-green-700",
+  cancelled: "border-rose-400 bg-rose-50 text-rose-700",
 };
 
 const TERM_LABEL: Record<string, string> = {
   short: "Short term",
   medium: "Medium term",
   long: "Long term",
+};
+
+// Matches PLANNED_INITIATIVES_TERM_META in JobAdvancedReports.tsx (the CRM's
+// Report Printing "Planned Initiatives" table) so the single-letter term
+// pill looks identical across both the CRM and the portal.
+const TERM_PILL_META: Record<string, { label: string; className: string }> = {
+  short: { label: "S", className: "border-green-400 bg-green-50 text-green-700" },
+  medium: { label: "M", className: "border-amber-400 bg-amber-50 text-amber-700" },
+  long: { label: "L", className: "border-sky-400 bg-sky-50 text-sky-700" },
 };
 
 const SCOPE_OPTIONS = ["Scope 1", "Scope 2", "Scope 3", "Scope 1 and Scope 2", "All scopes"];
@@ -521,6 +533,35 @@ function ProgressDisplay({ value }: { value: number }) {
   );
 }
 
+// ── Description info popover ────────────────────────────────────────────────
+
+// A native `title` attribute only shows on hover, which does nothing on
+// click/touch -- this is a small self-contained click-toggled popover
+// instead (no tooltip/popover primitive is installed in the portal yet).
+function DescriptionInfo({ description }: { description: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative inline-block">
+      <button
+        type="button"
+        className="text-muted-foreground hover:text-foreground"
+        onClick={(e) => { e.stopPropagation(); setOpen(v => !v); }}
+        aria-label="Show description"
+      >
+        <Info className="mx-auto h-4 w-4" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-md border border-border bg-popover p-2.5 text-left text-xs leading-snug text-popover-foreground shadow-md">
+            {description}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Action row (table row, inline-editable) ─────────────────────────────────
 
 function ActionRow({
@@ -588,16 +629,24 @@ function ActionRow({
 
       <td className="p-2 text-center">
         {action.description ? (
-          <span title={action.description} className="inline-block cursor-help">
-            <Info className="mx-auto h-4 w-4 text-muted-foreground" />
-          </span>
+          <DescriptionInfo description={action.description} />
         ) : (
           <span className="text-xs text-muted-foreground">—</span>
         )}
       </td>
 
       <td className="p-2">
-        <Badge variant="outline" className="text-[10px]">{TERM_LABEL[action.action_term] ?? action.action_term}</Badge>
+        {(() => {
+          const termMeta = TERM_PILL_META[action.action_term];
+          return (
+            <span
+              className={`inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-medium ${termMeta?.className ?? TERM_PILL_META.medium.className}`}
+              title={TERM_LABEL[action.action_term] ?? action.action_term}
+            >
+              {termMeta?.label ?? (action.action_term || "?").charAt(0).toUpperCase()}
+            </span>
+          );
+        })()}
       </td>
 
       <td className="p-2">
@@ -621,7 +670,7 @@ function ActionRow({
         >
           <SelectTrigger className="h-7 w-full text-xs">
             <SelectValue>
-              <Badge variant={STATUS_BADGE_VARIANT[action.status]}>{STATUS_LABEL[action.status]}</Badge>
+              <Badge variant="outline" className={STATUS_PILL_CLASS[action.status]}>{STATUS_LABEL[action.status]}</Badge>
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -642,7 +691,7 @@ function ActionRow({
         {action.owner_name ? (
           <Check className="mx-auto h-4 w-4 text-status-success" />
         ) : (
-          <X className="mx-auto h-4 w-4 text-muted-foreground" />
+          <X className="mx-auto h-4 w-4 text-status-risk" />
         )}
       </td>
 
