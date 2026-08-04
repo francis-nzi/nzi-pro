@@ -32,6 +32,7 @@ from services.portal_data_entry import (
     PORTAL_DATA_ENTRY_EXPIRED_MESSAGE,
     get_job_summary,
     get_portal_data_entry_status,
+    load_client_category_history,
     resolve_current_job_for_client,
 )
 from services.vehicle_categorization import categorize_vehicle
@@ -81,6 +82,17 @@ def portal_commuting_options(current_user: dict = Depends(portal_user_dep)):
         "service_options": SERVICE_TYPE_OPTIONS,
         "unit_options": UNIT_OPTIONS,
     }
+
+
+@router.get("/portal/commuting/history")
+def portal_commuting_history(current_user: dict = Depends(portal_user_dep)):
+    """This client's own prior-year Employee Commuting totals across every
+    historical job -- see services/portal_data_entry.py
+    load_client_category_history."""
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        items = load_client_category_history(con, client_db_id, lambda cat: cat == "Employee Commuting")
+    return {"items": items}
 
 
 @router.get("/portal/commuting/rows")

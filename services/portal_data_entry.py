@@ -120,6 +120,91 @@ def bucket_for_category(category_map: dict[str, str], category: str | None) -> s
     return category_map.get(text, "other")
 
 
+def load_client_category_history(con, client_db_id: int, category_filter) -> list[dict[str, Any]]:
+    """Per-year, per-activity emissions + quantity totals for a client's own
+    historical data, restricted to categories where `category_filter(cat)`
+    is True -- powers the "previous years" table on each portal Data Entry
+    tab. Reuses the CRM's own Year-over-Year reporting computation
+    (api/client_reporting_routes.py's by_activity_detail path -- same job
+    resolution, same JobMonthlyEmissionsResolver/combined_row_metrics calc
+    used for the real reported totals, never the frozen job_scope_rows.calc_
+    tco2e column) so the portal's figures always reconcile with the CRM's.
+
+    `category_filter` receives the row's resolved category string (the same
+    vocabulary bucket_for_category consumes) and returns True to include it
+    -- e.g. `lambda cat: bucket_for_category(category_map, cat) == bucket_key`
+    for a generic bucket, or `lambda cat: cat == "Employee Commuting"`."""
+    # Local imports: these are CRM-reporting internals (api/client_reporting_
+    # routes.py, services/monthly_emissions.py), not portal-layer code --
+    # importing at call time avoids a module-load-order dependency between
+    # the two route files.
+    from api.client_reporting_routes import _build_year_jobs, _clean_label, _dataset_category_label, _load_client_jobs
+    from services.emissions_reporting import combined_row_metrics, load_combined_reporting_rows
+    from services.monthly_emissions import JobMonthlyEmissionsResolver
+
+    jobs_df = _load_client_jobs(con, int(client_db_id), crp_only=False)
+    if jobs_df is None or jobs_df.empty:
+        return []
+    year_jobs = _build_year_jobs(jobs_df)
+    job_ids = [yj["job_id"] for yj in year_jobs]
+    if not job_ids:
+        return []
+
+    scope_df = load_combined_reporting_rows(con, job_ids)
+    if scope_df is None or scope_df.empty:
+        return []
+
+    resolver_by_job: dict[int, Any] = {}
+    emissions_vals: list[float] = []
+    quantity_vals: list[float] = []
+    for _, row in scope_df.iterrows():
+        row_type = str(row.get("record_type") or "legacy").strip().lower()
+        if row_type == "source_register":
+            metrics = combined_row_metrics(row)
+        else:
+            row_job_id = int(row.get("job_id"))
+            resolver = resolver_by_job.get(row_job_id)
+            if resolver is None:
+                resolver = JobMonthlyEmissionsResolver(con, row_job_id)
+                resolver_by_job[row_job_id] = resolver
+            metrics = combined_row_metrics(row, resolver)
+        emissions_vals.append(round(float(metrics.get("calc_tco2e") or 0.0), 2))
+        quantity_vals.append(float(metrics.get("display_qty") or 0.0))
+
+    scope_df = scope_df.copy()
+    scope_df["emissions"] = emissions_vals
+    scope_df["quantity"] = quantity_vals
+    scope_df["category"] = scope_df.apply(lambda row: _dataset_category_label(row), axis=1)
+    if "activity_name" in scope_df.columns:
+        scope_df["activity_name"] = scope_df["activity_name"].apply(lambda v: _clean_label(v, "Unknown"))
+    else:
+        scope_df["activity_name"] = scope_df["category"]
+
+    scope_df = scope_df[scope_df["category"].apply(category_filter)]
+    if scope_df.empty:
+        return []
+
+    detail_groups = (
+        scope_df.groupby(["dashboard_year", "activity_name"])[["emissions", "quantity"]]
+        .sum()
+        .reset_index()
+    )
+    out: list[dict[str, Any]] = []
+    for _, row in detail_groups.iterrows():
+        if row["dashboard_year"] is None or str(row["dashboard_year"]).strip().lower() in {"", "nan", "none"}:
+            continue
+        out.append(
+            {
+                "year": int(row["dashboard_year"]),
+                "activity": _clean_label(row["activity_name"], "Unknown"),
+                "emissions_tco2e": round(float(row["emissions"]), 2),
+                "quantity": round(float(row["quantity"]), 2),
+            }
+        )
+    out.sort(key=lambda r: (r["year"], r["activity"]))
+    return out
+
+
 def resolve_current_job_for_client(con, client_db_id: int) -> int | None:
     """Auto-pick the client's most recent non-archived, portal-visible job --
     the same heuristic the old (removed) portal_add_action used before

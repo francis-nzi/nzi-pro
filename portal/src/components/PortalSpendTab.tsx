@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
+import PortalCategoryHistoryTable from "@/components/PortalCategoryHistoryTable";
 
 type SpendCategory = {
   db_id: number;
@@ -90,6 +91,7 @@ export default function PortalSpendTab() {
   const [refCode, setRefCode] = useState("");
   const [description, setDescription] = useState("");
   const [netValue, setNetValue] = useState("");
+  const [notes, setNotes] = useState("");
   const [vatPct, setVatPct] = useState("20");
   const [saving, setSaving] = useState(false);
   const [justAdded, setJustAdded] = useState(false);
@@ -104,6 +106,7 @@ export default function PortalSpendTab() {
   const [suggesting, setSuggesting] = useState(false);
 
   const [jobNumber, setJobNumber] = useState<string | null>(null);
+  const [reportingYear, setReportingYear] = useState<number | null>(null);
   const [editingEntryId, setEditingEntryId] = useState<number | null>(null);
   const [editRefCode, setEditRefCode] = useState("");
   const [editDescription, setEditDescription] = useState("");
@@ -144,6 +147,7 @@ export default function PortalSpendTab() {
         const d = await res.json();
         setRows(d.rows || []);
         setJobNumber(d.job_number || null);
+        setReportingYear(d.reporting_year || null);
         setDataEntryExpired(Boolean(d.portal_data_entry_expired));
       } else if (res.status === 404) {
         const d = await res.json().catch(() => ({}));
@@ -192,6 +196,7 @@ export default function PortalSpendTab() {
           spend_description: description.trim(),
           amount_net: Number(netValue),
           vat_pct: Number(vatPct || 0),
+          notes: notes.trim() || null,
         }),
       });
       if (res.ok) {
@@ -201,6 +206,7 @@ export default function PortalSpendTab() {
         setDescription("");
         setNetValue("");
         setVatPct("20");
+        setNotes("");
         setJustAdded(true);
         if (justAddedTimerRef.current) clearTimeout(justAddedTimerRef.current);
         justAddedTimerRef.current = setTimeout(() => setJustAdded(false), 4000);
@@ -500,7 +506,7 @@ export default function PortalSpendTab() {
         )}
         {!categorySearch.trim() && topCategories.length > 0 && (
           <div className="mb-2 space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Frequently used</label>
+            <label className="text-sm font-semibold text-foreground">Frequently used</label>
             <div className="flex flex-wrap gap-1.5">
               {topCategories.map((cat) => (
                 <button
@@ -564,7 +570,12 @@ export default function PortalSpendTab() {
         category for each line; your NZI consultant reviews and approves before it counts toward your reported
         emissions.
       </p>
-      {jobNumber && <p className="-mt-2 text-xs text-muted-foreground">Job: {jobNumber}</p>}
+      {jobNumber && (
+        <p className="-mt-2 text-sm font-semibold text-foreground">
+          Job {jobNumber}
+          {reportingYear ? ` · Reporting Year ${reportingYear}` : ""}
+        </p>
+      )}
 
       {error && <ErrorPanel description={error} />}
       {noJobMessage && <EmptyStatePanel title="Not available yet for this account" description={noJobMessage} />}
@@ -720,12 +731,6 @@ export default function PortalSpendTab() {
                 <label className="text-xs text-muted-foreground">VAT %</label>
                 <Input type="number" min={0} max={MAX_VAT_PCT} value={vatPct} onChange={(e) => setVatPct(e.target.value)} />
               </div>
-              <Button
-                disabled={saving || !description.trim() || !isValidNetValue(netValue) || !isValidVatPct(vatPct) || !isValidRefCode(refCode)}
-                onClick={() => void addRow()}
-              >
-                {saving ? "Submitting..." : "Submit Spend Line"}
-              </Button>
             </div>
             {!isValidRefCode(refCode) && (
               <div className="text-xs text-rose-700">GL / Nominal Code must be {MAX_GL_CODE_LENGTH} characters or fewer.</div>
@@ -736,6 +741,23 @@ export default function PortalSpendTab() {
             {vatPct.trim() !== "" && !isValidVatPct(vatPct) && (
               <div className="text-xs text-rose-700">VAT % must be between 0 and {MAX_VAT_PCT}.</div>
             )}
+            <div>
+              <label className="text-xs text-muted-foreground">Notes (optional)</label>
+              <textarea
+                className="flex min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Anything your NZI consultant should know about this entry"
+              />
+            </div>
+            <div className="flex justify-end">
+              <Button
+                disabled={saving || !description.trim() || !isValidNetValue(netValue) || !isValidVatPct(vatPct) || !isValidRefCode(refCode)}
+                onClick={() => void addRow()}
+              >
+                {saving ? "Submitting..." : "Submit Spend Line"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -907,6 +929,8 @@ export default function PortalSpendTab() {
           </div>
         </>
       ))}
+
+      {!noJobMessage && <PortalCategoryHistoryTable fetchUrl="/portal/spend/history" />}
 
       <Dialog open={monthlyEntryId !== null} onOpenChange={(open) => !open && setMonthlyEntryId(null)}>
         <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">

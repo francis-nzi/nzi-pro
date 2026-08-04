@@ -38,6 +38,7 @@ from services.portal_data_entry import (
     get_job_summary,
     get_portal_data_entry_status,
     get_top_spend_categories,
+    load_client_category_history,
     resolve_current_job_for_client,
 )
 from services.virus_scan import VirusScanError, scan_bytes
@@ -77,6 +78,17 @@ def _resolve_job_or_404(con, client_db_id: int) -> int:
 def _assert_data_entry_open(con, job_id: int) -> None:
     if get_portal_data_entry_status(con, job_id)["portal_data_entry_expired"]:
         raise HTTPException(status_code=403, detail=PORTAL_DATA_ENTRY_EXPIRED_MESSAGE)
+
+
+@router.get("/portal/spend/history")
+def portal_spend_history(current_user: dict = Depends(portal_user_dep)):
+    """This client's own prior-year Purchased Goods & Services totals across
+    every historical job -- see services/portal_data_entry.py
+    load_client_category_history."""
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        items = load_client_category_history(con, client_db_id, lambda cat: cat == _PGS_CATEGORY)
+    return {"items": items}
 
 
 @router.get("/portal/spend/rows")
@@ -256,7 +268,7 @@ def portal_spend_create_row(
             conversion_rate=_safe_float(payload.get("conversion_rate"), 1.0),
             amount_net=amount_net,
             vat_pct=vat_pct,
-            notes=None,
+            notes=str(payload.get("notes") or "").strip() or None,
             actor=str(current_user.get("email") or "portal"),
             submitted_by_portal=True,
         )

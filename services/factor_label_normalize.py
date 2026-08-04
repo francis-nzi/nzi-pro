@@ -37,6 +37,7 @@ PRESERVE_CASING: dict[str, str] = {
     "gwp": "GWP",
     "dwt": "dwt",
     "kg": "kg",
+    "cc": "cc",
     "cem": "CEM",
     "opc": "OPC",
     "ggbs": "GGBS",
@@ -142,6 +143,37 @@ _REPEATED_MARKER_SEGMENTS = {"wtt"}
 # segment strings exist across the dataset (4,187 rows) -- no "Vans (by
 # size)"/"HGVs (by size)" or similar variants.
 _REDUNDANT_VEHICLE_CLASS_SEGMENTS = {"cars (by size)", "managed cars (by size)"}
+
+# Indicative engine-size cc ranges for the DEFRA/DESNZ Small/Medium/Large car
+# size bands -- confirmed 2026-08 against DEFRA/DESNZ methodology sources.
+# Diesel uses higher thresholds than petrol (larger displacement for an
+# equivalent power class), so the two fuels need separate bracket text.
+# "Average car" and every other fuel (Hybrid, PHEV, CNG, LPG, EV, Unknown)
+# has no published cc convention and is deliberately left unbracketed.
+_CAR_ENGINE_SIZE_BRACKETS = {
+    ("small", "petrol"): "<1400cc",
+    ("medium", "petrol"): "1401-2000cc",
+    ("large", "petrol"): ">2000cc",
+    ("small", "diesel"): "<1700cc",
+    ("medium", "diesel"): "1701-2000cc",
+    ("large", "diesel"): ">2000cc",
+}
+
+# Matches "Small/Medium/Large Car Petrol/Diesel" only when not already
+# followed by a bracket -- the negative lookahead makes re-running this
+# idempotent, since after the first pass the text is always followed by "(".
+_CAR_ENGINE_SIZE_RE = re.compile(
+    r"\b(Small|Medium|Large) Car (Petrol|Diesel)\b(?!\s*\()"
+)
+
+
+def _append_car_engine_size_bracket(text: str) -> str:
+    def _sub(match: "re.Match[str]") -> str:
+        size, fuel = match.group(1).lower(), match.group(2).lower()
+        bracket = _CAR_ENGINE_SIZE_BRACKETS.get((size, fuel))
+        return f"{match.group(0)} ({bracket})" if bracket else match.group(0)
+
+    return _CAR_ENGINE_SIZE_RE.sub(_sub, text)
 
 
 def _apply_word_casing(text: str) -> str:
@@ -265,7 +297,7 @@ def titlecase_report_label(text: str) -> str:
     else:
         rejoined = f"{segments[0]}: {' '.join(segments[1:])}"
 
-    return _apply_word_casing(rejoined)
+    return _append_car_engine_size_bracket(_apply_word_casing(rejoined))
 
 
 # A label is in-scope for this cleanup only if it has a genuine separator

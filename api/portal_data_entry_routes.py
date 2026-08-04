@@ -34,6 +34,7 @@ from services.portal_data_entry import (
     get_top_bucket_factors,
     job_scope_row_to_dict,
     load_bucket_category_map,
+    load_client_category_history,
     resolve_current_job_for_client,
 )
 
@@ -219,6 +220,28 @@ def portal_data_entry_top_factors(
         items = get_top_bucket_factors(con, client_db_id, bucket_key, category_map)
 
     return {"job_id": job_id, "bucket_key": bucket_key, "items": items}
+
+
+@router.get("/portal/data-entry/{bucket_key}/history")
+def portal_data_entry_history(
+    bucket_key: str,
+    current_user: dict = Depends(portal_user_dep),
+):
+    """This client's own prior-year totals for this bucket, across every
+    historical job -- not just the currently-open one -- so clients can see
+    what they reported last time while filling in this year's data. Same
+    underlying calc as the CRM's own Year-over-Year breakdown, see
+    services/portal_data_entry.py load_client_category_history."""
+    _assert_valid_bucket(bucket_key)
+    client_db_id = int(current_user["client_db_id"])
+
+    with get_conn() as con:
+        category_map = load_bucket_category_map(con)
+        items = load_client_category_history(
+            con, client_db_id, lambda cat: bucket_for_category(category_map, cat) == bucket_key
+        )
+
+    return {"bucket_key": bucket_key, "items": items}
 
 
 @router.get("/portal/data-entry/{bucket_key}/rows")

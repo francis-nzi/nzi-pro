@@ -15,6 +15,7 @@ import {
 import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
 import PortalSpendTab from "@/components/PortalSpendTab";
 import PortalCommutingTab from "@/components/PortalCommutingTab";
+import PortalCategoryHistoryTable from "@/components/PortalCategoryHistoryTable";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -106,6 +107,7 @@ export default function PortalDataEntry() {
   const [rows, setRows] = useState<Row[]>([]);
   const [rowsLoading, setRowsLoading] = useState(false);
   const [jobNumber, setJobNumber] = useState<string | null>(null);
+  const [reportingYear, setReportingYear] = useState<number | null>(null);
   const [error, setError] = useState("");
   // Set when the backend 404s specifically because this client has no open
   // job yet (e.g. every job is Closed) -- ~15% of clients hit this. This is
@@ -122,6 +124,7 @@ export default function PortalDataEntry() {
   const [searching, setSearching] = useState(false);
   const [selectedFactor, setSelectedFactor] = useState<FactorOption | null>(null);
   const [qty, setQty] = useState("");
+  const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [justAdded, setJustAdded] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -192,6 +195,7 @@ export default function PortalDataEntry() {
     setFactorOptions([]);
     setSelectedFactor(null);
     setQty("");
+    setNotes("");
     setSelectedSiteId(defaultSiteId(sites));
     setRegNumber("");
     setRegLookupError("");
@@ -217,6 +221,7 @@ export default function PortalDataEntry() {
         const d = await res.json();
         setRows(d.rows || []);
         setJobNumber(d.job_number || null);
+        setReportingYear(d.reporting_year || null);
         setDataEntryExpired(Boolean(d.portal_data_entry_expired));
       } else if (res.status === 404) {
         const d = await res.json().catch(() => ({}));
@@ -319,6 +324,7 @@ export default function PortalDataEntry() {
           uom: selectedFactor.uom,
           qty: Number(qty),
           site_id: Number(selectedSiteId),
+          notes: notes.trim() || null,
         }),
       });
       if (res.ok) {
@@ -328,6 +334,7 @@ export default function PortalDataEntry() {
         // every single row was the biggest friction point in this flow.
         setSelectedFactor(null);
         setQty("");
+        setNotes("");
         setSearch("");
         setFactorOptions([]);
         setRegLookupVehicle(null);
@@ -465,7 +472,10 @@ export default function PortalDataEntry() {
           Submissions are reviewed by your NZI consultant before they count toward your reported emissions.
         </p>
         {jobNumber && !isSpendTab && !isCommutingTab && (
-          <p className="mt-1 text-xs text-muted-foreground">Job: {jobNumber}</p>
+          <p className="mt-1 text-sm font-semibold text-foreground">
+            Job {jobNumber}
+            {reportingYear ? ` · Reporting Year ${reportingYear}` : ""}
+          </p>
         )}
       </div>
 
@@ -657,17 +667,28 @@ export default function PortalDataEntry() {
                 ) : null}
 
                 {selectedFactor && (
-                  <div className="flex items-end gap-2">
-                    <div className="flex-1">
+                  <div className="space-y-2">
+                    <div>
                       <label className="text-xs text-muted-foreground">Quantity ({selectedFactor.uom || "units"}, annual total)</label>
                       <Input type="number" min="0" step="any" value={qty} onChange={(e) => setQty(e.target.value)} />
                       {qty.trim() && !isPositiveQty(qty) && (
                         <div className="mt-1 text-xs text-rose-700">Enter a quantity greater than 0.</div>
                       )}
                     </div>
-                    <Button disabled={saving || !isPositiveQty(qty) || !selectedSiteId} onClick={() => void submitRow()}>
-                      {saving ? "Submitting..." : "Submit"}
-                    </Button>
+                    <div>
+                      <label className="text-xs text-muted-foreground">Notes (optional)</label>
+                      <textarea
+                        className="flex min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="Anything your NZI consultant should know about this entry"
+                      />
+                    </div>
+                    <div className="flex justify-end">
+                      <Button disabled={saving || !isPositiveQty(qty) || !selectedSiteId} onClick={() => void submitRow()}>
+                        {saving ? "Submitting..." : "Submit"}
+                      </Button>
+                    </div>
                   </div>
                 )}
                 {selectedFactor && !selectedSiteId && (
@@ -688,7 +709,7 @@ export default function PortalDataEntry() {
                   </div>
                   {previousRows.length > 0 && (
                     <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">Previously used</div>
+                      <div className="text-sm font-semibold text-foreground">Previously used</div>
                       <div className="space-y-0.5">
                         {previousRows.map((item, idx) => (
                           <button
@@ -705,7 +726,7 @@ export default function PortalDataEntry() {
                   )}
                   {topFactors.length > 0 && (
                     <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">Frequently used</div>
+                      <div className="text-sm font-semibold text-foreground">Frequently used</div>
                       <div className="space-y-0.5">
                         {topFactors.map((item, idx) => (
                           <button
@@ -797,6 +818,10 @@ export default function PortalDataEntry() {
             </div>
           </>
         )
+      )}
+
+      {!isComingSoon && !isSpendTab && !isCommutingTab && !noJobMessage && activeBucket && (
+        <PortalCategoryHistoryTable fetchUrl={`/portal/data-entry/${activeBucket}/history`} />
       )}
     </div>
   );

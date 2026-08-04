@@ -21,10 +21,20 @@ from services.dataset_selector import get_scope_primary_datasets
 
 logger = logging.getLogger(__name__)
 
-# Car engine-size bands (cc) -- DEFRA/DESNZ convention. See module docstring
-# for what's been spot-checked against real vehicles vs. still assumed.
-_CAR_SIZE_BANDS = [
+# Car engine-size bands (cc) -- DEFRA/DESNZ convention. Diesel uses higher
+# thresholds than petrol (confirmed 2026-08 against DEFRA/DESNZ methodology
+# sources -- diesel engines run larger displacement for an equivalent power
+# class). Every other fuel (Hybrid, PHEV, CNG, LPG, EV, Unknown) has no
+# DEFRA-published cc convention, so they keep the petrol bands as the
+# existing best-effort default. See module docstring for what's been
+# spot-checked against real vehicles vs. still assumed.
+_CAR_SIZE_BANDS_PETROL = [
     (1400, "Small car"),
+    (2000, "Medium car"),
+    (float("inf"), "Large car"),
+]
+_CAR_SIZE_BANDS_DIESEL = [
+    (1700, "Small car"),
     (2000, "Medium car"),
     (float("inf"), "Large car"),
 ]
@@ -139,7 +149,8 @@ def categorize_vehicle(con, job_id: int, vehicle_data: dict[str, Any]) -> tuple[
     level_1 = "UK electricity for EVs" if is_electric else None
 
     if type_approval == "M1":
-        size = _band(vehicle_data.get("engine_capacity"), _CAR_SIZE_BANDS) or "Average car"
+        car_bands = _CAR_SIZE_BANDS_DIESEL if fuel_label == "Diesel" else _CAR_SIZE_BANDS_PETROL
+        size = _band(vehicle_data.get("engine_capacity"), car_bands) or "Average car"
         fuel = fuel_label or "Unknown"
         row = _find_factor_row(
             con, dataset_ids, level_1 or "Passenger vehicles", "Cars (by size)", size, fuel

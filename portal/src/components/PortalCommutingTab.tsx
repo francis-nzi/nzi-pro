@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
+import PortalCategoryHistoryTable from "@/components/PortalCategoryHistoryTable";
 
 type Options = { mode_options: string[]; service_options: string[]; unit_options: string[] };
 
@@ -63,6 +64,7 @@ export default function PortalCommutingTab() {
   const [weeksPerYear, setWeeksPerYear] = useState("48");
   const [annualDays, setAnnualDays] = useState("");
   const [hoursPerDay, setHoursPerDay] = useState("");
+  const [notes, setNotes] = useState("");
 
   // "I drive my own car" -- registration lookup instead of mode/service dropdowns.
   const [regNumber, setRegNumber] = useState("");
@@ -70,6 +72,7 @@ export default function PortalCommutingTab() {
   const [regLookupError, setRegLookupError] = useState("");
 
   const [jobNumber, setJobNumber] = useState<string | null>(null);
+  const [reportingYear, setReportingYear] = useState<number | null>(null);
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
   const [editEmployeeName, setEditEmployeeName] = useState("");
   const [editQty, setEditQty] = useState("");
@@ -108,6 +111,7 @@ export default function PortalCommutingTab() {
         const d = await res.json();
         setRows(d.rows || []);
         setJobNumber(d.job_number || null);
+        setReportingYear(d.reporting_year || null);
         setDataEntryExpired(Boolean(d.portal_data_entry_expired));
       } else if (res.status === 404) {
         const d = await res.json().catch(() => ({}));
@@ -127,6 +131,7 @@ export default function PortalCommutingTab() {
     setWeeksPerYear("48");
     setAnnualDays("");
     setHoursPerDay("");
+    setNotes("");
     setRegNumber("");
     setRegAnnualMiles("");
     setRegLookupError("");
@@ -175,6 +180,7 @@ export default function PortalCommutingTab() {
       const payload: Record<string, unknown> = {
         row_type: rowType,
         employee_name: employeeName.trim(),
+        notes: notes.trim() || null,
       };
       if (rowType === "commuting") {
         Object.assign(payload, {
@@ -298,7 +304,12 @@ export default function PortalCommutingTab() {
         Add employee commuting or working-from-home data here. Your NZI consultant reviews and approves each entry
         before it counts toward your reported emissions.
       </p>
-      {jobNumber && <p className="-mt-2 text-xs text-muted-foreground">Job: {jobNumber}</p>}
+      {jobNumber && (
+        <p className="-mt-2 text-sm font-semibold text-foreground">
+          Job {jobNumber}
+          {reportingYear ? ` · Reporting Year ${reportingYear}` : ""}
+        </p>
+      )}
 
       {error && <ErrorPanel description={error} />}
       {noJobMessage && <EmptyStatePanel title="Not available yet for this account" description={noJobMessage} />}
@@ -465,6 +476,18 @@ export default function PortalCommutingTab() {
             )}
 
             {!(rowType === "commuting" && entryMode === "vehicle") && (
+              <div>
+                <label className="text-xs text-muted-foreground">Notes (optional)</label>
+                <textarea
+                  className="flex min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Anything your NZI consultant should know about this entry"
+                />
+              </div>
+            )}
+
+            {!(rowType === "commuting" && entryMode === "vehicle") && (
               <Button
                 disabled={
                   saving ||
@@ -581,6 +604,8 @@ export default function PortalCommutingTab() {
           </div>
         </>
       ))}
+
+      {!noJobMessage && <PortalCategoryHistoryTable fetchUrl="/portal/commuting/history" />}
     </div>
   );
 }

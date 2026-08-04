@@ -9,17 +9,17 @@ from services.factor_label_normalize import split_top_level_segments, titlecase_
 
 
 def test_already_clean_single_segment_label_unchanged():
-    assert titlecase_report_label("Business Travel Medium Car Petrol") == "Business Travel Medium Car Petrol"
+    assert titlecase_report_label("Water Supply Standard Tariff") == "Water Supply Standard Tariff"
 
 
 def test_land_segment_dropped_and_colon_inserted():
     assert (
         titlecase_report_label("Business travel- land - Medium car - Diesel")
-        == "Business Travel: Medium Car Diesel"
+        == "Business Travel: Medium Car Diesel (1701-2000cc)"
     )
     assert (
         titlecase_report_label("Employee commuting- land - Large car - Petrol")
-        == "Employee Commuting: Large Car Petrol"
+        == "Employee Commuting: Large Car Petrol (>2000cc)"
     )
 
 
@@ -30,7 +30,7 @@ def test_cars_by_size_segment_dropped():
     )
     assert (
         titlecase_report_label("Business travel- land - Cars (by size) - Small car - Petrol")
-        == "Business Travel: Small Car Petrol"
+        == "Business Travel: Small Car Petrol (<1400cc)"
     )
 
 
@@ -118,7 +118,7 @@ def test_repeated_wtt_marker_with_mode_qualifier_segment_between():
 def test_repeated_wtt_marker_with_land_segment_between_both_removed():
     assert (
         titlecase_report_label("WTT- pass vehs & travel- land - WTT- cars (by size) - Small car - Petrol")
-        == "WTT: Pass Vehs & Travel Small Car Petrol"
+        == "WTT: Pass Vehs & Travel Small Car Petrol (<1400cc)"
     )
 
 
@@ -195,6 +195,57 @@ def test_idempotent_on_deduplicated_input():
     once = titlecase_report_label("Water supply - Water supply - Water supply")
     twice = titlecase_report_label(once)
     assert once == twice
+
+
+def test_car_engine_size_bracket_petrol():
+    assert (
+        titlecase_report_label("Passenger vehicles - Cars (by size) - Small car - Petrol")
+        == "Passenger Vehicles: Small Car Petrol (<1400cc)"
+    )
+    assert (
+        titlecase_report_label("Passenger vehicles - Cars (by size) - Medium car - Petrol")
+        == "Passenger Vehicles: Medium Car Petrol (1401-2000cc)"
+    )
+    assert (
+        titlecase_report_label("Passenger vehicles - Cars (by size) - Large car - Petrol")
+        == "Passenger Vehicles: Large Car Petrol (>2000cc)"
+    )
+
+
+def test_car_engine_size_bracket_diesel_uses_different_thresholds():
+    assert (
+        titlecase_report_label("Passenger vehicles - Cars (by size) - Small car - Diesel")
+        == "Passenger Vehicles: Small Car Diesel (<1700cc)"
+    )
+    assert (
+        titlecase_report_label("Passenger vehicles - Cars (by size) - Medium car - Diesel")
+        == "Passenger Vehicles: Medium Car Diesel (1701-2000cc)"
+    )
+    assert (
+        titlecase_report_label("Passenger vehicles - Cars (by size) - Large car - Diesel")
+        == "Passenger Vehicles: Large Car Diesel (>2000cc)"
+    )
+
+
+def test_car_engine_size_bracket_not_applied_to_average_or_other_fuels():
+    assert (
+        titlecase_report_label("Passenger vehicles - Cars (by size) - Average car - Petrol")
+        == "Passenger Vehicles: Average Car Petrol"
+    )
+    assert (
+        titlecase_report_label("Passenger vehicles - Cars (by size) - Small car - Hybrid")
+        == "Passenger Vehicles: Small Car Hybrid"
+    )
+    assert (
+        titlecase_report_label("Passenger vehicles - Cars (by size) - Small car - Battery Electric Vehicle")
+        == "Passenger Vehicles: Small Car Battery Electric Vehicle"
+    )
+
+
+def test_car_engine_size_bracket_idempotent():
+    once = titlecase_report_label("Passenger vehicles - Cars (by size) - Small car - Petrol")
+    twice = titlecase_report_label(once)
+    assert once == twice == "Passenger Vehicles: Small Car Petrol (<1400cc)"
 
 
 # --- split_top_level_segments (the paren-aware splitter directly) ---

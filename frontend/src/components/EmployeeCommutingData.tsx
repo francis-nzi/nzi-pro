@@ -21,7 +21,6 @@ import { dispatchJobScopeRefresh } from "@/lib/job-scope-refresh";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatDate, formatNumber } from "@/lib/format";
 import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
-import PendingPortalCommutingSubmissions from "@/components/PendingPortalCommutingSubmissions";
 
 type SiteOption = {
   site_id: number | null;
@@ -839,11 +838,9 @@ export default function EmployeeCommutingData({
       {/* Prototype shells can hide this duplicate summary so the header stays compact. */}
       {showEmissionsSummary ? <EmissionsSummary jobId={jobId} baseUrl={baseUrl} /> : null}
 
-      <PendingPortalCommutingSubmissions
-        jobId={jobId}
-        baseUrl={baseUrl}
-        onReviewed={() => { void loadSummary(); void loadDirectEntries(); }}
-      />
+      {/* Pending portal submissions now review from Job -> Data -> Data Entry
+          (JobDataEntry.tsx), alongside every other tab's pending rows, rather
+          than a separate screen here. */}
 
       <Card>
         <CardHeader>
