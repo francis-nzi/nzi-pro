@@ -556,12 +556,22 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
     if not oid:
         return None
 
+    # Also select scope/category/level_1-4/column_text -- these describe
+    # *this specific factor*, not the row it happens to be replacing. A
+    # repoint operation resolves a factor by original_id/dataset_id alone;
+    # `scope` here is only a disambiguation preference (see ORDER BY below)
+    # for when the same original_id exists in more than one scope, never a
+    # hard filter on what the caller is allowed to find -- so the resolved
+    # factor's own scope/category can genuinely differ from the row's
+    # current one, and callers that update a row from this lookup need
+    # both fields to keep the row's scope/category honest.
+    cols = "db_id, factor, ghg_unit, uom, report_label, scope, category, level_1, level_2, level_3, level_4, column_text"
     attempts: list[tuple[str, list[Any]]] = []
     if dataset_id is not None and scope:
         attempts.append(
             (
-                """
-                SELECT db_id, factor, ghg_unit, uom, report_label
+                f"""
+                SELECT {cols}
                 FROM factor_lookup
                 WHERE dataset_id=%s AND scope=%s AND original_id=%s
                 ORDER BY db_id ASC
@@ -573,8 +583,8 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
     if dataset_id is not None:
         attempts.append(
             (
-                """
-                SELECT db_id, factor, ghg_unit, uom, report_label
+                f"""
+                SELECT {cols}
                 FROM factor_lookup
                 WHERE dataset_id=%s AND original_id=%s
                 ORDER BY CASE WHEN scope=%s THEN 0 ELSE 1 END, db_id ASC
@@ -586,8 +596,8 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
     if scope:
         attempts.append(
             (
-                """
-                SELECT db_id, factor, ghg_unit, uom, report_label
+                f"""
+                SELECT {cols}
                 FROM factor_lookup
                 WHERE scope=%s AND original_id=%s
                 ORDER BY dataset_id DESC, db_id ASC
@@ -598,8 +608,8 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
         )
     attempts.append(
         (
-            """
-            SELECT db_id, factor, ghg_unit, uom, report_label
+            f"""
+            SELECT {cols}
             FROM factor_lookup
             WHERE original_id=%s
             ORDER BY CASE WHEN scope=%s THEN 0 ELSE 1 END, dataset_id DESC, db_id ASC
@@ -617,13 +627,20 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
             row = None
         if not row:
             continue
-        db_id, factor, ghg_unit, uom, report_label = row
+        db_id, factor, ghg_unit, uom, report_label, row_scope, category, level_1, level_2, level_3, level_4, column_text = row
         return {
             "db_id": _safe_int(db_id),
             "factor": _safe_float(factor),
             "ghg_unit": str(ghg_unit).strip() if ghg_unit is not None else None,
             "uom": str(uom).strip() if uom is not None else None,
             "report_label": str(report_label).strip() if report_label is not None else None,
+            "scope": str(row_scope).strip() if row_scope is not None else None,
+            "category": str(category).strip() if category is not None else None,
+            "level_1": str(level_1).strip() if level_1 is not None else None,
+            "level_2": str(level_2).strip() if level_2 is not None else None,
+            "level_3": str(level_3).strip() if level_3 is not None else None,
+            "level_4": str(level_4).strip() if level_4 is not None else None,
+            "column_text": str(column_text).strip() if column_text is not None else None,
         }
     return None
 
@@ -670,7 +687,8 @@ def _resolve_repoint_factor(
         try:
             row = con.execute(
                 """
-                SELECT db_id, dataset_id, factor, ghg_unit, uom
+                SELECT db_id, dataset_id, factor, ghg_unit, uom, scope, category,
+                       level_1, level_2, level_3, level_4, column_text
                 FROM factor_lookup
                 WHERE db_id=%s
                 LIMIT 1
@@ -687,7 +705,22 @@ def _resolve_repoint_factor(
                 "factor": _safe_float(row[2]),
                 "ghg_unit": str(row[3]).strip() if row[3] is not None else None,
                 "uom": str(row[4]).strip() if row[4] is not None else None,
+                "scope": str(row[5]).strip() if row[5] is not None else None,
+                "category": str(row[6]).strip() if row[6] is not None else None,
+                "level_1": str(row[7]).strip() if row[7] is not None else None,
+                "level_2": str(row[8]).strip() if row[8] is not None else None,
+                "level_3": str(row[9]).strip() if row[9] is not None else None,
+                "level_4": str(row[10]).strip() if row[10] is not None else None,
+                "column_text": str(row[11]).strip() if row[11] is not None else None,
             }
+
+    resolved_scope = None
+    resolved_category = None
+    resolved_level_1 = None
+    resolved_level_2 = None
+    resolved_level_3 = None
+    resolved_level_4 = None
+    resolved_column_text = None
 
     if lookup:
         if resolved_dataset_id is None:
@@ -702,6 +735,16 @@ def _resolve_repoint_factor(
             resolved_uom = str(lookup.get("uom")).strip() if lookup.get("uom") is not None else None
         if lookup.get("report_label") is not None:
             resolved_report_label = str(lookup.get("report_label")).strip() or None
+        # This factor's own scope/category/level hierarchy -- describes what
+        # was actually found, not the row being replaced. The caller decides
+        # whether/how to apply these to the row being repointed.
+        resolved_scope = lookup.get("scope")
+        resolved_category = lookup.get("category")
+        resolved_level_1 = lookup.get("level_1")
+        resolved_level_2 = lookup.get("level_2")
+        resolved_level_3 = lookup.get("level_3")
+        resolved_level_4 = lookup.get("level_4")
+        resolved_column_text = lookup.get("column_text")
     elif resolved_dataset_id is not None or resolved_factor_db_id is not None:
         raise HTTPException(
             status_code=404,
@@ -728,6 +771,13 @@ def _resolve_repoint_factor(
         "ghg_unit": resolved_ghg_unit,
         "uom": resolved_uom,
         "report_label": resolved_report_label,
+        "scope": resolved_scope,
+        "category": resolved_category,
+        "level_1": resolved_level_1,
+        "level_2": resolved_level_2,
+        "level_3": resolved_level_3,
+        "level_4": resolved_level_4,
+        "column_text": resolved_column_text,
     }
 
 
@@ -2649,6 +2699,15 @@ def repoint_scope_data_row(
                     ),
                 )
 
+            # The resolved factor's own scope -- not necessarily the row's
+            # current scope. A repoint can legitimately move a row to a
+            # factor in a different scope (e.g. correcting a fuel-car row to
+            # the matching EV-electricity factor), so this must win over the
+            # stale `before` value unless the caller explicitly pins a scope.
+            target_scope = str(
+                payload["scope"] if "scope" in payload else (resolved.get("scope") or before.get("scope") or "")
+            )
+
             duplicate_query = """
                 SELECT row_id
                 FROM job_scope_rows
@@ -2665,7 +2724,7 @@ def repoint_scope_data_row(
                 [
                     int(job_id),
                     target_site_id,
-                    str(before.get("scope") or ""),
+                    target_scope,
                     str(resolved.get("original_id") or ""),
                     int(row_id),
                 ],
@@ -2694,12 +2753,19 @@ def repoint_scope_data_row(
                 "dataset_id": resolved.get("dataset_id"),
                 "factor_db_id": resolved.get("factor_db_id"),
                 "original_id": resolved.get("original_id"),
-                "category": payload["category"] if "category" in payload else before.get("category"),
-                "level_1": payload["level_1"] if "level_1" in payload else before.get("level_1"),
-                "level_2": payload["level_2"] if "level_2" in payload else before.get("level_2"),
-                "level_3": payload["level_3"] if "level_3" in payload else before.get("level_3"),
-                "level_4": payload["level_4"] if "level_4" in payload else before.get("level_4"),
-                "column_text": payload["column_text"] if "column_text" in payload else before.get("column_text"),
+                "scope": target_scope,
+                # Prefer the newly-resolved factor's own category/level
+                # hierarchy over the row's previous one -- these describe
+                # what the row now points to, not what it used to be. Only
+                # fall back to `before` when the resolved factor has no
+                # category info at all (e.g. a fully custom payload with no
+                # dataset/factor_db_id match).
+                "category": payload["category"] if "category" in payload else (resolved.get("category") or before.get("category")),
+                "level_1": payload["level_1"] if "level_1" in payload else (resolved.get("level_1") or before.get("level_1")),
+                "level_2": payload["level_2"] if "level_2" in payload else (resolved.get("level_2") or before.get("level_2")),
+                "level_3": payload["level_3"] if "level_3" in payload else (resolved.get("level_3") or before.get("level_3")),
+                "level_4": payload["level_4"] if "level_4" in payload else (resolved.get("level_4") or before.get("level_4")),
+                "column_text": payload["column_text"] if "column_text" in payload else (resolved.get("column_text") or before.get("column_text")),
                 "report_label": (
                     payload["report_label"]
                     if "report_label" in payload
@@ -2722,6 +2788,7 @@ def repoint_scope_data_row(
                 SET dataset_id=%s,
                     factor_db_id=%s,
                     original_id=%s,
+                    scope=%s,
                     category=%s,
                     level_1=%s,
                     level_2=%s,
@@ -2744,6 +2811,7 @@ def repoint_scope_data_row(
                     update_values["dataset_id"],
                     update_values["factor_db_id"],
                     update_values["original_id"],
+                    update_values["scope"],
                     update_values["category"],
                     update_values["level_1"],
                     update_values["level_2"],
@@ -2792,6 +2860,7 @@ def repoint_scope_data_row(
                         "dataset_id",
                         "factor_db_id",
                         "original_id",
+                        "scope",
                         "category",
                         "level_1",
                         "level_2",
@@ -2812,6 +2881,8 @@ def repoint_scope_data_row(
                         "dataset_id": before.get("dataset_id"),
                         "factor_db_id": before.get("factor_db_id"),
                         "original_id": before.get("original_id"),
+                        "scope": before.get("scope"),
+                        "category": before.get("category"),
                         "site_id": before.get("site_id"),
                         "uom": before.get("uom"),
                     },
@@ -2819,6 +2890,8 @@ def repoint_scope_data_row(
                         "dataset_id": update_values["dataset_id"],
                         "factor_db_id": update_values["factor_db_id"],
                         "original_id": update_values["original_id"],
+                        "scope": update_values["scope"],
+                        "category": update_values["category"],
                         "site_id": update_values["site_id"],
                         "uom": update_values["uom"],
                     },

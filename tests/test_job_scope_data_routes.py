@@ -642,6 +642,8 @@ class _RepointConn:
         self._is_published = is_published
         self._has_duplicate = has_duplicate
         self.updated = False
+        self.update_params = None
+        self.duplicate_check_params = None
 
     def __enter__(self):
         return self
@@ -655,9 +657,11 @@ class _RepointConn:
         if "report_reviews" in sql:
             return _ScopeDataResult(fetchone_value=(1,) if self._is_published else None)
         if "AND row_id<>" in sql:  # duplicate check
+            self.duplicate_check_params = params
             return _ScopeDataResult(fetchone_value=(99,) if self._has_duplicate else None)
         if sql.strip().startswith("UPDATE job_scope_rows"):
             self.updated = True
+            self.update_params = params
             return _ScopeDataResult()
         return _ScopeDataResult()
 
@@ -802,6 +806,89 @@ def test_repoint_duplicate_row_returns_409(monkeypatch) -> None:
 
     assert exc_info.value.status_code == 409
     assert "already exists" in exc_info.value.detail.lower()
+
+
+def test_repoint_updates_scope_and_category_from_resolved_factor(monkeypatch) -> None:
+    """Regression test: repointing a row to a factor in a different scope/
+    category (e.g. Company Vehicles -> UK Electricity for EVs) must update
+    the row's own scope/category columns to match the new factor, not leave
+    them frozen at the old factor's values -- this was a real production bug
+    (2026-08): report_label updated correctly because the frontend already
+    sent it explicitly, but scope/category were silently discarded because
+    _resolve_repoint_factor never resolved or returned them at all."""
+    conn = _RepointConn()
+    resolved_different_scope_category = {
+        **_BASE_RESOLVED,
+        "scope": "Scope 2",
+        "category": "Fuels and Energy Related Activities",
+    }
+    _make_repoint_monkeypatches(monkeypatch, conn, resolved=resolved_different_scope_category)
+
+    job_scope_data_routes.repoint_scope_data_row(
+        request=_FakeRequest(),
+        job_id=100,
+        row_id=1,
+        payload={"original_id": "OID-NEW", "dataset_id": 5},  # no explicit scope/category override
+        _user={"user_id": "u1", "org_id": "org-123"},
+    )
+
+    assert conn.updated is True
+    # UPDATE param order: dataset_id, factor_db_id, original_id, scope, category, ...
+    assert conn.update_params[3] == "Scope 2"
+    assert conn.update_params[4] == "Fuels and Energy Related Activities"
+    # The duplicate-conflict check must also use the NEW scope, not the row's
+    # stale old scope ("Scope 1" in _BASE_BEFORE) -- otherwise it could miss
+    # a real conflict in the new scope or false-positive against the old one.
+    assert conn.duplicate_check_params[2] == "Scope 2"
+
+
+def test_repoint_falls_back_to_before_category_when_resolved_has_none(monkeypatch) -> None:
+    """A fully custom repoint payload (no dataset/factor_db_id match) has no
+    resolved category/scope to adopt -- must keep the row's existing values
+    rather than blanking them out."""
+    conn = _RepointConn()
+    resolved_no_category = {**_BASE_RESOLVED, "scope": None, "category": None}
+    _make_repoint_monkeypatches(monkeypatch, conn, resolved=resolved_no_category)
+
+    job_scope_data_routes.repoint_scope_data_row(
+        request=_FakeRequest(),
+        job_id=100,
+        row_id=1,
+        payload={"original_id": "OID-NEW", "dataset_id": 5},
+        _user={"user_id": "u1", "org_id": "org-123"},
+    )
+
+    assert conn.update_params[3] == _BASE_BEFORE["scope"]
+    assert conn.update_params[4] == _BASE_BEFORE["category"]
+
+
+def test_repoint_explicit_payload_scope_and_category_win(monkeypatch) -> None:
+    """An explicit scope/category in the payload overrides even the resolved
+    factor's own values -- matches the existing override precedence used for
+    every other optional field (data_source, notes, etc.)."""
+    conn = _RepointConn()
+    resolved_different_scope_category = {
+        **_BASE_RESOLVED,
+        "scope": "Scope 2",
+        "category": "Fuels and Energy Related Activities",
+    }
+    _make_repoint_monkeypatches(monkeypatch, conn, resolved=resolved_different_scope_category)
+
+    job_scope_data_routes.repoint_scope_data_row(
+        request=_FakeRequest(),
+        job_id=100,
+        row_id=1,
+        payload={
+            "original_id": "OID-NEW",
+            "dataset_id": 5,
+            "scope": "Scope 3",
+            "category": "Manual Override Category",
+        },
+        _user={"user_id": "u1", "org_id": "org-123"},
+    )
+
+    assert conn.update_params[3] == "Scope 3"
+    assert conn.update_params[4] == "Manual Override Category"
 
 
 def test_repoint_preserves_monthly_values_through_update(monkeypatch) -> None:
