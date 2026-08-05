@@ -368,6 +368,39 @@ function TimePageContent() {
     [teamMembers]
   );
 
+  // Staff Member filter needs to list everyone (including disabled staff, so
+  // historical entries stay filterable) but must disambiguate duplicate/typo'd
+  // accounts sharing a display name -- otherwise picking "the" match is a
+  // silent coin flip between a real account and an empty one.
+  const staffFilterOptions = useMemo(() => {
+    const isActive = (m: TeamMember) =>
+      String(m.status ?? "").trim().toLowerCase() === "active";
+    const nameCounts = new Map<string, number>();
+    for (const m of teamMembers) {
+      const key = (m.full_name || "").trim().toLowerCase();
+      nameCounts.set(key, (nameCounts.get(key) || 0) + 1);
+    }
+    return [...teamMembers]
+      .sort((a, b) => {
+        const aActive = isActive(a) ? 0 : 1;
+        const bActive = isActive(b) ? 0 : 1;
+        if (aActive !== bActive) return aActive - bActive;
+        return (a.full_name || "").localeCompare(b.full_name || "");
+      })
+      .map((member) => {
+        const key = (member.full_name || "").trim().toLowerCase();
+        const isDuplicateName = (nameCounts.get(key) || 0) > 1;
+        const active = isActive(member);
+        const suffixParts: string[] = [];
+        if (isDuplicateName && member.email) suffixParts.push(member.email);
+        if (!active) suffixParts.push("Disabled");
+        const label = suffixParts.length
+          ? `${member.full_name} (${suffixParts.join(" — ")})`
+          : member.full_name;
+        return { user_id: member.user_id, label };
+      });
+  }, [teamMembers]);
+
   const taskAssigneeOptions = useMemo<TaskAssigneeOption[]>(() => {
     const options: TaskAssigneeOption[] = [];
     const seen = new Set<string>();
@@ -1253,9 +1286,9 @@ function TimePageContent() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="__all__">All staff</SelectItem>
-                          {teamMembers.map((member) => (
-                            <SelectItem key={member.user_id} value={member.user_id}>
-                              {member.full_name}
+                          {staffFilterOptions.map((opt) => (
+                            <SelectItem key={opt.user_id} value={opt.user_id}>
+                              {opt.label}
                             </SelectItem>
                           ))}
                         </SelectContent>
