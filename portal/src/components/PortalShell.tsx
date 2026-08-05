@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { apiFetch, clearAllTokens, getBestToken } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
+import PortalStatusBar from "@/components/PortalStatusBar";
 
 type PortalUser = {
   portal_user_id: number | null;
@@ -251,6 +252,8 @@ export default function PortalShell({
           </div>
           <span className="text-sm font-bold">NZ Insights Pro</span>
         </div>
+
+        {user && <PortalStatusBar />}
 
         <main className="min-w-0 flex-1 px-6 py-8">
           {children}
