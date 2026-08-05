@@ -13,6 +13,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import PortalSpendTab from "@/components/PortalSpendTab";
 import PortalCommutingTab from "@/components/PortalCommutingTab";
 import PortalCategoryHistoryTable from "@/components/PortalCategoryHistoryTable";
@@ -70,7 +78,49 @@ type Row = {
   review_status: "pending_review" | "approved" | "rejected" | null;
   review_note: string | null;
   submitted_by_portal: boolean;
+  month_1: number | null; month_2: number | null; month_3: number | null;
+  month_4: number | null; month_5: number | null; month_6: number | null;
+  month_7: number | null; month_8: number | null; month_9: number | null;
+  month_10: number | null; month_11: number | null; month_12: number | null;
 };
+
+const ALL_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// month_1..month_12 are relative to the job's reporting period, not the
+// calendar year -- month_1 is whichever month the period actually starts in
+// (e.g. April for an Apr-Mar year). Mirrors JobDataEntry.tsx's getOrderedMonths
+// / getMonthIndex so the portal's grid lines up with the same underlying columns.
+function getOrderedMonths(reportingPeriodStart: string | null): string[] {
+  if (!reportingPeriodStart) return ALL_MONTHS;
+  const startDate = new Date(reportingPeriodStart);
+  if (Number.isNaN(startDate.getTime())) return ALL_MONTHS;
+  const startMonthIndex = startDate.getMonth();
+  return [...ALL_MONTHS.slice(startMonthIndex), ...ALL_MONTHS.slice(0, startMonthIndex)];
+}
+
+function getMonthIndex(displayIndex: number, reportingPeriodStart: string | null): number {
+  if (!reportingPeriodStart) return displayIndex;
+  const startDate = new Date(reportingPeriodStart);
+  if (Number.isNaN(startDate.getTime())) return displayIndex;
+  return (displayIndex + startDate.getMonth()) % 12;
+}
+
+function parseMonthlyValue(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : null;
+}
+
+function sumMonthlyValues(values: string[]): number {
+  return values.reduce((sum, v) => sum + (parseMonthlyValue(v) ?? 0), 0);
+}
+
+function monthFieldsFromValues(values: string[]): Record<string, number | null> {
+  const fields: Record<string, number | null> = {};
+  values.forEach((v, i) => { fields[`month_${i + 1}`] = parseMonthlyValue(v); });
+  return fields;
+}
 
 const REVIEW_LABEL: Record<string, { label: string; className: string }> = {
   pending_review: { label: "Awaiting review", className: "bg-amber-100 text-amber-800" },
@@ -108,6 +158,7 @@ export default function PortalDataEntry() {
   const [rowsLoading, setRowsLoading] = useState(false);
   const [jobNumber, setJobNumber] = useState<string | null>(null);
   const [reportingYear, setReportingYear] = useState<number | null>(null);
+  const [reportingPeriodStart, setReportingPeriodStart] = useState<string | null>(null);
   const [error, setError] = useState("");
   // Set when the backend 404s specifically because this client has no open
   // job yet (e.g. every job is Closed) -- ~15% of clients hit this. This is
@@ -124,6 +175,8 @@ export default function PortalDataEntry() {
   const [searching, setSearching] = useState(false);
   const [selectedFactor, setSelectedFactor] = useState<FactorOption | null>(null);
   const [qty, setQty] = useState("");
+  const [useMonthly, setUseMonthly] = useState(false);
+  const [monthlyValues, setMonthlyValues] = useState<string[]>(Array(12).fill(""));
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [justAdded, setJustAdded] = useState(false);
@@ -144,6 +197,12 @@ export default function PortalDataEntry() {
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
   const [editQty, setEditQty] = useState("");
   const [rowActionSaving, setRowActionSaving] = useState(false);
+
+  // Monthly-breakdown edit modal for an existing row (mirrors the CRM's Data
+  // Entry "Monthly Data" modal in JobDataEntry.tsx).
+  const [monthlyModalRow, setMonthlyModalRow] = useState<Row | null>(null);
+  const [monthlyModalValues, setMonthlyModalValues] = useState<string[]>(Array(12).fill(""));
+  const [monthlyModalSaving, setMonthlyModalSaving] = useState(false);
 
   // Registration-number lookup (Phase 3) -- only offered for the two vehicle-
   // shaped buckets; everything else keeps the plain search flow above.
@@ -195,6 +254,8 @@ export default function PortalDataEntry() {
     setFactorOptions([]);
     setSelectedFactor(null);
     setQty("");
+    setUseMonthly(false);
+    setMonthlyValues(Array(12).fill(""));
     setNotes("");
     setSelectedSiteId(defaultSiteId(sites));
     setRegNumber("");
@@ -222,6 +283,7 @@ export default function PortalDataEntry() {
         setRows(d.rows || []);
         setJobNumber(d.job_number || null);
         setReportingYear(d.reporting_year || null);
+        setReportingPeriodStart(d.reporting_period_start || null);
         setDataEntryExpired(Boolean(d.portal_data_entry_expired));
       } else if (res.status === 404) {
         const d = await res.json().catch(() => ({}));
@@ -308,7 +370,9 @@ export default function PortalDataEntry() {
   }
 
   async function submitRow() {
-    if (!selectedFactor || !isPositiveQty(qty) || !selectedSiteId) return;
+    const monthlySum = sumMonthlyValues(monthlyValues);
+    const qtyValid = useMonthly ? monthlySum > 0 : isPositiveQty(qty);
+    if (!selectedFactor || !qtyValid || !selectedSiteId) return;
     setSaving(true);
     setError("");
     setJustAdded(false);
@@ -322,9 +386,10 @@ export default function PortalDataEntry() {
           category: selectedFactor.category,
           report_label: selectedFactor.report_label,
           uom: selectedFactor.uom,
-          qty: Number(qty),
+          qty: useMonthly ? monthlySum : Number(qty),
           site_id: Number(selectedSiteId),
           notes: notes.trim() || null,
+          ...(useMonthly ? monthFieldsFromValues(monthlyValues) : {}),
         }),
       });
       if (res.ok) {
@@ -334,6 +399,8 @@ export default function PortalDataEntry() {
         // every single row was the biggest friction point in this flow.
         setSelectedFactor(null);
         setQty("");
+        setUseMonthly(false);
+        setMonthlyValues(Array(12).fill(""));
         setNotes("");
         setSearch("");
         setFactorOptions([]);
@@ -371,6 +438,44 @@ export default function PortalDataEntry() {
       }
     } finally {
       setRowActionSaving(false);
+    }
+  }
+
+  function openMonthlyModal(row: Row) {
+    setMonthlyModalRow(row);
+    setMonthlyModalValues([
+      row.month_1, row.month_2, row.month_3, row.month_4, row.month_5, row.month_6,
+      row.month_7, row.month_8, row.month_9, row.month_10, row.month_11, row.month_12,
+    ].map((v) => (v === null || v === undefined ? "" : String(v))));
+  }
+
+  function closeMonthlyModal() {
+    setMonthlyModalRow(null);
+    setMonthlyModalValues(Array(12).fill(""));
+  }
+
+  async function saveMonthlyModal() {
+    if (!monthlyModalRow) return;
+    setMonthlyModalSaving(true);
+    setError("");
+    try {
+      const res = await apiFetch(`/portal/data-entry/${activeBucket}/rows/${monthlyModalRow.row_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          qty: sumMonthlyValues(monthlyModalValues),
+          ...monthFieldsFromValues(monthlyModalValues),
+        }),
+      });
+      if (res.ok) {
+        closeMonthlyModal();
+        void loadRows(activeBucket);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setError(d?.detail || "Failed to update this row.");
+      }
+    } finally {
+      setMonthlyModalSaving(false);
     }
   }
 
@@ -451,6 +556,9 @@ export default function PortalDataEntry() {
           onClick={() => { setEditingRowId(row.row_id); setEditQty(row.qty !== null && row.qty !== undefined ? String(row.qty) : ""); }}
         >
           Edit
+        </button>
+        <button className="text-primary hover:underline" onClick={() => openMonthlyModal(row)}>
+          Monthly
         </button>
         <button
           className="text-rose-700 hover:underline disabled:opacity-50"
@@ -668,13 +776,60 @@ export default function PortalDataEntry() {
 
                 {selectedFactor && (
                   <div className="space-y-2">
-                    <div>
-                      <label className="text-xs text-muted-foreground">Quantity ({selectedFactor.uom || "units"}, annual total)</label>
-                      <Input type="number" min="0" step="any" value={qty} onChange={(e) => setQty(e.target.value)} />
-                      {qty.trim() && !isPositiveQty(qty) && (
-                        <div className="mt-1 text-xs text-rose-700">Enter a quantity greater than 0.</div>
-                      )}
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs text-muted-foreground">
+                        {useMonthly
+                          ? `Monthly breakdown (${selectedFactor.uom || "units"})`
+                          : `Quantity (${selectedFactor.uom || "units"}, annual total)`}
+                      </label>
+                      <button
+                        type="button"
+                        className="text-xs text-primary hover:underline"
+                        onClick={() => setUseMonthly((v) => !v)}
+                      >
+                        {useMonthly ? "Switch to single total" : "Enter monthly breakdown instead"}
+                      </button>
                     </div>
+                    {useMonthly ? (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                          {getOrderedMonths(reportingPeriodStart).map((month, displayIndex) => {
+                            const actualIndex = getMonthIndex(displayIndex, reportingPeriodStart);
+                            return (
+                              <div key={`${month}-${displayIndex}`}>
+                                <Label htmlFor={`add-month-${displayIndex}`} className="text-xs">{month}</Label>
+                                <Input
+                                  id={`add-month-${displayIndex}`}
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  value={monthlyValues[actualIndex] ?? ""}
+                                  onChange={(e) => {
+                                    const next = [...monthlyValues];
+                                    next[actualIndex] = e.target.value;
+                                    setMonthlyValues(next);
+                                  }}
+                                  className="h-8 text-sm"
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Total: <span className="font-medium text-foreground">{sumMonthlyValues(monthlyValues).toLocaleString()}</span> {selectedFactor.uom || "units"}
+                        </div>
+                        {sumMonthlyValues(monthlyValues) <= 0 && (
+                          <div className="text-xs text-rose-700">Enter at least one month greater than 0.</div>
+                        )}
+                      </div>
+                    ) : (
+                      <div>
+                        <Input type="number" min="0" step="any" value={qty} onChange={(e) => setQty(e.target.value)} />
+                        {qty.trim() && !isPositiveQty(qty) && (
+                          <div className="mt-1 text-xs text-rose-700">Enter a quantity greater than 0.</div>
+                        )}
+                      </div>
+                    )}
                     <div>
                       <label className="text-xs text-muted-foreground">Notes (optional)</label>
                       <textarea
@@ -685,7 +840,10 @@ export default function PortalDataEntry() {
                       />
                     </div>
                     <div className="flex justify-end">
-                      <Button disabled={saving || !isPositiveQty(qty) || !selectedSiteId} onClick={() => void submitRow()}>
+                      <Button
+                        disabled={saving || !selectedSiteId || (useMonthly ? sumMonthlyValues(monthlyValues) <= 0 : !isPositiveQty(qty))}
+                        onClick={() => void submitRow()}
+                      >
                         {saving ? "Submitting..." : "Submit"}
                       </Button>
                     </div>
@@ -823,6 +981,61 @@ export default function PortalDataEntry() {
       {!isComingSoon && !isSpendTab && !isCommutingTab && !noJobMessage && activeBucket && (
         <PortalCategoryHistoryTable fetchUrl={`/portal/data-entry/${activeBucket}/history`} />
       )}
+
+      <Dialog open={monthlyModalRow !== null} onOpenChange={(open) => { if (!open) closeMonthlyModal(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Monthly breakdown</DialogTitle>
+            {monthlyModalRow && (
+              <div className="mt-1 text-xs text-muted-foreground">
+                {monthlyModalRow.report_label || monthlyModalRow.original_id}
+                {monthlyModalRow.uom ? ` · unit: ${monthlyModalRow.uom}` : ""}
+              </div>
+            )}
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              {getOrderedMonths(reportingPeriodStart).map((month, displayIndex) => {
+                const actualIndex = getMonthIndex(displayIndex, reportingPeriodStart);
+                return (
+                  <div key={`${month}-${displayIndex}`}>
+                    <Label htmlFor={`modal-month-${displayIndex}`} className="text-xs">{month}</Label>
+                    <Input
+                      id={`modal-month-${displayIndex}`}
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={monthlyModalValues[actualIndex] ?? ""}
+                      onChange={(e) => {
+                        const next = [...monthlyModalValues];
+                        next[actualIndex] = e.target.value;
+                        setMonthlyModalValues(next);
+                      }}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="text-sm text-muted-foreground">
+              Total: <span className="font-medium text-foreground">{sumMonthlyValues(monthlyModalValues).toLocaleString()}</span>{" "}
+              {monthlyModalRow?.uom || "units"}
+            </div>
+            {error && <div className="text-xs text-rose-700">{error}</div>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeMonthlyModal}>
+              Cancel
+            </Button>
+            <Button
+              disabled={monthlyModalSaving || sumMonthlyValues(monthlyModalValues) <= 0}
+              onClick={() => void saveMonthlyModal()}
+            >
+              {monthlyModalSaving ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

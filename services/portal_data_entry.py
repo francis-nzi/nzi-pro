@@ -285,13 +285,14 @@ def get_job_summary(con, job_id: int) -> dict[str, Any]:
     job their submissions are attached to, plus the data-entry expiry status
     that gates whether they can still submit."""
     row = con.execute(
-        "SELECT job_number, reporting_year FROM jobs WHERE job_id = %s",
+        "SELECT job_number, reporting_year, reporting_period_start FROM jobs WHERE job_id = %s",
         [int(job_id)],
     ).fetchone()
     base = {
         "job_id": int(job_id),
         "job_number": row[0] if row else None,
         "reporting_year": row[1] if row else None,
+        "reporting_period_start": str(row[2]) if row and row[2] else None,
     }
     base.update(get_portal_data_entry_status(con, job_id))
     return base
