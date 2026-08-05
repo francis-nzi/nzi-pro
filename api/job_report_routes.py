@@ -2269,6 +2269,7 @@ def get_scope_totals(job_id: int):
         data_df = _load_data_output_rows(con, int(job_id))
         if data_df is None or data_df.empty:
             return {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
+        resolver.prewarm(data_df.to_dict("records"))
         _, totals = _build_scope_summary(data_df, resolver)
         return totals
 
@@ -2285,6 +2286,8 @@ def get_emissions_by_category(job_id: int):
 
         if not rows:
             return []
+
+        resolver.prewarm(rows)
 
         categories = []
         for row in rows:

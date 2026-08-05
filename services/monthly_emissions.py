@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import re
 from datetime import date, datetime
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from services.dataset_selector import resolve_dataset_resolution
 
@@ -160,6 +160,7 @@ class JobMonthlyEmissionsResolver:
         self._custom_factor_cache: dict[tuple[str, str | None], dict[str, Any] | None] = {}
         self._custom_factor_year_value_cache: dict[int, dict[int, float]] = {}
         self._custom_year_table_exists: bool | None = None
+        self._factor_lookup_bulk_index: dict[tuple[int, str], list[dict[str, Any]]] | None = None
         self._build_resolution_maps()
 
     def _load_job_client_db_id(self) -> int | None:
@@ -206,6 +207,145 @@ class JobMonthlyEmissionsResolver:
             for scope, dataset_id in (month_record.get("scope_datasets") or {}).items():
                 scope_map[str(scope)] = int(dataset_id) if dataset_id is not None else None
             self.month_scope_dataset_map[int(idx)] = scope_map
+
+    def prewarm(self, rows: Iterable[Mapping[str, Any]]) -> None:
+        """Bulk-fetch factor_lookup/db_id data needed for the given rows in a
+        handful of round trips instead of one query per row per month.
+
+        row_metrics() falls back to its normal per-call queries for anything
+        not covered here, so this is purely an optional speed-up: correctness
+        is unaffected whether or not (or how completely) this runs first.
+        """
+        rows = list(rows)
+        if not rows:
+            return
+
+        # ── 1. Bulk-fetch every factor_lookup row for the datasets this job's
+        #      months/rows could reference, indexed by (dataset_id, original_id)
+        #      exactly like _lookup_factor's WHERE dataset_id=%s AND original_id=%s. ──
+        dataset_ids: set[int] = set()
+        for scope_map in self.month_scope_dataset_map.values():
+            for dsid in scope_map.values():
+                if dsid is not None:
+                    dataset_ids.add(int(dsid))
+        for row in rows:
+            dsid = _safe_int(row.get("dataset_id"))
+            if dsid is not None:
+                dataset_ids.add(dsid)
+
+        bulk_index: dict[tuple[int, str], list[dict[str, Any]]] = {}
+        if dataset_ids:
+            try:
+                bulk_rows = self.con.execute(
+                    """
+                    SELECT db_id, dataset_id, scope, original_id, factor, ghg_unit, level_1, level_2, column_text, report_label
+                    FROM factor_lookup
+                    WHERE dataset_id = ANY(%s)
+                    """,
+                    [list(dataset_ids)],
+                ).fetchall()
+            except Exception:
+                bulk_rows = []
+            for r in bulk_rows:
+                entry = {
+                    "db_id": _safe_int(r[0]),
+                    "dataset_id": _safe_int(r[1]),
+                    "scope": str(r[2]).strip() if r[2] is not None else None,
+                    "original_id": str(r[3]).strip() if r[3] is not None else None,
+                    "factor": _safe_float(r[4]),
+                    "ghg_unit": str(r[5]).strip() if r[5] is not None else None,
+                    "level_1": str(r[6]).strip() if r[6] is not None else None,
+                    "level_2": str(r[7]).strip() if r[7] is not None else None,
+                    "column_text": str(r[8]).strip() if r[8] is not None else None,
+                    "report_label": str(r[9]).strip() if r[9] is not None else None,
+                }
+                key = (entry["dataset_id"], entry["original_id"] or "")
+                bulk_index.setdefault(key, []).append(entry)
+        self._factor_lookup_bulk_index = bulk_index
+
+        # ── 2. Bulk-fetch the "any dataset" original_id fallback
+        #      (_lookup_factor_by_original_id), one DISTINCT ON query replacing
+        #      one query per row. ──
+        oids: set[str] = set()
+        for row in rows:
+            oid = str(row.get("original_id") or "").strip()
+            if oid:
+                oids.add(oid)
+        if oids:
+            try:
+                bulk_rows2 = self.con.execute(
+                    """
+                    SELECT DISTINCT ON (fl.original_id)
+                           fl.db_id, fl.dataset_id, fl.scope, fl.original_id, fl.factor, fl.ghg_unit,
+                           fl.level_1, fl.level_2, fl.column_text, fl.report_label
+                    FROM factor_lookup fl
+                    LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
+                    WHERE fl.original_id = ANY(%s)
+                    ORDER BY fl.original_id, COALESCE(d.year, 0) DESC, fl.db_id DESC
+                    """,
+                    [list(oids)],
+                ).fetchall()
+            except Exception:
+                bulk_rows2 = []
+            found_oids: set[str] = set()
+            for r in bulk_rows2:
+                oid_val = str(r[3]).strip() if r[3] is not None else None
+                if not oid_val:
+                    continue
+                found_oids.add(oid_val)
+                self._factor_cache_by_key[("any_ds", oid_val)] = {
+                    "db_id": _safe_int(r[0]),
+                    "dataset_id": _safe_int(r[1]),
+                    "scope": str(r[2]).strip() if r[2] is not None else None,
+                    "original_id": oid_val,
+                    "factor": _safe_float(r[4]),
+                    "ghg_unit": str(r[5]).strip() if r[5] is not None else None,
+                    "level_1": str(r[6]).strip() if r[6] is not None else None,
+                    "level_2": str(r[7]).strip() if r[7] is not None else None,
+                    "column_text": str(r[8]).strip() if r[8] is not None else None,
+                    "report_label": str(r[9]).strip() if r[9] is not None else None,
+                }
+            for oid in oids - found_oids:
+                self._factor_cache_by_key[("any_ds", oid)] = None
+
+        # ── 3. Bulk-fetch factor_db_id direct references (_load_factor_by_dbid). ──
+        dbids: set[int] = set()
+        for row in rows:
+            dbid = _safe_int(row.get("factor_db_id"))
+            if dbid is not None:
+                dbids.add(dbid)
+        if dbids:
+            try:
+                bulk_rows3 = self.con.execute(
+                    """
+                    SELECT db_id, dataset_id, scope, original_id, factor, ghg_unit, level_1, level_2, column_text, report_label
+                    FROM factor_lookup
+                    WHERE db_id = ANY(%s)
+                    """,
+                    [list(dbids)],
+                ).fetchall()
+            except Exception:
+                bulk_rows3 = []
+            found_dbids: set[int] = set()
+            for r in bulk_rows3:
+                factor_id = _safe_int(r[0])
+                if factor_id is None:
+                    continue
+                found_dbids.add(factor_id)
+                self._factor_cache_by_dbid[factor_id] = {
+                    "db_id": factor_id,
+                    "dataset_id": _safe_int(r[1]),
+                    "scope": str(r[2]).strip() if r[2] is not None else None,
+                    "original_id": str(r[3]).strip() if r[3] is not None else None,
+                    "factor": _safe_float(r[4]),
+                    "ghg_unit": str(r[5]).strip() if r[5] is not None else None,
+                    "level_1": str(r[6]).strip() if r[6] is not None else None,
+                    "level_2": str(r[7]).strip() if r[7] is not None else None,
+                    "column_text": str(r[8]).strip() if r[8] is not None else None,
+                    "report_label": str(r[9]).strip() if r[9] is not None else None,
+                }
+            for dbid in dbids - found_dbids:
+                self._factor_cache_by_dbid[dbid] = None
 
     def _load_factor_by_dbid(self, factor_db_id: int | None) -> dict[str, Any] | None:
         factor_id = _safe_int(factor_db_id)
@@ -255,6 +395,17 @@ class JobMonthlyEmissionsResolver:
         cache_key = (int(dsid), scope_name, oid)
         if cache_key in self._factor_cache_by_key:
             return self._factor_cache_by_key[cache_key]
+
+        bulk_index = self._factor_lookup_bulk_index
+        if bulk_index is not None:
+            # Same filter/order as the SQL below (WHERE dataset_id=... AND
+            # original_id=... AND (scope_name='' OR scope=scope_name), ORDER BY
+            # db_id ASC LIMIT 1), evaluated in-memory against the prewarmed set.
+            candidates = bulk_index.get((int(dsid), oid), [])
+            pool = [c for c in candidates if c.get("scope") == scope_name] if scope_name else candidates
+            result = min(pool, key=lambda c: c.get("db_id") or 0) if pool else None
+            self._factor_cache_by_key[cache_key] = result
+            return result
 
         try:
             row = self.con.execute(

@@ -1416,6 +1416,8 @@ def check_report_data_integrity(
         if data_df is None or getattr(data_df, "empty", True):
             return {"status": "no_data", "issues": [], "canonical_total": 0.0, "report_total": 0.0}
 
+        resolver.prewarm(data_df.to_dict("records"))
+
         canonical_rows: dict[str, dict[str, Any]] = {}
         canonical_cats: dict[str, float] = {}
         canonical_scopes: dict[str, float] = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0}
