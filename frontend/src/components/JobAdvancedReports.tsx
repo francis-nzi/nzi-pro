@@ -2307,7 +2307,11 @@ export default function JobAdvancedReports({
             const scopeBenchmark = scopeRows.reduce((s, r) => s + r.benchmark, 0);
             const scopePrevYear = scopeRows.reduce((s, r) => s + r.prevYear, 0);
             scopeRows.forEach(r => {
-              const pct = grandBenchmarkTotal > 0 ? ((r.current - r.benchmark) / grandBenchmarkTotal) * 100 : (grandCurrentTotal > 0 ? (r.current / grandCurrentTotal) * 100 : 0);
+              // % vs BM is this row's own change relative to its own benchmark
+              // figure -- NOT relative to the grand benchmark total, which would
+              // just measure this row's size against the whole report instead
+              // of whether it went up or down.
+              const pct = r.benchmark !== 0 ? ((r.current - r.benchmark) / r.benchmark) * 100 : null;
               const bg = rowIdx % 2 === 0 ? "bg-white" : "bg-gray-50";
               tableRows.push(
                 <div key={`${r.scope}-${r.label}`} className={`grid ${cols} border-b border-gray-100 px-3 py-2 ${bg}`}>
@@ -2316,12 +2320,16 @@ export default function JobAdvancedReports({
                   {hasBenchmark && <span className="text-xs text-gray-600 text-right">{fmt(r.benchmark)}</span>}
                   {hasPrevYear && <span className="text-xs text-gray-600 text-right">{r.prevYear > 0 ? fmt(r.prevYear) : "-"}</span>}
                   <span className="text-xs text-gray-700 text-right">{fmt(r.current)}</span>
-                  {hasBenchmark && <span className="text-xs text-right" style={{ color: pct < 0 ? "#16a34a" : pct > 0 ? "#dc2626" : "#6b7280" }}>{pct >= 0 ? "+" : ""}{fmt(pct, 1)}%</span>}
+                  {hasBenchmark && (
+                    pct === null
+                      ? <span className="text-xs text-right text-gray-400">-</span>
+                      : <span className="text-xs text-right" style={{ color: pct < 0 ? "#16a34a" : pct > 0 ? "#dc2626" : "#6b7280" }}>{pct >= 0 ? "+" : ""}{fmt(pct, 1)}%</span>
+                  )}
                 </div>
               );
               rowIdx++;
             });
-            const subPct = grandBenchmarkTotal > 0 ? ((scopeCurrent - scopeBenchmark) / grandBenchmarkTotal) * 100 : (grandCurrentTotal > 0 ? (scopeCurrent / grandCurrentTotal) * 100 : 0);
+            const subPct = scopeBenchmark !== 0 ? ((scopeCurrent - scopeBenchmark) / scopeBenchmark) * 100 : null;
             tableRows.push(
               <div key={`subtotal-${scope}`} className={`grid ${cols} border-b border-gray-200 px-3 py-2`} style={{ backgroundColor: `${BRAND}12` }}>
                 <span className="text-xs font-semibold text-gray-700">{scope}</span>
@@ -2329,7 +2337,11 @@ export default function JobAdvancedReports({
                 {hasBenchmark && <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeBenchmark)}</span>}
                 {hasPrevYear && <span className="text-xs font-semibold text-gray-700 text-right">{scopePrevYear > 0 ? fmt(scopePrevYear) : "-"}</span>}
                 <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeCurrent)}</span>
-                {hasBenchmark && <span className="text-xs font-semibold text-right" style={{ color: subPct < 0 ? "#16a34a" : subPct > 0 ? "#dc2626" : "#6b7280" }}>{subPct >= 0 ? "+" : ""}{fmt(subPct, 1)}%</span>}
+                {hasBenchmark && (
+                  subPct === null
+                    ? <span className="text-xs font-semibold text-right text-gray-400">-</span>
+                    : <span className="text-xs font-semibold text-right" style={{ color: subPct < 0 ? "#16a34a" : subPct > 0 ? "#dc2626" : "#6b7280" }}>{subPct >= 0 ? "+" : ""}{fmt(subPct, 1)}%</span>
+                )}
               </div>
             );
           }
