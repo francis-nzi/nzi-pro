@@ -332,6 +332,8 @@ function TimePageContent() {
     clientSearch: "",
   });
   const [draftUserId, setDraftUserId] = useState<string>("");
+  const [staffQuery, setStaffQuery] = useState<string>("");
+  const [showStaffDropdown, setShowStaffDropdown] = useState(false);
   const [draftDateFrom, setDraftDateFrom] = useState<string>("");
   const [draftDateTo, setDraftDateTo] = useState<string>("");
   const [draftJobSearch, setDraftJobSearch] = useState<string>("");
@@ -400,6 +402,17 @@ function TimePageContent() {
         return { user_id: member.user_id, label };
       });
   }, [teamMembers]);
+
+  const filteredStaffOptions = useMemo(() => {
+    const q = staffQuery.trim().toLowerCase();
+    if (!q) return staffFilterOptions;
+    return staffFilterOptions.filter((opt) => opt.label.toLowerCase().includes(q));
+  }, [staffFilterOptions, staffQuery]);
+
+  const selectedStaffLabel = useMemo(
+    () => staffFilterOptions.find((opt) => opt.user_id === draftUserId)?.label || "",
+    [staffFilterOptions, draftUserId]
+  );
 
   const taskAssigneeOptions = useMemo<TaskAssigneeOption[]>(() => {
     const options: TaskAssigneeOption[] = [];
@@ -609,6 +622,9 @@ function TimePageContent() {
       if (!target.closest("#job") && !target.closest(".job-dropdown")) {
         setShowJobDropdown(false);
       }
+      if (!target.closest("#staffMemberFilter") && !target.closest(".staff-dropdown")) {
+        setShowStaffDropdown(false);
+      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -626,6 +642,7 @@ function TimePageContent() {
 
   function clearReportFilters() {
     setDraftUserId("");
+    setStaffQuery("");
     setDraftDateFrom("");
     setDraftDateTo("");
     setDraftJobSearch("");
@@ -1275,24 +1292,61 @@ function TimePageContent() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                     <div className="space-y-1">
                       <Label className="text-xs text-muted-foreground">Staff member</Label>
-                      <Select
-                        value={draftUserId || "__all__"}
-                        onValueChange={(val) =>
-                          setDraftUserId(val === "__all__" ? "" : val)
-                        }
-                      >
-                        <SelectTrigger className="h-8 text-sm">
-                          <SelectValue placeholder="All staff" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__all__">All staff</SelectItem>
-                          {staffFilterOptions.map((opt) => (
-                            <SelectItem key={opt.user_id} value={opt.user_id}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="relative">
+                        <Input
+                          id="staffMemberFilter"
+                          type="text"
+                          className="h-8 text-sm pr-7"
+                          placeholder="All staff"
+                          value={showStaffDropdown ? staffQuery : selectedStaffLabel}
+                          onChange={(e) => {
+                            setStaffQuery(e.target.value);
+                            setDraftUserId("");
+                            setShowStaffDropdown(true);
+                          }}
+                          onFocus={() => {
+                            setStaffQuery("");
+                            setShowStaffDropdown(true);
+                          }}
+                        />
+                        {(draftUserId || staffQuery) && (
+                          <button
+                            type="button"
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            onClick={() => {
+                              setDraftUserId("");
+                              setStaffQuery("");
+                              setShowStaffDropdown(false);
+                            }}
+                            aria-label="Clear staff filter"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {showStaffDropdown && (
+                          <div className="staff-dropdown absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-60 overflow-auto">
+                            {filteredStaffOptions.length === 0 ? (
+                              <div className="px-3 py-2 text-sm text-muted-foreground">
+                                No staff match your search.
+                              </div>
+                            ) : (
+                              filteredStaffOptions.map((opt) => (
+                                <div
+                                  key={opt.user_id}
+                                  className="px-3 py-2 cursor-pointer hover:bg-accent hover:text-accent-foreground text-sm"
+                                  onClick={() => {
+                                    setDraftUserId(opt.user_id);
+                                    setStaffQuery("");
+                                    setShowStaffDropdown(false);
+                                  }}
+                                >
+                                  {opt.label}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs text-muted-foreground">Date from</Label>
