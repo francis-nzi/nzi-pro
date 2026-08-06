@@ -802,6 +802,18 @@ export default function PortalDataEntry() {
                     </div>
                     {useMonthly ? (
                       <div className="space-y-2">
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            className="text-xs text-primary hover:underline"
+                            onClick={() => {
+                              const firstValue = monthlyValues[getMonthIndex(0, reportingPeriodStart)] ?? "";
+                              setMonthlyValues(Array(12).fill(firstValue));
+                            }}
+                          >
+                            Copy first month to all
+                          </button>
+                        </div>
                         <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                           {getOrderedMonths(reportingPeriodStart).map((month, displayIndex) => {
                             const actualIndex = getMonthIndex(displayIndex, reportingPeriodStart);
@@ -1004,6 +1016,18 @@ export default function PortalDataEntry() {
             )}
           </DialogHeader>
           <div className="space-y-3">
+            <div className="flex justify-end">
+              <button
+                type="button"
+                className="text-xs text-primary hover:underline"
+                onClick={() => {
+                  const firstValue = monthlyModalValues[getMonthIndex(0, reportingPeriodStart)] ?? "";
+                  setMonthlyModalValues(Array(12).fill(firstValue));
+                }}
+              >
+                Copy first month to all
+              </button>
+            </div>
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {getOrderedMonths(reportingPeriodStart).map((month, displayIndex) => {
                 const actualIndex = getMonthIndex(displayIndex, reportingPeriodStart);
