@@ -867,32 +867,24 @@ def _render_live_report_pdf_worker(
             page.wait_for_timeout(600)
             print(f"[PDF] job={job_id} pre-print ready in {time.time()-t0:.1f}s", file=sys.stderr, flush=True)
 
-            # Neither emulate_media() nor evaluate() take a timeout parameter in
-            # Playwright's Python API (evaluate() has no timeout by design --
-            # arbitrary JS can legitimately take any amount of time), so unlike
-            # networkidle/widget-pngs-ready above, this step can't just be given
-            # a tighter timeout the normal way. Observed in production to
-            # occasionally stall for 4+ minutes with zero visibility -- likely
-            # CDP round-trips starved of CPU by concurrent unrelated traffic on
-            # the same instance -- versus the sub-second cost either call should
-            # normally have. So the kill-timer originally scoped to just
-            # page.pdf() below now starts here instead, covering this whole
-            # remaining segment: closing the browser from a side thread
-            # interrupts whichever call is stuck with a "Browser was
-            # disconnected" error, so the semaphore is always released within
-            # the same 3-minute bound as before.
-            _pdf_timed_out = threading.Event()
-
-            def _kill_browser():
-                _pdf_timed_out.set()
-                print(f"[PDF] job={job_id} 3-min timeout — force-closing browser", file=sys.stderr, flush=True)
-                try:
-                    browser.close()
-                except Exception:
-                    pass
-
-            _kill_timer = threading.Timer(180, _kill_browser)
-            _kill_timer.start()
+            # NOTE: this used to be wrapped in a threading.Timer that force-closed
+            # the browser from a separate thread if it ran long, to bound
+            # page.pdf() (and, briefly, this whole segment) to a few minutes.
+            # Removed: confirmed in production logs that calling browser.close()
+            # from a different thread than the one running Playwright's sync API
+            # doesn't cleanly interrupt anything -- Playwright's sync wrapper is
+            # built on greenlets tied to a single thread, and a cross-thread call
+            # corrupts that instead ("greenlet.error: cannot switch to a
+            # different thread (which happens to have exited)"), leaving the
+            # call stuck exactly as before, just with an extra unhandled
+            # exception logged on top. If this genuinely hangs, the outer 360s
+            # ready.wait() in _render_live_report_pdf_bytes already gives the
+            # caller a clean timeout error regardless, and _reap_stale_
+            # chromium_processes() (called from _run()'s finally block once
+            # that outer wait gives up) already cleans up the orphaned process
+            # afterward -- both confirmed working from the same logs. Slower to
+            # fail (up to 6 minutes instead of 3) but doesn't risk corrupting
+            # Playwright's internal state.
             try:
                 # Apply print media so measurements reflect the actual print layout.
                 page.emulate_media(media="print")
@@ -926,14 +918,7 @@ def _render_live_report_pdf_worker(
                     },
                 )
             except Exception as exc:
-                if _pdf_timed_out.is_set():
-                    result["error"] = RuntimeError(
-                        "PDF rendering timed out after 3 minutes. Please try again."
-                    )
-                else:
-                    result["error"] = exc
-            finally:
-                _kill_timer.cancel()
+                result["error"] = exc
         finally:
             print(f"[PDF] job={job_id} total {time.time()-t0:.1f}s", file=sys.stderr, flush=True)
             # Unblock the caller now — pdf_bytes/error are already captured.
