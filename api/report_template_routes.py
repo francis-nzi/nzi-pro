@@ -1421,7 +1421,16 @@ def _get_job_energy_factor_year(con, job_id: int, dataset_id: int | None) -> int
     return datetime.now().year
 
 
-def _get_energy_emissions_factor_pair(con, job_id: int) -> tuple[float, float]:
+def _get_energy_emissions_factor_pair(
+    con,
+    job_id: int,
+    resolution: dict[str, Any] | None = None,
+    factor_cache: dict[int, tuple[float | None, float | None]] | None = None,
+) -> tuple[float, float]:
+    """resolution/factor_cache let a caller that already has both (e.g.
+    _get_energy_emissions_factor_details, which needs the same resolve_dataset_
+    resolution() call and per-dataset factor lookups right after this) reuse
+    them instead of redoing the same work a second time."""
     dataset_id: int | None = None
     try:
         scope_map = get_scope_primary_datasets(int(job_id))
@@ -1437,18 +1446,20 @@ def _get_energy_emissions_factor_pair(con, job_id: int) -> tuple[float, float]:
     location_samples: list[float] = []
     td_samples: list[float] = []
 
-    try:
-        resolution = resolve_dataset_resolution(int(job_id), scopes=("Scope 2", "Scope 3"))
-    except Exception:
-        logger.debug("Failed to resolve dataset resolution for energy factor pair; defaulting to empty resolution", exc_info=True)
-        resolution = {}
+    if resolution is None:
+        try:
+            resolution = resolve_dataset_resolution(int(job_id), scopes=("Scope 2", "Scope 3"), con=con)
+        except Exception:
+            logger.debug("Failed to resolve dataset resolution for energy factor pair; defaulting to empty resolution", exc_info=True)
+            resolution = {}
 
     dataset_catalog = {
         int(ds.get("dataset_id")): ds
         for ds in (resolution.get("dataset_catalog") or [])
         if ds.get("dataset_id") is not None
     }
-    factor_cache: dict[int, tuple[float | None, float | None]] = {}
+    if factor_cache is None:
+        factor_cache = {}
 
     for month_record in resolution.get("months") or []:
         scope_month_map = month_record.get("scope_datasets") or {}
@@ -1459,10 +1470,12 @@ def _get_energy_emissions_factor_pair(con, job_id: int) -> tuple[float, float]:
             ds_meta = dataset_catalog.get(scope_2_dataset) or {}
             ds_country = _normalize_country_token(ds_meta.get("country"))
             if _is_uk_country(ds_country) or _is_global_country(ds_country):
-                factor_cache.setdefault(
-                    scope_2_dataset,
-                    _lookup_energy_factors_from_dataset(con, scope_2_dataset),
-                )
+                # dict.setdefault(key, value) evaluates `value` eagerly even
+                # when `key` already exists -- that silently defeated this
+                # cache, re-running the (2-query) lookup on every month that
+                # referenced the same dataset instead of once.
+                if scope_2_dataset not in factor_cache:
+                    factor_cache[scope_2_dataset] = _lookup_energy_factors_from_dataset(con, scope_2_dataset)
                 loc_factor, _ = factor_cache[scope_2_dataset]
                 if loc_factor is not None:
                     location_samples.append(float(loc_factor))
@@ -1473,10 +1486,8 @@ def _get_energy_emissions_factor_pair(con, job_id: int) -> tuple[float, float]:
             ds_meta = dataset_catalog.get(scope_3_dataset) or {}
             ds_country = _normalize_country_token(ds_meta.get("country"))
             if _is_uk_country(ds_country) or _is_global_country(ds_country):
-                factor_cache.setdefault(
-                    scope_3_dataset,
-                    _lookup_energy_factors_from_dataset(con, scope_3_dataset),
-                )
+                if scope_3_dataset not in factor_cache:
+                    factor_cache[scope_3_dataset] = _lookup_energy_factors_from_dataset(con, scope_3_dataset)
                 _, td_factor = factor_cache[scope_3_dataset]
                 if td_factor is not None:
                     td_samples.append(float(td_factor))
@@ -1499,23 +1510,28 @@ def _get_energy_emissions_factor_pair(con, job_id: int) -> tuple[float, float]:
 
 
 def _get_energy_emissions_factor_details(con, job_id: int) -> dict[str, float]:
-    uk_location_factor, uk_td_factor = _get_energy_emissions_factor_pair(con, int(job_id))
-    non_uk_location_factor = uk_location_factor
-    non_uk_td_factor = uk_td_factor
-    non_uk_factor_found = False
-
     try:
-        resolution = resolve_dataset_resolution(int(job_id), scopes=("Scope 2", "Scope 3"))
+        resolution = resolve_dataset_resolution(int(job_id), scopes=("Scope 2", "Scope 3"), con=con)
     except Exception:
         logger.debug("Failed to resolve dataset resolution for report template sync; defaulting to empty resolution", exc_info=True)
         resolution = {}
+    factor_cache: dict[int, tuple[float | None, float | None]] = {}
+
+    # Pass the resolution/cache through so the pair lookup doesn't repeat the
+    # same resolve_dataset_resolution() call and per-dataset factor queries
+    # this function is about to do anyway.
+    uk_location_factor, uk_td_factor = _get_energy_emissions_factor_pair(
+        con, int(job_id), resolution=resolution, factor_cache=factor_cache
+    )
+    non_uk_location_factor = uk_location_factor
+    non_uk_td_factor = uk_td_factor
+    non_uk_factor_found = False
 
     dataset_catalog = {
         int(ds.get("dataset_id")): ds
         for ds in (resolution.get("dataset_catalog") or [])
         if ds.get("dataset_id") is not None
     }
-    factor_cache: dict[int, tuple[float | None, float | None]] = {}
     non_uk_location_samples: list[float] = []
     non_uk_td_samples: list[float] = []
 
@@ -1528,10 +1544,8 @@ def _get_energy_emissions_factor_details(con, job_id: int) -> dict[str, float]:
             ds_meta = dataset_catalog.get(scope_2_dataset) or {}
             ds_country = _normalize_country_token(ds_meta.get("country"))
             if ds_country and not _is_uk_country(ds_country) and not _is_global_country(ds_country):
-                factor_cache.setdefault(
-                    scope_2_dataset,
-                    _lookup_energy_factors_from_dataset(con, scope_2_dataset),
-                )
+                if scope_2_dataset not in factor_cache:
+                    factor_cache[scope_2_dataset] = _lookup_energy_factors_from_dataset(con, scope_2_dataset)
                 loc_factor, _ = factor_cache[scope_2_dataset]
                 if loc_factor is not None:
                     non_uk_location_samples.append(float(loc_factor))
@@ -1543,10 +1557,8 @@ def _get_energy_emissions_factor_details(con, job_id: int) -> dict[str, float]:
             ds_meta = dataset_catalog.get(scope_3_dataset) or {}
             ds_country = _normalize_country_token(ds_meta.get("country"))
             if ds_country and not _is_uk_country(ds_country) and not _is_global_country(ds_country):
-                factor_cache.setdefault(
-                    scope_3_dataset,
-                    _lookup_energy_factors_from_dataset(con, scope_3_dataset),
-                )
+                if scope_3_dataset not in factor_cache:
+                    factor_cache[scope_3_dataset] = _lookup_energy_factors_from_dataset(con, scope_3_dataset)
                 _, td_factor = factor_cache[scope_3_dataset]
                 if td_factor is not None:
                     non_uk_td_samples.append(float(td_factor))
@@ -1881,10 +1893,10 @@ def _sync_energy_emissions_from_kwh(con, job_id: int, meta: dict[str, Any]) -> b
     return changed
 
 
-def _sync_datasets_names_from_resolver(job_id: int, meta: dict[str, Any]) -> bool:
+def _sync_datasets_names_from_resolver(con, job_id: int, meta: dict[str, Any]) -> bool:
     """Keep datasets_names aligned with automatic dataset resolution output."""
     try:
-        resolved_names = str(get_datasets_names_for_report(int(job_id)) or "").strip()
+        resolved_names = str(get_datasets_names_for_report(int(job_id), con=con) or "").strip()
     except Exception:
         logger.debug("Failed to resolve datasets names for report sync", exc_info=True)
         return False
@@ -2241,7 +2253,7 @@ def _ensure_job_report_meta(con, job_id: int, updated_by: str = "system") -> dic
     if _sync_energy_emissions_from_kwh(con, int(job_id), merged):
         changed = True
 
-    if _sync_datasets_names_from_resolver(int(job_id), merged):
+    if _sync_datasets_names_from_resolver(con, int(job_id), merged):
         changed = True
 
     # Sync employee_number from intensity_metrics (employees.value) whenever metadata is accessed
@@ -2382,7 +2394,7 @@ def save_job_report_metadata(
         _sync_energy_inputs_from_scope_rows(con, int(job_id), merged)
         _sync_renewables_pct_from_kwh(merged)
         _sync_energy_emissions_from_kwh(con, int(job_id), merged)
-        _sync_datasets_names_from_resolver(int(job_id), merged)
+        _sync_datasets_names_from_resolver(con, int(job_id), merged)
         _upsert_report_meta(
             con,
             int(job_id),

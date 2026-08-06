@@ -165,13 +165,17 @@ def _init_pool() -> None:
         p = ConnectionPool(
             url,
             min_size=1,
-            max_size=5,
+            # 5 was too tight once a single request could fan out this many
+            # concurrent DB-bound tasks (e.g. Report Printing's 10-way
+            # ThreadPoolExecutor) -- threads beyond the cap fell back to slow,
+            # unpooled direct connections instead of queuing briefly.
+            max_size=15,
             configure=_configure_pool_conn,
             open=True,   # blocks inside the background thread — fine
             reconnect_timeout=30,
         )
         _pool = p
-        logger.info("DB connection pool ready (min=1, max=5)")
+        logger.info("DB connection pool ready (min=1, max=15)")
     except Exception as exc:
         _pool_init_failed = True
         logger.warning("DB pool init failed permanently — using direct connections: %s", exc)

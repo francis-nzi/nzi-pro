@@ -516,8 +516,17 @@ export default function JobAdvancedReports({
       }
       const { task_id } = await startRes.json() as { task_id: string };
 
-      // 2. Poll every 4 seconds until the task completes or fails.
+      // 2. Poll every 4 seconds until the task completes or fails. Capped at
+      // 6 minutes (90 attempts) -- matches the backend's own 360s outer
+      // watchdog on a single render, so a genuinely stuck task surfaces a
+      // visible error here instead of spinning the button forever.
+      const MAX_POLL_ATTEMPTS = 90;
+      let attempts = 0;
       for (;;) {
+        attempts += 1;
+        if (attempts > MAX_POLL_ATTEMPTS) {
+          throw new Error("PDF generation is taking longer than expected. Please try again in a few minutes.");
+        }
         await new Promise<void>((r) => setTimeout(r, 4000));
         const statusRes = await authFetch(`${baseUrl}/jobs/${jobId}/report-live-pdf/status/${task_id}`);
         if (!statusRes.ok) throw new Error(`Status check failed (${statusRes.status})`);

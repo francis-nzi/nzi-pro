@@ -606,8 +606,8 @@ def get_scope_month_dataset_map(job_id: int) -> Dict[int, Dict[str, int | None]]
     return month_map
 
 
-def get_datasets_names_for_report(job_id: int) -> str:
-    resolution = resolve_dataset_resolution(int(job_id))
+def get_datasets_names_for_report(job_id: int, *, con=None) -> str:
+    resolution = resolve_dataset_resolution(int(job_id), con=con)
     refs = resolution.get("datasets_for_report") or []
     parts: list[str] = []
     for ref in refs:
