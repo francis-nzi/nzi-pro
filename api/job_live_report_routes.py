@@ -349,7 +349,15 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
         _fetch_site_breakdowns,
     ]
 
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    # Lowered from 6: this fan-out (10 DB-bound tasks) is one of several
+    # concurrent consumers of the shared connection pool (now max_size=8) --
+    # confirmed in production that 6 workers here, combined with ordinary
+    # concurrent traffic elsewhere, was enough to exhaust the pool ("Pool
+    # borrow failed... couldn't get a connection after 5.00 sec") and crash
+    # the instance. 3 leaves real headroom for everything else sharing the
+    # same pool; individual tasks are fast enough post-today's fixes (1-3s
+    # each) that this only adds a few seconds of serialization, not minutes.
+    with ThreadPoolExecutor(max_workers=3) as pool:
         futures = {pool.submit(fn): fn.__name__ for fn in _parallel_tasks}
         for future in as_completed(futures):
             try:
