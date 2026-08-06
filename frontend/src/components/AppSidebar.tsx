@@ -67,6 +67,7 @@ const ADMIN_CENTER_LINKS = [
   { label: "Audit Log",               href: "/admin-center/audit-log",     domain: "System & Governance" },
   { label: "Email Outbox",            href: "/admin-center/email-outbox",  domain: "System & Governance" },
   { label: "Archive Management",      href: "/admin-center/archive",       domain: "System & Governance" },
+  { label: "Broadcasting",            href: "/admin-center/broadcasting",  domain: "System & Governance" },
 ] as const;
 
 const HELP_LINKS = [

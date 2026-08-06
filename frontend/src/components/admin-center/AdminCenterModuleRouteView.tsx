@@ -17,6 +17,7 @@ const modulePages = {
   automations: dynamic(() => import("@/app/admin/automations/page"), { ssr: false }),
   "background-jobs": dynamic(() => import("@/app/admin/background-jobs/page"), { ssr: false }),
   billing: dynamic(() => import("@/app/admin/billing/page"), { ssr: false }),
+  broadcasting: dynamic(() => import("@/app/admin/broadcasting/page"), { ssr: false }),
   "custom-factors": dynamic(() => import("@/app/admin/custom-factors/page"), { ssr: false }),
   "custom-fields": dynamic(() => import("@/app/admin/custom-fields/page"), { ssr: false }),
   "ai-prompts": dynamic(() => import("@/app/admin/ai-prompts/page"), { ssr: false }),
