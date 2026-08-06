@@ -122,8 +122,8 @@ export default function BroadcastingPage() {
         style: fStyle,
         link_url: fLinkUrl.trim() || null,
         link_label: fLinkLabel.trim() || null,
-        active_from: fFrom || null,
-        active_until: fUntil || null,
+        active_from: fFrom ? new Date(fFrom).toISOString() : null,
+        active_until: fUntil ? new Date(fUntil).toISOString() : null,
       };
       if (fType === "client") body.target_client_db_id = parseInt(fClient, 10);
       const res = await fetch(`${baseUrl}/admin/portal-broadcasts`, {
