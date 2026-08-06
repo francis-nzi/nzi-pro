@@ -42,7 +42,13 @@ function ResetPasswordForm() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold" style={{ color: BRAND }}>NZInsights</h1>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/netzero-logo.png"
+            alt="Net Zero International"
+            className="mx-auto h-12 w-auto object-contain"
+          />
+          <h1 className="mt-3 text-2xl font-bold" style={{ color: BRAND }}>NZ Insights Pro</h1>
         </div>
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
           {done ? (
