@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pandas as pd
+
 from services.emailer import send_email_with_attachment, send_plain_email
 
 
@@ -63,6 +65,17 @@ def _safe_json(value: Any) -> str:
         return json.dumps(value)
     except Exception:
         return "{}"
+
+
+def _safe_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return int(value)
 
 
 def _is_probable_email(value: str | None) -> bool:
@@ -248,9 +261,9 @@ def list_outbound_emails(
                 "channel": str(r.get("channel") or "email"),
                 "template_key": str(r.get("template_key") or ""),
                 "entity_type": str(r.get("entity_type") or ""),
-                "entity_id": int(r.get("entity_id")) if r.get("entity_id") is not None else None,
-                "job_id": int(r.get("job_id")) if r.get("job_id") is not None else None,
-                "client_db_id": int(r.get("client_db_id")) if r.get("client_db_id") is not None else None,
+                "entity_id": _safe_int(r.get("entity_id")),
+                "job_id": _safe_int(r.get("job_id")),
+                "client_db_id": _safe_int(r.get("client_db_id")),
                 "to_email": str(r.get("to_email") or ""),
                 "subject": str(r.get("subject") or ""),
                 "status": str(r.get("status") or ""),
