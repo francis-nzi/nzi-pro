@@ -519,7 +519,11 @@ export default function JobAdvancedReports({
       // 2. Poll every 4 seconds until the task completes or fails. Capped at
       // 6 minutes (90 attempts) -- matches the backend's own 360s outer
       // watchdog on a single render, so a genuinely stuck task surfaces a
-      // visible error here instead of spinning the button forever.
+      // visible error here instead of spinning the button forever. Each
+      // individual poll also gets its own 15s timeout -- without one, a
+      // single hung request (e.g. mid-restart) never resolves or rejects,
+      // which stalls this loop before the attempt counter above ever gets
+      // a chance to fire.
       const MAX_POLL_ATTEMPTS = 90;
       let attempts = 0;
       for (;;) {
@@ -528,7 +532,19 @@ export default function JobAdvancedReports({
           throw new Error("PDF generation is taking longer than expected. Please try again in a few minutes.");
         }
         await new Promise<void>((r) => setTimeout(r, 4000));
-        const statusRes = await authFetch(`${baseUrl}/jobs/${jobId}/report-live-pdf/status/${task_id}`);
+        const pollController = new AbortController();
+        const pollTimeout = setTimeout(() => pollController.abort(), 15000);
+        let statusRes: Response;
+        try {
+          statusRes = await authFetch(`${baseUrl}/jobs/${jobId}/report-live-pdf/status/${task_id}`, {
+            signal: pollController.signal,
+          });
+        } catch (e) {
+          if ((e as Error).name === "AbortError") continue; // timed-out poll — try again next cycle
+          throw e;
+        } finally {
+          clearTimeout(pollTimeout);
+        }
         if (!statusRes.ok) throw new Error(`Status check failed (${statusRes.status})`);
         const { status, error } = await statusRes.json() as { status: string; error?: string };
         if (status === "error") throw new Error(error ?? "PDF generation failed");

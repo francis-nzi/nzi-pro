@@ -1051,6 +1051,11 @@ def start_pdf_generation(
                 _pdf_tasks[task_id]["error"] = str(exc)
         finally:
             _pdf_semaphore.release()
+            # Previously this only ran right before the *next* render started,
+            # so a failed/hung attempt's orphaned Chromium process sat around
+            # consuming memory (a real cause of Render OOM alerts) until
+            # someone tried again. Reap immediately after every attempt too.
+            _reap_stale_chromium_processes()
 
     threading.Thread(target=_run, daemon=True).start()
     return {"task_id": task_id}
