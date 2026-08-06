@@ -8,6 +8,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import ClientDashboard from "@/components/ClientDashboard";
 import ClientJobsTable from "@/components/ClientJobsTable";
+import ClientWorkspaceLeftNav from "@/components/ClientWorkspaceLeftNav";
 import CallPrepPanel from "@/components/CallPrepPanel";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import PageHeader from "@/components/PageHeader";
@@ -249,21 +250,6 @@ type ClientSection =
 type ProfileSubSection = "details" | "contacts" | "sites" | "custom-fields";
 
 type FinancialView = "quotes" | "invoices" | "profit-loss";
-
-const SECTIONS: Array<{ id: ClientSection; label: string }> = [
-  { id: "overview", label: "Overview" },
-  { id: "carbon", label: "Carbon Analytics" },
-  { id: "reporting", label: "Reporting" },
-  { id: "actions", label: "Actions" },
-  { id: "portal", label: "Portal" },
-  { id: "tasks", label: "Tasks" },
-  { id: "notes", label: "Notes" },
-  { id: "files", label: "Files" },
-  { id: "timeline", label: "Communications" },
-  { id: "profile", label: "Company Profile" },
-  { id: "financial", label: "Financials" },
-  { id: "ai-profile", label: "AI Profile" },
-];
 
 function ClientDetailPageContent() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
@@ -1440,25 +1426,12 @@ function ClientDetailPageContent() {
     return (
       <div className="space-y-6">
         <div className="rounded-2xl border bg-card/70 p-5 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="space-y-1">
-              <div className="text-xs font-semibold uppercase tracking-[0.28em] text-muted-foreground">Financial workspace</div>
-              <h3 className="text-2xl font-semibold tracking-tight">Quotes, invoices, and profit analysis</h3>
-              <p className="max-w-2xl text-sm text-muted-foreground">
-                Keep the commercial side of the client in one place. Draft quotes, issue invoices, and compare invoiced value with estimated and actual cost.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2 rounded-full bg-muted/50 p-1">
-              <Button size="sm" variant={showQuotes ? "default" : "ghost"} className="rounded-full" onClick={() => setFinancialView("quotes")}>
-            Quotes
-          </Button>
-              <Button size="sm" variant={showInvoices ? "default" : "ghost"} className="rounded-full" onClick={() => setFinancialView("invoices")}>
-            Invoices
-          </Button>
-              <Button size="sm" variant={showProfitLoss ? "default" : "ghost"} className="rounded-full" onClick={() => setFinancialView("profit-loss")}>
-            Profit & Loss
-          </Button>
-        </div>
+          <div className="space-y-1">
+            <div className="text-xs font-semibold uppercase tracking-[0.28em] text-muted-foreground">Financial workspace</div>
+            <h3 className="text-2xl font-semibold tracking-tight">Quotes, invoices, and profit analysis</h3>
+            <p className="max-w-2xl text-sm text-muted-foreground">
+              Keep the commercial side of the client in one place. Draft quotes, issue invoices, and compare invoiced value with estimated and actual cost.
+            </p>
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -2049,40 +2022,16 @@ function ClientDetailPageContent() {
   }
 
   function renderProfileSection() {
+    // Subtab switching now lives in ClientWorkspaceLeftNav; this just renders
+    // whichever subtab's content is currently active.
     return (
       <div className="space-y-6">
-        {/* Profile Inner Tab Bar */}
-        <div className="flex border-b border-slate-200">
-          {[
-            { id: "details" as const, label: "Details & Targets" },
-            { id: "contacts" as const, label: "Contacts Management" },
-            { id: "sites" as const, label: "Sites Register" },
-            { id: "custom-fields" as const, label: "Custom Fields" },
-          ].map((subtab) => (
-            <button
-              key={subtab.id}
-              type="button"
-              onClick={() => setActiveProfileSubTab(subtab.id)}
-              className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-                activeProfileSubTab === subtab.id
-                  ? "border-[#1c5026] text-[#1c5026]"
-                  : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700"
-              }`}
-            >
-              {subtab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Profile Subtab Content Area */}
-        <div className="mt-4">
-          {activeProfileSubTab === "details" && renderDetailsSection()}
-          {activeProfileSubTab === "contacts" && renderContactsSection()}
-          {activeProfileSubTab === "sites" && renderSitesSection()}
-          {activeProfileSubTab === "custom-fields" && (
-            <CustomFields entityId={clientId} entityType="client" baseUrl={baseUrl} />
-          )}
-        </div>
+        {activeProfileSubTab === "details" && renderDetailsSection()}
+        {activeProfileSubTab === "contacts" && renderContactsSection()}
+        {activeProfileSubTab === "sites" && renderSitesSection()}
+        {activeProfileSubTab === "custom-fields" && (
+          <CustomFields entityId={clientId} entityType="client" baseUrl={baseUrl} />
+        )}
       </div>
     );
   }
@@ -2165,30 +2114,20 @@ function ClientDetailPageContent() {
         {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading...</div> : null}
 
         {!clientNotFound ? (
-          <>
-            {/* Top tab navigation */}
-            <div className="mt-4 border-b border-slate-200/80">
-              <div className="flex items-center justify-between gap-4">
-                <nav className="-mb-px flex overflow-x-auto">
-                  {SECTIONS.map((section) => (
-                    <button
-                      key={section.id}
-                      type="button"
-                      onClick={() => setSection(section.id)}
-                      className={`flex-shrink-0 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
-                        activeSection === section.id
-                          ? "border-green-700 text-green-700"
-                          : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700"
-                      }`}
-                    >
-                      {section.id === "tasks" && openTaskCount !== null
-                        ? `Tasks (${openTaskCount})`
-                        : section.label}
-                    </button>
-                  ))}
-                </nav>
-                {clientLogoSrc ? (
-                  <div className="mb-1 flex flex-shrink-0 items-center justify-center rounded-lg border bg-white px-3 py-1">
+          <div className="mt-4 flex items-start gap-6">
+            <ClientWorkspaceLeftNav
+              activeSection={activeSection}
+              activeProfileSubTab={activeProfileSubTab}
+              financialView={financialView}
+              openTaskCount={openTaskCount}
+              onSectionChange={(section) => setSection(section as ClientSection)}
+              onProfileSubTabChange={(subtab) => setActiveProfileSubTab(subtab as ProfileSubSection)}
+              onFinancialViewChange={(view) => setFinancialView(view as FinancialView)}
+            />
+            <div className="min-w-0 flex-1">
+              {clientLogoSrc ? (
+                <div className="mb-4 flex justify-end">
+                  <div className="flex items-center justify-center rounded-lg border bg-white px-3 py-1">
                     <img
                       src={clientLogoSrc}
                       alt={`${client?.client_name || "Client"} logo`}
@@ -2196,12 +2135,11 @@ function ClientDetailPageContent() {
                       loading="lazy"
                     />
                   </div>
-                ) : null}
-              </div>
+                </div>
+              ) : null}
+              {renderActiveSection()}
             </div>
-
-            <div className="mt-6">{renderActiveSection()}</div>
-          </>
+          </div>
         ) : null}
 
         <CallPrepPanel
