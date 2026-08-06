@@ -165,17 +165,22 @@ def _init_pool() -> None:
         p = ConnectionPool(
             url,
             min_size=1,
-            # 5 was too tight once a single request could fan out this many
-            # concurrent DB-bound tasks (e.g. Report Printing's 10-way
-            # ThreadPoolExecutor) -- threads beyond the cap fell back to slow,
-            # unpooled direct connections instead of queuing briefly.
-            max_size=15,
+            # Supabase's own session-mode pooler has a hard ceiling of 15
+            # total client sessions (confirmed in production: raising this to
+            # 15 caused "FATAL: max clients reached in session mode - max
+            # clients are limited to pool_size: 15" under real concurrent
+            # load, since our app alone could then claim the pooler's entire
+            # capacity, leaving nothing for anything else and cascading into
+            # connection failures and a server restart). 8 gives real headroom
+            # over the original 5 for Report Printing's parallel task
+            # fan-out, while staying safely under Supabase's own limit.
+            max_size=8,
             configure=_configure_pool_conn,
             open=True,   # blocks inside the background thread — fine
             reconnect_timeout=30,
         )
         _pool = p
-        logger.info("DB connection pool ready (min=1, max=15)")
+        logger.info("DB connection pool ready (min=1, max=8)")
     except Exception as exc:
         _pool_init_failed = True
         logger.warning("DB pool init failed permanently — using direct connections: %s", exc)
