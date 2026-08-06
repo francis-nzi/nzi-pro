@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
+import { Plus, Trash2, ToggleLeft, ToggleRight, Pencil } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,6 +61,14 @@ function fmt(iso: string | null) {
   } catch { return iso; }
 }
 
+function toLocalInputValue(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export default function BroadcastingPage() {
   const baseUrl = useMemo(() => BASE, []);
 
@@ -71,6 +79,7 @@ export default function BroadcastingPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
 
   // Form state
   const [fTitle, setFTitle] = useState("");
@@ -108,30 +117,65 @@ export default function BroadcastingPage() {
   function resetForm() {
     setFTitle(""); setFMessage(""); setFType("global"); setFClient("");
     setFStyle("info"); setFLinkUrl(""); setFLinkLabel(""); setFFrom(""); setFUntil("");
+    setEditingId(null);
   }
 
-  async function handleCreate(e: React.FormEvent) {
+  function startEdit(b: Broadcast) {
+    setFTitle(b.title ?? "");
+    setFMessage(b.message);
+    setFType(b.broadcast_type);
+    setFClient(b.target_client_db_id != null ? String(b.target_client_db_id) : "");
+    setFStyle(b.style);
+    setFLinkUrl(b.link_url ?? "");
+    setFLinkLabel(b.link_label ?? "");
+    setFFrom(toLocalInputValue(b.active_from));
+    setFUntil(toLocalInputValue(b.active_until));
+    setEditingId(b.broadcast_id);
+    setError("");
+    setShowForm(true);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!fMessage.trim()) return;
     setSaving(true); setError("");
     try {
-      const body: Record<string, unknown> = {
-        title: fTitle.trim() || null,
-        message: fMessage.trim(),
-        broadcast_type: fType,
-        style: fStyle,
-        link_url: fLinkUrl.trim() || null,
-        link_label: fLinkLabel.trim() || null,
-        active_from: fFrom ? new Date(fFrom).toISOString() : null,
-        active_until: fUntil ? new Date(fUntil).toISOString() : null,
-      };
-      if (fType === "client") body.target_client_db_id = parseInt(fClient, 10);
-      const res = await fetch(`${baseUrl}/admin/portal-broadcasts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(body),
-      });
+      let res: Response;
+      if (editingId != null) {
+        const body: Record<string, unknown> = {
+          title: fTitle.trim() || null,
+          message: fMessage.trim(),
+          style: fStyle,
+          link_url: fLinkUrl.trim() || null,
+          link_label: fLinkLabel.trim() || null,
+          active_from: fFrom ? new Date(fFrom).toISOString() : null,
+          active_until: fUntil ? new Date(fUntil).toISOString() : null,
+        };
+        res = await fetch(`${baseUrl}/admin/portal-broadcasts/${editingId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(body),
+        });
+      } else {
+        const body: Record<string, unknown> = {
+          title: fTitle.trim() || null,
+          message: fMessage.trim(),
+          broadcast_type: fType,
+          style: fStyle,
+          link_url: fLinkUrl.trim() || null,
+          link_label: fLinkLabel.trim() || null,
+          active_from: fFrom ? new Date(fFrom).toISOString() : null,
+          active_until: fUntil ? new Date(fUntil).toISOString() : null,
+        };
+        if (fType === "client") body.target_client_db_id = parseInt(fClient, 10);
+        res = await fetch(`${baseUrl}/admin/portal-broadcasts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(body),
+        });
+      }
       if (!res.ok) {
         const d = await res.json() as { detail?: string };
         throw new Error(d.detail ?? `HTTP ${res.status}`);
@@ -193,14 +237,14 @@ export default function BroadcastingPage() {
         <div className="text-xs text-gray-400">{broadcasts.length} broadcast{broadcasts.length !== 1 ? "s" : ""}</div>
       </div>
 
-      {/* Create form */}
+      {/* Create / edit form */}
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">New Broadcast</CardTitle>
+            <CardTitle className="text-base">{editingId != null ? "Edit Broadcast" : "New Broadcast"}</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={e => void handleCreate(e)} className="space-y-4">
+            <form onSubmit={e => void handleSubmit(e)} className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label>Title <span className="text-gray-400 font-normal">(optional)</span></Label>
@@ -233,18 +277,21 @@ export default function BroadcastingPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label>Target</Label>
-                  <Select value={fType} onValueChange={v => setFType(v as "global" | "client")}>
+                  <Select value={fType} onValueChange={v => setFType(v as "global" | "client")} disabled={editingId != null}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="global">All clients (global)</SelectItem>
                       <SelectItem value="client">Specific client</SelectItem>
                     </SelectContent>
                   </Select>
+                  {editingId != null && (
+                    <p className="text-xs text-gray-400">Target can&apos;t be changed after creation — delete and recreate instead.</p>
+                  )}
                 </div>
                 {fType === "client" && (
                   <div className="space-y-1">
                     <Label>Client <span className="text-red-500">*</span></Label>
-                    <Select value={fClient} onValueChange={setFClient}>
+                    <Select value={fClient} onValueChange={setFClient} disabled={editingId != null}>
                       <SelectTrigger><SelectValue placeholder="Select client…" /></SelectTrigger>
                       <SelectContent>
                         {clients.map(c => (
@@ -282,7 +329,7 @@ export default function BroadcastingPage() {
 
               <div className="flex gap-2">
                 <Button type="submit" disabled={saving || !fMessage.trim()}>
-                  {saving ? "Saving…" : "Publish Broadcast"}
+                  {saving ? "Saving…" : editingId != null ? "Save Changes" : "Publish Broadcast"}
                 </Button>
                 <Button type="button" variant="outline" onClick={() => { setShowForm(false); resetForm(); }}>
                   Cancel
@@ -329,6 +376,14 @@ export default function BroadcastingPage() {
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => startEdit(b)}
+                  title="Edit"
+                >
+                  <Pencil className="h-4 w-4 text-gray-500 hover:text-gray-700" />
+                </Button>
                 <Button
                   variant="ghost"
                   size="sm"
