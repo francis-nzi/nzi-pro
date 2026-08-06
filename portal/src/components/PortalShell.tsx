@@ -14,6 +14,7 @@ import {
   Zap,
 } from "lucide-react";
 import { apiFetch, clearAllTokens, getBestToken } from "@/lib/auth";
+import { formatDate } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import PortalStatusBar from "@/components/PortalStatusBar";
 
@@ -71,6 +72,7 @@ export default function PortalShell({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [user, setUser] = useState<PortalUser | null>(null);
+  const [accessExpiresAt, setAccessExpiresAt] = useState<string | null>(null);
   const [navConfig, setNavConfig] = useState<NavConfig>({});
   const [navLoaded, setNavLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -88,11 +90,13 @@ export default function PortalShell({
         must_accept_tac?: boolean;
         mfa_setup_required?: boolean;
         nav_config?: NavConfig;
+        access_expires_at?: string | null;
       }) => {
         if (d.must_accept_tac) { router.replace("/accept-terms"); return; }
         if (d.mfa_setup_required) { router.replace("/setup-mfa"); return; }
         setUser(d.user);
         setNavConfig(d.nav_config ?? {});
+        setAccessExpiresAt(d.access_expires_at ?? null);
         setNavLoaded(true);
       })
       .catch(() => { clearAllTokens(); router.replace("/login"); });
@@ -202,6 +206,11 @@ export default function PortalShell({
             </Badge>
           )}
           <div className="text-xs text-white/50 truncate">{user.full_name}</div>
+          {accessExpiresAt && (
+            <div className="text-[11px] text-white/40">
+              Portal access expires {formatDate(accessExpiresAt)}
+            </div>
+          )}
           <button
             onClick={handleLogout}
             className="flex items-center gap-2 text-xs text-white/50 hover:text-white transition-colors"

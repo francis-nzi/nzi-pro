@@ -709,6 +709,7 @@ def portal_me(current_user: dict = Depends(_portal_onboarding_user)):
             "mfa_setup_required": False,
             "nav_config": nav_config,
             "portal_mode": "staff",
+            "access_expires_at": access_record.get("access_expires_at"),
         }
 
     must_accept = _must_accept_tac(current_user)
@@ -732,6 +733,7 @@ def portal_me(current_user: dict = Depends(_portal_onboarding_user)):
             "status": client_status or None,
             "portfolio": str(client_row[2] or "") if client_row else None,
         } if client_row else None,
+        "access_expires_at": access_record.get("access_expires_at"),
     }
 
 

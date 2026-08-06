@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/auth";
+import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -168,6 +169,7 @@ export default function PortalDataEntry() {
   // Set from the job's Data Collection Deadline milestone (or a CRM override)
   // once it's passed -- another expected, actionable state with its own panel.
   const [dataEntryExpired, setDataEntryExpired] = useState(false);
+  const [dataEntryExpiry, setDataEntryExpiry] = useState<string | null>(null);
 
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
@@ -263,6 +265,7 @@ export default function PortalDataEntry() {
     setRegLookupVehicle(null);
     setNoJobMessage("");
     setDataEntryExpired(false);
+    setDataEntryExpiry(null);
     setPreviousRows([]);
     setTopFactors([]);
     setJustAdded(false);
@@ -276,6 +279,7 @@ export default function PortalDataEntry() {
     setError("");
     setNoJobMessage("");
     setDataEntryExpired(false);
+    setDataEntryExpiry(null);
     try {
       const res = await apiFetch(`/portal/data-entry/${bucketKey}/rows`);
       if (res.ok) {
@@ -285,6 +289,7 @@ export default function PortalDataEntry() {
         setReportingYear(d.reporting_year || null);
         setReportingPeriodStart(d.reporting_period_start || null);
         setDataEntryExpired(Boolean(d.portal_data_entry_expired));
+        setDataEntryExpiry(d.portal_data_entry_expiry || null);
       } else if (res.status === 404) {
         const d = await res.json().catch(() => ({}));
         setNoJobMessage(d?.detail || "No open job found for this account yet — contact your NZI consultant.");
@@ -583,6 +588,11 @@ export default function PortalDataEntry() {
           <p className="mt-1 text-sm font-semibold text-foreground">
             Job {jobNumber}
             {reportingYear ? ` · Reporting Year ${reportingYear}` : ""}
+            {dataEntryExpiry && (
+              <span className={dataEntryExpired ? "text-rose-700" : "text-muted-foreground font-normal"}>
+                {" · "}Data entry {dataEntryExpired ? "closed" : "closes"} {formatDate(dataEntryExpiry)}
+              </span>
+            )}
           </p>
         )}
       </div>
