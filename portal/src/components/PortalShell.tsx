@@ -17,6 +17,7 @@ import { apiFetch, clearAllTokens, getBestToken } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import PortalStatusBar from "@/components/PortalStatusBar";
+import { ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
 
 type PortalUser = {
   portal_user_id: number | null;
@@ -77,29 +78,52 @@ export default function PortalShell({
   const [navLoaded, setNavLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [hiddenSections, setHiddenSections] = useState<string[]>([]);
+  const [authStatus, setAuthStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [authAttempt, setAuthAttempt] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+
     if (!getBestToken()) {
       router.replace("/login");
-      return;
+      return () => { cancelled = true; };
     }
-    apiFetch("/portal/auth/me")
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then((d: {
-        user: PortalUser;
-        must_accept_tac?: boolean;
-        mfa_setup_required?: boolean;
-        nav_config?: NavConfig;
-        access_expires_at?: string | null;
-      }) => {
+
+    setAuthStatus("loading");
+    void (async () => {
+      try {
+        const response = await apiFetch("/portal/auth/me");
+        if (response.status === 401) {
+          if (!cancelled) {
+            clearAllTokens();
+            router.replace("/login");
+          }
+          return;
+        }
+        if (!response.ok) throw new Error(`Portal session request failed with ${response.status}`);
+
+        const d = await response.json() as {
+          user: PortalUser;
+          must_accept_tac?: boolean;
+          mfa_setup_required?: boolean;
+          nav_config?: NavConfig;
+          access_expires_at?: string | null;
+        };
+        if (cancelled) return;
         if (d.must_accept_tac) { router.replace("/accept-terms"); return; }
         if (d.mfa_setup_required) { router.replace("/setup-mfa"); return; }
         setUser(d.user);
         setNavConfig(d.nav_config ?? {});
         setAccessExpiresAt(d.access_expires_at ?? null);
         setNavLoaded(true);
-      })
-      .catch(() => { clearAllTokens(); router.replace("/login"); });
+        setAuthStatus("ready");
+      } catch {
+        if (!cancelled) {
+          setNavLoaded(false);
+          setAuthStatus("error");
+        }
+      }
+    })();
 
     // Site-scoped portal users don't get Reports/Files/Actions/Insights at
     // all -- see CLIENT_PORTAL_GOVERNANCE_ENDPOINT_AUDIT.md §3. The backend
@@ -107,9 +131,15 @@ export default function PortalShell({
     // from advertising sections that would 403.
     apiFetch("/portal/me")
       .then(r => r.ok ? r.json() : Promise.reject())
-      .then((d: { hidden_sections?: string[] }) => setHiddenSections(d.hidden_sections ?? []))
-      .catch(() => setHiddenSections([]));
-  }, [router]);
+      .then((d: { hidden_sections?: string[] }) => {
+        if (!cancelled) setHiddenSections(d.hidden_sections ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setHiddenSections([]);
+      });
+
+    return () => { cancelled = true; };
+  }, [authAttempt, router]);
 
   function handleLogout() {
     clearAllTokens();
@@ -265,7 +295,18 @@ export default function PortalShell({
         {user && <PortalStatusBar />}
 
         <main className="min-w-0 flex-1 px-6 py-8">
-          {children}
+          {authStatus === "error" ? (
+            <ErrorPanel
+              className="mx-auto mt-12 max-w-xl"
+              title="We couldn't load your portal"
+              description="Your session is still active. Check your connection and try again. If this keeps happening, contact support."
+              onRetry={() => setAuthAttempt(attempt => attempt + 1)}
+            />
+          ) : authStatus === "loading" ? (
+            <SkeletonLoader rows={4} className="mx-auto mt-12 max-w-xl" />
+          ) : (
+            children
+          )}
         </main>
 
         <footer className="border-t border-gray-200 bg-white py-3 text-center text-xs text-gray-400">

@@ -12,7 +12,7 @@ import hmac
 import os
 import secrets
 import string
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -53,6 +53,64 @@ def _verify_password(password: str, stored: str) -> bool:
 # ---------------------------------------------------------------------------
 
 _schema_seeded = False
+
+PORTAL_ACCESS_EXPIRY_MIN_YEAR = 2000
+PORTAL_ACCESS_EXPIRY_MAX_YEAR = 9999
+_PORTAL_ACCESS_EXPIRY_UNSET = object()
+
+
+def normalize_portal_access_expiry(value: Any) -> datetime | None:
+    """Parse a portal-access expiry and return an aware UTC datetime.
+
+    The CRM currently sends ``datetime-local`` values without an offset, so
+    naive values remain supported and are interpreted as UTC.  Keeping the
+    conversion here (rather than relying on the database session timezone)
+    makes API validation, runtime access checks, and the DB constraint agree.
+    """
+    if value is None:
+        return None
+
+    parsed: datetime
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, date):
+        parsed = datetime.combine(value, time.min)
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise ValueError("access_expires_at must be an ISO-8601 timestamp or null")
+        if text.endswith(("Z", "z")):
+            text = f"{text[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError as exc:
+            raise ValueError("access_expires_at must be a valid ISO-8601 timestamp") from exc
+    else:
+        raise ValueError("access_expires_at must be an ISO-8601 timestamp or null")
+
+    if not PORTAL_ACCESS_EXPIRY_MIN_YEAR <= parsed.year <= PORTAL_ACCESS_EXPIRY_MAX_YEAR:
+        raise ValueError(
+            "access_expires_at year must be between "
+            f"{PORTAL_ACCESS_EXPIRY_MIN_YEAR} and {PORTAL_ACCESS_EXPIRY_MAX_YEAR}"
+        )
+
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        normalized = parsed.replace(tzinfo=timezone.utc)
+    else:
+        try:
+            normalized = parsed.astimezone(timezone.utc)
+        except (OverflowError, ValueError) as exc:
+            raise ValueError(
+                "access_expires_at must resolve to a timestamp between years "
+                f"{PORTAL_ACCESS_EXPIRY_MIN_YEAR} and {PORTAL_ACCESS_EXPIRY_MAX_YEAR}"
+            ) from exc
+
+    if not PORTAL_ACCESS_EXPIRY_MIN_YEAR <= normalized.year <= PORTAL_ACCESS_EXPIRY_MAX_YEAR:
+        raise ValueError(
+            "access_expires_at must resolve to a timestamp between years "
+            f"{PORTAL_ACCESS_EXPIRY_MIN_YEAR} and {PORTAL_ACCESS_EXPIRY_MAX_YEAR}"
+        )
+    return normalized
 
 
 def ensure_portal_schema(con) -> None:
@@ -170,7 +228,13 @@ def ensure_portal_schema(con) -> None:
           nav_config         JSONB NOT NULL DEFAULT '{}',
           notes              TEXT,
           created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT client_portal_access_expiry_year_check CHECK (
+            access_expires_at IS NULL OR (
+              access_expires_at >= TIMESTAMPTZ '2000-01-01 00:00:00+00'
+              AND access_expires_at < TIMESTAMPTZ '10000-01-01 00:00:00+00'
+            )
+          )
         )
     """)
 
@@ -310,32 +374,46 @@ def upsert_client_portal_access(
     client_db_id: int,
     *,
     is_enabled: bool | None = None,
-    access_expires_at=None,
+    access_expires_at: Any = _PORTAL_ACCESS_EXPIRY_UNSET,
     payment_status: str | None = None,
     payment_reference: str | None = None,
     nav_config: dict | None = None,
     notes: str | None = None,
     con=None,
 ) -> dict[str, Any]:
+    expiry_was_provided = access_expires_at is not _PORTAL_ACCESS_EXPIRY_UNSET
+    normalized_expiry: datetime | None | object = _PORTAL_ACCESS_EXPIRY_UNSET
+    if expiry_was_provided:
+        try:
+            normalized_expiry = normalize_portal_access_expiry(access_expires_at)
+        except ValueError as exc:
+            # Internal callers also get a deterministic client error before an
+            # invalid value can reach PostgreSQL. Pydantic turns the same
+            # validation failure into a 422 for HTTP request bodies.
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     if con is None:
         with get_conn(autocommit=False) as managed:
-            result = upsert_client_portal_access(
-                client_db_id,
-                is_enabled=is_enabled,
-                access_expires_at=access_expires_at,
-                payment_status=payment_status,
-                payment_reference=payment_reference,
-                nav_config=nav_config,
-                notes=notes,
-                con=managed,
-            )
+            nested_kwargs = {
+                "is_enabled": is_enabled,
+                "payment_status": payment_status,
+                "payment_reference": payment_reference,
+                "nav_config": nav_config,
+                "notes": notes,
+                "con": managed,
+            }
+            if expiry_was_provided:
+                nested_kwargs["access_expires_at"] = normalized_expiry
+            result = upsert_client_portal_access(client_db_id, **nested_kwargs)
             return result
     import json as _json
     ensure_portal_schema(con)
     existing = get_client_portal_access(client_db_id, con=con)
 
     new_enabled = is_enabled if is_enabled is not None else existing["is_enabled"]
-    new_expires = access_expires_at if access_expires_at is not None else existing["access_expires_at"]
+    # Omitted means "leave unchanged"; an explicit JSON null reaches this
+    # function as None and deliberately clears the stored expiry.
+    new_expires = normalized_expiry if expiry_was_provided else existing["access_expires_at"]
     new_status = payment_status if payment_status is not None else existing["payment_status"]
     new_ref = payment_reference if payment_reference is not None else existing["payment_reference"]
     new_nav = nav_config if nav_config is not None else existing["nav_config"]
@@ -370,20 +448,19 @@ def upsert_client_portal_access(
 
 
 def check_client_portal_access(client_db_id: int, *, con=None) -> tuple[bool, str]:
-    """Return (allowed, reason). Used by login to enforce access."""
+    """Return (allowed, reason) for portal access checks such as login."""
     record = get_client_portal_access(client_db_id, con=con)
     if not record["is_enabled"]:
         return False, "Portal access has not been enabled for your organisation"
     if record["access_expires_at"]:
-        from datetime import datetime, timezone
         try:
-            exp_str = str(record["access_expires_at"])
-            # Parse ISO timestamp
-            exp = datetime.fromisoformat(exp_str.replace("Z", "+00:00"))
-            if datetime.now(timezone.utc) > exp:
-                return False, "Your portal access has expired. Please contact your NZI advisor to renew."
-        except Exception:
-            pass
+            exp = normalize_portal_access_expiry(record["access_expires_at"])
+        except ValueError:
+            # A malformed or out-of-policy legacy value must never turn into
+            # an access-control bypass.
+            return False, "Portal access is unavailable. Please contact your NZI advisor."
+        if exp is not None and datetime.now(timezone.utc) >= exp:
+            return False, "Your portal access has expired. Please contact your NZI advisor to renew."
     return True, ""
 
 

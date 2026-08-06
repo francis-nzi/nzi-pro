@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import threading
 from dataclasses import dataclass
 from typing import Any, Sequence
@@ -87,25 +88,24 @@ class _PgConn:
 
     def __exit__(self, exc_type, exc, tb):
         if self._pool_ctx is not None:
-            # Return connection to pool instead of closing it.
-            try:
-                self._pool_ctx.__exit__(exc_type, exc, tb)
-            except Exception:
-                pass
+            # The pool context commits/rolls back transactional connections
+            # before returning them to the pool.  Do not swallow commit errors:
+            # callers must not receive a successful response for a failed write.
+            return self._pool_ctx.__exit__(exc_type, exc, tb)
         else:
             # Direct connection — commit/rollback then close.
-            if not self._autocommit:
-                try:
+            try:
+                if not self._autocommit:
                     if exc_type is None:
                         self._conn.commit()
                     else:
-                        self._conn.rollback()
-                except Exception:
-                    pass
-            try:
+                        try:
+                            self._conn.rollback()
+                        except Exception:
+                            logger.exception("Database rollback failed")
+            finally:
                 self._conn.close()
-            except Exception:
-                pass
+        return False
 
     def execute(self, sql: str, params: Sequence[Any] | None = None):
         import json
@@ -211,6 +211,16 @@ def get_conn(*, autocommit: bool = True):
         try:
             pool_ctx = pool.connection(timeout=5)
             raw_conn = pool_ctx.__enter__()
+            try:
+                # Pool configuration establishes a safe idle default, but the
+                # requested mode must be applied on every borrow.  Previously
+                # pooled connections always remained autocommit=True, so code
+                # using get_conn(autocommit=False) could partially commit before
+                # a later exception.
+                raw_conn.autocommit = autocommit
+            except Exception:
+                pool_ctx.__exit__(*sys.exc_info())
+                raise
             return _PgConn(raw_conn, autocommit=autocommit, _pool_ctx=pool_ctx)
         except Exception as exc:
             logger.warning("Pool borrow failed, using direct connection: %s", exc)

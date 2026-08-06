@@ -132,7 +132,48 @@ const REVIEW_STATUS_LABELS: Record<string, string> = {
   approved: "Approved",
 };
 
+const PORTAL_ACCESS_EXPIRY_MIN = "2000-01-01T00:00";
+const PORTAL_ACCESS_EXPIRY_MAX = "9999-12-31T23:59";
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function toDateTimeLocalValue(value: string | null | undefined): string {
+  if (!value) return "";
+  const normalized = value.replace(" ", "T");
+  return /^(\d{4,}-\d{2}-\d{2}T\d{2}:\d{2})/.exec(normalized)?.[1] ?? normalized;
+}
+
+function validatePortalAccessExpiry(value: string): string | null {
+  if (!value) return null;
+
+  const match = /^(\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return "Enter a valid access expiry date and time.";
+
+  const [, yearPart, monthPart, dayPart, hourPart, minutePart] = match;
+  const year = Number(yearPart);
+  const month = Number(monthPart);
+  const day = Number(dayPart);
+  const hour = Number(hourPart);
+  const minute = Number(minutePart);
+
+  if (year < 2000 || year > 9999) {
+    return "Access expiry year must be between 2000 and 9999.";
+  }
+
+  const parsed = new Date(Date.UTC(year, month - 1, day, hour, minute));
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day ||
+    parsed.getUTCHours() !== hour ||
+    parsed.getUTCMinutes() !== minute
+  ) {
+    return "Enter a valid access expiry date and time.";
+  }
+
+  return null;
+}
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -824,6 +865,7 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
   const [editNotes, setEditNotes] = useState("");
   const [editNavConfig, setEditNavConfig] = useState<Record<string, boolean>>({});
   const [navSaving, setNavSaving] = useState(false);
+  const expiryValidationError = validatePortalAccessExpiry(editExpiry);
 
   // Add user form
   const [showAddUser, setShowAddUser] = useState(false);
@@ -853,7 +895,7 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
       const a = data.access;
       setPortalAccess(a);
       setEditEnabled(a.is_enabled);
-      setEditExpiry(a.access_expires_at ? a.access_expires_at.slice(0, 16) : "");
+      setEditExpiry(toDateTimeLocalValue(a.access_expires_at));
       setEditPaymentStatus(a.payment_status);
       setEditPaymentRef(a.payment_reference ?? "");
       setEditNotes(a.notes ?? "");
@@ -1054,8 +1096,14 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
   }
 
   async function handleSaveAccess() {
-    setAccessSaving(true);
     setError("");
+    setStatusMsg("");
+    if (expiryValidationError) {
+      setError(expiryValidationError);
+      return;
+    }
+
+    setAccessSaving(true);
     try {
       const res = await fetch(`${baseUrl}/clients/${clientId}/portal-access`, {
         method: "PUT",
@@ -1127,7 +1175,7 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
   // before silently discarding them (it previously just reloaded from the
   // server unconditionally, wiping out any toggle the user hadn't saved yet).
   const navDirty = JSON.stringify(editNavConfig) !== JSON.stringify(portalAccess?.nav_config ?? {});
-  const loadedExpiry = portalAccess?.access_expires_at ? portalAccess.access_expires_at.slice(0, 16) : "";
+  const loadedExpiry = toDateTimeLocalValue(portalAccess?.access_expires_at);
   const accessDirty = Boolean(portalAccess) && (
     editEnabled !== portalAccess!.is_enabled ||
     editExpiry !== loadedExpiry ||
@@ -1279,11 +1327,20 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
               <Input
                 id="access-expiry"
                 type="datetime-local"
+                min={PORTAL_ACCESS_EXPIRY_MIN}
+                max={PORTAL_ACCESS_EXPIRY_MAX}
                 value={editExpiry}
                 onChange={e => setEditExpiry(e.target.value)}
-                className="max-w-xs"
+                aria-invalid={Boolean(expiryValidationError)}
+                aria-describedby={`access-expiry-help${expiryValidationError ? " access-expiry-error" : ""}`}
+                className={`max-w-xs ${expiryValidationError ? "border-red-500 focus-visible:ring-red-500" : ""}`}
               />
-              <p className="text-xs text-muted-foreground">Leave blank for no expiry. Default is 12 months from job start date.</p>
+              <p id="access-expiry-help" className="text-xs text-muted-foreground">Leave blank for no expiry.</p>
+              {expiryValidationError && (
+                <p id="access-expiry-error" className="text-xs text-red-600" role="alert">
+                  {expiryValidationError}
+                </p>
+              )}
             </div>
 
             {/* Payment status */}
@@ -1326,7 +1383,7 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
               />
             </div>
 
-            <Button onClick={() => void handleSaveAccess()} disabled={accessSaving} size="sm">
+            <Button onClick={() => void handleSaveAccess()} disabled={accessSaving || Boolean(expiryValidationError)} size="sm">
               {accessSaving ? "Saving…" : "Save Access Settings"}
             </Button>
           </CardContent>

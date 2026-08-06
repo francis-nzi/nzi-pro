@@ -9,11 +9,11 @@ These routes are protected by standard NZI staff auth and allow CRMs to:
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.auth import _current_user
 from api.permissions import assert_job_access, assert_permission, assert_client_access
@@ -34,6 +34,7 @@ from services.portal import (
     list_comments,
     list_portal_users,
     mark_published,
+    normalize_portal_access_expiry,
     resend_portal_invite,
     respond_to_comment,
     send_review_to_client,
@@ -981,11 +982,16 @@ def publish_pdf_for_client(
 
 class UpsertPortalAccessPayload(BaseModel):
     is_enabled: bool | None = None
-    access_expires_at: str | None = None
+    access_expires_at: datetime | None = None
     payment_status: str | None = None
     payment_reference: str | None = None
     nav_config: dict | None = None
     notes: str | None = None
+
+    @field_validator("access_expires_at", mode="before")
+    @classmethod
+    def validate_access_expires_at(cls, value):
+        return normalize_portal_access_expiry(value)
 
 
 @router.get("/clients/{client_db_id}/portal-access")
@@ -1018,15 +1024,20 @@ def update_portal_access(
     if payload.payment_status and payload.payment_status not in valid_payment:
         raise HTTPException(status_code=400, detail=f"payment_status must be one of {sorted(valid_payment)}")
 
-    record = upsert_client_portal_access(
-        int(client_db_id),
-        is_enabled=payload.is_enabled,
-        access_expires_at=payload.access_expires_at,
-        payment_status=payload.payment_status,
-        payment_reference=payload.payment_reference,
-        nav_config=payload.nav_config,
-        notes=payload.notes,
-    )
+    update_values = {
+        "is_enabled": payload.is_enabled,
+        "payment_status": payload.payment_status,
+        "payment_reference": payload.payment_reference,
+        "nav_config": payload.nav_config,
+        "notes": payload.notes,
+    }
+    # Pydantic defaults an omitted optional field to None, so use the field-set
+    # metadata to preserve the distinction between omitted (leave unchanged)
+    # and explicit JSON null (clear the expiry).
+    if "access_expires_at" in payload.model_fields_set:
+        update_values["access_expires_at"] = payload.access_expires_at
+
+    record = upsert_client_portal_access(int(client_db_id), **update_values)
     return {"ok": True, "access": record}
 
 
