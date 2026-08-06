@@ -867,37 +867,25 @@ def _render_live_report_pdf_worker(
             page.wait_for_timeout(600)
             print(f"[PDF] job={job_id} pre-print ready in {time.time()-t0:.1f}s", file=sys.stderr, flush=True)
 
-            # Apply print media so measurements reflect the actual print layout.
-            page.emulate_media(media="print")
-
-            # ROOT CAUSE FIX: overflow-x-hidden silently promotes overflow-y to
-            # auto, creating a scroll container that clips Chrome's print output.
-            page.evaluate("""
-                () => {
-                    document.querySelectorAll('.overflow-x-hidden').forEach(el => {
-                        el.style.setProperty('overflow', 'visible', 'important');
-                    });
-                    document.querySelectorAll('.min-h-screen').forEach(el => {
-                        el.style.setProperty('min-height', '0', 'important');
-                        el.style.setProperty('height', 'auto', 'important');
-                    });
-                }
-            """)
-
-            page.wait_for_timeout(500)
-            print(f"[PDF] job={job_id} calling page.pdf()", file=sys.stderr, flush=True)
-
-            # page.pdf() has no internal timeout in Playwright Python —
-            # set_default_timeout does not reach the underlying CDP send call, so
-            # page.pdf() can hang indefinitely if Chromium stops responding.
-            # Force a hard 3-minute limit via threading.Timer: closing the browser
-            # from a side thread interrupts the pending CDP call with a
-            # "Browser was disconnected" error so the semaphore is always released.
+            # Neither emulate_media() nor evaluate() take a timeout parameter in
+            # Playwright's Python API (evaluate() has no timeout by design --
+            # arbitrary JS can legitimately take any amount of time), so unlike
+            # networkidle/widget-pngs-ready above, this step can't just be given
+            # a tighter timeout the normal way. Observed in production to
+            # occasionally stall for 4+ minutes with zero visibility -- likely
+            # CDP round-trips starved of CPU by concurrent unrelated traffic on
+            # the same instance -- versus the sub-second cost either call should
+            # normally have. So the kill-timer originally scoped to just
+            # page.pdf() below now starts here instead, covering this whole
+            # remaining segment: closing the browser from a side thread
+            # interrupts whichever call is stuck with a "Browser was
+            # disconnected" error, so the semaphore is always released within
+            # the same 3-minute bound as before.
             _pdf_timed_out = threading.Event()
 
             def _kill_browser():
                 _pdf_timed_out.set()
-                print(f"[PDF] job={job_id} 3-min PDF timeout — force-closing browser", file=sys.stderr, flush=True)
+                print(f"[PDF] job={job_id} 3-min timeout — force-closing browser", file=sys.stderr, flush=True)
                 try:
                     browser.close()
                 except Exception:
@@ -906,6 +894,27 @@ def _render_live_report_pdf_worker(
             _kill_timer = threading.Timer(180, _kill_browser)
             _kill_timer.start()
             try:
+                # Apply print media so measurements reflect the actual print layout.
+                page.emulate_media(media="print")
+
+                # ROOT CAUSE FIX: overflow-x-hidden silently promotes overflow-y to
+                # auto, creating a scroll container that clips Chrome's print output.
+                page.evaluate("""
+                    () => {
+                        document.querySelectorAll('.overflow-x-hidden').forEach(el => {
+                            el.style.setProperty('overflow', 'visible', 'important');
+                        });
+                        document.querySelectorAll('.min-h-screen').forEach(el => {
+                            el.style.setProperty('min-height', '0', 'important');
+                            el.style.setProperty('height', 'auto', 'important');
+                        });
+                    }
+                """)
+                print(f"[PDF] job={job_id} print-media applied in {time.time()-t0:.1f}s", file=sys.stderr, flush=True)
+
+                page.wait_for_timeout(500)
+                print(f"[PDF] job={job_id} calling page.pdf()", file=sys.stderr, flush=True)
+
                 result["pdf_bytes"] = page.pdf(
                     format="A4",
                     print_background=True,
