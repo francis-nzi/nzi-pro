@@ -74,7 +74,11 @@ export default function ReportVariablesPanel({ jobId, baseUrl }: ReportVariables
             const metadata = (payload?.metadata ?? {}) as Record<string, unknown>;
             setApiUnavailable(false);
             setFields(effectiveFields);
-            setFieldValues(buildMetadataFieldValues(effectiveFields, metadata));
+            const values = buildMetadataFieldValues(effectiveFields, metadata);
+            if (!values.client_signature_date && values.consultant_signature_date) {
+              values.client_signature_date = values.consultant_signature_date;
+            }
+            setFieldValues(values);
           } else if (metaRes.status === 404) {
             setApiUnavailable(true);
             setFields(JOB_SETUP_METADATA_FALLBACK_FIELDS);
@@ -157,7 +161,13 @@ export default function ReportVariablesPanel({ jobId, baseUrl }: ReportVariables
       apiUnavailable={apiUnavailable}
       saving={saving}
       status={status}
-      onValueChange={(key, val) => setFieldValues((prev) => ({ ...prev, [key]: val }))}
+      onValueChange={(key, val) => setFieldValues((prev) => {
+        const next = { ...prev, [key]: val };
+        if (key === "consultant_signature_date" && !prev.client_signature_date) {
+          next.client_signature_date = val;
+        }
+        return next;
+      })}
       onSave={() => void handleSave()}
       hasFields={fields.length > 0}
     />

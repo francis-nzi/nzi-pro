@@ -243,6 +243,7 @@ export const JOB_SETUP_METADATA_KEYS = [
   "consultant_signature_date",
   "client_signee_name",
   "client_signee_position",
+  "client_signature_date",
 ] as const;
 
 export const JOB_SETUP_METADATA_KEY_ORDER = new Map(
@@ -386,6 +387,12 @@ export const JOB_SETUP_METADATA_FALLBACK_FIELDS: ReportMetadataField[] = [
     key: "client_signee_position",
     label: "Client Signee Position",
     field_type: "text",
+    section: "Sign-off",
+  },
+  {
+    key: "client_signature_date",
+    label: "Client Signature Date",
+    field_type: "date",
     section: "Sign-off",
   },
 ];
