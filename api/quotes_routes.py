@@ -1849,6 +1849,52 @@ def quote_email_log(quote_id: int, _user: dict = Depends(_current_user)):
         raise HTTPException(status_code=500, detail=f"Failed to load quote email log: {e}")
 
 
+@router.get("/invoices")
+def list_all_invoices(_user: dict = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
+            df = con.execute(
+                """
+                SELECT i.invoice_id, i.client_db_id, c.client_name, i.job_id, j.job_number, i.invoice_number,
+                       i.invoice_date, i.due_date, i.currency_code, i.subtotal, i.vat, i.total, i.status,
+                       i.xero_sync_status, i.updated_at
+                FROM invoices i
+                LEFT JOIN clients c ON c.db_id = i.client_db_id
+                LEFT JOIN jobs j ON j.job_id = i.job_id
+                """ + ("WHERE i.org_id = %s" if org_id else "") + """
+                ORDER BY COALESCE(i.invoice_date, i.created_at) DESC, i.invoice_id DESC
+                """,
+                ([org_id] if org_id else []),
+            ).df()
+            items: list[dict[str, Any]] = []
+            if df is not None and not df.empty:
+                for _, r in df.iterrows():
+                    items.append(
+                        {
+                            "invoice_id": _safe_int(r.get("invoice_id"), 0),
+                            "client_db_id": _safe_int(r.get("client_db_id"), 0),
+                            "client_name": str(r.get("client_name") or ""),
+                            "job_id": _safe_int(r.get("job_id"), None),
+                            "job_number": str(r.get("job_number") or ""),
+                            "invoice_number": str(r.get("invoice_number") or ""),
+                            "invoice_date": r.get("invoice_date").isoformat() if r.get("invoice_date") else None,
+                            "due_date": r.get("due_date").isoformat() if r.get("due_date") else None,
+                            "currency_code": str(r.get("currency_code") or "GBP"),
+                            "subtotal": round(_safe_float(r.get("subtotal"), 0.0), 2),
+                            "vat": round(_safe_float(r.get("vat"), 0.0), 2),
+                            "total": round(_safe_float(r.get("total"), 0.0), 2),
+                            "status": str(r.get("status") or "Draft"),
+                            "xero_sync_status": str(r.get("xero_sync_status") or "pending"),
+                            "updated_at": r.get("updated_at").isoformat() if r.get("updated_at") else None,
+                        }
+                    )
+        return {"items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list all invoices: {e}")
+
+
 @router.get("/clients/{client_id}/invoices")
 def list_client_invoices(client_id: int, _user: dict = Depends(_current_user)):
     try:
