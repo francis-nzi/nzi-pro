@@ -666,7 +666,29 @@ def _currency_symbol(code: str | None) -> str:
     return f"{c} "
 
 
-def _nzi_logo_path() -> str | None:
+def _nzi_logo_path() -> Any:
+    """Return the current NZI logo for ReportLab: an in-memory stream from the
+    admin-configured system-settings logo if one is uploaded, else a static
+    asset path. ReportLab's Image() accepts either."""
+    try:
+        with get_conn() as con:
+            rows = con.execute(
+                """
+                SELECT setting_key, setting_value
+                FROM system_settings
+                WHERE setting_key = 'nzi_logo_b64'
+                """
+            ).fetchall()
+        logo_b64 = rows[0][1] if rows else None
+        if logo_b64:
+            import base64
+            import io
+            decoded = base64.b64decode(str(logo_b64), validate=True)
+            if decoded:
+                return io.BytesIO(decoded)
+    except Exception:
+        logger.debug("Failed to load NZI logo from system_settings; falling back to static asset", exc_info=True)
+
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     candidates = [
         os.path.join(root_dir, "frontend", "public", "uploads", "system", "nzi-logo.png"),

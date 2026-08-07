@@ -76,7 +76,7 @@ export function CompanyIdentityBlock({ baseUrl, logoClassName = "ml-auto mb-3 h-
         </div>
       ) : (
         <img
-          src="/uploads/system/nzi-logo.png"
+          src={`${baseUrl}/system-settings/logo/file`}
           alt={profile.company_display_name}
           className={logoClassName}
           onError={() => setLogoFailed(true)}
