@@ -561,10 +561,13 @@ def _other_cost_totals(items: list[dict[str, Any]]) -> dict[str, float]:
 
 
 def _write_invoice_lines(con, invoice_id: int, lines: list[dict[str, Any]], org_id: str | None = None) -> None:
-    con.execute(
-        "DELETE FROM invoice_lines WHERE invoice_id = %s AND COALESCE(org_id, %s) = %s",
-        [int(invoice_id), org_id, org_id],
-    )
+    if org_id:
+        con.execute(
+            "DELETE FROM invoice_lines WHERE invoice_id = %s AND org_id = %s",
+            [int(invoice_id), org_id],
+        )
+    else:
+        con.execute("DELETE FROM invoice_lines WHERE invoice_id = %s", [int(invoice_id)])
     for idx, line in enumerate(lines):
         qty = _safe_float(line.get("qty"), 0.0)
         rate = _safe_float(line.get("rate"), 0.0)
@@ -2501,7 +2504,7 @@ def update_invoice(invoice_id: int, body: dict = Body(...), _user: dict = Depend
                 lines = body.get("lines") or []
                 if not isinstance(lines, list):
                     raise HTTPException(status_code=400, detail="lines must be an array")
-                _write_invoice_lines(con, int(invoice_id), lines)
+                _write_invoice_lines(con, int(invoice_id), lines, org_id=org_id)
                 line_totals = _invoice_totals_from_lines(lines)
                 updates.extend(["subtotal = %s", "vat = %s", "total = %s"])
                 params.extend([line_totals["subtotal"], line_totals["vat"], line_totals["total"]])
