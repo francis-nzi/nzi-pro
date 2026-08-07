@@ -33,6 +33,20 @@ services:
         sync: false
       - key: FRONTEND_BASE_URL
         sync: false
+      - key: XERO_CLIENT_ID
+        sync: false
+      - key: XERO_CLIENT_SECRET
+        sync: false
+      - key: XERO_REDIRECT_URI
+        sync: false
+      - key: XERO_TENANT_ID
+        sync: false
+      - key: XERO_SCOPE
+        sync: false
+      - key: XERO_AUTH_TYPE
+        sync: false
+      - key: XERO_ORGANISATION_NAME
+        sync: false
 
   - type: web
     name: nzi-insights-pro-web-live
