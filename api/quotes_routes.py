@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 import re
 import os
@@ -439,6 +439,15 @@ def _revision_quote_number(con, base_prefix: str, org_id: str | None = None) -> 
     return f"{base_prefix}/{max_rev + 1}"
 
 
+def _default_due_date(invoice_date_str: str | None) -> str:
+    """Default due date: 7 days after the invoice date."""
+    try:
+        base = date.fromisoformat(str(invoice_date_str or "")[:10])
+    except Exception:
+        base = date.today()
+    return (base + timedelta(days=7)).isoformat()
+
+
 def _next_invoice_number(con, org_id: str | None = None) -> str:
     org_clause = " AND org_id = %s" if org_id else ""
     params = [org_id] if org_id else []
@@ -771,11 +780,12 @@ def _build_financial_pdf_story(
     normal_style = ParagraphStyle("FinancialNormal", parent=styles["Normal"], fontSize=10.5, leading=14)
     label_style = ParagraphStyle("FinancialLabel", parent=styles["Normal"], fontSize=10.5, leading=13, fontName="Helvetica-Bold")
     label_style_right = ParagraphStyle("FinancialLabelRight", parent=label_style, alignment=2)
+    value_style = ParagraphStyle("FinancialValue", parent=styles["Normal"], fontSize=10.5, leading=13)
+    value_style_right = ParagraphStyle("FinancialValueRight", parent=value_style, alignment=2)
     company_style = ParagraphStyle("FinancialCompany", parent=styles["Normal"], fontSize=9.5, leading=13, alignment=2)
     subject_style = ParagraphStyle("FinancialSubject", parent=styles["Heading2"], fontSize=14, leading=16, fontName="Helvetica-Bold")
 
     currency = str(currency_code or "GBP").strip().upper()
-    currency_prefix = _currency_symbol(currency)
     amount_header = f"Amount {currency}"
     story: list[Any] = []
 
@@ -850,9 +860,9 @@ def _build_financial_pdf_story(
                 [
                     Paragraph(detail.replace("\n", "<br/>"), normal_style),
                     f"{qty:,.2f}",
-                    f"{currency_prefix}{rate:,.2f}",
+                    f"{rate:,.2f}",
                     f"{vat_pct:.1f}%",
-                    f"{currency_prefix}{amount:,.2f}",
+                    f"{amount:,.2f}",
                 ]
             )
         lines_table = Table(rows, colWidths=[100 * mm, 20 * mm, 23 * mm, 21 * mm, 26 * mm])
@@ -884,7 +894,13 @@ def _build_financial_pdf_story(
             story.append(Paragraph("(No options)", normal_style))
         story.append(Spacer(1, 5 * mm))
 
-    totals_data = [[Paragraph(label, label_style), Paragraph(value, label_style_right)] for label, value in totals_rows]
+    totals_data = [
+        [
+            Paragraph(label, label_style if label.strip().lower().startswith("total") else value_style),
+            Paragraph(value, label_style_right if label.strip().lower().startswith("total") else value_style_right),
+        ]
+        for label, value in totals_rows
+    ]
     totals_table = Table(totals_data, colWidths=[34 * mm, 34 * mm], hAlign="RIGHT")
     totals_table.setStyle(
         TableStyle(
@@ -916,7 +932,7 @@ def _build_financial_pdf_story(
 def _render_quote_pdf_bytes(quote: dict[str, Any]) -> bytes:
     import io
 
-    currency_prefix = _currency_symbol(str(quote.get("currency_code") or "GBP"))
+    currency = str(quote.get("currency_code") or "GBP").strip().upper()
     company_profile = quote.get("company_profile") or {}
     lines = [l for l in (quote.get("lines") or []) if str(l.get("line_type") or "main").lower() != "option"]
     options_lines = [l for l in (quote.get("lines") or []) if str(l.get("line_type") or "main").lower() == "option"]
@@ -931,9 +947,9 @@ def _render_quote_pdf_bytes(quote: dict[str, Any]) -> bytes:
         ("Valid To", _display_date(quote.get("valid_to"))),
     ]
     totals_rows = [
-        ("Sub-total", f"{currency_prefix}{totals['subtotal']:,.2f}"),
-        ("VAT", f"{currency_prefix}{totals['vat']:,.2f}"),
-        ("Total", f"{currency_prefix}{totals['total']:,.2f}"),
+        ("Sub-total", f"{totals['subtotal']:,.2f}"),
+        ("VAT", f"{totals['vat']:,.2f}"),
+        (f"Total {currency}", f"{totals['total']:,.2f}"),
     ]
 
     buf = io.BytesIO()
@@ -967,7 +983,7 @@ def _render_quote_pdf_bytes(quote: dict[str, Any]) -> bytes:
 def _render_invoice_pdf_bytes(invoice: dict[str, Any]) -> bytes:
     import io
 
-    currency_prefix = _currency_symbol(str(invoice.get("currency_code") or "GBP"))
+    currency = str(invoice.get("currency_code") or "GBP").strip().upper()
     company_profile = invoice.get("company_profile") or {}
     lines = invoice.get("lines") or []
     left_details = ([f"Attention: {invoice.get('attention')}"] if invoice.get("attention") else []) + [
@@ -980,10 +996,10 @@ def _render_invoice_pdf_bytes(invoice: dict[str, Any]) -> bytes:
         ("Job Number", str(invoice.get("job_number") or "-")),
     ]
     totals_rows = [
-        ("Sub-total", f"{currency_prefix}{_safe_float(invoice.get('subtotal'), 0.0):,.2f}"),
-        ("VAT", f"{currency_prefix}{_safe_float(invoice.get('vat'), 0.0):,.2f}"),
-        ("Total", f"{currency_prefix}{_safe_float(invoice.get('total'), 0.0):,.2f}"),
-        ("Amount Paid", f"{currency_prefix}{_safe_float(invoice.get('amount_paid'), 0.0):,.2f}"),
+        ("Sub-total", f"{_safe_float(invoice.get('subtotal'), 0.0):,.2f}"),
+        ("VAT", f"{_safe_float(invoice.get('vat'), 0.0):,.2f}"),
+        (f"Total {currency}", f"{_safe_float(invoice.get('total'), 0.0):,.2f}"),
+        ("Amount Paid", f"{_safe_float(invoice.get('amount_paid'), 0.0):,.2f}"),
     ]
 
     buf = io.BytesIO()
@@ -2082,7 +2098,7 @@ def create_invoice(client_id: int, body: dict = Body(...), _user: dict = Depends
                     _safe_int(body.get("quote_id"), None),
                     invoice_number,
                     invoice_date,
-                    str(body.get("due_date") or "") or None,
+                    str(body.get("due_date") or "").strip() or _default_due_date(invoice_date),
                     str(body.get("currency_code") or "GBP").upper(),
                     computed_totals["subtotal"] if computed_totals else _safe_float(body.get("subtotal"), 0.0),
                     computed_totals["vat"] if computed_totals else _safe_float(body.get("vat"), 0.0),
@@ -2596,7 +2612,7 @@ def convert_quote_to_invoice(quote_id: int, body: dict = Body(default={}), _user
             quote = _serialize_quote(con, int(quote_id), org_id=org_id)
             invoice_number = _next_invoice_number(con, org_id=org_id)
             invoice_date = str(body.get("invoice_date") or date.today().isoformat())
-            due_date = str(body.get("due_date") or "") or None
+            due_date = str(body.get("due_date") or "").strip() or _default_due_date(invoice_date)
             status = str(body.get("status") or "Draft")
 
             lines = []

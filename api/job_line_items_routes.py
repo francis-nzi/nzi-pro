@@ -429,7 +429,11 @@ def create_invoice_from_line_items(
                 raise HTTPException(status_code=400, detail="No line items on this job — add items first")
 
             invoice_date = str(body.get("invoice_date") or date.today().isoformat())
-            due_date_val = str(body.get("due_date") or (date.today() + timedelta(days=30)).isoformat())
+            try:
+                invoice_date_parsed = date.fromisoformat(invoice_date[:10])
+            except Exception:
+                invoice_date_parsed = date.today()
+            due_date_val = str(body.get("due_date") or "").strip() or (invoice_date_parsed + timedelta(days=7)).isoformat()
             currency = str(body.get("currency") or "GBP")
 
             subtotal = 0.0

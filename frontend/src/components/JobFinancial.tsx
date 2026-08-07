@@ -141,7 +141,7 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
   const [emailAddress, setEmailAddress] = useState("");
   const [emailSending, setEmailSending] = useState(false);
   const [invoiceDate, setInvoiceDate] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [dueDate, setDueDate] = useState<string>("");
+  const [dueDate, setDueDate] = useState<string>(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
   const [invoiceStatus, setInvoiceStatus] = useState<string>("Draft");
   const [invoiceLines, setInvoiceLines] = useState<InvoiceDraftLine[]>([
     {
