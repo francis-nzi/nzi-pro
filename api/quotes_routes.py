@@ -453,7 +453,7 @@ def _invoice_lines_for(con, invoice_id: int, org_id: str | None = None) -> list[
     df = con.execute(
         """
         SELECT il.invoice_line_id, il.invoice_id, il.sort_order, il.item_id, ji.item_name, il.description, il.unit,
-               qty, unit_price_ex_vat, amount_ex_vat, vat_rate_id, vat_rate_pct, notes
+               il.qty, il.unit_price_ex_vat, il.amount_ex_vat, il.vat_rate_id, il.vat_rate_pct, il.notes
         FROM invoice_lines il
         JOIN invoices i ON i.invoice_id = il.invoice_id
         LEFT JOIN job_items ji ON ji.item_id = il.item_id
@@ -980,7 +980,7 @@ def _serialize_quote(con, quote_id: int, org_id: str | None = None) -> dict[str,
     df = con.execute(
         """
         SELECT ql.line_id, ql.quote_id, ql.line_type, ql.sort_order, ql.item_id, ji.item_name, ql.category, ql.description, ql.unit,
-               qty, unit_price_ex_vat, amount_ex_vat, vat_rate_id, vat_rate_pct, is_selected, notes
+               ql.qty, ql.unit_price_ex_vat, ql.amount_ex_vat, ql.vat_rate_id, ql.vat_rate_pct, ql.is_selected, ql.notes
         FROM quote_lines ql
         JOIN quotes q ON q.quote_id = ql.quote_id
         LEFT JOIN job_items ji ON ji.item_id = ql.item_id
