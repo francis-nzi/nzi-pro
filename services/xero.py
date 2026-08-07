@@ -23,7 +23,7 @@ XERO_AUTH_URL = "https://login.xero.com/identity/connect/authorize"
 XERO_TOKEN_URL = "https://identity.xero.com/connect/token"
 XERO_CONNECTIONS_URL = "https://api.xero.com/connections"
 XERO_DEFAULT_AUTH_TYPE = "custom_connection"
-XERO_DEFAULT_SCOPE = "accounting.contacts accounting.transactions"
+XERO_DEFAULT_SCOPE = "accounting.contacts accounting.invoices"
 XERO_DEFAULT_ACCOUNT_CODE = "200"
 XERO_DEFAULT_TAX_TYPE = "NONE"
 logger = logging.getLogger(__name__)
@@ -34,30 +34,27 @@ def _env(name: str, default: str = "") -> str:
 
 
 def _scope_value(raw: str | None = None) -> str:
+    """Return the scope string exactly as configured (deduped, offline_access
+    stripped since it isn't valid for the client_credentials grant), falling
+    back to XERO_DEFAULT_SCOPE only when nothing is configured at all. Does
+    NOT force-inject any scope -- Xero's granular scopes vary per app/
+    connection, so silently adding tokens the caller didn't ask for just
+    reintroduces scopes that may not be authorized and breaks the request.
+    """
     text = str(raw if raw is not None else _env("XERO_SCOPE", XERO_DEFAULT_SCOPE) or XERO_DEFAULT_SCOPE).strip()
     if not text:
-        return XERO_DEFAULT_SCOPE
+        text = XERO_DEFAULT_SCOPE
 
     tokens: list[str] = []
     for token in text.split():
         token = token.strip()
-        if not token:
+        if not token or token.lower() == "offline_access":
             continue
-        if token.lower() == "offline_access":
-            continue
-        if token == "accounting.invoices":
-            # Legacy/incorrect scope name -- Xero has no "accounting.invoices"
-            # scope; invoices live under accounting.transactions.
-            token = "accounting.transactions"
         if token not in tokens:
             tokens.append(token)
 
     if not tokens:
         tokens = XERO_DEFAULT_SCOPE.split()
-    if "accounting.contacts" not in tokens:
-        tokens.insert(0, "accounting.contacts")
-    if "accounting.transactions" not in tokens:
-        tokens.append("accounting.transactions")
     return " ".join(tokens)
 
 
