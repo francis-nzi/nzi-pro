@@ -33,6 +33,19 @@ type LookupVatRate = {
   rate_pct: number;
 };
 
+type LookupContact = {
+  contact_id: number;
+  full_name: string;
+  email: string;
+  job_title?: string;
+};
+
+type TeamMember = {
+  full_name: string | null;
+  email?: string | null;
+  status?: string | null;
+};
+
 type InvoiceLine = {
   key: string;
   invoice_line_id?: number;
@@ -54,6 +67,8 @@ type XeroInvoiceInfo = {
   xero_synced_at: string | null;
   xero_sync_error: string;
 };
+
+const moneyFmt = new Intl.NumberFormat("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function newLine(): InvoiceLine {
   return {
@@ -84,6 +99,7 @@ export default function InvoiceDetailPage() {
   const [emailTo, setEmailTo] = useState("");
   const [pdfRefreshKey, setPdfRefreshKey] = useState<number>(Date.now());
 
+  const [clientName, setClientName] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -98,6 +114,9 @@ export default function InvoiceDetailPage() {
 
   const [items, setItems] = useState<LookupItem[]>([]);
   const [vatRates, setVatRates] = useState<LookupVatRate[]>([]);
+  const [contacts, setContacts] = useState<LookupContact[]>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [emailCc, setEmailCc] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -110,9 +129,10 @@ export default function InvoiceDetailPage() {
       setLoading(true);
       setError("");
       try {
-        const [invRes, lookupsRes] = await Promise.all([
+        const [invRes, lookupsRes, teamRes] = await Promise.all([
           fetch(`${baseUrl}/invoices/${invoiceId}`, { credentials: "include" }),
           fetch(`${baseUrl}/clients/${clientId}/quotes/lookups`, { credentials: "include" }),
+          fetch(`${baseUrl}/admin/users`, { credentials: "include" }),
         ]);
         if (!invRes.ok) {
           const t = await invRes.text().catch(() => "");
@@ -124,8 +144,13 @@ export default function InvoiceDetailPage() {
         }
         const inv = await invRes.json();
         const lookups = await lookupsRes.json();
+        const teamJson = teamRes.ok ? await teamRes.json() : { items: [] };
         if (cancelled) return;
 
+        const members = (Array.isArray(teamJson.items) ? teamJson.items : []) as TeamMember[];
+        setTeamMembers(members.filter((m) => String(m.status || "").toLowerCase() === "active" && m.email));
+
+        setClientName(String(inv.client_name || ""));
         setInvoiceNumber(String(inv.invoice_number || ""));
         setInvoiceDate(String(inv.invoice_date || new Date().toISOString().slice(0, 10)));
         setDueDate(String(inv.due_date || ""));
@@ -146,6 +171,7 @@ export default function InvoiceDetailPage() {
         });
         setItems(Array.isArray(lookups.items) ? lookups.items : []);
         setVatRates(Array.isArray(lookups.vat_rates) ? lookups.vat_rates : []);
+        setContacts(Array.isArray(lookups.contacts) ? lookups.contacts : []);
 
         const invLines = Array.isArray(inv.lines) ? inv.lines : [];
         setLines(
@@ -342,12 +368,14 @@ export default function InvoiceDetailPage() {
         credentials: "include",
         body: JSON.stringify({
           to: emailTo.trim(),
+          cc: emailCc.trim(),
         }),
       });
       if (!res.ok) {
         const t = await res.text().catch(() => "");
         throw new Error(`Failed to email invoice PDF (${res.status})${t ? `: ${t}` : ""}`);
       }
+      if (statusValue.toLowerCase() === "draft") setStatusValue("Sent");
       setStatus("Invoice PDF emailed.");
     } catch (e) {
       setError((e as Error).message);
@@ -364,7 +392,7 @@ export default function InvoiceDetailPage() {
           subtitle={invoiceNumber || `Invoice #${invoiceId}`}
           breadcrumbs={[
             { label: "Clients", href: "/clients" },
-            { label: `Client ${clientId}`, href: `/clients/${clientId}` },
+            { label: clientName || `Client ${clientId}`, href: `/clients/${clientId}` },
             { label: "Financial", href: `/clients/${clientId}?section=financial` },
             { label: "Invoice" },
           ]}
@@ -524,7 +552,7 @@ export default function InvoiceDetailPage() {
                       <td className="p-2">
                         <Input type="number" step="0.01" value={String(line.vat_rate_pct)} onChange={(e) => updateLine(line.key, { vat_rate_pct: Number(e.target.value || 0) })} />
                       </td>
-                      <td className="p-2">{new Intl.NumberFormat("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(lineAmount(line))}</td>
+                      <td className="p-2">{moneyFmt.format(lineAmount(line))}</td>
                       <td className="p-2 text-right">
                         <Button variant="outline" size="sm" onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))}>Remove</Button>
                       </td>
@@ -536,15 +564,15 @@ export default function InvoiceDetailPage() {
             <div className="ml-auto w-full max-w-md space-y-2 text-sm">
               <div className="flex justify-between">
                 <span>Sub-total</span>
-                <span>{subtotal.toFixed(2)}</span>
+                <span>{moneyFmt.format(subtotal)}</span>
               </div>
               <div className="flex justify-between">
                 <span>VAT</span>
-                <span>{vat.toFixed(2)}</span>
+                <span>{moneyFmt.format(vat)}</span>
               </div>
               <div className="flex justify-between border-t pt-2 text-base font-semibold">
                 <span>Total</span>
-                <span>{total.toFixed(2)}</span>
+                <span>{moneyFmt.format(total)}</span>
               </div>
               <CompanyLegalFooter baseUrl={baseUrl} className="pt-3 text-right text-xs text-muted-foreground" />
             </div>
@@ -558,9 +586,37 @@ export default function InvoiceDetailPage() {
               <div className="mb-1 text-xs text-muted-foreground">Notes</div>
               <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
             </div>
-            <div>
-              <div className="mb-1 text-xs text-muted-foreground">Email To</div>
-              <Input value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="client@example.com" />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <div className="mb-1 text-xs text-muted-foreground">Email To</div>
+                <Input
+                  value={emailTo}
+                  onChange={(e) => setEmailTo(e.target.value)}
+                  placeholder="client@example.com"
+                  list="invoice-email-recipients"
+                />
+              </div>
+              <div>
+                <div className="mb-1 text-xs text-muted-foreground">CC <span className="font-normal">(comma-separated, optional)</span></div>
+                <Input
+                  value={emailCc}
+                  onChange={(e) => setEmailCc(e.target.value)}
+                  placeholder="colleague@netzero.international"
+                  list="invoice-email-recipients"
+                />
+              </div>
+              <datalist id="invoice-email-recipients">
+                {contacts.filter((c) => c.email).map((c) => (
+                  <option key={`contact-${c.contact_id}`} value={c.email}>
+                    {c.full_name}{c.job_title ? ` (${c.job_title})` : ""} — Client contact
+                  </option>
+                ))}
+                {teamMembers.filter((m) => m.email).map((m) => (
+                  <option key={`team-${m.email}`} value={m.email as string}>
+                    {m.full_name} — NZI
+                  </option>
+                ))}
+              </datalist>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={markPaid} disabled={saving}>Mark Paid</Button>

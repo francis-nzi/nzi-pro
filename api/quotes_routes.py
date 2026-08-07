@@ -639,10 +639,16 @@ def _serialize_invoice(con, invoice_id: int, org_id: str | None = None) -> dict[
             bill_to = str(q_row[1] or "")
             job_number = str(q_row[2] or "")
     if not job_number and _safe_int(row[2], None) is not None:
-        job_number = str(_safe_int(row[2], None) or "")
+        j_row = con.execute("SELECT job_number FROM jobs WHERE job_id = %s", [_safe_int(row[2], None)]).fetchone()
+        if j_row:
+            job_number = str(j_row[0] or "")
+    client_db_id = int(row[1])
+    c_row = con.execute("SELECT client_name FROM clients WHERE db_id = %s", [client_db_id]).fetchone()
+    client_name = str(c_row[0] or "") if c_row else ""
     return {
         "invoice_id": int(row[0]),
-        "client_db_id": int(row[1]),
+        "client_db_id": client_db_id,
+        "client_name": client_name,
         "job_id": _safe_int(row[2], None),
         "quote_id": quote_id,
         "invoice_number": str(row[4] or ""),
@@ -761,9 +767,10 @@ def _build_financial_pdf_story(
     company_profile: dict[str, Any],
 ) -> list[Any]:
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle("FinancialTitle", parent=styles["Title"], fontSize=28, leading=30, spaceAfter=3 * mm)
+    title_style = ParagraphStyle("FinancialTitle", parent=styles["Title"], fontSize=28, leading=30, spaceAfter=3 * mm, alignment=0)
     normal_style = ParagraphStyle("FinancialNormal", parent=styles["Normal"], fontSize=10.5, leading=14)
     label_style = ParagraphStyle("FinancialLabel", parent=styles["Normal"], fontSize=10.5, leading=13, fontName="Helvetica-Bold")
+    label_style_right = ParagraphStyle("FinancialLabelRight", parent=label_style, alignment=2)
     company_style = ParagraphStyle("FinancialCompany", parent=styles["Normal"], fontSize=9.5, leading=13, alignment=2)
     subject_style = ParagraphStyle("FinancialSubject", parent=styles["Heading2"], fontSize=14, leading=16, fontName="Helvetica-Bold")
 
@@ -772,7 +779,7 @@ def _build_financial_pdf_story(
     amount_header = f"Amount {currency}"
     story: list[Any] = []
 
-    left_text = "<br/>".join([line for line in left_details if str(line or "").strip()]) or "-"
+    left_text = "<br/>".join([line for line in left_details if str(line or "").strip()])
     middle_parts: list[str] = []
     for label, value in middle_details:
         middle_parts.append(f"<b>{label}</b><br/>{value or '-'}<br/><br/>")
@@ -789,10 +796,15 @@ def _build_financial_pdf_story(
     right_block = Table([[right_parts]], colWidths=[50 * mm])
     right_block.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
 
+    title_cell: list[Any] = [Paragraph(doc_title, title_style)]
+    if left_text:
+        title_cell.append(Spacer(1, 2 * mm))
+        title_cell.append(Paragraph(left_text, normal_style))
+
     header = Table(
         [
             [
-                [Paragraph(doc_title, title_style), Spacer(1, 2 * mm), Paragraph(left_text, normal_style)],
+                title_cell,
                 Paragraph(middle_text, normal_style),
                 right_block,
             ]
@@ -821,11 +833,12 @@ def _build_financial_pdf_story(
         if title:
             story.append(Paragraph(f"<b>{title}</b>", normal_style))
             story.append(Spacer(1, 2 * mm))
-        rows: list[list[Any]] = [["Costs", "Quantity", "Rate", amount_header]]
+        rows: list[list[Any]] = [["Costs", "Quantity", "Rate", "VAT %", amount_header]]
         for line in data_lines:
             qty = _safe_float(line.get("qty"), 0.0)
             rate = _safe_float(line.get("rate"), 0.0)
             amount = _safe_float(line.get("amount"), qty * rate)
+            vat_pct = _safe_float(line.get("vat_rate_pct"), 0.0)
             item_name = str(line.get("item_name") or "").strip()
             description = str(line.get("description") or "").strip() or "-"
             line_notes = str(line.get("notes") or "").strip()
@@ -838,16 +851,17 @@ def _build_financial_pdf_story(
                     Paragraph(detail.replace("\n", "<br/>"), normal_style),
                     f"{qty:,.2f}",
                     f"{currency_prefix}{rate:,.2f}",
+                    f"{vat_pct:.1f}%",
                     f"{currency_prefix}{amount:,.2f}",
                 ]
             )
-        lines_table = Table(rows, colWidths=[114 * mm, 25 * mm, 25 * mm, 26 * mm])
+        lines_table = Table(rows, colWidths=[100 * mm, 20 * mm, 23 * mm, 21 * mm, 26 * mm])
         lines_table.setStyle(
             TableStyle(
                 [
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                     ("LINEBELOW", (0, 0), (-1, 0), 0.8, colors.HexColor("#222222")),
-                    ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+                    ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ("LEFTPADDING", (0, 0), (-1, -1), 3),
                     ("RIGHTPADDING", (0, 0), (-1, -1), 3),
@@ -870,7 +884,7 @@ def _build_financial_pdf_story(
             story.append(Paragraph("(No options)", normal_style))
         story.append(Spacer(1, 5 * mm))
 
-    totals_data = [[Paragraph(label, label_style), Paragraph(value, label_style)] for label, value in totals_rows]
+    totals_data = [[Paragraph(label, label_style), Paragraph(value, label_style_right)] for label, value in totals_rows]
     totals_table = Table(totals_data, colWidths=[34 * mm, 34 * mm], hAlign="RIGHT")
     totals_table.setStyle(
         TableStyle(
@@ -907,7 +921,9 @@ def _render_quote_pdf_bytes(quote: dict[str, Any]) -> bytes:
     lines = [l for l in (quote.get("lines") or []) if str(l.get("line_type") or "main").lower() != "option"]
     options_lines = [l for l in (quote.get("lines") or []) if str(l.get("line_type") or "main").lower() == "option"]
     totals = _compute_totals(quote.get("lines") or [])
-    left_details = [f"Attention: {quote.get('attention') or '-'}"] + [x for x in str(quote.get("bill_to") or "").splitlines() if x.strip()]
+    left_details = ([f"Attention: {quote.get('attention')}"] if quote.get("attention") else []) + [
+        x for x in str(quote.get("bill_to") or "").splitlines() if x.strip()
+    ]
     middle_details = [
         ("Date", _display_date(quote.get("quote_date"))),
         ("Quote Number", str(quote.get("quote_number") or "-")),
@@ -954,10 +970,13 @@ def _render_invoice_pdf_bytes(invoice: dict[str, Any]) -> bytes:
     currency_prefix = _currency_symbol(str(invoice.get("currency_code") or "GBP"))
     company_profile = invoice.get("company_profile") or {}
     lines = invoice.get("lines") or []
-    left_details = [f"Attention: {invoice.get('attention') or '-'}"] + [x for x in str(invoice.get("bill_to") or "").splitlines() if x.strip()]
+    left_details = ([f"Attention: {invoice.get('attention')}"] if invoice.get("attention") else []) + [
+        x for x in str(invoice.get("bill_to") or "").splitlines() if x.strip()
+    ]
     middle_details = [
         ("Date", _display_date(invoice.get("invoice_date"))),
         ("Invoice Number", str(invoice.get("invoice_number") or "-")),
+        ("Due Date", _display_date(invoice.get("due_date"))),
         ("Job Number", str(invoice.get("job_number") or "-")),
     ]
     totals_rows = [
@@ -1751,6 +1770,7 @@ def email_quote_pdf(quote_id: int, body: dict = Body(...), _user: dict = Depends
         to_email = str(body.get("to") or "").strip()
         if not to_email:
             raise HTTPException(status_code=400, detail="to is required")
+        cc_emails = [e.strip() for e in str(body.get("cc") or "").split(",") if e.strip()]
         requested_subject = str(body.get("subject") or "").strip()
         requested_message = str(body.get("message") or "").strip()
         with get_conn() as con:
@@ -1781,6 +1801,7 @@ def email_quote_pdf(quote_id: int, body: dict = Body(...), _user: dict = Depends
             send_res = send_tracked_email(
                 con,
                 to_email=to_email,
+                cc=cc_emails or None,
                 subject=rendered["subject"],
                 body_text=rendered["body_text"],
                 body_html=rendered["body_html"],
@@ -2669,6 +2690,7 @@ def email_invoice_pdf(invoice_id: int, body: dict = Body(...), _user: dict = Dep
         to_email = str(body.get("to") or "").strip()
         if not to_email:
             raise HTTPException(status_code=400, detail="to is required")
+        cc_emails = [e.strip() for e in str(body.get("cc") or "").split(",") if e.strip()]
         requested_subject = str(body.get("subject") or "").strip()
         requested_message = str(body.get("message") or "").strip()
         with get_conn() as con:
@@ -2699,6 +2721,7 @@ def email_invoice_pdf(invoice_id: int, body: dict = Body(...), _user: dict = Dep
             send_res = send_tracked_email(
                 con,
                 to_email=to_email,
+                cc=cc_emails or None,
                 subject=rendered["subject"],
                 body_text=rendered["body_text"],
                 body_html=rendered["body_html"],
