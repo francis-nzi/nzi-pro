@@ -87,7 +87,7 @@ export default function SystemSettingsPage() {
   const [xeroStatus, setXeroStatus] = useState("");
   const [xeroError, setXeroError] = useState("");
   const [xeroOrgName, setXeroOrgName] = useState("");
-  const [xeroScope, setXeroScope] = useState("accounting.contacts accounting.invoices");
+  const [xeroScope, setXeroScope] = useState("accounting.contacts accounting.transactions");
   const [xeroInvoiceId, setXeroInvoiceId] = useState("");
   const [intensityMetricDefaultsText, setIntensityMetricDefaultsText] = useState(() => JSON.stringify(DEFAULT_INTENSITY_METRICS, null, 2));
   const [intensityMetricDefaultsSaving, setIntensityMetricDefaultsSaving] = useState(false);
@@ -190,7 +190,7 @@ export default function SystemSettingsPage() {
       const connection = (payload as { connection?: XeroConnection | null }).connection ?? null;
       setXeroConnection(connection);
       setXeroOrgName(String(connection?.org_name || ""));
-      setXeroScope(String(connection?.scope || "accounting.contacts accounting.invoices"));
+      setXeroScope(String(connection?.scope || "accounting.contacts accounting.transactions"));
       setXeroStatus(
         connection?.status === "connected"
           ? "Xero is connected."
@@ -594,7 +594,7 @@ export default function SystemSettingsPage() {
                   className="mt-2"
                   value={xeroScope}
                   onChange={(e) => setXeroScope(e.target.value)}
-                  placeholder="accounting.contacts accounting.invoices"
+                  placeholder="accounting.contacts accounting.transactions"
                 />
               </div>
             </div>

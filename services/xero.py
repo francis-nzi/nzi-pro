@@ -23,7 +23,7 @@ XERO_AUTH_URL = "https://login.xero.com/identity/connect/authorize"
 XERO_TOKEN_URL = "https://identity.xero.com/connect/token"
 XERO_CONNECTIONS_URL = "https://api.xero.com/connections"
 XERO_DEFAULT_AUTH_TYPE = "custom_connection"
-XERO_DEFAULT_SCOPE = "accounting.contacts accounting.invoices"
+XERO_DEFAULT_SCOPE = "accounting.contacts accounting.transactions"
 XERO_DEFAULT_ACCOUNT_CODE = "200"
 XERO_DEFAULT_TAX_TYPE = "NONE"
 logger = logging.getLogger(__name__)
@@ -45,8 +45,10 @@ def _scope_value(raw: str | None = None) -> str:
             continue
         if token.lower() == "offline_access":
             continue
-        if token == "accounting.transactions":
-            token = "accounting.invoices"
+        if token == "accounting.invoices":
+            # Legacy/incorrect scope name -- Xero has no "accounting.invoices"
+            # scope; invoices live under accounting.transactions.
+            token = "accounting.transactions"
         if token not in tokens:
             tokens.append(token)
 
@@ -54,8 +56,8 @@ def _scope_value(raw: str | None = None) -> str:
         tokens = XERO_DEFAULT_SCOPE.split()
     if "accounting.contacts" not in tokens:
         tokens.insert(0, "accounting.contacts")
-    if "accounting.invoices" not in tokens:
-        tokens.append("accounting.invoices")
+    if "accounting.transactions" not in tokens:
+        tokens.append("accounting.transactions")
     return " ".join(tokens)
 
 
