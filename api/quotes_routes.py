@@ -391,8 +391,13 @@ def _compute_totals(lines: list[dict[str, Any]]) -> dict[str, float]:
     }
 
 
-def _next_quote_number(con) -> str:
-    df = con.execute("SELECT quote_number FROM quotes WHERE quote_number IS NOT NULL").df()
+def _next_quote_number(con, org_id: str | None = None) -> str:
+    org_clause = " AND org_id = %s" if org_id else ""
+    params = [org_id] if org_id else []
+    df = con.execute(
+        f"SELECT quote_number FROM quotes WHERE quote_number IS NOT NULL{org_clause}",
+        params,
+    ).df()
     max_base = 999
     if df is not None and not df.empty:
         for _, r in df.iterrows():
@@ -407,15 +412,19 @@ def _next_quote_number(con) -> str:
     return f"Q{nxt:06d}/1"
 
 
-def _revision_quote_number(con, base_prefix: str) -> str:
+def _revision_quote_number(con, base_prefix: str, org_id: str | None = None) -> str:
     """Given base prefix like Q001000, return next revision suffix /N."""
+    org_clause = " AND org_id = %s" if org_id else ""
+    params: list[Any] = [f"{base_prefix}/%"]
+    if org_id:
+        params.append(org_id)
     df = con.execute(
-        """
+        f"""
         SELECT quote_number
         FROM quotes
-        WHERE quote_number ILIKE %s
+        WHERE quote_number ILIKE %s{org_clause}
         """,
-        [f"{base_prefix}/%"],
+        params,
     ).df()
     max_rev = 0
     if df is not None and not df.empty:
@@ -430,8 +439,13 @@ def _revision_quote_number(con, base_prefix: str) -> str:
     return f"{base_prefix}/{max_rev + 1}"
 
 
-def _next_invoice_number(con) -> str:
-    df = con.execute("SELECT invoice_number FROM invoices WHERE invoice_number IS NOT NULL").df()
+def _next_invoice_number(con, org_id: str | None = None) -> str:
+    org_clause = " AND org_id = %s" if org_id else ""
+    params = [org_id] if org_id else []
+    df = con.execute(
+        f"SELECT invoice_number FROM invoices WHERE invoice_number IS NOT NULL{org_clause}",
+        params,
+    ).df()
     max_num = 999
     if df is not None and not df.empty:
         for _, r in df.iterrows():
@@ -1153,7 +1167,7 @@ def quote_lookups(client_id: int, _user: dict = Depends(_current_user)):
                 [int(client_id)] + ([org_id] if org_id else []),
             ).df()
 
-            next_quote_number = _next_quote_number(con)
+            next_quote_number = _next_quote_number(con, org_id=org_id)
 
         payment_terms: list[dict[str, Any]] = []
         if payment_terms_df is not None and not payment_terms_df.empty:
@@ -1413,7 +1427,7 @@ def create_quote(client_id: int, body: dict = Body(...), _user: dict = Depends(_
             quote_date = str(body.get("quote_date") or date.today().isoformat())
             quote_number = str(body.get("quote_number") or "").strip()
             if not quote_number:
-                quote_number = _next_quote_number(con)
+                quote_number = _next_quote_number(con, org_id=org_id)
 
             insert_cols = [
                 "client_db_id", "contact_id", "quote_number", "quote_date", "valid_to", "salesperson",
@@ -1589,9 +1603,9 @@ def revise_quote(quote_id: int, _user: dict = Depends(_current_user)):
             if m:
                 base_prefix = m.group(1).upper()
             else:
-                generated = _next_quote_number(con)
+                generated = _next_quote_number(con, org_id=org_id)
                 base_prefix = generated.split("/")[0]
-            new_quote_number = _revision_quote_number(con, base_prefix)
+            new_quote_number = _revision_quote_number(con, base_prefix, org_id=org_id)
 
             con.execute(
                 """
@@ -1974,7 +1988,7 @@ def create_invoice(client_id: int, body: dict = Body(...), _user: dict = Depends
             ).fetchone()
             if not client_exists:
                 raise HTTPException(status_code=404, detail="Client not found")
-            invoice_number = str(body.get("invoice_number") or "").strip() or _next_invoice_number(con)
+            invoice_number = str(body.get("invoice_number") or "").strip() or _next_invoice_number(con, org_id=org_id)
             invoice_date = str(body.get("invoice_date") or date.today().isoformat())
 
             lines = body.get("lines") or []
@@ -2510,7 +2524,7 @@ def convert_quote_to_invoice(quote_id: int, body: dict = Body(default={}), _user
             _ensure_quote_tables(con)
             org_id = _quote_org_id(_user)
             quote = _serialize_quote(con, int(quote_id), org_id=org_id)
-            invoice_number = _next_invoice_number(con)
+            invoice_number = _next_invoice_number(con, org_id=org_id)
             invoice_date = str(body.get("invoice_date") or date.today().isoformat())
             due_date = str(body.get("due_date") or "") or None
             status = str(body.get("status") or "Draft")
