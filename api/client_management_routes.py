@@ -637,6 +637,10 @@ def create_client_site(
         assert_permission(_user, "clients.sites.manage")
         assert_client_access(_user, int(client_db_id))
         org_id = require_org(_user)
+        location = str(body.get("location") or "").strip() or None
+        site_name = str(body.get("site_name") or "").strip() or location
+        if not site_name:
+            raise HTTPException(status_code=400, detail="Site name or location is required")
         with get_conn() as con:
             _ensure_client_org_columns(con)
             _ensure_client_sites_runtime_columns(con)
@@ -655,8 +659,8 @@ def create_client_site(
                 [
                     org_id,
                     int(client_db_id),
-                    body.get("site_name"),
-                    body.get("location"),
+                    site_name,
+                    location,
                     body.get("is_registered_office", False),
                 ],
             ).fetchone()
@@ -676,6 +680,8 @@ def create_client_site(
             )
 
             return {"ok": True, "site_id": site_id_value}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create site: {e}")
 
@@ -699,7 +705,7 @@ def update_client_site(
             before = _client_site_audit_snapshot(con, int(client_db_id), int(site_id), org_id)
             exists = con.execute(
                 """
-                SELECT site_id, org_id
+                SELECT site_id, org_id, site_name, location
                 FROM client_sites
                 WHERE site_id = ?
                   AND client_db_id = ?
@@ -727,6 +733,18 @@ def update_client_site(
             updates = []
             params = []
 
+            normalized_location = None
+            if "location" in body:
+                normalized_location = str(body.get("location") or "").strip() or None
+
+            normalized_site_name = None
+            if "site_name" in body:
+                normalized_site_name = str(body.get("site_name") or "").strip()
+                if not normalized_site_name:
+                    normalized_site_name = normalized_location or str(exists[3] or "").strip()
+                if not normalized_site_name:
+                    raise HTTPException(status_code=400, detail="Site name or location is required")
+
             field_mapping = {
                 "site_name": "site_name",
                 "location": "location",
@@ -738,7 +756,20 @@ def update_client_site(
             for field_name, col_name in field_mapping.items():
                 if field_name in body:
                     updates.append(f"{col_name} = ?")
-                    params.append(body[field_name])
+                    if field_name == "site_name":
+                        params.append(normalized_site_name)
+                    elif field_name == "location":
+                        params.append(normalized_location)
+                    else:
+                        params.append(body[field_name])
+
+            # Repair a legacy location-only row when its location is edited,
+            # even if an older caller omits site_name from the PATCH payload.
+            if "site_name" not in body and "location" in body and not str(exists[2] or "").strip():
+                if not normalized_location:
+                    raise HTTPException(status_code=400, detail="Site name or location is required")
+                updates.append("site_name = ?")
+                params.append(normalized_location)
 
             # A manually-entered lat/long always wins over (and marks over) any
             # prior automatic geocode result, so the map reflects a human

@@ -110,7 +110,7 @@ def list_sites(client_db_id: int) -> pd.DataFrame:
     with get_conn() as con:
         ensure_client_sites_runtime_columns(con)
         ensure_registered_office_site(int(client_db_id), con=con)
-        return con.execute(
+        result = con.execute(
             """
             SELECT site_id, site_name, location, is_registered_office
             FROM client_sites
@@ -121,6 +121,24 @@ def list_sites(client_db_id: int) -> pd.DataFrame:
             """,
             [int(client_db_id)],
         ).df()
+        if not result.empty:
+            result["site_name"] = result.apply(
+                lambda row: site_display_name(row.get("site_id"), row.get("site_name"), row.get("location")),
+                axis=1,
+            )
+        return result
+
+
+def site_display_name(site_id: object, site_name: object, location: object) -> str:
+    """Return a non-empty label for a site, including legacy location-only rows."""
+    name = "" if site_name is None or pd.isna(site_name) else str(site_name).strip()
+    if name:
+        return name
+    location_name = "" if location is None or pd.isna(location) else str(location).strip()
+    if location_name:
+        return location_name
+    has_site_id = site_id is not None and not pd.isna(site_id)
+    return f"Site {site_id}" if has_site_id else "Unnamed Site"
 
 
 def fetch_client_sites_payload(client_db_id: int, con=None) -> dict[str, object]:
@@ -156,7 +174,7 @@ def fetch_client_sites_payload(client_db_id: int, con=None) -> dict[str, object]
          latitude, longitude, geocode_source, geocode_precision, geocoded_at) = row
         site_data = {
             "site_id": int(site_id) if site_id is not None else None,
-            "site_name": site_name,
+            "site_name": site_display_name(site_id, site_name, location),
             "location": location,
             "is_registered_office": bool(is_registered_office) if is_registered_office is not None else False,
             "vacated_date": str(vacated_date) if vacated_date is not None else None,
@@ -180,6 +198,11 @@ def fetch_client_sites_payload(client_db_id: int, con=None) -> dict[str, object]
 
 
 def add_site(client_db_id: int, site_name: str, location: str | None, is_registered_office: bool) -> int:
+    normalized_location = str(location or "").strip() or None
+    normalized_name = str(site_name or "").strip() or normalized_location
+    if not normalized_name:
+        raise ValueError("Site name or location is required")
+
     with get_conn() as con:
         if db_backend() == "postgres":
             row = con.execute(
@@ -188,7 +211,7 @@ def add_site(client_db_id: int, site_name: str, location: str | None, is_registe
                 VALUES (?, ?, ?, ?)
                 RETURNING site_id
                 """,
-                [int(client_db_id), site_name, (location or None), bool(is_registered_office)],
+                [int(client_db_id), normalized_name, normalized_location, bool(is_registered_office)],
             ).fetchone()
             return int(row[0])
 
@@ -199,6 +222,6 @@ def add_site(client_db_id: int, site_name: str, location: str | None, is_registe
             INSERT INTO client_sites (site_id, client_db_id, site_name, location, is_registered_office)
             VALUES (?, ?, ?, ?, ?)
             """,
-            [int(site_id), int(client_db_id), site_name, (location or None), bool(is_registered_office)],
+            [int(site_id), int(client_db_id), normalized_name, normalized_location, bool(is_registered_office)],
         )
         return int(site_id)
