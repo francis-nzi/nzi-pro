@@ -983,6 +983,14 @@ export default function JobAdvancedReports({
     toNum(data.job_data?.benchmark_year) ||
     firstHistoricalYear ||
     new Date().getFullYear() - 1;
+  // The Historical Emissions Trend chart should start at the job's current
+  // reporting benchmark year, not the Net Zero Target's baseline year --
+  // those are separate concepts that can diverge (e.g. a target baseline
+  // fixed at 2019 while the reporting benchmark has since moved forward).
+  // baselineYear above prioritizes the target baseline first, which is
+  // correct for pathway/target charts but wrong for this one.
+  const historicalTrendStartYear =
+    toNum(data.job_data?.benchmark_year) || firstHistoricalYear || baselineYear;
   const netZeroYear = toNum(target_data?.net_zero_target_year) || 2050;
   const interimYear =
     toNum(target_data?.interim_target_year ?? target_data?.interim_year) || null;
@@ -2412,7 +2420,7 @@ export default function JobAdvancedReports({
           <HistoricalEmissionsTrendWidget
             title={`${data.job_data?.client_name ?? "Client"} Historical Emissions Trend`}
             clientName={data.job_data?.client_name}
-            data={effectiveYearlyEmissions.filter((r) => r.year >= baselineYear)}
+            data={effectiveYearlyEmissions.filter((r) => r.year >= historicalTrendStartYear)}
             showWidgetRef={false}
             className="live-report-section"
           />
