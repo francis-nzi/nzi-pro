@@ -988,9 +988,12 @@ export default function JobAdvancedReports({
   // those are separate concepts that can diverge (e.g. a target baseline
   // fixed at 2019 while the reporting benchmark has since moved forward).
   // baselineYear above prioritizes the target baseline first, which is
-  // correct for pathway/target charts but wrong for this one.
-  const historicalTrendStartYear =
-    toNum(data.job_data?.benchmark_year) || firstHistoricalYear || baselineYear;
+  // correct for pathway/target charts but wrong for this one. Reuse
+  // donutBenchmarkYear (derived from benchmark_period_start/end) rather
+  // than the plain benchmark_year field -- the donut charts already prove
+  // that field is the one that's actually kept in sync when the benchmark
+  // year is changed, while the plain numeric field can go stale.
+  const historicalTrendStartYear = donutBenchmarkYear ?? firstHistoricalYear ?? baselineYear;
   const netZeroYear = toNum(target_data?.net_zero_target_year) || 2050;
   const interimYear =
     toNum(target_data?.interim_target_year ?? target_data?.interim_year) || null;
