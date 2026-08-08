@@ -7,6 +7,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from api.auth import _current_user
 from api.permissions import assert_job_access, assert_permission
+from api.quotes_routes import _resolve_next_invoice_number
 from core.database import get_conn
 
 router = APIRouter(tags=["job-line-items"])
@@ -453,16 +454,19 @@ def create_invoice_from_line_items(
             except Exception:
                 org_id = None
 
+            invoice_number = str(body.get("invoice_number") or "").strip() or _resolve_next_invoice_number(con, org_id=org_id)
+
             inv_row = con.execute(
                 """
-                INSERT INTO invoices (client_db_id, job_id, invoice_date, due_date, currency_code,
+                INSERT INTO invoices (client_db_id, job_id, invoice_number, invoice_date, due_date, currency_code,
                                       subtotal, vat, total, status, notes, org_id, created_at, updated_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'Draft',%s,%s,NOW(),NOW())
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'Draft',%s,%s,NOW(),NOW())
                 RETURNING invoice_id
                 """,
                 [
                     client_db_id,
                     int(job_id),
+                    invoice_number,
                     invoice_date,
                     due_date_val,
                     currency,
@@ -506,6 +510,7 @@ def create_invoice_from_line_items(
         return {
             "ok": True,
             "invoice_id": invoice_id,
+            "invoice_number": invoice_number,
             "lines_created": len(items_df),
             "subtotal": round(subtotal, 2),
             "vat": round(total_vat, 2),
