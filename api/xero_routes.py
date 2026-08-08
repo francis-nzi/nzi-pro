@@ -41,19 +41,28 @@ def xero_status(_user: dict = Depends(_current_user)):
 @router.post("/connect")
 def connect_xero(body: dict = Body(default={}), _user: dict = Depends(_current_user)):
     _require_admin(_user)
-    connection = xero_service.save_xero_connection(
-        {
-            "integration_type": str(body.get("integration_type") or "").strip() or None,
-            "tenant_id": str(body.get("tenant_id") or "").strip() or None,
-            "org_name": str(body.get("org_name") or "").strip() or None,
-            "access_token": str(body.get("access_token") or "").strip() or None,
-            "refresh_token": str(body.get("refresh_token") or "").strip() or None,
-            "expires_at": body.get("expires_at"),
-            "scope": str(body.get("scope") or "").strip() or None,
-            "status": "connected",
-        },
-        actor_email=_user.get("email"),
-    )
+    # Only include integration_type/tenant_id when the caller actually
+    # provided one -- omitting the key (rather than passing None) lets
+    # save_xero_connection fall back to the existing/default value instead
+    # of nulling out integration_type, which is NOT NULL in the schema.
+    payload: dict[str, Any] = {
+        "org_name": str(body.get("org_name") or "").strip() or None,
+        # Always clear any cached token here so the upcoming test below is
+        # forced to request a genuinely fresh one rather than potentially
+        # reusing a stale/expired cached token.
+        "access_token": None,
+        "refresh_token": None,
+        "expires_at": None,
+        "scope": str(body.get("scope") or "").strip() or None,
+        "status": "connected",
+    }
+    integration_type = str(body.get("integration_type") or "").strip()
+    if integration_type:
+        payload["integration_type"] = integration_type
+    tenant_id = str(body.get("tenant_id") or "").strip()
+    if tenant_id:
+        payload["tenant_id"] = tenant_id
+    connection = xero_service.save_xero_connection(payload, actor_email=_user.get("email"))
     try:
         test = xero_service.test_xero_connection()
         return {"ok": True, "connection": connection, "test": test}
