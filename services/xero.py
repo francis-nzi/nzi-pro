@@ -833,9 +833,14 @@ def test_xero_connection(*, con=None) -> dict[str, Any]:
     try:
         _ensure_schema(con)
         connection = _refresh_token(get_xero_connection(con) or _connection_defaults())
-        response = _json_request("GET", f"{XERO_API_BASE.rstrip('/')}/Organisation", headers=_xero_headers(connection))
-        org = (response.get("Organisations") or [{}])[0]
-        org_name = str(org.get("Name") or org.get("LegalName") or "").strip() or None
+        # Verify the token against an endpoint covered by the connection's
+        # actually-granted scopes. GET /Organisation requires
+        # accounting.settings, which this integration deliberately doesn't
+        # request (it only needs accounting.contacts/accounting.invoices),
+        # so testing against it would fail with a valid token.
+        response = _json_request("GET", f"{XERO_API_BASE.rstrip('/')}/Contacts?page=1", headers=_xero_headers(connection))
+        contacts = response.get("Contacts") or []
+        org_name = str(connection.get("org_name") or "").strip() or None
         updated = save_xero_connection(
             {
                 "integration_type": connection.get("integration_type"),
@@ -850,7 +855,7 @@ def test_xero_connection(*, con=None) -> dict[str, Any]:
                 "last_error": None,
             }
         )
-        return {"ok": True, "status": "connected", "connection": updated, "organisation": org}
+        return {"ok": True, "status": "connected", "connection": updated, "Name": org_name, "contact_count": len(contacts)}
     except HTTPException as exc:
         try:
             save_xero_connection({"status": "error", "last_error": str(exc.detail)})
