@@ -280,9 +280,13 @@ def save_xero_connection(connection: Mapping[str, Any] | None = None, *, actor_e
         _ensure_schema(con)
         current = get_xero_connection(con) or _connection_defaults()
         merged = dict(current)
-        merged.update({k: v for k, v in connection.items() if v is not None})
+        # Merge every key the caller explicitly passed, including None --
+        # callers rely on None to intentionally clear a field (e.g.
+        # clear_xero_connection nulling out the stored token). Only keys
+        # NOT present in `connection` at all should fall back to `current`.
+        merged.update(dict(connection))
         if test_result:
-            merged.update({k: v for k, v in test_result.items() if v is not None})
+            merged.update(dict(test_result))
         merged["connection_key"] = XERO_CONNECTION_KEY
         merged["updated_by"] = actor_email or merged.get("updated_by")
         merged["created_by"] = merged.get("created_by") or actor_email
