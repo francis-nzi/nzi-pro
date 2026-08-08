@@ -384,6 +384,50 @@ export default function InvoiceDetailPage() {
     }
   }
 
+  async function syncToXero() {
+    setSaving(true);
+    setError("");
+    setStatus("");
+    try {
+      const res = await fetch(`${baseUrl}/xero/invoices/${invoiceId}/sync`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed to sync invoice to Xero (${res.status})${t ? `: ${t}` : ""}`);
+      }
+      const payload = await res.json() as {
+        invoice?: {
+          xero_invoice_id?: string | null;
+          xero_invoice_number?: string | null;
+          xero_status?: string | null;
+          xero_sync_status?: string | null;
+          xero_sync_error?: string | null;
+        };
+      };
+      const inv = payload.invoice;
+      if (inv) {
+        setXeroInfo({
+          xero_invoice_id: String(inv.xero_invoice_id || ""),
+          xero_invoice_number: String(inv.xero_invoice_number || ""),
+          xero_status: String(inv.xero_status || ""),
+          xero_sync_status: String(inv.xero_sync_status || "pending"),
+          xero_synced_at: new Date().toISOString(),
+          xero_sync_error: String(inv.xero_sync_error || ""),
+        });
+        // Xero assigns the real invoice number on first sync -- pick that up
+        // locally so the two systems show the same number going forward.
+        if (inv.xero_invoice_number) setInvoiceNumber(inv.xero_invoice_number);
+      }
+      setStatus("Invoice synced to Xero.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-7xl px-6 py-10">
@@ -622,6 +666,9 @@ export default function InvoiceDetailPage() {
               <Button variant="outline" onClick={markPaid} disabled={saving}>Mark Paid</Button>
               <Button onClick={saveInvoice} disabled={saving}>{saving ? "Saving..." : "Save Invoice"}</Button>
               <Button variant="outline" onClick={emailInvoicePdf} disabled={saving}>Email PDF</Button>
+              <Button variant="outline" onClick={syncToXero} disabled={saving}>
+                {xeroInfo?.xero_invoice_id ? "Resync to Xero" : "Sync to Xero"}
+              </Button>
               <Button variant="destructive" onClick={deleteInvoice} disabled={saving}>Delete</Button>
             </div>
           </CardContent>

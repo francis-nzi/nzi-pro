@@ -21,7 +21,6 @@ from services.company_profile import company_address_html, company_footer_text, 
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
 from services.tenancy import require_org
-from services.xero import get_xero_next_invoice_number
 
 router = APIRouter(tags=["quotes"])
 logger = logging.getLogger(__name__)
@@ -467,16 +466,6 @@ def _next_invoice_number(con, org_id: str | None = None) -> str:
             if value > max_num:
                 max_num = value
     return f"I{max_num + 1:06d}"
-
-
-def _resolve_next_invoice_number(con, org_id: str | None = None) -> str:
-    """Prefer the next number in Xero's own sequence (so invoice numbers
-    stay aligned once pushed), falling back to our own numbering if Xero
-    isn't connected or the lookup fails for any reason."""
-    xero_next = get_xero_next_invoice_number(con=con)
-    if xero_next:
-        return xero_next
-    return _next_invoice_number(con, org_id=org_id)
 
 
 def _invoice_lines_for(con, invoice_id: int, org_id: str | None = None) -> list[dict[str, Any]]:
@@ -2085,7 +2074,7 @@ def create_invoice(client_id: int, body: dict = Body(...), _user: dict = Depends
             ).fetchone()
             if not client_exists:
                 raise HTTPException(status_code=404, detail="Client not found")
-            invoice_number = str(body.get("invoice_number") or "").strip() or _resolve_next_invoice_number(con, org_id=org_id)
+            invoice_number = str(body.get("invoice_number") or "").strip() or _next_invoice_number(con, org_id=org_id)
             invoice_date = str(body.get("invoice_date") or date.today().isoformat())
 
             lines = body.get("lines") or []
@@ -2621,7 +2610,7 @@ def convert_quote_to_invoice(quote_id: int, body: dict = Body(default={}), _user
             _ensure_quote_tables(con)
             org_id = _quote_org_id(_user)
             quote = _serialize_quote(con, int(quote_id), org_id=org_id)
-            invoice_number = _resolve_next_invoice_number(con, org_id=org_id)
+            invoice_number = _next_invoice_number(con, org_id=org_id)
             invoice_date = str(body.get("invoice_date") or date.today().isoformat())
             due_date = str(body.get("due_date") or "").strip() or _default_due_date(invoice_date)
             status = str(body.get("status") or "Draft")

@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import re
 import secrets
 from datetime import date, datetime, timedelta
 from typing import Any, Mapping
@@ -867,62 +866,6 @@ def test_xero_connection(*, con=None) -> dict[str, Any]:
         except Exception:
             logger.debug("Failed to persist Xero connection error state", exc_info=True)
         raise
-    finally:
-        if manage_con:
-            try:
-                con.__exit__(None, None, None)  # type: ignore[attr-defined]
-            except Exception:
-                logger.debug("Failed to close Xero connection context cleanly", exc_info=True)
-
-
-_INVOICE_NUMBER_RE = re.compile(r"^(.*?)(\d+)\s*$")
-
-
-def get_xero_next_invoice_number(*, con=None) -> str | None:
-    """Best-effort lookup of the next invoice number in Xero's own sequence
-    and format (e.g. "INV-0042" -> "INV-0043"). Returns None if Xero isn't
-    connected/configured, has no invoices yet, or the lookup fails for any
-    reason -- callers should fall back to their own numbering in that case.
-    This must never block invoice creation on a Xero outage.
-    """
-    manage_con = con is None
-    if con is None:
-        con = get_conn()
-    assert con is not None
-    try:
-        if not _env("XERO_CLIENT_ID") or not _env("XERO_CLIENT_SECRET"):
-            return None
-        connection = get_xero_connection(con)
-        if not connection or str(connection.get("status") or "").strip().lower() != "connected":
-            return None
-        connection = _refresh_token(connection)
-        response = _json_request(
-            "GET",
-            f"{XERO_API_BASE.rstrip('/')}/Invoices?order=InvoiceNumber%20DESC&page=1",
-            headers=_xero_headers(connection),
-            timeout=10,
-        )
-        invoices = response.get("Invoices") or []
-        best_prefix = ""
-        best_digits_len = 0
-        best_value = -1
-        for inv in invoices:
-            number = str(inv.get("InvoiceNumber") or "").strip()
-            m = _INVOICE_NUMBER_RE.match(number)
-            if not m:
-                continue
-            prefix, digits = m.group(1), m.group(2)
-            value = int(digits)
-            if value > best_value:
-                best_value = value
-                best_prefix = prefix
-                best_digits_len = len(digits)
-        if best_value < 0:
-            return None
-        return f"{best_prefix}{str(best_value + 1).zfill(best_digits_len)}"
-    except Exception:
-        logger.debug("Failed to fetch next Xero invoice number; caller will fall back", exc_info=True)
-        return None
     finally:
         if manage_con:
             try:

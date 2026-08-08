@@ -487,7 +487,7 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
   async function addManualInvoice() {
     setStatus("");
     try {
-      let res = await fetch(`${baseUrl}/jobs/${jobId}/invoices`, {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/invoices`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -512,35 +512,6 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
           })),
         }),
       });
-      if (res.status === 404 && clientId && clientId > 0) {
-        // Backward-compatible fallback for servers that don't yet expose POST /jobs/{job_id}/invoices.
-        res = await fetch(`${baseUrl}/clients/${clientId}/invoices`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            job_id: jobId,
-            quote_id: selectedQuoteId ? Number(selectedQuoteId) : null,
-            invoice_date: invoiceDate || new Date().toISOString().slice(0, 10),
-            due_date: dueDate || null,
-            status: invoiceStatus,
-            total: Number(invoiceTotal || 0),
-            subtotal: Number(invoiceSubtotal || 0),
-            vat: Number(invoiceVat || 0),
-            lines: invoiceLines.map((line, idx) => ({
-              sort_order: idx + 1,
-              item_id: line.item_id,
-              description: line.description,
-              unit: line.unit,
-              qty: Number(line.qty || 0),
-              rate: Number(line.rate || 0),
-              amount: Number(lineAmount(line)),
-              vat_rate_pct: Number(line.vat_rate_pct || 0),
-              notes: line.notes || "",
-            })),
-          }),
-        });
-      }
       if (!res.ok) {
         const t = await res.text().catch(() => "");
         throw new Error(`Failed to create invoice (${res.status})${t ? `: ${t}` : ""}`);

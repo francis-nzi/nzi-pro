@@ -7,7 +7,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from api.auth import _current_user
 from api.permissions import assert_job_access, assert_permission
-from api.quotes_routes import _resolve_next_invoice_number
+from api.quotes_routes import _next_invoice_number
 from core.database import get_conn
 
 router = APIRouter(tags=["job-line-items"])
@@ -454,7 +454,7 @@ def create_invoice_from_line_items(
             except Exception:
                 org_id = None
 
-            invoice_number = str(body.get("invoice_number") or "").strip() or _resolve_next_invoice_number(con, org_id=org_id)
+            invoice_number = str(body.get("invoice_number") or "").strip() or _next_invoice_number(con, org_id=org_id)
 
             inv_row = con.execute(
                 """
