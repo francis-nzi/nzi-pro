@@ -161,6 +161,7 @@ from api.spend_data_routes import router as spend_data_router
 from api.spend_factor_refresh_routes import router as spend_factor_refresh_router
 from api.employee_commuting_routes import router as employee_commuting_router
 from api.quotes_routes import router as quotes_router
+from api.credit_notes_routes import router as credit_notes_router
 from api.xero_routes import router as xero_router
 from api.dataset_import_routes import router as dataset_import_router
 from api.auth import _current_user
@@ -391,6 +392,7 @@ app.include_router(spend_data_router)
 app.include_router(spend_factor_refresh_router)
 app.include_router(employee_commuting_router)
 app.include_router(quotes_router)
+app.include_router(credit_notes_router)
 app.include_router(xero_router)
 app.include_router(messaging_templates_router)
 app.include_router(user_settings_router)

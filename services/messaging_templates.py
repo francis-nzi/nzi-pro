@@ -99,6 +99,16 @@ DEFAULT_EMAIL_TEMPLATES: list[dict[str, str]] = [
         ),
     },
     {
+        "template_key": "credit_note_send",
+        "template_name": "Credit Note Email",
+        "subject_template": "Credit Note {{credit_note_number}} from Net Zero International",
+        "body_template": (
+            "<p>Dear {{attention_name}},</p>"
+            "<p>Please find attached Credit Note <strong>{{credit_note_number}}</strong> for {{client_name}}.</p>"
+            "<p>Kind regards,<br/>{{sender_name}}</p>"
+        ),
+    },
+    {
         "template_key": "reminder",
         "template_name": "Reminder Email",
         "subject_template": "Reminder: {{job_number}}",

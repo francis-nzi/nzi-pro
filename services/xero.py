@@ -203,6 +203,21 @@ def _ensure_schema(con) -> None:
         )
         """
     )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS xero_credit_note_links (
+          credit_note_id INTEGER PRIMARY KEY,
+          xero_credit_note_id VARCHAR,
+          xero_credit_note_number VARCHAR,
+          xero_status VARCHAR,
+          xero_sync_status VARCHAR NOT NULL DEFAULT 'pending',
+          xero_sync_error TEXT,
+          last_synced_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        )
+        """
+    )
     con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS xero_contact_id VARCHAR")
     con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS xero_contact_name VARCHAR")
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_invoice_id VARCHAR")
@@ -215,6 +230,10 @@ def _ensure_schema(con) -> None:
         con.execute("CREATE INDEX IF NOT EXISTS xero_invoice_links_xero_invoice_idx ON xero_invoice_links (xero_invoice_id)")
     except Exception:
         logger.debug("Failed to ensure xero_invoice_links index; continuing", exc_info=True)
+    try:
+        con.execute("CREATE INDEX IF NOT EXISTS xero_credit_note_links_xero_credit_note_idx ON xero_credit_note_links (xero_credit_note_id)")
+    except Exception:
+        logger.debug("Failed to ensure xero_credit_note_links index; continuing", exc_info=True)
     try:
         con.execute("CREATE INDEX IF NOT EXISTS xero_contact_links_contact_idx ON xero_contact_links (xero_contact_id)")
     except Exception:
@@ -1003,6 +1022,263 @@ def sync_invoice_status_from_xero(invoice_id: int, *, con=None, connection: Mapp
                 logger.debug("Failed to close Xero connection context cleanly after invoice status sync", exc_info=True)
 
 
+def _credit_note_row(con, credit_note_id: int) -> dict[str, Any]:
+    row = _fetch_one(
+        con,
+        """
+        SELECT credit_note_id, client_db_id, job_id, invoice_id, credit_note_number, credit_note_date,
+               currency_code, subtotal, vat, total, status, notes,
+               xero_credit_note_id, xero_credit_note_number, xero_status, xero_sync_status,
+               xero_synced_at, xero_sync_error
+        FROM credit_notes
+        WHERE credit_note_id = %s
+        """,
+        [int(credit_note_id)],
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Credit note not found")
+    return row
+
+
+def _credit_note_lines(con, credit_note_id: int) -> list[dict[str, Any]]:
+    return _fetch_all(
+        con,
+        """
+        SELECT credit_note_line_id, sort_order, item_id, description, unit, qty, unit_price_ex_vat, amount_ex_vat, vat_rate_pct, notes
+        FROM credit_note_lines
+        WHERE credit_note_id = %s
+        ORDER BY COALESCE(sort_order, credit_note_line_id), credit_note_line_id
+        """,
+        [int(credit_note_id)],
+    )
+
+
+def _credit_note_link(con, credit_note_id: int) -> dict[str, Any] | None:
+    return _fetch_one(con, "SELECT * FROM xero_credit_note_links WHERE credit_note_id = %s", [int(credit_note_id)])
+
+
+def _save_credit_note_link(con, *, credit_note_id: int, xero_credit_note: Mapping[str, Any] | None, sync_status: str, sync_error: str | None = None) -> dict[str, Any]:
+    xero_credit_note_id = str((xero_credit_note or {}).get("CreditNoteID") or "").strip() if xero_credit_note else ""
+    xero_credit_note_number = str((xero_credit_note or {}).get("CreditNoteNumber") or "").strip() if xero_credit_note else ""
+    xero_status = str((xero_credit_note or {}).get("Status") or "").strip() if xero_credit_note else ""
+    con.execute(
+        """
+        INSERT INTO xero_credit_note_links (
+          credit_note_id, xero_credit_note_id, xero_credit_note_number, xero_status,
+          xero_sync_status, xero_sync_error, last_synced_at, created_at, updated_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, NOW(), COALESCE((SELECT created_at FROM xero_credit_note_links WHERE credit_note_id = %s), NOW()), NOW())
+        ON CONFLICT (credit_note_id) DO UPDATE SET
+          xero_credit_note_id = EXCLUDED.xero_credit_note_id,
+          xero_credit_note_number = EXCLUDED.xero_credit_note_number,
+          xero_status = EXCLUDED.xero_status,
+          xero_sync_status = EXCLUDED.xero_sync_status,
+          xero_sync_error = EXCLUDED.xero_sync_error,
+          last_synced_at = EXCLUDED.last_synced_at,
+          updated_at = NOW()
+        """,
+        [int(credit_note_id), xero_credit_note_id or None, xero_credit_note_number or None, xero_status or None, sync_status, sync_error, int(credit_note_id)],
+    )
+    con.execute(
+        """
+        UPDATE credit_notes
+        SET xero_credit_note_id = %s,
+            xero_credit_note_number = %s,
+            xero_status = %s,
+            xero_sync_status = %s,
+            xero_sync_error = %s,
+            xero_synced_at = NOW(),
+            credit_note_number = COALESCE(%s, credit_note_number),
+            status = COALESCE(%s, status)
+        WHERE credit_note_id = %s
+        """,
+        [xero_credit_note_id or None, xero_credit_note_number or None, xero_status or None, sync_status, sync_error, xero_credit_note_number or None, xero_status or None, int(credit_note_id)],
+    )
+    return {
+        "credit_note_id": int(credit_note_id),
+        "xero_credit_note_id": xero_credit_note_id or None,
+        "xero_credit_note_number": xero_credit_note_number or None,
+        "xero_status": xero_status or None,
+        "xero_sync_status": sync_status,
+        "xero_sync_error": sync_error,
+    }
+
+
+def _credit_note_line_items(con, credit_note_id: int) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    account_code = _env("XERO_DEFAULT_ACCOUNT_CODE", XERO_DEFAULT_ACCOUNT_CODE) or XERO_DEFAULT_ACCOUNT_CODE
+    tax_type = _env("XERO_DEFAULT_TAX_TYPE", XERO_DEFAULT_TAX_TYPE) or XERO_DEFAULT_TAX_TYPE
+    for line in _credit_note_lines(con, int(credit_note_id)):
+        qty = _safe_float(line.get("qty"), 1.0) or 1.0
+        amount = _safe_float(line.get("amount_ex_vat"), 0.0)
+        unit_amount = _safe_float(line.get("unit_price_ex_vat"), 0.0)
+        if not unit_amount and qty:
+            unit_amount = amount / qty if qty else amount
+        description = " - ".join(
+            part
+            for part in [
+                str(line.get("description") or "").strip(),
+                str(line.get("notes") or "").strip(),
+            ]
+            if part
+        ) or f"Credit note line {int(line.get('credit_note_line_id') or 0)}"
+        item = {
+            "Description": description,
+            "Quantity": round(qty, 4),
+            "UnitAmount": round(unit_amount, 2),
+            "LineAmount": round(amount or (qty * unit_amount), 2),
+            "AccountCode": account_code,
+            "TaxType": tax_type,
+        }
+        items.append(item)
+    return items
+
+
+def build_xero_credit_note_payload(con, credit_note_id: int, *, contact_id: str | None = None, include_credit_note_number: bool = False) -> dict[str, Any]:
+    credit_note = _credit_note_row(con, int(credit_note_id))
+    client = _client_row(con, int(credit_note.get("client_db_id") or 0))
+    if not contact_id:
+        contact_id = str(client.get("xero_contact_id") or "").strip() or None
+    if not contact_id:
+        link = _contact_link(con, int(credit_note.get("client_db_id") or 0))
+        contact_id = str((link or {}).get("xero_contact_id") or "").strip() or None
+    if not contact_id:
+        raise HTTPException(status_code=400, detail="Xero contact is missing")
+
+    job_reference = ""
+    job_id = credit_note.get("job_id")
+    if job_id is not None:
+        job_row = _fetch_one(con, "SELECT job_number FROM jobs WHERE job_id = %s", [int(job_id)])
+        if job_row and job_row.get("job_number"):
+            job_reference = str(job_row.get("job_number") or "").strip()
+
+    credit_note_date = _safe_date(credit_note.get("credit_note_date"), _today()) or _today().isoformat()
+
+    line_items = _credit_note_line_items(con, int(credit_note_id))
+    if job_reference:
+        line_items.append(
+            {
+                "Description": f"Job Number: {job_reference}",
+                "Quantity": 1,
+                "UnitAmount": 0,
+                "LineAmount": 0,
+                "AccountCode": _env("XERO_DEFAULT_ACCOUNT_CODE", XERO_DEFAULT_ACCOUNT_CODE) or XERO_DEFAULT_ACCOUNT_CODE,
+                "TaxType": _env("XERO_DEFAULT_TAX_TYPE", XERO_DEFAULT_TAX_TYPE) or XERO_DEFAULT_TAX_TYPE,
+            }
+        )
+
+    payload: dict[str, Any] = {
+        "Type": "ACCRECCREDIT",
+        "Contact": {"ContactID": contact_id, "Name": str(client.get("client_name") or "").strip()},
+        "Date": credit_note_date,
+        "Reference": job_reference or str(credit_note.get("credit_note_number") or "").strip() or None,
+        "LineAmountTypes": "Exclusive",
+        "Status": _xero_invoice_status(credit_note.get("status")),
+        "CurrencyCode": str(credit_note.get("currency_code") or client.get("currency") or "GBP").strip().upper(),
+        "LineItems": line_items,
+    }
+    if include_credit_note_number and str(credit_note.get("credit_note_number") or "").strip():
+        payload["CreditNoteNumber"] = str(credit_note.get("credit_note_number") or "").strip()
+    if str(credit_note.get("xero_credit_note_id") or "").strip():
+        payload["CreditNoteID"] = str(credit_note.get("xero_credit_note_id") or "").strip()
+    return {k: v for k, v in payload.items() if v not in (None, "", [], {})}
+
+
+def _sync_local_credit_note(con, credit_note_id: int, xero_credit_note: Mapping[str, Any], sync_status: str = "synced", sync_error: str | None = None) -> dict[str, Any]:
+    return _save_credit_note_link(con, credit_note_id=int(credit_note_id), xero_credit_note=xero_credit_note, sync_status=sync_status, sync_error=sync_error)
+
+
+def create_xero_credit_note(credit_note_id: int, *, con=None, connection: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    manage_con = con is None
+    if con is None:
+        con = get_conn()
+    assert con is not None
+    try:
+        _ensure_schema(con)
+        credit_note = _credit_note_row(con, int(credit_note_id))
+        connection = _refresh_token(connection or get_xero_connection(con) or {})
+        contact = upsert_xero_contact(int(credit_note.get("client_db_id") or 0), con=con, connection=connection)
+        payload = build_xero_credit_note_payload(con, int(credit_note_id), contact_id=contact.get("xero_contact_id"), include_credit_note_number=False)
+        response = _json_request("PUT", f"{XERO_API_BASE.rstrip('/')}/CreditNotes", headers=_xero_headers(connection), payload={"CreditNotes": [payload]})
+        xero_credit_note = (response.get("CreditNotes") or [{}])[0]
+        if not isinstance(xero_credit_note, Mapping) or not str(xero_credit_note.get("CreditNoteID") or "").strip():
+            raise HTTPException(status_code=502, detail="Xero did not return a credit note")
+        result = _sync_local_credit_note(con, int(credit_note_id), xero_credit_note, sync_status="synced")
+        return {"ok": True, "credit_note": result, "contact": contact, "xero_credit_note": xero_credit_note}
+    except HTTPException as exc:
+        try:
+            _save_credit_note_link(con, credit_note_id=int(credit_note_id), xero_credit_note={}, sync_status="failed", sync_error=str(exc.detail))
+        except Exception:
+            logger.debug("Failed to persist Xero credit note sync failure state", exc_info=True)
+        raise
+    finally:
+        if manage_con:
+            try:
+                con.__exit__(None, None, None)  # type: ignore[attr-defined]
+            except Exception:
+                logger.debug("Failed to close Xero connection context cleanly", exc_info=True)
+
+
+def update_xero_credit_note(credit_note_id: int, *, con=None, connection: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    manage_con = con is None
+    if con is None:
+        con = get_conn()
+    assert con is not None
+    try:
+        _ensure_schema(con)
+        credit_note = _credit_note_row(con, int(credit_note_id))
+        if not str(credit_note.get("xero_credit_note_id") or "").strip():
+            return create_xero_credit_note(int(credit_note_id), con=con, connection=connection)
+        connection = _refresh_token(connection or get_xero_connection(con) or {})
+        contact = upsert_xero_contact(int(credit_note.get("client_db_id") or 0), con=con, connection=connection)
+        payload = build_xero_credit_note_payload(con, int(credit_note_id), contact_id=contact.get("xero_contact_id"), include_credit_note_number=True)
+        payload["CreditNoteID"] = str(credit_note.get("xero_credit_note_id") or "").strip()
+        response = _json_request("PUT", f"{XERO_API_BASE.rstrip('/')}/CreditNotes", headers=_xero_headers(connection), payload={"CreditNotes": [payload]})
+        xero_credit_note = (response.get("CreditNotes") or [{}])[0]
+        if not isinstance(xero_credit_note, Mapping) or not str(xero_credit_note.get("CreditNoteID") or "").strip():
+            raise HTTPException(status_code=502, detail="Xero did not return an updated credit note")
+        result = _sync_local_credit_note(con, int(credit_note_id), xero_credit_note, sync_status="synced")
+        return {"ok": True, "credit_note": result, "contact": contact, "xero_credit_note": xero_credit_note}
+    except HTTPException as exc:
+        try:
+            _save_credit_note_link(con, credit_note_id=int(credit_note_id), xero_credit_note={}, sync_status="failed", sync_error=str(exc.detail))
+        except Exception:
+            logger.debug("Failed to persist Xero credit note sync failure state", exc_info=True)
+        raise
+    finally:
+        if manage_con:
+            try:
+                con.__exit__(None, None, None)  # type: ignore[attr-defined]
+            except Exception:
+                logger.debug("Failed to close Xero connection context cleanly after credit note sync", exc_info=True)
+
+
+def sync_credit_note_status_from_xero(credit_note_id: int, *, con=None, connection: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    manage_con = con is None
+    if con is None:
+        con = get_conn()
+    assert con is not None
+    try:
+        _ensure_schema(con)
+        credit_note = _credit_note_row(con, int(credit_note_id))
+        xero_credit_note_id = str(credit_note.get("xero_credit_note_id") or "").strip()
+        if not xero_credit_note_id:
+            raise HTTPException(status_code=400, detail="Credit note is not linked to Xero")
+        connection = _refresh_token(connection or get_xero_connection(con) or {})
+        response = _json_request("GET", f"{XERO_API_BASE.rstrip('/')}/CreditNotes/{xero_credit_note_id}", headers=_xero_headers(connection))
+        xero_credit_note = (response.get("CreditNotes") or [{}])[0]
+        if not isinstance(xero_credit_note, Mapping) or not str(xero_credit_note.get("CreditNoteID") or "").strip():
+            raise HTTPException(status_code=502, detail="Xero did not return a credit note")
+        result = _sync_local_credit_note(con, int(credit_note_id), xero_credit_note, sync_status="synced")
+        return {"ok": True, "credit_note": result, "xero_credit_note": xero_credit_note}
+    finally:
+        if manage_con:
+            try:
+                con.__exit__(None, None, None)  # type: ignore[attr-defined]
+            except Exception:
+                logger.debug("Failed to close Xero connection context cleanly after credit note status sync", exc_info=True)
+
+
 def handle_xero_webhook(payload: Mapping[str, Any] | list[Any] | None) -> dict[str, Any]:
     events = []
     if isinstance(payload, Mapping):
@@ -1010,10 +1286,22 @@ def handle_xero_webhook(payload: Mapping[str, Any] | list[Any] | None) -> dict[s
     elif isinstance(payload, list):
         events = list(payload)
     invoice_ids: list[str] = []
+    credit_note_ids: list[str] = []
     for event in events:
         if not isinstance(event, Mapping):
             continue
         resource = str(event.get("resourceUrl") or event.get("resource_url") or event.get("resource") or "").lower()
+        if "creditnote" in resource:
+            xero_credit_note_id = str(
+                event.get("creditNoteID")
+                or event.get("CreditNoteID")
+                or event.get("resourceId")
+                or event.get("resource_id")
+                or ""
+            ).strip()
+            if xero_credit_note_id:
+                credit_note_ids.append(xero_credit_note_id)
+            continue
         if "invoice" not in resource:
             continue
         xero_invoice_id = str(
@@ -1026,7 +1314,7 @@ def handle_xero_webhook(payload: Mapping[str, Any] | list[Any] | None) -> dict[s
         if xero_invoice_id:
             invoice_ids.append(xero_invoice_id)
     synced: list[dict[str, Any]] = []
-    if invoice_ids:
+    if invoice_ids or credit_note_ids:
         with get_conn() as con:
             _ensure_schema(con)
             for xero_invoice_id in invoice_ids:
@@ -1037,7 +1325,15 @@ def handle_xero_webhook(payload: Mapping[str, Any] | list[Any] | None) -> dict[s
                     synced.append(sync_invoice_status_from_xero(int(local["invoice_id"]), con=con))
                 except Exception as exc:
                     synced.append({"invoice_id": int(local["invoice_id"]), "error": str(exc)})
-    return {"ok": True, "received_events": len(events), "invoice_ids": invoice_ids, "synced": synced}
+            for xero_credit_note_id in credit_note_ids:
+                local = _fetch_one(con, "SELECT credit_note_id FROM credit_notes WHERE xero_credit_note_id = %s", [xero_credit_note_id])
+                if not local:
+                    continue
+                try:
+                    synced.append(sync_credit_note_status_from_xero(int(local["credit_note_id"]), con=con))
+                except Exception as exc:
+                    synced.append({"credit_note_id": int(local["credit_note_id"]), "error": str(exc)})
+    return {"ok": True, "received_events": len(events), "invoice_ids": invoice_ids, "credit_note_ids": credit_note_ids, "synced": synced}
 
 
 def normalize_xero_error(error: Any) -> str:

@@ -182,6 +182,35 @@ def invoice_status(invoice_id: int, _user: dict = Depends(_current_user)):
         return {"invoice": invoice, "xero": link}
 
 
+@router.post("/credit-notes/{credit_note_id}/sync")
+def sync_credit_note(credit_note_id: int, _user: dict = Depends(_current_user)):
+    _require_admin(_user)
+    with get_conn() as con:
+        xero_service._ensure_schema(con)  # type: ignore[attr-defined]
+        credit_note = xero_service._credit_note_row(con, int(credit_note_id))  # type: ignore[attr-defined]
+        if str(credit_note.get("xero_credit_note_id") or "").strip():
+            return xero_service.update_xero_credit_note(int(credit_note_id), con=con)
+        return xero_service.create_xero_credit_note(int(credit_note_id), con=con)
+
+
+@router.post("/credit-notes/{credit_note_id}/resync")
+def resync_credit_note(credit_note_id: int, _user: dict = Depends(_current_user)):
+    _require_admin(_user)
+    with get_conn() as con:
+        xero_service._ensure_schema(con)  # type: ignore[attr-defined]
+        return xero_service.update_xero_credit_note(int(credit_note_id), con=con)
+
+
+@router.get("/credit-notes/{credit_note_id}/status")
+def credit_note_status(credit_note_id: int, _user: dict = Depends(_current_user)):
+    _require_admin(_user)
+    with get_conn() as con:
+        xero_service._ensure_schema(con)  # type: ignore[attr-defined]
+        credit_note = xero_service._credit_note_row(con, int(credit_note_id))  # type: ignore[attr-defined]
+        link = xero_service._credit_note_link(con, int(credit_note_id))  # type: ignore[attr-defined]
+        return {"credit_note": credit_note, "xero": link}
+
+
 @router.post("/webhook")
 def webhook(payload: dict = Body(default={})):
     return xero_service.handle_xero_webhook(payload)
