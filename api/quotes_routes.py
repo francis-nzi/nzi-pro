@@ -652,8 +652,17 @@ def _serialize_invoice(con, invoice_id: int, org_id: str | None = None) -> dict[
         if j_row:
             job_number = str(j_row[0] or "")
     client_db_id = int(row[1])
-    c_row = con.execute("SELECT client_name FROM clients WHERE db_id = %s", [client_db_id]).fetchone()
+    c_row = con.execute(
+        "SELECT client_name, addr_line1, addr_line2, addr_city, addr_region, addr_postcode, addr_country FROM clients WHERE db_id = %s",
+        [client_db_id],
+    ).fetchone()
     client_name = str(c_row[0] or "") if c_row else ""
+    if not bill_to.strip() and c_row:
+        # No linked quote (or its bill_to is blank) -- fall back to the
+        # client's own name/address so the invoice always shows who it's
+        # for, instead of leaving that block empty.
+        address_lines = [str(c_row[i] or "").strip() for i in range(1, 7)]
+        bill_to = "\n".join([line for line in [client_name, *address_lines] if line])
     return {
         "invoice_id": int(row[0]),
         "client_db_id": client_db_id,
@@ -2074,6 +2083,15 @@ def create_invoice(client_id: int, body: dict = Body(...), _user: dict = Depends
             ).fetchone()
             if not client_exists:
                 raise HTTPException(status_code=404, detail="Client not found")
+            job_id = _safe_int(body.get("job_id"), None)
+            if job_id is None:
+                raise HTTPException(status_code=400, detail="job_id is required to create an invoice")
+            job_exists = con.execute(
+                "SELECT job_id FROM jobs WHERE job_id = %s AND client_db_id = %s",
+                [job_id, int(client_id)],
+            ).fetchone()
+            if not job_exists:
+                raise HTTPException(status_code=400, detail="job_id does not belong to this client")
             invoice_number = str(body.get("invoice_number") or "").strip() or _next_invoice_number(con, org_id=org_id)
             invoice_date = str(body.get("invoice_date") or date.today().isoformat())
 
@@ -2094,7 +2112,7 @@ def create_invoice(client_id: int, body: dict = Body(...), _user: dict = Depends
                 [
                     int(client_id),
                     org_id,
-                    _safe_int(body.get("job_id"), None),
+                    job_id,
                     _safe_int(body.get("quote_id"), None),
                     invoice_number,
                     invoice_date,

@@ -753,6 +753,21 @@ def _line_items(con, invoice_id: int) -> list[dict[str, Any]]:
     return items
 
 
+def _xero_invoice_status(local_status: str | None) -> str:
+    """Map our CRM invoice status to a valid Xero ACCREC invoice status.
+    Xero's writable statuses are DRAFT, SUBMITTED, AUTHORISED, VOIDED --
+    Draft invoices are excluded from Xero's Accounts Receivable/financial
+    reports, so anything past Draft in our workflow (Sent, Part Paid,
+    Paid, Overdue) needs to push as AUTHORISED for it to actually count.
+    """
+    key = str(local_status or "").strip().lower()
+    if key == "void":
+        return "VOIDED"
+    if not key or key == "draft":
+        return "DRAFT"
+    return "AUTHORISED"
+
+
 def build_xero_invoice_payload(con, invoice_id: int, *, contact_id: str | None = None, include_invoice_number: bool = False) -> dict[str, Any]:
     invoice = _invoice_row(con, int(invoice_id))
     client = _client_row(con, int(invoice.get("client_db_id") or 0))
@@ -776,6 +791,22 @@ def build_xero_invoice_payload(con, invoice_id: int, *, contact_id: str | None =
     if not due_date:
         due_date = (date.fromisoformat(invoice_date) + timedelta(days=7)).isoformat()
 
+    line_items = _line_items(con, int(invoice_id))
+    if job_reference:
+        # Reference already carries the job number, but it isn't always
+        # prominent in Xero's UI/printed invoice -- add it as its own
+        # zero-value line so it's visible directly on the invoice itself.
+        line_items.append(
+            {
+                "Description": f"Job Number: {job_reference}",
+                "Quantity": 1,
+                "UnitAmount": 0,
+                "LineAmount": 0,
+                "AccountCode": _env("XERO_DEFAULT_ACCOUNT_CODE", XERO_DEFAULT_ACCOUNT_CODE) or XERO_DEFAULT_ACCOUNT_CODE,
+                "TaxType": _env("XERO_DEFAULT_TAX_TYPE", XERO_DEFAULT_TAX_TYPE) or XERO_DEFAULT_TAX_TYPE,
+            }
+        )
+
     payload: dict[str, Any] = {
         "Type": "ACCREC",
         "Contact": {"ContactID": contact_id, "Name": str(client.get("client_name") or "").strip()},
@@ -783,9 +814,9 @@ def build_xero_invoice_payload(con, invoice_id: int, *, contact_id: str | None =
         "DueDate": due_date,
         "Reference": job_reference or str(invoice.get("invoice_number") or "").strip() or None,
         "LineAmountTypes": "Exclusive",
-        "Status": str(invoice.get("status") or "DRAFT").strip().upper(),
+        "Status": _xero_invoice_status(invoice.get("status")),
         "CurrencyCode": str(invoice.get("currency_code") or client.get("currency") or "GBP").strip().upper(),
-        "LineItems": _line_items(con, int(invoice_id)),
+        "LineItems": line_items,
     }
     if include_invoice_number and str(invoice.get("invoice_number") or "").strip():
         payload["InvoiceNumber"] = str(invoice.get("invoice_number") or "").strip()

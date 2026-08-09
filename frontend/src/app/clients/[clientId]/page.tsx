@@ -307,6 +307,7 @@ function ClientDetailPageContent() {
   });
   const [invoiceForm, setInvoiceForm] = useState({
     quote_id: "",
+    job_id: "",
     invoice_date: new Date().toISOString().slice(0, 10),
     due_date: "",
     subtotal: "0.00",
@@ -1246,6 +1247,10 @@ function ClientDetailPageContent() {
 
     async function addInvoice() {
       setFinancialStatus("");
+      if (!invoiceForm.job_id) {
+        setFinancialStatus("Select a job before adding an invoice.");
+        return;
+      }
       try {
         const payloadLines = invoiceDraftLines.map((line, idx) => ({
           sort_order: idx + 1,
@@ -1259,6 +1264,7 @@ function ClientDetailPageContent() {
           notes: line.notes || "",
         }));
         const payload = {
+          job_id: Number(invoiceForm.job_id),
           quote_id: invoiceForm.quote_id ? Number(invoiceForm.quote_id) : null,
           invoice_date: invoiceForm.invoice_date || new Date().toISOString().slice(0, 10),
           due_date: invoiceForm.due_date || null,
@@ -1285,6 +1291,7 @@ function ClientDetailPageContent() {
         await reloadFinancialData();
         setInvoiceForm({
           quote_id: "",
+          job_id: "",
           invoice_date: new Date().toISOString().slice(0, 10),
           due_date: "",
           subtotal: "0.00",
@@ -1520,6 +1527,21 @@ function ClientDetailPageContent() {
                     </div>
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="space-y-2">
+                        <div className="text-xs text-muted-foreground">Job <span className="text-red-500">*</span></div>
+                        <select
+                          className="w-full rounded-md border px-3 py-2 text-sm"
+                          value={invoiceForm.job_id}
+                          onChange={(e) => setInvoiceForm((prev) => ({ ...prev, job_id: e.target.value }))}
+                        >
+                          <option value="">Select a job...</option>
+                          {jobs.map((j) => (
+                            <option key={j.job_id} value={String(j.job_id)}>
+                              {j.job_number || `#${j.job_id}`}{j.title ? ` — ${j.title}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-2">
                         <div className="text-xs text-muted-foreground">Quote</div>
                         <select
                           className="w-full rounded-md border px-3 py-2 text-sm"
@@ -1664,7 +1686,7 @@ function ClientDetailPageContent() {
                 </div>
               </div>
               <div className="flex justify-end">
-                <Button onClick={addInvoice}>Add Invoice</Button>
+                <Button onClick={addInvoice} disabled={!invoiceForm.job_id} title={!invoiceForm.job_id ? "Select a job first" : undefined}>Add Invoice</Button>
               </div>
             </CardContent>
           </Card>
