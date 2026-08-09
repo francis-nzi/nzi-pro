@@ -196,6 +196,26 @@ type ClientInvoicesResponse = {
   }>;
 };
 
+type ClientCreditNotesResponse = {
+  items: Array<{
+    credit_note_id: number;
+    client_db_id: number;
+    job_id: number | null;
+    invoice_id: number | null;
+    credit_note_number: string | null;
+    credit_note_date: string | null;
+    currency_code: string | null;
+    subtotal: number | null;
+    vat: number | null;
+    total: number | null;
+    status: string | null;
+    notes: string | null;
+    xero_credit_note_id?: string;
+    xero_sync_status?: string;
+    line_count?: number;
+  }>;
+};
+
 type ClientFinancialSummary = {
   client_db_id: number;
   quotes: { count: number; estimated_total: number };
@@ -267,6 +287,7 @@ function ClientDetailPageContent() {
   const [contacts, setContacts] = useState<ClientContactsResponse["contacts"]>([]);
   const [quotes, setQuotes] = useState<ClientQuotesResponse["items"]>([]);
   const [invoices, setInvoices] = useState<ClientInvoicesResponse["items"]>([]);
+  const [creditNotes, setCreditNotes] = useState<ClientCreditNotesResponse["items"]>([]);
   const [financialSummary, setFinancialSummary] = useState<ClientFinancialSummary | null>(null);
   const [financialStatus, setFinancialStatus] = useState<string>("");
   const [quoteLookupItems, setQuoteLookupItems] = useState<QuoteLookupItem[]>([]);
@@ -319,6 +340,36 @@ function ClientDetailPageContent() {
     paid_date: "",
   });
   const [invoiceDraftLines, setInvoiceDraftLines] = useState<
+    Array<{
+      key: string;
+      item_id: number | null;
+      description: string;
+      unit: string;
+      qty: number;
+      rate: number;
+      vat_rate_pct: number;
+      notes: string;
+    }>
+  >([
+    {
+      key: `line-${Math.random().toString(36).slice(2)}`,
+      item_id: null,
+      description: "",
+      unit: "",
+      qty: 1,
+      rate: 0,
+      vat_rate_pct: 20,
+      notes: "",
+    },
+  ]);
+
+  const [creditNoteForm, setCreditNoteForm] = useState({
+    job_id: "",
+    credit_note_date: new Date().toISOString().slice(0, 10),
+    status: "Draft",
+    notes: "",
+  });
+  const [creditNoteDraftLines, setCreditNoteDraftLines] = useState<
     Array<{
       key: string;
       item_id: number | null;
@@ -430,9 +481,10 @@ function ClientDetailPageContent() {
 
   const reloadFinancialData = useCallback(async () => {
     try {
-      const [quotesRes, invoicesRes] = await Promise.allSettled([
+      const [quotesRes, invoicesRes, creditNotesRes] = await Promise.allSettled([
         fetch(`${baseUrl}/clients/${clientId}/quotes`, { credentials: "include" }),
         fetch(`${baseUrl}/clients/${clientId}/invoices`, { credentials: "include" }),
+        fetch(`${baseUrl}/clients/${clientId}/credit-notes`, { credentials: "include" }),
       ]);
       if (quotesRes.status === "fulfilled" && quotesRes.value.ok) {
         const data = (await quotesRes.value.json()) as ClientQuotesResponse;
@@ -441,6 +493,10 @@ function ClientDetailPageContent() {
       if (invoicesRes.status === "fulfilled" && invoicesRes.value.ok) {
         const data = (await invoicesRes.value.json()) as ClientInvoicesResponse;
         setInvoices(data.items ?? []);
+      }
+      if (creditNotesRes.status === "fulfilled" && creditNotesRes.value.ok) {
+        const data = (await creditNotesRes.value.json()) as ClientCreditNotesResponse;
+        setCreditNotes(data.items ?? []);
       }
     } catch {
       // Keep the client page usable if one of the optional financial calls fails.
@@ -1205,6 +1261,10 @@ function ClientDetailPageContent() {
   const draftVat = invoiceDraftLines.reduce((acc, line) => acc + invoiceLineAmount(line) * ((line.vat_rate_pct || 0) / 100), 0);
   const draftTotal = draftSubtotal + draftVat;
 
+  const creditNoteDraftSubtotal = creditNoteDraftLines.reduce((acc, line) => acc + invoiceLineAmount(line), 0);
+  const creditNoteDraftVat = creditNoteDraftLines.reduce((acc, line) => acc + invoiceLineAmount(line) * ((line.vat_rate_pct || 0) / 100), 0);
+  const creditNoteDraftTotal = creditNoteDraftSubtotal + creditNoteDraftVat;
+
   function addInvoiceLine() {
     setInvoiceDraftLines((prev) => [
       ...prev,
@@ -1227,6 +1287,30 @@ function ClientDetailPageContent() {
 
   function removeInvoiceLine(key: string) {
     setInvoiceDraftLines((prev) => prev.filter((line) => line.key !== key));
+  }
+
+  function addCreditNoteLine() {
+    setCreditNoteDraftLines((prev) => [
+      ...prev,
+      {
+        key: `line-${Math.random().toString(36).slice(2)}`,
+        item_id: null,
+        description: "",
+        unit: "",
+        qty: 1,
+        rate: 0,
+        vat_rate_pct: 20,
+        notes: "",
+      },
+    ]);
+  }
+
+  function updateCreditNoteLine(key: string, patch: Partial<(typeof creditNoteDraftLines)[number]>) {
+    setCreditNoteDraftLines((prev) => prev.map((line) => (line.key === key ? { ...line, ...patch } : line)));
+  }
+
+  function removeCreditNoteLine(key: string) {
+    setCreditNoteDraftLines((prev) => prev.filter((line) => line.key !== key));
   }
 
   function renderFinancialSection() {
@@ -1425,6 +1509,116 @@ function ClientDetailPageContent() {
           throw new Error(`Failed to delete invoice (${res.status})${t ? `: ${t}` : ""}`);
         }
         await reloadFinancialData();
+      } catch (e) {
+        setFinancialStatus((e as Error).message);
+      }
+    }
+
+    async function addCreditNote() {
+      setFinancialStatus("");
+      if (!creditNoteForm.job_id) {
+        setFinancialStatus("Select a job before adding a credit note.");
+        return;
+      }
+      try {
+        const payloadLines = creditNoteDraftLines.map((line, idx) => ({
+          sort_order: idx + 1,
+          item_id: line.item_id,
+          description: line.description,
+          unit: line.unit,
+          qty: Number(line.qty || 0),
+          rate: Number(line.rate || 0),
+          amount: Number((line.qty || 0) * (line.rate || 0)),
+          vat_rate_pct: Number(line.vat_rate_pct || 0),
+          notes: line.notes || "",
+        }));
+        const payload = {
+          job_id: Number(creditNoteForm.job_id),
+          credit_note_date: creditNoteForm.credit_note_date || new Date().toISOString().slice(0, 10),
+          currency_code: client?.currency || "GBP",
+          status: creditNoteForm.status,
+          notes: creditNoteForm.notes,
+          lines: payloadLines,
+        };
+        const res = await fetch(`${baseUrl}/clients/${clientId}/credit-notes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          throw new Error(`Failed to create credit note (${res.status})${t ? `: ${t}` : ""}`);
+        }
+        await reloadFinancialData();
+        setCreditNoteForm({
+          job_id: "",
+          credit_note_date: new Date().toISOString().slice(0, 10),
+          status: "Draft",
+          notes: "",
+        });
+        setCreditNoteDraftLines([
+          {
+            key: `line-${Math.random().toString(36).slice(2)}`,
+            item_id: null,
+            description: "",
+            unit: "",
+            qty: 1,
+            rate: 0,
+            vat_rate_pct: 20,
+            notes: "",
+          },
+        ]);
+        setFinancialStatus("Credit note added.");
+      } catch (e) {
+        setFinancialStatus((e as Error).message);
+      }
+    }
+
+    function onCreditNoteDraftItemChange(lineKey: string, itemIdText: string) {
+      const itemId = Number(itemIdText);
+      const selectedItem = quoteLookupItems.find((it) => Number(it.item_id) === itemId);
+      if (!selectedItem) return;
+      updateCreditNoteLine(lineKey, {
+        item_id: selectedItem.item_id,
+        description: selectedItem.description || selectedItem.item_name || "",
+        unit: selectedItem.unit || "",
+        rate: Number(selectedItem.sell_amount || 0),
+        vat_rate_pct: Number(selectedItem.vat_rate || 0),
+      });
+    }
+
+    async function removeCreditNote(creditNoteId: number) {
+      const confirmed = await confirmAction({
+        title: "Delete credit note?",
+        description: "This credit note will be removed from the client financial records.",
+        confirmLabel: "Delete",
+        destructive: true,
+      });
+      if (!confirmed) return;
+      setFinancialStatus("");
+      try {
+        const res = await fetch(`${baseUrl}/credit-notes/${creditNoteId}`, { method: "DELETE", credentials: "include" });
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          throw new Error(`Failed to delete credit note (${res.status})${t ? `: ${t}` : ""}`);
+        }
+        await reloadFinancialData();
+      } catch (e) {
+        setFinancialStatus((e as Error).message);
+      }
+    }
+
+    async function syncCreditNoteToXero(creditNoteId: number) {
+      setFinancialStatus("");
+      try {
+        const res = await fetch(`${baseUrl}/xero/credit-notes/${creditNoteId}/sync`, { method: "POST", credentials: "include" });
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          throw new Error(`Failed to sync credit note to Xero (${res.status})${t ? `: ${t}` : ""}`);
+        }
+        await reloadFinancialData();
+        setFinancialStatus("Credit note synced to Xero.");
       } catch (e) {
         setFinancialStatus((e as Error).message);
       }
@@ -1735,6 +1929,189 @@ function ClientDetailPageContent() {
                   </div>
                 )}
                 {financialStatus ? <div className="text-sm text-muted-foreground">{financialStatus}</div> : null}
+              </CardContent>
+            </Card>
+
+            <Card className="mt-6">
+              <CardContent className="pt-6">
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_320px]">
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <div className="text-xs font-semibold uppercase tracking-[0.28em] text-muted-foreground">Credit note composer</div>
+                      <h3 className="text-3xl font-light tracking-wide">CREDIT NOTE</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Issue a standalone credit note here, or use &quot;Create Credit Note&quot; from an existing invoice to prefill it automatically.
+                      </p>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <div className="text-xs text-muted-foreground">Job <span className="text-red-500">*</span></div>
+                        <select
+                          className="w-full rounded-md border px-3 py-2 text-sm"
+                          value={creditNoteForm.job_id}
+                          onChange={(e) => setCreditNoteForm((prev) => ({ ...prev, job_id: e.target.value }))}
+                        >
+                          <option value="">Select a job...</option>
+                          {jobs.map((j) => (
+                            <option key={j.job_id} value={String(j.job_id)}>
+                              {j.job_number || `#${j.job_id}`}{j.title ? ` — ${j.title}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs text-muted-foreground">Status</div>
+                        <Input value={creditNoteForm.status} onChange={(e) => setCreditNoteForm((prev) => ({ ...prev, status: e.target.value }))} />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs text-muted-foreground">Credit Note Date</div>
+                        <Input type="date" value={creditNoteForm.credit_note_date} onChange={(e) => setCreditNoteForm((prev) => ({ ...prev, credit_note_date: e.target.value }))} />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs text-muted-foreground">Credit Note Total</div>
+                        <Input value={currencyFmt.format(creditNoteDraftTotal)} readOnly />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <CompanyIdentityBlock baseUrl={baseUrl} />
+                    <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">
+                      <div className="font-medium text-foreground">Credit note helper</div>
+                      <div className="mt-1">{quoteLookupCaption}</div>
+                    </div>
+                    <CompanyLegalFooter baseUrl={baseUrl} className="text-right text-xs text-muted-foreground" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle>Credit Note Lines</CardTitle>
+                  <Button variant="outline" onClick={addCreditNoteLine}>+ Add Line</Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="overflow-auto rounded-md border">
+                  <table className="w-full table-fixed text-sm">
+                  <colgroup>
+                    <col style={{ width: "45%" }} />
+                    <col style={{ width: "8%" }} />
+                    <col style={{ width: "10%" }} />
+                    <col style={{ width: "10%" }} />
+                    <col style={{ width: "12%" }} />
+                    <col style={{ width: "10%" }} />
+                    <col style={{ width: "5%" }} />
+                  </colgroup>
+                  <thead>
+                    <tr className="border-b bg-muted/40">
+                      <th className="p-2 text-left">Item</th>
+                      <th className="p-2 text-left">Unit</th>
+                      <th className="p-2 text-left">Qty</th>
+                      <th className="p-2 text-left">Rate</th>
+                      <th className="p-2 text-left">VAT %</th>
+                      <th className="p-2 text-left">Amount</th>
+                      <th className="p-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {creditNoteDraftLines.map((line) => (
+                      <tr key={line.key} className="border-b">
+                        <td className="p-2">
+                          <select
+                            className="w-full rounded-md border px-2 py-1 text-sm"
+                            value={line.item_id != null ? String(line.item_id) : ""}
+                            onChange={(e) => onCreditNoteDraftItemChange(line.key, e.target.value)}
+                          >
+                            <option value="">Select item...</option>
+                            {quoteLookupItems.map((it) => (
+                              <option key={it.item_id} value={String(it.item_id)}>
+                                {it.item_name}
+                              </option>
+                            ))}
+                          </select>
+                          <Textarea
+                            className="mt-2"
+                            rows={3}
+                            value={line.description}
+                            onChange={(e) => updateCreditNoteLine(line.key, { description: e.target.value })}
+                            placeholder="Item description"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <Input value={line.unit} onChange={(e) => updateCreditNoteLine(line.key, { unit: e.target.value })} />
+                        </td>
+                        <td className="p-2">
+                          <Input type="number" step="0.01" value={String(line.qty)} onChange={(e) => updateCreditNoteLine(line.key, { qty: Number(e.target.value || 0) })} />
+                        </td>
+                        <td className="p-2">
+                          <Input type="number" step="0.01" value={String(line.rate)} onChange={(e) => updateCreditNoteLine(line.key, { rate: Number(e.target.value || 0) })} />
+                        </td>
+                        <td className="p-2">
+                          <Input type="number" step="0.01" value={String(line.vat_rate_pct)} onChange={(e) => updateCreditNoteLine(line.key, { vat_rate_pct: Number(e.target.value || 0) })} />
+                        </td>
+                        <td className="p-2">{currencyFmt.format(invoiceLineAmount(line))}</td>
+                        <td className="p-2 text-right">
+                          <Button variant="outline" size="sm" onClick={() => removeCreditNoteLine(line.key)}>Remove</Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="ml-auto w-full max-w-md space-y-2 text-sm">
+                <div className="flex justify-between"><span>Sub-total</span><span>{currencyFmt.format(creditNoteDraftSubtotal)}</span></div>
+                <div className="flex justify-between"><span>VAT</span><span>{currencyFmt.format(creditNoteDraftVat)}</span></div>
+                <div className="flex justify-between border-t pt-2 text-base font-semibold"><span>Total</span><span>{currencyFmt.format(creditNoteDraftTotal)}</span></div>
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={addCreditNote} disabled={!creditNoteForm.job_id} title={!creditNoteForm.job_id ? "Select a job first" : undefined}>Add Credit Note</Button>
+              </div>
+            </CardContent>
+          </Card>
+
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle>Credit Notes ({creditNotes.length})</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {creditNotes.length === 0 ? (
+                  <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">No credit notes yet.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {creditNotes.map((cn) => (
+                      <div key={cn.credit_note_id} className="rounded-md border px-3 py-2 text-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="font-medium">{cn.credit_note_number || `#${cn.credit_note_id}`}</div>
+                            <div className="text-muted-foreground">
+                              Date: {cn.credit_note_date ? new Date(cn.credit_note_date).toLocaleDateString("en-GB") : "-"} | Status: {cn.status || "-"}
+                              {cn.xero_sync_status ? ` | Xero: ${cn.xero_sync_status}` : ""}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="min-w-[150px] text-right font-semibold">
+                              {currencyFmt.format(Number(cn.total || 0))} {cn.currency_code || client?.currency || ""}
+                            </div>
+                            <Button size="sm" variant="outline" onClick={() => syncCreditNoteToXero(cn.credit_note_id)}>
+                              {cn.xero_credit_note_id ? "Resync" : "Sync"} to Xero
+                            </Button>
+                            <Button size="sm" variant="outline" asChild>
+                              <Link href={`/clients/${clientId}/credit-notes/${cn.credit_note_id}`}>Open</Link>
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => removeCreditNote(cn.credit_note_id)}>
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </>

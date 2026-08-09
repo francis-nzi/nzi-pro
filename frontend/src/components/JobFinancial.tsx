@@ -37,6 +37,19 @@ type JobInvoice = {
   amount_paid: number | null;
 };
 
+type JobCreditNote = {
+  credit_note_id: number;
+  job_id?: number | null;
+  invoice_id: number | null;
+  credit_note_number: string | null;
+  credit_note_date: string | null;
+  currency_code: string | null;
+  total: number | null;
+  status: string | null;
+  xero_credit_note_id?: string;
+  xero_sync_status?: string;
+};
+
 type QuoteLookupItem = {
   item_id: number;
   item_name: string;
@@ -130,6 +143,7 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
   const [status, setStatus] = useState("");
   const [quotes, setQuotes] = useState<JobQuote[]>([]);
   const [invoices, setInvoices] = useState<JobInvoice[]>([]);
+  const [creditNotes, setCreditNotes] = useState<JobCreditNote[]>([]);
   const [quoteLookupItems, setQuoteLookupItems] = useState<QuoteLookupItem[]>([]);
   const [otherCosts, setOtherCosts] = useState<OtherCost[]>([]);
   const [otherCostSuppliers, setOtherCostSuppliers] = useState<OtherCostSupplier[]>([]);
@@ -261,6 +275,18 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
       if (!loadedInvoices) {
         setInvoices([]);
         setStatus("Invoices are temporarily unavailable.");
+      }
+
+      try {
+        const cnRes = await fetch(`${baseUrl}/jobs/${jobId}/credit-notes`, { credentials: "include" });
+        if (cnRes.ok) {
+          const cnJson = (await cnRes.json()) as { items?: JobCreditNote[] };
+          setCreditNotes(Array.isArray(cnJson?.items) ? cnJson.items : []);
+        } else {
+          setCreditNotes([]);
+        }
+      } catch {
+        setCreditNotes([]);
       }
 
       if (!(clientId && clientId > 0)) {
@@ -481,6 +507,21 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
       setStatus((e as Error).message);
     } finally {
       setEmailSending(false);
+    }
+  }
+
+  async function syncCreditNoteToXero(creditNoteId: number) {
+    setStatus("");
+    try {
+      const res = await fetch(`${baseUrl}/xero/credit-notes/${creditNoteId}/sync`, { method: "POST", credentials: "include" });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed to sync credit note to Xero (${res.status})${t ? `: ${t}` : ""}`);
+      }
+      await load();
+      setStatus("Credit note synced to Xero.");
+    } catch (e) {
+      setStatus((e as Error).message);
     }
   }
 
@@ -1118,6 +1159,34 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
           ))}
           {!loading && invoices.length === 0 ? <div className="text-sm text-muted-foreground">No invoices for this job yet.</div> : null}
           {status ? <div className="text-sm text-muted-foreground">{status}</div> : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Credit Notes For This Job ({creditNotes.length})</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          {creditNotes.map((cn) => (
+            <div key={cn.credit_note_id} className="rounded-md border px-3 py-2 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="font-medium">{cn.credit_note_number || `#${cn.credit_note_id}`}</div>
+                  <div className="text-muted-foreground">
+                    Status: {cn.status || "-"} | Date: {cn.credit_note_date || "-"}
+                    {cn.xero_sync_status ? ` | Xero: ${cn.xero_sync_status}` : ""}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="font-semibold">{money.format(Number(cn.total || 0))} {cn.currency_code || ""}</div>
+                  <Button size="sm" variant="outline" onClick={() => window.open(`${baseUrl}/credit-notes/${cn.credit_note_id}/pdf`, "_blank", "noopener,noreferrer")}>PDF</Button>
+                  <Button size="sm" variant="outline" onClick={() => void syncCreditNoteToXero(cn.credit_note_id)}>
+                    {cn.xero_credit_note_id ? "Resync" : "Sync"} to Xero
+                  </Button>
+                  <Button size="sm" variant="outline" asChild><Link href={`/clients/${clientId}/credit-notes/${cn.credit_note_id}`}>Open</Link></Button>
+                </div>
+              </div>
+            </div>
+          ))}
+          {!loading && creditNotes.length === 0 ? <div className="text-sm text-muted-foreground">No credit notes for this job yet.</div> : null}
         </CardContent>
       </Card>
     </div>

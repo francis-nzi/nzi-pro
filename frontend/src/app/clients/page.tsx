@@ -210,6 +210,9 @@ function ClientsContent() {
                 <Link href="/clients/invoices">Invoices</Link>
               </Button>
               <Button variant="secondary" asChild>
+                <Link href="/clients/credit-notes">Credit Notes</Link>
+              </Button>
+              <Button variant="secondary" asChild>
                 <Link href="/">Back to Hub</Link>
               </Button>
             </>
