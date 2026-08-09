@@ -736,6 +736,11 @@ def _line_items(con, invoice_id: int) -> list[dict[str, Any]]:
             ]
             if part
         ) or f"Invoice line {int(line.get('invoice_line_id') or 0)}"
+        # Note: no ItemCode is set here. Xero's ItemCode must reference an
+        # actual entry in that organisation's own Inventory Items catalog --
+        # our "unit" field (hour/day/each) is a free-text unit of measure
+        # with no Xero equivalent, and sending it as ItemCode makes Xero
+        # reject the whole invoice with "Item code '<unit>' is not valid".
         item = {
             "Description": description,
             "Quantity": round(qty, 4),
@@ -744,8 +749,6 @@ def _line_items(con, invoice_id: int) -> list[dict[str, Any]]:
             "AccountCode": account_code,
             "TaxType": tax_type,
         }
-        if str(line.get("unit") or "").strip():
-            item["ItemCode"] = str(line.get("unit") or "").strip()
         items.append(item)
     return items
 
