@@ -59,6 +59,7 @@ const ADMIN_CENTER_LINKS = [
   { label: "Milestone Templates",     href: "/admin-center/milestone-templates", domain: "Reporting & Delivery" },
   { label: "Automation Rules",        href: "/admin-center/automations",   domain: "Reporting & Delivery" },
   { label: "Action Options",          href: "/admin-center/actions-options",domain: "Reporting & Delivery" },
+  { label: "SRS Readiness Questions", href: "/admin-center/srs-readiness", domain: "Reporting & Delivery" },
   { label: "Missing Data",            href: "/admin-center/missing-data",  domain: "Reporting & Delivery" },
   { label: "Theme Settings",          href: "/admin-center/theme",         domain: "System & Governance" },
   { label: "Custom Fields",           href: "/admin-center/custom-fields", domain: "System & Governance" },
