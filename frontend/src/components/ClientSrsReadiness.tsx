@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Save } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Save, Search } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -80,11 +80,30 @@ const STATUS_OPTIONS = [
 
 const PRIORITY_OPTIONS = ["High", "Medium", "Low"];
 
+const SCOPE_FILTERS = [
+  { value: "all", label: "All questions" },
+  { value: "unscored", label: "Not scored" },
+  { value: "scored", label: "Scored" },
+] as const;
+
+type ScopeFilter = (typeof SCOPE_FILTERS)[number]["value"];
+
 function maturityBadgeVariant(label: string | null): string {
   if (label === "Cultural") return "bg-green-100 text-green-800 border-green-200";
   if (label === "Maturing") return "bg-amber-100 text-amber-800 border-amber-200";
   if (label === "Compliance") return "bg-slate-100 text-slate-700 border-slate-200";
   return "bg-gray-50 text-gray-400 border-gray-200";
+}
+
+function editsEqual(a: ResponseEdit, b: ResponseEdit): boolean {
+  return (
+    a.score === b.score &&
+    a.evidence_notes === b.evidence_notes &&
+    a.priority === b.priority &&
+    a.owner === b.owner &&
+    a.target_date === b.target_date &&
+    a.status === b.status
+  );
 }
 
 function apiBaseUrl() {
@@ -96,10 +115,16 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
   const [sections, setSections] = useState<SrsSection[]>([]);
   const [summary, setSummary] = useState<SrsSummary | null>(null);
   const [edits, setEdits] = useState<Record<number, ResponseEdit>>({});
+  const [savedEdits, setSavedEdits] = useState<Record<number, ResponseEdit>>({});
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const [savedFlashId, setSavedFlashId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [status, setStatus] = useState("");
+  const [rowError, setRowError] = useState<Record<number, string>>({});
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("all");
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     void loadData();
@@ -133,6 +158,12 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
         }
       }
       setEdits(nextEdits);
+      setSavedEdits(nextEdits);
+      // Collapse every section by default except the first, so the tab opens
+      // as a manageable list rather than 24 open cards.
+      setCollapsed(
+        Object.fromEntries(loadedSections.map((s, i) => [s.section, i !== 0]))
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load SRS Readiness");
     } finally {
@@ -153,37 +184,64 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
     return map;
   }, [summary]);
 
-  async function handleSave() {
-    setSaving(true);
-    setStatus("Saving...");
+  const filteredSections = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return sections.map((section) => ({
+      ...section,
+      questions: section.questions.filter((question) => {
+        if (scopeFilter === "unscored" && question.score !== null) return false;
+        if (scopeFilter === "scored" && question.score === null) return false;
+        if (!q) return true;
+        const target = `${question.question_text} ${question.theme || ""}`.toLowerCase();
+        return target.includes(q);
+      }),
+    }));
+  }, [sections, searchQuery, scopeFilter]);
+
+  const isFiltering = searchQuery.trim().length > 0 || scopeFilter !== "all";
+
+  function toggleSection(section: string) {
+    setCollapsed((prev) => ({ ...prev, [section]: !prev[section] }));
+  }
+
+  async function saveQuestion(questionId: number) {
+    const edit = edits[questionId];
+    if (!edit) return;
+    setSavingId(questionId);
+    setRowError((prev) => ({ ...prev, [questionId]: "" }));
     try {
-      const items = Object.entries(edits).map(([questionId, edit]) => ({
-        question_id: Number(questionId),
-        score: edit.score,
-        evidence_notes: edit.evidence_notes.trim() || null,
-        priority: edit.priority.trim() || null,
-        owner: edit.owner.trim() || null,
-        target_date: edit.target_date.trim() || null,
-        status: edit.status,
-      }));
       const res = await fetch(`${base}/clients/${clientDbId}/srs-readiness`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({
+          items: [
+            {
+              question_id: questionId,
+              score: edit.score,
+              evidence_notes: edit.evidence_notes.trim() || null,
+              priority: edit.priority.trim() || null,
+              owner: edit.owner.trim() || null,
+              target_date: edit.target_date.trim() || null,
+              status: edit.status,
+            },
+          ],
+        }),
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => "");
-        throw new Error(detail || `Failed to save SRS Readiness (${res.status})`);
+        throw new Error(detail || `Failed to save (${res.status})`);
       }
       const payload = (await res.json()) as { sections?: SrsSection[]; summary?: SrsSummary };
       if (Array.isArray(payload.sections)) setSections(payload.sections);
       if (payload.summary) setSummary(payload.summary);
-      setStatus("Saved.");
+      setSavedEdits((prev) => ({ ...prev, [questionId]: edit }));
+      setSavedFlashId(questionId);
+      window.setTimeout(() => setSavedFlashId((id) => (id === questionId ? null : id)), 1800);
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : "Failed to save SRS Readiness");
+      setRowError((prev) => ({ ...prev, [questionId]: err instanceof Error ? err.message : "Failed to save" }));
     } finally {
-      setSaving(false);
+      setSavingId(null);
     }
   }
 
@@ -205,27 +263,55 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
             Results drive the four readiness gauges shown in the client portal.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          {summary?.overall_maturity_label && (
-            <Badge variant="outline" className={maturityBadgeVariant(summary.overall_maturity_label)}>
-              Overall: {summary.overall_maturity_label} ({summary.overall_avg_score?.toFixed(2)})
-            </Badge>
-          )}
-          <Button onClick={() => void handleSave()} disabled={saving}>
-            <Save className="mr-2 h-4 w-4" />
-            {saving ? "Saving..." : "Save Scores"}
-          </Button>
+        {summary?.overall_maturity_label && (
+          <Badge variant="outline" className={maturityBadgeVariant(summary.overall_maturity_label)}>
+            Overall: {summary.overall_maturity_label} ({summary.overall_avg_score?.toFixed(2)})
+          </Badge>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search questions or themes..."
+            className="pl-9"
+          />
+        </div>
+        <div className="flex gap-2">
+          {SCOPE_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              type="button"
+              onClick={() => setScopeFilter(f.value)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                scopeFilter === f.value
+                  ? "bg-[#1c5026] text-white border-[#1c5026]"
+                  : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
         </div>
       </div>
-      {status && <div className="text-sm text-muted-foreground">{status}</div>}
 
-      {sections.map((section) => {
+      {filteredSections.map((section) => {
         const sectionSummary = summaryBySection[section.section];
+        const isCollapsed = !isFiltering && !!collapsed[section.section];
         return (
           <Card key={section.section}>
-            <CardHeader className="pb-3">
+            <CardHeader
+              className="cursor-pointer pb-3 select-none"
+              onClick={() => toggleSection(section.section)}
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <CardTitle>{section.section}</CardTitle>
+                <div className="flex items-center gap-2">
+                  {isCollapsed ? <ChevronRight className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                  <CardTitle>{section.section}</CardTitle>
+                </div>
                 <div className="flex items-center gap-2">
                   {sectionSummary?.maturity_label ? (
                     <Badge variant="outline" className={maturityBadgeVariant(sectionSummary.maturity_label)}>
@@ -239,109 +325,135 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
                   </span>
                 </div>
               </div>
-              {section.suggested_action && (
+              {!isCollapsed && section.suggested_action && (
                 <CardDescription>{section.suggested_action}</CardDescription>
               )}
             </CardHeader>
-            <CardContent className="space-y-5">
-              {section.questions.length === 0 ? (
-                <div className="text-sm text-muted-foreground">No active questions in this section.</div>
-              ) : (
-                section.questions.map((q) => {
-                  const edit = edits[q.question_id];
-                  if (!edit) return null;
-                  return (
-                    <div key={q.question_id} className="rounded-lg border p-4 space-y-3">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {q.theme && <Badge variant="outline" className="text-xs">{q.theme}</Badge>}
-                        </div>
-                        <p className="text-sm font-medium mt-1">{q.question_text}</p>
-                        {q.evidence_examples && (
-                          <p className="text-xs text-muted-foreground mt-1">Evidence: {q.evidence_examples}</p>
-                        )}
-                      </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        {SCORE_OPTIONS.map((opt) => (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            onClick={() => updateEdit(q.question_id, { score: edit.score === opt.value ? null : opt.value })}
-                            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                              edit.score === opt.value
-                                ? "bg-[#1c5026] text-white border-[#1c5026]"
-                                : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
-                            }`}
+            {!isCollapsed && (
+              <CardContent className="space-y-5">
+                {section.questions.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No questions match the current filters.</div>
+                ) : (
+                  section.questions.map((q) => {
+                    const edit = edits[q.question_id];
+                    if (!edit) return null;
+                    const baseline = savedEdits[q.question_id];
+                    const dirty = !baseline || !editsEqual(edit, baseline);
+                    const isSaving = savingId === q.question_id;
+                    const justSaved = savedFlashId === q.question_id;
+                    return (
+                      <div key={q.question_id} className="rounded-lg border p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {q.theme && <Badge variant="outline" className="text-xs">{q.theme}</Badge>}
+                            </div>
+                            <p className="text-sm font-medium mt-1">{q.question_text}</p>
+                            {q.evidence_examples && (
+                              <p className="text-xs text-muted-foreground mt-1">Evidence: {q.evidence_examples}</p>
+                            )}
+                          </div>
+                          <Button
+                            size="sm"
+                            variant={dirty ? "default" : "outline"}
+                            disabled={!dirty || isSaving}
+                            onClick={() => void saveQuestion(q.question_id)}
+                            className="shrink-0"
                           >
-                            {opt.value}. {opt.label}
-                          </button>
-                        ))}
-                      </div>
+                            {isSaving ? (
+                              "Saving..."
+                            ) : justSaved ? (
+                              <><Check className="mr-1.5 h-3.5 w-3.5" />Saved</>
+                            ) : (
+                              <><Save className="mr-1.5 h-3.5 w-3.5" />Save</>
+                            )}
+                          </Button>
+                        </div>
+                        {rowError[q.question_id] && (
+                          <div className="text-xs text-red-600">{rowError[q.question_id]}</div>
+                        )}
 
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <div className="space-y-1.5">
-                          <Label className="text-xs">Evidence notes</Label>
-                          <Textarea
-                            rows={2}
-                            value={edit.evidence_notes}
-                            onChange={(e) => updateEdit(q.question_id, { evidence_notes: e.target.value })}
-                            placeholder="Document, process, owner, or example that supports the score."
-                            className="text-sm"
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-3 content-start">
-                          <div className="space-y-1.5">
-                            <Label className="text-xs">Priority</Label>
-                            <Select
-                              value={edit.priority || "__none__"}
-                              onValueChange={(v) => updateEdit(q.question_id, { priority: v === "__none__" ? "" : v })}
+                        <div className="flex flex-wrap gap-2">
+                          {SCORE_OPTIONS.map((opt) => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => updateEdit(q.question_id, { score: edit.score === opt.value ? null : opt.value })}
+                              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                edit.score === opt.value
+                                  ? "bg-[#1c5026] text-white border-[#1c5026]"
+                                  : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
+                              }`}
                             >
-                              <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="—" /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="__none__">—</SelectItem>
-                                {PRIORITY_OPTIONS.map((p) => (
-                                  <SelectItem key={p} value={p}>{p}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
+                              {opt.value}. {opt.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2">
                           <div className="space-y-1.5">
-                            <Label className="text-xs">Status</Label>
-                            <Select value={edit.status} onValueChange={(v) => updateEdit(q.question_id, { status: v })}>
-                              <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                {STATUS_OPTIONS.map((s) => (
-                                  <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label className="text-xs">Owner</Label>
-                            <Input
-                              className="h-9 text-sm"
-                              value={edit.owner}
-                              onChange={(e) => updateEdit(q.question_id, { owner: e.target.value })}
-                              placeholder="e.g. Leadership"
+                            <Label className="text-xs">Evidence notes</Label>
+                            <Textarea
+                              rows={2}
+                              value={edit.evidence_notes}
+                              onChange={(e) => updateEdit(q.question_id, { evidence_notes: e.target.value })}
+                              placeholder="Document, process, owner, or example that supports the score."
+                              className="text-sm"
                             />
                           </div>
-                          <div className="space-y-1.5">
-                            <Label className="text-xs">Target date</Label>
-                            <Input
-                              type="date"
-                              className="h-9 text-sm"
-                              value={edit.target_date}
-                              onChange={(e) => updateEdit(q.question_id, { target_date: e.target.value })}
-                            />
+                          <div className="grid grid-cols-2 gap-3 content-start">
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">Priority</Label>
+                              <Select
+                                value={edit.priority || "__none__"}
+                                onValueChange={(v) => updateEdit(q.question_id, { priority: v === "__none__" ? "" : v })}
+                              >
+                                <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="—" /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__none__">—</SelectItem>
+                                  {PRIORITY_OPTIONS.map((p) => (
+                                    <SelectItem key={p} value={p}>{p}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">Status</Label>
+                              <Select value={edit.status} onValueChange={(v) => updateEdit(q.question_id, { status: v })}>
+                                <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {STATUS_OPTIONS.map((s) => (
+                                    <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">Owner</Label>
+                              <Input
+                                className="h-9 text-sm"
+                                value={edit.owner}
+                                onChange={(e) => updateEdit(q.question_id, { owner: e.target.value })}
+                                placeholder="e.g. Leadership"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">Target date</Label>
+                              <Input
+                                type="date"
+                                className="h-9 text-sm"
+                                value={edit.target_date}
+                                onChange={(e) => updateEdit(q.question_id, { target_date: e.target.value })}
+                              />
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })
-              )}
-            </CardContent>
+                    );
+                  })
+                )}
+              </CardContent>
+            )}
           </Card>
         );
       })}
