@@ -280,7 +280,7 @@ PORTAL_ROLE_CAN_MANAGE_USERS = {"ClientAdmin"}
 # per-site structure to filter (a job/report/file/action can span multiple
 # sites), so a partial view isn't possible -- confirmed decision was to hide
 # rather than show unfiltered.
-SITE_SCOPED_HIDDEN_SECTIONS = {"reports", "files", "actions", "insights"}
+SITE_SCOPED_HIDDEN_SECTIONS = {"reports", "files", "actions", "insights", "risk"}
 
 
 def get_portal_user_site_ids(portal_user_id: int, *, con=None) -> list[int] | None:
@@ -326,6 +326,7 @@ _DEFAULT_NAV_CONFIG = {
     "data_entry": True,
     "reports": True,
     "actions": True,
+    "risk": False,
     "insights": True,
     "files": True,
     "governance": False,

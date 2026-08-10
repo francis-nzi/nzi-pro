@@ -1203,13 +1203,14 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
   const ALL_NAV_ITEMS: { key: string; label: string }[] = [
     { key: "dashboard", label: "Dashboard" },
     { key: "portfolio", label: "Portfolio" },
-    { key: "data",      label: "Data" },
     { key: "data_entry",label: "Data Entry" },
+    { key: "data",      label: "Metrics" },
+    { key: "actions",   label: "Strategy" },
+    { key: "risk",      label: "Risk" },
+    { key: "governance",label: "Governance" },
     { key: "reports",   label: "Reports" },
-    { key: "actions",   label: "Actions" },
     { key: "insights",  label: "Insights" },
     { key: "files",     label: "Files" },
-    { key: "governance",label: "Governance" },
   ];
   // Portfolio is only relevant for clients whose status is "Portfolio Owner" --
   // hide the toggle for everyone else so it can't be turned on by accident.

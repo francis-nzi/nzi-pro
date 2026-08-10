@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  AlertTriangle,
   BarChart3,
   ClipboardList,
   FileText,
@@ -34,6 +35,7 @@ type NavConfig = {
   data_entry?: boolean;
   reports?: boolean;
   actions?: boolean;
+  risk?: boolean;
   insights?: boolean;
   files?: boolean;
   governance?: boolean;
@@ -49,13 +51,14 @@ type NavItem = {
 const ALL_NAV_ITEMS: NavItem[] = [
   { key: "dashboard", label: "Dashboard",  icon: <LayoutDashboard className="h-5 w-5" />, tab: "dashboard" },
   { key: "portfolio", label: "Portfolio",  icon: <BarChart3 className="h-5 w-5" />,       tab: "portfolio" },
-  { key: "data",      label: "Data",       icon: <BarChart3 className="h-5 w-5" />,       tab: "data" },
   { key: "data_entry",label: "Data Entry", icon: <ClipboardList className="h-5 w-5" />,   tab: "data_entry" },
+  { key: "data",      label: "Metrics",    icon: <BarChart3 className="h-5 w-5" />,       tab: "data" },
+  { key: "actions",   label: "Strategy",   icon: <Zap className="h-5 w-5" />,              tab: "actions" },
+  { key: "risk",      label: "Risk",       icon: <AlertTriangle className="h-5 w-5" />,    tab: "risk" },
+  { key: "governance",label: "Governance", icon: <Shield className="h-5 w-5" />,           tab: "governance" },
   { key: "reports",   label: "Reports",    icon: <FileText className="h-5 w-5" />,         tab: "reports" },
-  { key: "actions",   label: "Actions",    icon: <Zap className="h-5 w-5" />,              tab: "actions" },
   { key: "insights",  label: "Insights",   icon: <Lightbulb className="h-5 w-5" />,        tab: "insights" },
   { key: "files",     label: "Files",      icon: <Files className="h-5 w-5" />,            tab: "files" },
-  { key: "governance",label: "Governance", icon: <Shield className="h-5 w-5" />,           tab: "governance" },
 ];
 
 export type { NavConfig };
