@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   BarChart3,
+  ClipboardCheck,
   ClipboardList,
   FileText,
   Files,
@@ -36,6 +37,7 @@ type NavConfig = {
   reports?: boolean;
   actions?: boolean;
   risk?: boolean;
+  srs_readiness?: boolean;
   insights?: boolean;
   files?: boolean;
   governance?: boolean;
@@ -56,6 +58,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { key: "actions",   label: "Strategy",   icon: <Zap className="h-5 w-5" />,              tab: "actions" },
   { key: "risk",      label: "Risk",       icon: <AlertTriangle className="h-5 w-5" />,    tab: "risk" },
   { key: "governance",label: "Governance", icon: <Shield className="h-5 w-5" />,           tab: "governance" },
+  { key: "srs_readiness", label: "SRS Readiness", icon: <ClipboardCheck className="h-5 w-5" />, tab: "srs_readiness" },
   { key: "reports",   label: "Reports",    icon: <FileText className="h-5 w-5" />,         tab: "reports" },
   { key: "insights",  label: "Insights",   icon: <Lightbulb className="h-5 w-5" />,        tab: "insights" },
   { key: "files",     label: "Files",      icon: <Files className="h-5 w-5" />,            tab: "files" },

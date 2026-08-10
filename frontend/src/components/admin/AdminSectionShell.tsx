@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import type { LucideIcon } from "lucide-react";
-import { BadgeAlert, Building2, Database, FileCog, Gauge, History, Mail, Palette, Settings2, ShieldCheck, Sparkles, Table2, Users, Workflow, Boxes, FileSpreadsheet, Clock3, Layers3, UploadCloud, BellRing, ArchiveRestore, Folders } from "lucide-react";
+import { BadgeAlert, Building2, ClipboardCheck, Database, FileCog, Gauge, History, Mail, Palette, Settings2, ShieldCheck, Sparkles, Table2, Users, Workflow, Boxes, FileSpreadsheet, Clock3, Layers3, UploadCloud, BellRing, ArchiveRestore, Folders } from "lucide-react";
 import { AdminCenterShell } from "@/components/admin-center/AdminCenterShell";
 
 export type AdminDomain = "People & Access" | "Reference Data" | "Reporting & Delivery" | "System & Governance";
@@ -29,6 +29,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   { title: "Milestone Templates", href: "/admin/milestone-templates", description: "Milestone schedules for job types.", domain: "Reporting & Delivery", icon: Clock3 },
   { title: "Automation Rules", href: "/admin/automations", description: "CRM triggers and automated actions.", domain: "Reporting & Delivery", icon: Workflow },
   { title: "Action Options", href: "/admin/actions-options", description: "Suggested actions for reports.", domain: "Reporting & Delivery", icon: Sparkles },
+  { title: "SRS Readiness Questions", href: "/admin/srs-readiness", description: "UK SRS Readiness assessment question bank.", domain: "Reporting & Delivery", icon: ClipboardCheck },
   { title: "Missing Data", href: "/admin/missing-data", description: "Find and clean up incomplete records.", domain: "Reporting & Delivery", icon: BadgeAlert },
   { title: "Theme Settings", href: "/admin/theme", description: "Branding and visual controls.", domain: "System & Governance", icon: Palette },
   { title: "Custom Fields", href: "/admin/custom-fields", description: "Fields across clients, jobs, and suppliers.", domain: "System & Governance", icon: Folders },

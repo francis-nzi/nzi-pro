@@ -34,6 +34,7 @@ const modulePages = {
   portfolios: dynamic(() => import("@/app/admin/portfolios/page"), { ssr: false }),
   organisations: dynamic(() => import("@/app/admin/organisations/page"), { ssr: false }),
   settings: dynamic(() => import("@/app/admin/settings/page"), { ssr: false }),
+  "srs-readiness": dynamic(() => import("@/app/admin/srs-readiness/page"), { ssr: false }),
   suppliers: dynamic(() => import("@/app/admin/suppliers/page"), { ssr: false }),
   team: dynamic(() => import("@/app/admin/team/page"), { ssr: false }),
   templates: dynamic(() => import("@/app/admin/templates/page"), { ssr: false }),

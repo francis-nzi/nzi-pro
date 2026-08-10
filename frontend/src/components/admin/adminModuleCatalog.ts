@@ -5,6 +5,7 @@ import {
   BellRing,
   Boxes,
   Building2,
+  ClipboardCheck,
   Clock3,
   Database,
   FileCog,
@@ -200,6 +201,14 @@ export const ADMIN_MODULES: AdminModule[] = [
     cta: "Edit actions",
     domain: "Reporting & Delivery",
     icon: Sparkles,
+  },
+  {
+    title: "SRS Readiness Questions",
+    description: "Manage the UK SRS Readiness assessment question bank used on client SRS Readiness scoring and the portal gauges.",
+    href: "/admin/srs-readiness",
+    cta: "Edit questions",
+    domain: "Reporting & Delivery",
+    icon: ClipboardCheck,
   },
   {
     title: "Theme Settings",

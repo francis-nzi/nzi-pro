@@ -39,6 +39,10 @@ const ClientActions = dynamic(() => import("@/components/ClientActions"), {
   ssr: false,
   loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading actions...</div>,
 });
+const ClientSrsReadiness = dynamic(() => import("@/components/ClientSrsReadiness"), {
+  ssr: false,
+  loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading SRS Readiness...</div>,
+});
 const ClientJobsSection = dynamic(() => import("@/components/ClientJobsSection"), {
   ssr: false,
   loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading jobs...</div>,
@@ -263,6 +267,7 @@ type ClientSection =
   | "jobs"
   | "reporting"
   | "actions"
+  | "srs-readiness"
   | "custom-fields"
   | "portal"
   | "ai-profile";
@@ -544,6 +549,8 @@ function ClientDetailPageContent() {
       targetSection = "reporting";
     } else if (section === "actions") {
       targetSection = "actions";
+    } else if (section === "srs-readiness") {
+      targetSection = "srs-readiness";
     } else if (section === "timeline" || section === "communications") {
       targetSection = "timeline";
     } else if (section === "notes") {
@@ -588,6 +595,8 @@ function ClientDetailPageContent() {
       targetSection = "reporting";
     } else if (section === "actions") {
       targetSection = "actions";
+    } else if (section === "srs-readiness") {
+      targetSection = "srs-readiness";
     } else if (section === "details") {
       targetSection = "profile";
       targetSubTab = "details";
@@ -2472,6 +2481,7 @@ function ClientDetailPageContent() {
     if (activeSection === "jobs") return <ClientJobsSection loading={jobsLoading || !jobsLoaded} jobs={jobs} />;
     if (activeSection === "reporting") return <ClientReporting clientId={clientId} baseUrl={baseUrl} />;
     if (activeSection === "actions") return <ClientActions clientDbId={clientId} baseUrl={baseUrl} />;
+    if (activeSection === "srs-readiness") return <ClientSrsReadiness clientDbId={clientId} baseUrl={baseUrl} />;
     if (activeSection === "portal") return <ClientPortalManagement clientId={clientId} baseUrl={baseUrl} />;
     if (activeSection === "custom-fields") return <CustomFields entityId={clientId} entityType="client" baseUrl={baseUrl} />;
     if (activeSection === "ai-profile") return <ClientAiProfile clientId={clientId} clientName={client?.client_name} clientWebsite={client?.website} baseUrl={baseUrl} />;

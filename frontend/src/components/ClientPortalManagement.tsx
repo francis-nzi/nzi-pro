@@ -1207,6 +1207,7 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
     { key: "data",      label: "Metrics" },
     { key: "actions",   label: "Strategy" },
     { key: "risk",      label: "Risk" },
+    { key: "srs_readiness", label: "SRS Readiness" },
     { key: "governance",label: "Governance" },
     { key: "reports",   label: "Reports" },
     { key: "insights",  label: "Insights" },

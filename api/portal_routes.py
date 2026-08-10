@@ -1733,6 +1733,18 @@ class _PortalAddActionPayload(_BaseModel):
     lever_id: int
 
 
+@router.get("/portal/srs-readiness")
+def portal_srs_readiness(current_user: dict = Depends(portal_user_dep)):
+    """Read-only SRS Readiness gauges + question breakdown for this client."""
+    _assert_section_allowed(current_user, "srs_readiness")
+    from services.srs_readiness import get_client_srs_responses, get_srs_readiness_summary
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        responses = get_client_srs_responses(client_db_id, con=con)
+        summary = get_srs_readiness_summary(client_db_id, con=con)
+    return {**responses, "summary": summary}
+
+
 @router.get("/portal/actions/library")
 def portal_actions_library(current_user: dict = Depends(portal_user_dep)):
     """Return full active action library with 'already_added' flag for this client."""
