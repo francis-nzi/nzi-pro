@@ -891,7 +891,8 @@ def send_review_to_client(job_id: int, sent_by: str, *, con=None) -> dict[str, A
     con.execute(
         """
         UPDATE report_reviews
-        SET status = 'sent_for_review', sent_for_review_at = NOW(), sent_by = %s, updated_at = NOW()
+        SET status = 'sent_for_review', sent_for_review_at = NOW(), sent_by = %s, updated_at = NOW(),
+            locked_by_crm_at = NULL, locked_by_crm_by = NULL
         WHERE job_id = %s
         """,
         [sent_by, int(job_id)],
@@ -976,7 +977,9 @@ def send_to_portal(
             sent_for_review_at = NOW(),
             sent_by = %s,
             portal_version_id = %s,
-            updated_at = NOW()
+            updated_at = NOW(),
+            locked_by_crm_at = NULL,
+            locked_by_crm_by = NULL
         WHERE job_id = %s
         """,
         [sent_by, int(portal_version_id), int(job_id)],
