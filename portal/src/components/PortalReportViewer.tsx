@@ -425,15 +425,15 @@ function IntensityPathwayChart({
           <XAxis dataKey="year" ticks={tickYears} tickFormatter={(v: number) => String(v)} tick={{ fontSize: 10 }} />
           <YAxis tickFormatter={(v: number) => v.toFixed(1)} tick={{ fontSize: 10 }} />
           <Tooltip formatter={((value: unknown, label: unknown) => [value != null ? `${Number(value).toFixed(3)} tCO₂e` : "—", String(label ?? "")]) as any} labelFormatter={(label: unknown) => `Year: ${label}`} />
-          <Legend content={(p) => <WrapLegend payload={(p.payload as LegendEntry[] | undefined)} />} />
+          <Legend iconType="circle" />
           {interimYear && interimYear > baselineYear && interimYear < endYear && (
             <ReferenceLine x={interimYear} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: "Interim", position: "top", fill: "#f59e0b", fontSize: 9 }} />
           )}
           <ReferenceLine x={endYear} stroke="#16a34a" strokeDasharray="3 3" label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 9 }} />
           {metricEntries.flatMap((entry, index) => [
-            <Line key={`${entry.key}_actual`} type="monotone" dataKey={`${entry.label}_actual`} name={`${entry.label} (actual)`}
+            <Line key={`${entry.key}_actual`} type="monotone" dataKey={`${entry.label}_actual`} name={entry.label}
               stroke={INTENSITY_COLORS[index % INTENSITY_COLORS.length]} strokeWidth={2.5} dot={{ r: 5 }} activeDot={{ r: 6 }} connectNulls={false} isAnimationActive={false} />,
-            <Line key={`${entry.key}_target`} type="monotone" dataKey={`${entry.label}_target`} name={`${entry.label} (target)`}
+            <Line key={`${entry.key}_target`} type="monotone" dataKey={`${entry.label}_target`} name={`${entry.label} target`} legendType="none"
               stroke={INTENSITY_COLORS[index % INTENSITY_COLORS.length]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} isAnimationActive={false} />,
           ])}
         </LineChart>
