@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Edit2, Plus, Save } from "lucide-react";
 
+import LeverSelect, { type LeverOption } from "@/components/LeverSelect";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,6 +49,9 @@ type ActionOption = {
   sort_order: number;
   is_active: boolean;
   is_default?: boolean;
+  lever_id?: number | null;
+  lever_code?: string | null;
+  lever_name?: string | null;
 };
 
 const DEFAULT_TERM_OPTIONS: TermOption[] = [
@@ -66,6 +70,7 @@ function termBadgeVariant(term: string): string {
 export default function AdminActionsOptionsPage() {
   const [items, setItems] = useState<ActionOption[]>([]);
   const [termOptions, setTermOptions] = useState<TermOption[]>(DEFAULT_TERM_OPTIONS);
+  const [levers, setLevers] = useState<LeverOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
@@ -79,12 +84,14 @@ export default function AdminActionsOptionsPage() {
   const [actionTerm, setActionTerm] = useState("medium");
   const [actionCategory, setActionCategory] = useState("");
   const [scopeFocus, setScopeFocus] = useState("");
+  const [leverId, setLeverId] = useState<number | null>(null);
   const [sortOrder, setSortOrder] = useState("0");
   const [isActive, setIsActive] = useState(true);
   const [isDefault, setIsDefault] = useState(false);
 
   useEffect(() => {
     void loadData();
+    void loadLevers();
   }, []);
 
   async function loadData() {
@@ -111,6 +118,38 @@ export default function AdminActionsOptionsPage() {
     }
   }
 
+  async function loadLevers() {
+    try {
+      const baseUrl = apiBaseUrl();
+      const res = await fetch(`${baseUrl}/admin/action-levers`, { credentials: "include" });
+      if (!res.ok) return;
+      const payload = (await res.json()) as { items?: LeverOption[] };
+      setLevers(Array.isArray(payload.items) ? payload.items : []);
+    } catch {
+      // Non-fatal -- the lever dropdown just stays empty if this fails.
+    }
+  }
+
+  async function handleCreateCustomLever(name: string, description: string): Promise<LeverOption | null> {
+    const baseUrl = apiBaseUrl();
+    const res = await fetch(`${baseUrl}/admin/action-levers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ lever_name: name, lever_description: description || null }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(detail || `Failed to create custom lever (${res.status})`);
+    }
+    const payload = (await res.json()) as { item?: LeverOption };
+    if (payload.item) {
+      setLevers((prev) => [...prev, payload.item as LeverOption]);
+      return payload.item;
+    }
+    return null;
+  }
+
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return items.filter((item) => {
@@ -128,6 +167,7 @@ export default function AdminActionsOptionsPage() {
     setActionTerm("medium");
     setActionCategory("");
     setScopeFocus("");
+    setLeverId(null);
     setSortOrder("0");
     setIsActive(true);
     setIsDefault(false);
@@ -146,6 +186,7 @@ export default function AdminActionsOptionsPage() {
     setActionTerm(item.action_term || "medium");
     setActionCategory(item.action_category || "");
     setScopeFocus(item.scope_focus || "");
+    setLeverId(item.lever_id ?? null);
     setSortOrder(String(item.sort_order || 0));
     setIsActive(item.is_active);
     setIsDefault(item.is_default ?? false);
@@ -160,6 +201,10 @@ export default function AdminActionsOptionsPage() {
       setStatus("Action name is required.");
       return;
     }
+    if (!leverId) {
+      setStatus("Action lever is required.");
+      return;
+    }
 
     const payload = {
       action_name: actionName.trim(),
@@ -167,6 +212,7 @@ export default function AdminActionsOptionsPage() {
       action_term: actionTerm,
       action_category: actionCategory.trim() || null,
       scope_focus: scopeFocus.trim() || null,
+      lever_id: leverId,
       sort_order: Number(sortOrder || 0) || 0,
       is_active: isActive,
       is_default: isDefault,
@@ -211,6 +257,7 @@ export default function AdminActionsOptionsPage() {
           action_term: item.action_term,
           action_category: item.action_category || null,
           scope_focus: item.scope_focus || null,
+          lever_id: item.lever_id ?? null,
           sort_order: item.sort_order,
           is_active: !item.is_active,
           is_default: item.is_default ?? false,
@@ -333,6 +380,21 @@ export default function AdminActionsOptionsPage() {
                 </div>
 
                 <div className="space-y-2">
+                  <Label htmlFor="leverId">
+                    Action Lever <span className="text-red-500">*</span>
+                  </Label>
+                  <LeverSelect
+                    id="leverId"
+                    value={leverId}
+                    options={levers}
+                    onValueChange={setLeverId}
+                    ariaInvalid={!leverId}
+                    allowCreateCustom
+                    onCreateCustomLever={handleCreateCustomLever}
+                  />
+                </div>
+
+                <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
                   <Textarea
                     id="description"
@@ -423,6 +485,7 @@ export default function AdminActionsOptionsPage() {
                     <TableHead>Category</TableHead>
                     <TableHead>Scope / Focus</TableHead>
                     <TableHead>Term</TableHead>
+                    <TableHead>Lever</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -447,6 +510,13 @@ export default function AdminActionsOptionsPage() {
                         <Badge variant="outline" className={termBadgeVariant(item.action_term)}>
                           {item.action_term_label || item.action_term}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {item.lever_code ? (
+                          <Badge variant="outline">{item.lever_code}</Badge>
+                        ) : (
+                          <span className="text-xs text-destructive">Not set</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge variant={item.is_active ? "secondary" : "outline"}>

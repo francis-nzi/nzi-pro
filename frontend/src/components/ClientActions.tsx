@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, Save, Sparkles, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowDown, ArrowUp, Save, Sparkles, Trash2, X } from "lucide-react";
 
+import ActionLeverGrid, { type ActionLeverSummary } from "@/components/ActionLeverGrid";
+import LeverSelect, { type LeverOption } from "@/components/LeverSelect";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,6 +37,7 @@ type SuggestedActionOption = {
   sort_order: number;
   is_active: boolean;
   is_default?: boolean;
+  lever_id?: number | null;
 };
 
 type ClientActionItem = {
@@ -47,6 +50,7 @@ type ClientActionItem = {
   action_term_hint?: string;
   action_category?: string | null;
   scope_focus?: string | null;
+  lever_id?: number | null;
   is_custom: boolean;
   sort_order: number;
 };
@@ -56,6 +60,7 @@ type ClientActionsResponse = {
   suggested_options?: SuggestedActionOption[];
   term_options?: TermOption[];
   term_counts?: Record<string, number>;
+  levers?: LeverOption[];
 };
 
 type ClientActionsProps = {
@@ -78,6 +83,10 @@ export default function ClientActions({
 }: ClientActionsProps) {
   const [items, setItems] = useState<ClientActionItem[]>([]);
   const [suggestedOptions, setSuggestedOptions] = useState<SuggestedActionOption[]>([]);
+  const [levers, setLevers] = useState<LeverOption[]>([]);
+  const [leverSummary, setLeverSummary] = useState<ActionLeverSummary | null>(null);
+  const [leverSummaryLoading, setLeverSummaryLoading] = useState(true);
+  const [leverFilter, setLeverFilter] = useState<number | null>(null);
   const [termOptions, setTermOptions] = useState<TermOption[]>([
     { value: "short", label: "Short term", hint: "0-12 months" },
     { value: "medium", label: "Medium term", hint: "1-3 years" },
@@ -88,6 +97,7 @@ export default function ClientActions({
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const selectedActionsRef = useRef<HTMLDivElement | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -103,6 +113,7 @@ export default function ClientActions({
       const payload = (await res.json()) as ClientActionsResponse;
       setItems(Array.isArray(payload.items) ? payload.items : []);
       setSuggestedOptions(Array.isArray(payload.suggested_options) ? payload.suggested_options : []);
+      setLevers(Array.isArray(payload.levers) ? payload.levers : []);
       if (Array.isArray(payload.term_options) && payload.term_options.length) {
         setTermOptions(payload.term_options);
       }
@@ -113,12 +124,29 @@ export default function ClientActions({
     }
   }, [baseUrl, clientDbId]);
 
+  const loadLeverSummary = useCallback(async () => {
+    setLeverSummaryLoading(true);
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientDbId}/action-lever-summary`, {
+        credentials: "include",
+      });
+      if (!res.ok) return;
+      const payload = (await res.json()) as ActionLeverSummary;
+      setLeverSummary(payload);
+    } catch {
+      // Non-fatal -- the grid just stays empty if this fails.
+    } finally {
+      setLeverSummaryLoading(false);
+    }
+  }, [baseUrl, clientDbId]);
+
   useEffect(() => {
     if (!isActive) {
       return;
     }
     void loadData();
-  }, [isActive, loadData]);
+    void loadLeverSummary();
+  }, [isActive, loadData, loadLeverSummary]);
 
   const selectedOptionIds = useMemo(
     () =>
@@ -149,6 +177,17 @@ export default function ClientActions({
     return counts;
   }, [items, termOptions]);
 
+  const visibleItems = useMemo(() => {
+    const indexed = items.map((item, index) => ({ item, index }));
+    if (leverFilter == null) return indexed;
+    return indexed.filter(({ item }) => item.lever_id === leverFilter);
+  }, [items, leverFilter]);
+
+  function selectLever(leverId: number) {
+    setLeverFilter((prev) => (prev === leverId ? null : leverId));
+    selectedActionsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function addSuggestedAction(option: SuggestedActionOption) {
     if (selectedOptionIds.has(option.action_option_id)) return;
     setItems((prev) => [
@@ -162,6 +201,7 @@ export default function ClientActions({
         action_term_hint: option.action_term_hint,
         action_category: option.action_category || "",
         scope_focus: option.scope_focus || "",
+        lever_id: option.lever_id ?? null,
         is_custom: false,
         sort_order: (prev.length + 1) * 10,
       },
@@ -219,6 +259,7 @@ export default function ClientActions({
         action_term_hint: option.action_term_hint,
         action_category: option.action_category || "",
         scope_focus: option.scope_focus || "",
+        lever_id: option.lever_id ?? null,
         is_custom: false,
         sort_order: (prev.length + i + 1) * 10,
       })),
@@ -242,6 +283,12 @@ export default function ClientActions({
       return;
     }
 
+    const firstMissingLever = trimmedItems.find((item) => !item.lever_id);
+    if (firstMissingLever) {
+      setStatus(`"${firstMissingLever.action_name}" needs an action lever before saving.`);
+      return;
+    }
+
     setSaving(true);
     setStatus("Saving actions...");
     setError("");
@@ -259,6 +306,7 @@ export default function ClientActions({
             action_term: item.action_term,
             action_category: item.action_category || null,
             scope_focus: item.scope_focus || null,
+            lever_id: item.lever_id ?? null,
             is_custom: item.is_custom,
             sort_order: item.sort_order,
           })),
@@ -271,10 +319,12 @@ export default function ClientActions({
       const payload = (await res.json()) as ClientActionsResponse & { ok?: boolean };
       setItems(Array.isArray(payload.items) ? payload.items : []);
       setSuggestedOptions(Array.isArray(payload.suggested_options) ? payload.suggested_options : []);
+      setLevers(Array.isArray(payload.levers) ? payload.levers : []);
       if (Array.isArray(payload.term_options) && payload.term_options.length) {
         setTermOptions(payload.term_options);
       }
       setStatus("Actions saved. They will now feed into every report generated for this client.");
+      void loadLeverSummary();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save actions");
       setStatus("");
@@ -326,10 +376,38 @@ export default function ClientActions({
 
       <Card>
         <CardHeader>
-          <CardTitle>Selected Actions</CardTitle>
+          <CardTitle>Action Lever Framework</CardTitle>
           <CardDescription>
-            Arrange and refine the actions that should appear in this client&apos;s reports.
+            Every action is categorized against the ISO 14060 action lever framework. Click a lever to filter the list below.
           </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ActionLeverGrid
+            summary={leverSummary}
+            loading={leverSummaryLoading}
+            selectedLeverId={leverFilter}
+            onSelectLever={selectLever}
+          />
+        </CardContent>
+      </Card>
+
+      <div ref={selectedActionsRef}>
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle>Selected Actions</CardTitle>
+              <CardDescription>
+                Arrange and refine the actions that should appear in this client&apos;s reports.
+              </CardDescription>
+            </div>
+            {leverFilter != null ? (
+              <Button variant="outline" size="sm" onClick={() => setLeverFilter(null)}>
+                <X className="mr-2 h-4 w-4" />
+                Clear lever filter
+              </Button>
+            ) : null}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {loading ? (
@@ -338,8 +416,12 @@ export default function ClientActions({
             <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
               No actions selected yet. Add suggested actions from the library below or create a custom action.
             </div>
+          ) : visibleItems.length === 0 ? (
+            <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+              No actions are assigned to this lever yet.
+            </div>
           ) : (
-            items.map((item, index) => (
+            visibleItems.map(({ item, index }) => (
               <div key={`${item.client_action_id || "new"}-${index}`} className="rounded-lg border p-4">
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-2">
@@ -388,6 +470,18 @@ export default function ClientActions({
                   </div>
                 </div>
 
+                <div className="mt-4 space-y-2">
+                  <Label>
+                    Action Lever <span className="text-red-500">*</span>
+                  </Label>
+                  <LeverSelect
+                    value={item.lever_id ?? null}
+                    options={levers}
+                    onValueChange={(leverId) => updateItem(index, { lever_id: leverId })}
+                    ariaInvalid={!item.lever_id}
+                  />
+                </div>
+
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Category</Label>
@@ -421,6 +515,7 @@ export default function ClientActions({
           )}
         </CardContent>
       </Card>
+      </div>
 
       <Card>
         <CardHeader>

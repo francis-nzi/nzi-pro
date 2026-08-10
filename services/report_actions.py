@@ -1107,6 +1107,10 @@ def get_client_report_actions_payload(
         "term_options": action_term_options(),
         "total_actions": len(items),
         "summary_sentence": summary_sentence,
+        # Every action must carry a lever_id, so the picker needs to be available
+        # to anyone who can edit a client's actions (jobs.edit), not just admins --
+        # bundled here rather than behind the admin-only /admin/action-levers route.
+        "levers": list_action_levers(include_inactive=False, con=con),
     }
 
     if include_suggested_options:

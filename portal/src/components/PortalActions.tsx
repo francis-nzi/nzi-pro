@@ -27,6 +27,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
+import ActionLeverGrid, { type ActionLeverSummary } from "@/components/ActionLeverGrid";
+import LeverSelect, { type LeverOption } from "@/components/LeverSelect";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,6 +46,9 @@ type Action = {
   completed_at: string | null;
   owner_contact_id: number | null;
   owner_name: string | null;
+  lever_id: number | null;
+  lever_code?: string | null;
+  lever_name?: string | null;
 };
 
 type Contact = { contact_id: number; full_name: string; job_title: string | null };
@@ -317,12 +322,14 @@ function UpdateModal({
   action,
   contacts,
   categories,
+  levers,
   onClose,
   onSaved,
 }: {
   action: Action;
   contacts: Contact[];
   categories: Category[];
+  levers: LeverOption[];
   onClose: () => void;
   onSaved: (updated: Action) => void;
 }) {
@@ -338,12 +345,17 @@ function UpdateModal({
   const [ownerContactId, setOwnerContactId] = useState(
     action.owner_contact_id ? String(action.owner_contact_id) : ""
   );
+  const [leverId, setLeverId] = useState<number | null>(action.lever_id);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   async function handleSave() {
     if (!actionName.trim()) {
       setError("Title is required.");
+      return;
+    }
+    if (!leverId) {
+      setError("Action lever is required.");
       return;
     }
     setSaving(true);
@@ -357,6 +369,7 @@ function UpdateModal({
         action_term: term,
         status,
         progress: parseInt(progress, 10) || 0,
+        lever_id: leverId,
       };
       if (note.trim()) body.note = note.trim();
       if (targetDate) body.target_date = targetDate;
@@ -496,6 +509,13 @@ function UpdateModal({
           </div>
 
           <div className="sm:col-span-2">
+            <label className="mb-1 block text-sm font-medium text-foreground">
+              Action lever <span className="text-destructive">*</span>
+            </label>
+            <LeverSelect value={leverId} options={levers} onValueChange={setLeverId} ariaInvalid={!leverId} />
+          </div>
+
+          <div className="sm:col-span-2">
             <label className="mb-1 block text-sm font-medium text-foreground">Update note (optional)</label>
             <Textarea
               value={note}
@@ -512,6 +532,172 @@ function UpdateModal({
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button onClick={handleSave} disabled={saving}>
             {saving ? "Saving…" : "Save update"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Add custom action modal ─────────────────────────────────────────────────
+
+function AddActionModal({
+  contacts,
+  categories,
+  levers,
+  onClose,
+  onAdded,
+}: {
+  contacts: Contact[];
+  categories: Category[];
+  levers: LeverOption[];
+  onClose: () => void;
+  onAdded: (created: Action) => void;
+}) {
+  const [actionName, setActionName] = useState("");
+  const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("");
+  const [scopeFocus, setScopeFocus] = useState("");
+  const [term, setTerm] = useState("medium");
+  const [targetDate, setTargetDate] = useState("");
+  const [ownerContactId, setOwnerContactId] = useState("");
+  const [leverId, setLeverId] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSave() {
+    if (!actionName.trim()) {
+      setError("Title is required.");
+      return;
+    }
+    if (!leverId) {
+      setError("Action lever is required.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const body: Record<string, unknown> = {
+        action_name: actionName.trim(),
+        description: description.trim() || null,
+        action_category: category.trim() || null,
+        scope_focus: scopeFocus.trim() || null,
+        action_term: term,
+        lever_id: leverId,
+      };
+      if (targetDate) body.target_date = targetDate;
+      if (ownerContactId) body.owner_contact_id = parseInt(ownerContactId, 10);
+      const res = await apiFetch("/portal/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { detail?: string } | null;
+        throw new Error(data?.detail || `Error ${res.status}`);
+      }
+      const data = await res.json() as { item: Action };
+      onAdded(data.item);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Add a custom action</DialogTitle>
+          <DialogDescription>Add your own action to the shared plan, outside the suggested library.</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className="mb-1 block text-sm font-medium text-foreground">Title</label>
+            <Input value={actionName} onChange={e => setActionName(e.target.value)} />
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="mb-1 block text-sm font-medium text-foreground">Description</label>
+            <Textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-foreground">Category</label>
+            <Input
+              value={category}
+              onChange={e => setCategory(e.target.value)}
+              list="portal-action-categories"
+              placeholder="e.g. Fleet, Energy…"
+            />
+            <datalist id="portal-action-categories">
+              {categories.map(c => <option key={c.category_id} value={c.name} />)}
+            </datalist>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-foreground">Scope</label>
+            <Select value={scopeFocus || NO_OWNER} onValueChange={(v) => setScopeFocus(v === NO_OWNER ? "" : v)}>
+              <SelectTrigger><SelectValue placeholder="No scope set" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_OWNER}>No scope set</SelectItem>
+                {SCOPE_OPTIONS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-foreground">Term</label>
+            <Select value={term} onValueChange={setTerm}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="short">Short term</SelectItem>
+                <SelectItem value="medium">Medium term</SelectItem>
+                <SelectItem value="long">Long term</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {contacts.length > 0 && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-foreground">Owner</label>
+              <Select value={ownerContactId || NO_OWNER} onValueChange={(v) => setOwnerContactId(v === NO_OWNER ? "" : v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_OWNER}>No owner assigned</SelectItem>
+                  {contacts.map(c => (
+                    <SelectItem key={c.contact_id} value={String(c.contact_id)}>
+                      {c.full_name}{c.job_title ? ` (${c.job_title})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-foreground">Target date</label>
+            <Input type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} />
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="mb-1 block text-sm font-medium text-foreground">
+              Action lever <span className="text-destructive">*</span>
+            </label>
+            <LeverSelect value={leverId} options={levers} onValueChange={setLeverId} ariaInvalid={!leverId} />
+          </div>
+        </div>
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "Adding…" : "Add action"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -824,13 +1010,19 @@ export default function PortalActions() {
   const [actions, setActions] = useState<Action[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [levers, setLevers] = useState<LeverOption[]>([]);
+  const [leverSummary, setLeverSummary] = useState<ActionLeverSummary | null>(null);
+  const [leverSummaryLoading, setLeverSummaryLoading] = useState(true);
+  const [leverFilter, setLeverFilter] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showLibraryModal, setShowLibraryModal] = useState(false);
+  const [showAddActionModal, setShowAddActionModal] = useState(false);
   const [showCancelled, setShowCancelled] = useState(false);
   const [editingAction, setEditingAction] = useState<Action | null>(null);
   const [expandedCategories, setExpandedCategories] = useState<Set<string> | null>(null);
   const sectionRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
+  const actionsListRef = useRef<HTMLDivElement | null>(null);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState(ALL);
@@ -844,9 +1036,19 @@ export default function PortalActions() {
       .catch(e => setError((e as Error).message));
   }, []);
 
+  const loadLeverSummary = useCallback(() => {
+    setLeverSummaryLoading(true);
+    return apiFetch("/portal/actions/lever-summary")
+      .then(r => r.json() as Promise<ActionLeverSummary>)
+      .then(d => setLeverSummary(d))
+      .catch(() => {})
+      .finally(() => setLeverSummaryLoading(false));
+  }, []);
+
   useEffect(() => {
     Promise.all([
       loadActions(),
+      loadLeverSummary(),
       apiFetch("/portal/actions/contacts")
         .then(r => r.json() as Promise<{ contacts: Contact[] }>)
         .then(d => setContacts(d.contacts ?? []))
@@ -855,8 +1057,12 @@ export default function PortalActions() {
         .then(r => r.json() as Promise<{ categories: Category[] }>)
         .then(d => setCategories(d.categories ?? []))
         .catch(() => {}),
+      apiFetch("/portal/actions/levers")
+        .then(r => r.json() as Promise<{ items: LeverOption[] }>)
+        .then(d => setLevers(d.items ?? []))
+        .catch(() => {}),
     ]).finally(() => setLoading(false));
-  }, [loadActions]);
+  }, [loadActions, loadLeverSummary]);
 
   const updateField = useCallback(async (actionId: number, fields: Record<string, unknown>) => {
     try {
@@ -874,8 +1080,14 @@ export default function PortalActions() {
     }
   }, []);
 
+  function selectLever(leverId: number) {
+    setLeverFilter(prev => (prev === leverId ? null : leverId));
+    actionsListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   const filtered = useMemo(() => {
     return actions.filter(a => {
+      if (leverFilter != null && a.lever_id !== leverFilter) return false;
       if (!showCancelled && statusFilter === ALL && a.status === "cancelled") return false;
       if (statusFilter !== ALL && a.status !== statusFilter) return false;
       if (termFilter !== ALL && a.action_term !== termFilter) return false;
@@ -886,7 +1098,7 @@ export default function PortalActions() {
       }
       return true;
     });
-  }, [actions, showCancelled, statusFilter, termFilter, scopeFilter, search]);
+  }, [actions, leverFilter, showCancelled, statusFilter, termFilter, scopeFilter, search]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, Action[]>();
@@ -936,7 +1148,7 @@ export default function PortalActions() {
     });
   }
 
-  const hasFilters = !!(search || statusFilter !== ALL || termFilter !== ALL || scopeFilter !== ALL);
+  const hasFilters = !!(search || statusFilter !== ALL || termFilter !== ALL || scopeFilter !== ALL || leverFilter != null);
 
   if (loading) {
     return <SkeletonLoader rows={5} />;
@@ -950,8 +1162,19 @@ export default function PortalActions() {
 
   return (
     <div className="space-y-6">
+      {/* Action lever framework summary */}
+      <div>
+        <h2 className="mb-2 text-sm font-semibold text-foreground">Action lever framework</h2>
+        <ActionLeverGrid
+          summary={leverSummary}
+          loading={leverSummaryLoading}
+          selectedLeverId={leverFilter}
+          onSelectLever={selectLever}
+        />
+      </div>
+
       {/* Summary + library button */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div ref={actionsListRef} className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex gap-5">
           {STATUS_ORDER.map(s => (
             <div key={s} className="text-center">
@@ -960,10 +1183,24 @@ export default function PortalActions() {
             </div>
           ))}
         </div>
-        <Button variant="outline" size="sm" onClick={() => setShowLibraryModal(true)}>
-          Browse library
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setShowAddActionModal(true)}>
+            Add custom action
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowLibraryModal(true)}>
+            Browse library
+          </Button>
+        </div>
       </div>
+
+      {leverFilter != null && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          Filtered to one action lever.
+          <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => setLeverFilter(null)}>
+            Clear lever filter
+          </Button>
+        </div>
+      )}
 
       {/* Filters */}
       {actions.length > 0 && (
@@ -1000,7 +1237,7 @@ export default function PortalActions() {
               variant="link"
               size="sm"
               className="h-auto p-0 text-xs"
-              onClick={() => { setSearch(""); setStatusFilter(ALL); setTermFilter(ALL); setScopeFilter(ALL); }}
+              onClick={() => { setSearch(""); setStatusFilter(ALL); setTermFilter(ALL); setScopeFilter(ALL); setLeverFilter(null); }}
             >
               Clear filters
             </Button>
@@ -1062,10 +1299,12 @@ export default function PortalActions() {
           action={editingAction}
           contacts={contacts}
           categories={categories}
+          levers={levers}
           onClose={() => setEditingAction(null)}
           onSaved={(updated) => {
             setActions(prev => prev.map(a => (a.client_action_id === updated.client_action_id ? updated : a)));
             setEditingAction(null);
+            void loadLeverSummary();
           }}
         />
       )}
@@ -1074,7 +1313,21 @@ export default function PortalActions() {
         <LibraryModal
           categories={categories}
           onClose={() => setShowLibraryModal(false)}
-          onAdded={() => void loadActions()}
+          onAdded={() => { void loadActions(); void loadLeverSummary(); }}
+        />
+      )}
+
+      {showAddActionModal && (
+        <AddActionModal
+          contacts={contacts}
+          categories={categories}
+          levers={levers}
+          onClose={() => setShowAddActionModal(false)}
+          onAdded={(created) => {
+            setActions(prev => [...prev, created]);
+            setShowAddActionModal(false);
+            void loadLeverSummary();
+          }}
         />
       )}
     </div>
