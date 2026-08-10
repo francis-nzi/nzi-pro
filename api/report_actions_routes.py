@@ -11,7 +11,10 @@ from core.database import get_conn
 from services.permissions import ADMIN_ACCESS_PERMISSION, user_has_permission
 from services.report_actions import (
     action_term_options,
+    create_custom_lever,
+    get_action_lever_summary,
     get_client_report_actions_payload,
+    list_action_levers,
     list_report_action_options,
     replace_client_report_actions,
     update_client_action,
@@ -41,6 +44,7 @@ class ActionOptionPayload(BaseModel):
     sort_order: int = 0
     is_active: bool = True
     is_default: bool = False
+    lever_id: int
 
 
 class ClientActionPayload(BaseModel):
@@ -51,6 +55,7 @@ class ClientActionPayload(BaseModel):
     action_term: str | None = None
     action_category: str | None = None
     scope_focus: str | None = None
+    lever_id: int | None = None
     is_custom: bool | None = None
     sort_order: int | None = None
     status: str | None = None
@@ -64,11 +69,17 @@ class UpdateClientActionPayload(BaseModel):
     progress: int | None = None
     target_date: str | None = None
     owner_contact_id: int | None = None
+    lever_id: int | None = None
     note: str | None = None
 
 
 class SaveClientActionsPayload(BaseModel):
     items: list[ClientActionPayload] = Field(default_factory=list)
+
+
+class CustomLeverPayload(BaseModel):
+    lever_name: str = Field(..., min_length=1)
+    lever_description: str | None = None
 
 
 @router.get("/admin/report-action-options")
@@ -118,6 +129,50 @@ def admin_update_report_action_option(
             con=con,
         )
     return {"ok": True, "item": item}
+
+
+@router.get("/admin/action-levers")
+def admin_list_action_levers(
+    include_inactive: bool = False,
+    _user: dict = Depends(require_permission(ADMIN_ACCESS_PERMISSION)),
+    _reporting_user: dict = Depends(require_permission("admin.reporting.manage")),
+):
+    with get_conn() as con:
+        items = list_action_levers(include_inactive=include_inactive, con=con)
+    return {"items": items}
+
+
+@router.post("/admin/action-levers")
+def admin_create_custom_lever(
+    payload: CustomLeverPayload = Body(...),
+    _user: dict = Depends(require_permission(ADMIN_ACCESS_PERMISSION)),
+    _reporting_user: dict = Depends(require_permission("admin.reporting.manage")),
+):
+    actor = _actor_identifier(_reporting_user)
+    with get_conn(autocommit=False) as con:
+        item = create_custom_lever(
+            name=payload.lever_name,
+            description=payload.lever_description,
+            actor=actor,
+            con=con,
+        )
+    return {"ok": True, "item": item}
+
+
+@router.get("/clients/{client_db_id}/action-lever-summary")
+def client_action_lever_summary(
+    client_db_id: int,
+    _user: dict = Depends(_current_user),
+):
+    if not (
+        user_has_permission(_user, "jobs.reporting.view")
+        or user_has_permission(_user, "jobs.view")
+        or user_has_permission(_user, "jobs.edit")
+    ):
+        assert_permission(_user, "jobs.reporting.view")
+    assert_client_access(_user, int(client_db_id))
+    with get_conn() as con:
+        return get_action_lever_summary(int(client_db_id), con=con)
 
 
 @router.get("/clients/{client_db_id}/report-actions")

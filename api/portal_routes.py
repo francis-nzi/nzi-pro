@@ -1715,6 +1715,7 @@ class _PortalUpdateActionPayload(_BaseModel):
     action_category: str | None = None
     scope_focus: str | None = None
     action_term: str | None = None
+    lever_id: int | None = None
 
 
 class _PortalAddActionPayload(_BaseModel):
@@ -1725,6 +1726,7 @@ class _PortalAddActionPayload(_BaseModel):
     scope_focus: str | None = None
     target_date: str | None = None
     owner_contact_id: int | None = None
+    lever_id: int
 
 
 @router.get("/portal/actions/library")
@@ -1798,7 +1800,7 @@ def portal_add_action_from_library(
 
         template = con.execute(
             """
-            SELECT action_name, description, action_term, action_category, scope_focus
+            SELECT action_name, description, action_term, action_category, scope_focus, lever_id
             FROM report_action_options
             WHERE action_option_id = %s AND COALESCE(is_active, TRUE) = TRUE
             """,
@@ -1837,9 +1839,9 @@ def portal_add_action_from_library(
             """
             INSERT INTO client_report_actions
               (client_db_id, action_option_id, action_name, description, action_term,
-               action_category, scope_focus, is_custom, sort_order, status, progress,
+               action_category, scope_focus, lever_id, is_custom, sort_order, status, progress,
                created_by, updated_by)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE, %s, 'open', 0, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, FALSE, %s, 'open', 0, %s, %s)
             RETURNING client_action_id
             """,
             [
@@ -1849,6 +1851,7 @@ def portal_add_action_from_library(
                 action_term,
                 str(template[3] or "") or None,
                 str(template[4] or "") or None,
+                int(template[5]) if template[5] is not None else None,
                 sort_order,
                 actor, actor,
             ],
@@ -1916,6 +1919,26 @@ def portal_action_categories(current_user: dict = Depends(portal_user_dep)):
     }
 
 
+@router.get("/portal/actions/levers")
+def portal_action_levers(current_user: dict = Depends(portal_user_dep)):
+    """Return active levers (standard + custom) for the 'add custom action' lever picker."""
+    _assert_section_allowed(current_user, "actions")
+    from services.report_actions import list_action_levers
+    with get_conn() as con:
+        items = list_action_levers(include_inactive=False, con=con)
+    return {"ok": True, "items": items}
+
+
+@router.get("/portal/actions/lever-summary")
+def portal_action_lever_summary(current_user: dict = Depends(portal_user_dep)):
+    """Return the action-lever framework summary grid for this client."""
+    _assert_section_allowed(current_user, "actions")
+    from services.report_actions import get_action_lever_summary
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        return get_action_lever_summary(client_db_id, con=con)
+
+
 @router.get("/portal/actions")
 def portal_list_actions(current_user: dict = Depends(portal_user_dep)):
     """Return all actions for this client (one shared list, not per job/year)."""
@@ -1941,9 +1964,13 @@ def portal_list_actions(current_user: dict = Depends(portal_user_dep)):
                 a.owner_contact_id,
                 cc.full_name                AS owner_name,
                 a.created_at,
-                a.updated_at
+                a.updated_at,
+                a.lever_id,
+                l.lever_code,
+                l.lever_name
             FROM client_report_actions a
             LEFT JOIN client_contacts cc ON cc.contact_id = a.owner_contact_id
+            LEFT JOIN action_levers_lookup l ON l.lever_id = a.lever_id
             WHERE a.client_db_id = %s
             ORDER BY
                 CASE COALESCE(a.status, 'open')
@@ -1976,6 +2003,9 @@ def portal_list_actions(current_user: dict = Depends(portal_user_dep)):
                 "owner_name": str(r[12] or "") or None,
                 "created_at": str(r[13]) if r[13] is not None else None,
                 "updated_at": str(r[14]) if r[14] is not None else None,
+                "lever_id": int(r[15]) if r[15] is not None else None,
+                "lever_code": str(r[16] or "") or None,
+                "lever_name": str(r[17] or "") or None,
             })
 
     return {"ok": True, "items": items}
@@ -2020,7 +2050,7 @@ def portal_add_action(
     """Add a new custom action to this client's shared action list."""
     _assert_section_allowed(current_user, "actions")
     _assert_role_allowed(current_user, PORTAL_ROLE_CAN_MANAGE_ACTIONS)
-    from services.report_actions import ensure_report_actions_schema, list_client_report_actions, normalize_action_term
+    from services.report_actions import _resolve_lever_id, ensure_report_actions_schema, list_client_report_actions, normalize_action_term
 
     client_db_id = int(current_user["client_db_id"])
     actor = str(current_user.get("email") or current_user.get("full_name") or "portal")
@@ -2028,6 +2058,7 @@ def portal_add_action(
 
     with get_conn(autocommit=False) as con:
         ensure_report_actions_schema(con)
+        lever_id = _resolve_lever_id(payload.lever_id, con=con)
 
         name_clash = con.execute(
             "SELECT 1 FROM client_report_actions WHERE client_db_id = %s AND LOWER(action_name) = LOWER(%s)",
@@ -2046,10 +2077,10 @@ def portal_add_action(
         new_row = con.execute(
             """
             INSERT INTO client_report_actions
-              (client_db_id, action_name, description, action_term, action_category, scope_focus,
+              (client_db_id, action_name, description, action_term, action_category, scope_focus, lever_id,
                is_custom, sort_order, status, progress, target_date, owner_contact_id,
                created_by, updated_by)
-            VALUES (%s, %s, %s, %s, %s, %s, TRUE, %s, 'open', 0, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, %s, 'open', 0, %s, %s, %s, %s)
             RETURNING client_action_id
             """,
             [
@@ -2059,6 +2090,7 @@ def portal_add_action(
                 action_term,
                 str(payload.action_category or "").strip() or None,
                 str(payload.scope_focus or "").strip() or None,
+                lever_id,
                 sort_order,
                 str(payload.target_date or "").strip() or None,
                 int(payload.owner_contact_id) if payload.owner_contact_id else None,

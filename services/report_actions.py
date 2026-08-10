@@ -26,6 +26,41 @@ DEFAULT_ACTION_CATEGORIES = [
     "Fleet", "Procurement", "Renewables", "Data & Governance",
 ]
 
+UNCLASSIFIED_LEGACY_LEVER_CODE = "UNCLASSIFIED-LEGACY"
+
+# ISO 14060-style action lever framework: 3 Spheres -> 9 Sub-Spheres -> 24
+# Levers. Text transcribed verbatim from the reference "Sub-Spheres and
+# Action Levers" table. Mirrored in sql_migrations/0064_action_lever_framework.sql.
+STANDARD_ACTION_LEVERS: list[dict[str, Any]] = [
+    {"sphere_code": "A", "sphere_name": "Products and Services", "sub_sphere_code": "A1", "sub_sphere_name": "Product and Service Innovation", "lever_code": "A1.1", "lever_description": "Develop and scale products that accelerate others' emissions reductions (i.e., resulting in avoided emissions)", "sort_order": 10},
+    {"sphere_code": "A", "sphere_name": "Products and Services", "sub_sphere_code": "A1", "sub_sphere_name": "Product and Service Innovation", "lever_code": "A1.2", "lever_description": "Develop and scale services that accelerate others' emissions reductions (i.e., resulting in avoided emissions)", "sort_order": 20},
+    {"sphere_code": "A", "sphere_name": "Products and Services", "sub_sphere_code": "A2", "sub_sphere_name": "Business Model Innovation", "lever_code": "A2.1", "lever_description": "Implement revenue models that decouple growth from material consumption", "sort_order": 30},
+    {"sphere_code": "A", "sphere_name": "Products and Services", "sub_sphere_code": "A2", "sub_sphere_name": "Business Model Innovation", "lever_code": "A2.2", "lever_description": "Implement incentives for sustainable consumer behaviours", "sort_order": 40},
+    {"sphere_code": "A", "sphere_name": "Products and Services", "sub_sphere_code": "A3", "sub_sphere_name": "Climate Solutions Research and Development", "lever_code": "A3.1", "lever_description": "Catalyze and invest in internal climate solutions R&D (e.g., patents for climate solutions)", "sort_order": 50},
+    {"sphere_code": "A", "sphere_name": "Products and Services", "sub_sphere_code": "A3", "sub_sphere_name": "Climate Solutions Research and Development", "lever_code": "A3.2", "lever_description": "Conduct joint climate solutions R&D for own products and services with external partners", "sort_order": 60},
+
+    {"sphere_code": "B", "sphere_name": "Portfolio of Climate System Investments", "sub_sphere_code": "B1", "sub_sphere_name": "Low-carbon systems and solutions", "lever_code": "B1.1", "lever_description": "Scale high-integrity credits/certificates for low-carbon technology and solutions beyond the emissions inventory", "sort_order": 70},
+    {"sphere_code": "B", "sphere_name": "Portfolio of Climate System Investments", "sub_sphere_code": "B1", "sub_sphere_name": "Low-carbon systems and solutions", "lever_code": "B1.2", "lever_description": "Support the scaling of low-carbon solutions through advanced financing (e.g., accelerators, incubator funds, offtake deals)", "sort_order": 80},
+    {"sphere_code": "B", "sphere_name": "Portfolio of Climate System Investments", "sub_sphere_code": "B1", "sub_sphere_name": "Low-carbon systems and solutions", "lever_code": "B1.3", "lever_description": "Invest in enabling infrastructure (e.g., grids, renewables) and shift money from high-emitting activities to low-emitting activities to grow new markets for solutions", "sort_order": 90},
+    {"sphere_code": "B", "sphere_name": "Portfolio of Climate System Investments", "sub_sphere_code": "B2", "sub_sphere_name": "Nature conservation and restoration", "lever_code": "B2.1", "lever_description": "Purchase and retire high-integrity credits/certificates supporting nature-based solutions beyond the emissions inventory", "sort_order": 100},
+    {"sphere_code": "B", "sphere_name": "Portfolio of Climate System Investments", "sub_sphere_code": "B2", "sub_sphere_name": "Nature conservation and restoration", "lever_code": "B2.2", "lever_description": "Support conservation and restoration programmes/initiatives", "sort_order": 110},
+    {"sphere_code": "B", "sphere_name": "Portfolio of Climate System Investments", "sub_sphere_code": "B2", "sub_sphere_name": "Nature conservation and restoration", "lever_code": "B2.3", "lever_description": "Invest in enabling infrastructure, services and wider local programmes that support the longevity and impact of restoration projects", "sort_order": 120},
+    {"sphere_code": "B", "sphere_name": "Portfolio of Climate System Investments", "sub_sphere_code": "B3", "sub_sphere_name": "Carbon removals", "lever_code": "B3.1", "lever_description": "Purchase and retire high-integrity removal credits/certificates the beyond emissions inventory", "sort_order": 130},
+    {"sphere_code": "B", "sphere_name": "Portfolio of Climate System Investments", "sub_sphere_code": "B3", "sub_sphere_name": "Carbon removals", "lever_code": "B3.2", "lever_description": "Support removal technology development through forward looking purchases and financing (e.g., offtake agreements, demand aggregation partnerships)", "sort_order": 140},
+    {"sphere_code": "B", "sphere_name": "Portfolio of Climate System Investments", "sub_sphere_code": "B3", "sub_sphere_name": "Carbon removals", "lever_code": "B3.3", "lever_description": "Invest in enabling infrastructure for removals", "sort_order": 150},
+
+    {"sphere_code": "C", "sphere_name": "Policy and Public Engagement", "sub_sphere_code": "C1", "sub_sphere_name": "Government and Policy Engagement", "lever_code": "C1.1", "lever_description": "Advocate for policies to address external dependencies and climate risk", "sort_order": 160},
+    {"sphere_code": "C", "sphere_name": "Policy and Public Engagement", "sub_sphere_code": "C1", "sub_sphere_name": "Government and Policy Engagement", "lever_code": "C1.2", "lever_description": "Advocate for policies to incentivize corporate climate action", "sort_order": 170},
+    {"sphere_code": "C", "sphere_name": "Policy and Public Engagement", "sub_sphere_code": "C1", "sub_sphere_name": "Government and Policy Engagement", "lever_code": "C1.3", "lever_description": "Advocate for policies to remove barriers for net zero compatible lifestyles", "sort_order": 180},
+    {"sphere_code": "C", "sphere_name": "Policy and Public Engagement", "sub_sphere_code": "C2", "sub_sphere_name": "Industry Engagement", "lever_code": "C2.1", "lever_description": "Advocate and engage with suppliers and partners to implement climate action and sustainable practices", "sort_order": 190},
+    {"sphere_code": "C", "sphere_name": "Policy and Public Engagement", "sub_sphere_code": "C2", "sub_sphere_name": "Industry Engagement", "lever_code": "C2.2", "lever_description": "Advocate for alignment to the Paris Agreement for all affiliated coalitions, business and trade associations", "sort_order": 200},
+    {"sphere_code": "C", "sphere_name": "Policy and Public Engagement", "sub_sphere_code": "C2", "sub_sphere_name": "Industry Engagement", "lever_code": "C2.3", "lever_description": "Participate in a multistakeholder coalition or initiative with the explicit objective of aligning with global net zero", "sort_order": 210},
+    {"sphere_code": "C", "sphere_name": "Policy and Public Engagement", "sub_sphere_code": "C2", "sub_sphere_name": "Industry Engagement", "lever_code": "C2.4", "lever_description": "Open-source climate knowledge and solutions", "sort_order": 220},
+    {"sphere_code": "C", "sphere_name": "Policy and Public Engagement", "sub_sphere_code": "C3", "sub_sphere_name": "Public Engagement and Empowerment", "lever_code": "C3.1", "lever_description": "Equip the public with science-backed efforts to generate demand for and enable sustainable lifestyles (e.g., campaigns, entertainment or advertising to clients, customers, employees, or broader public)", "sort_order": 230},
+    {"sphere_code": "C", "sphere_name": "Policy and Public Engagement", "sub_sphere_code": "C3", "sub_sphere_name": "Public Engagement and Empowerment", "lever_code": "C3.2", "lever_description": "Participate in public climate advocacy campaigns", "sort_order": 240},
+]
+
+
 DEFAULT_REPORT_ACTION_OPTIONS: list[dict[str, Any]] = [
     {
         "action_name": "Switch to a renewable electricity tariff",
@@ -331,6 +366,86 @@ def ensure_report_actions_schema(con) -> None:
         """
     )
 
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS action_levers_lookup (
+          lever_id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+          sphere_code VARCHAR,
+          sphere_name VARCHAR,
+          sub_sphere_code VARCHAR,
+          sub_sphere_name VARCHAR,
+          lever_code VARCHAR NOT NULL,
+          lever_name VARCHAR NOT NULL,
+          lever_description TEXT,
+          is_custom BOOLEAN NOT NULL DEFAULT FALSE,
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          created_by VARCHAR,
+          updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          updated_by VARCHAR
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_action_levers_lookup_code_ci
+        ON action_levers_lookup (LOWER(lever_code))
+        """
+    )
+    con.execute(
+        """
+        CREATE INDEX IF NOT EXISTS ix_action_levers_lookup_sort
+        ON action_levers_lookup (sort_order, lever_id)
+        """
+    )
+    for lever in STANDARD_ACTION_LEVERS:
+        con.execute(
+            """
+            INSERT INTO action_levers_lookup
+              (sphere_code, sphere_name, sub_sphere_code, sub_sphere_name, lever_code, lever_name, lever_description, is_custom, sort_order)
+            SELECT %s, %s, %s, %s, %s, %s, %s, FALSE, %s
+            WHERE NOT EXISTS (
+              SELECT 1 FROM action_levers_lookup WHERE lower(lever_code) = lower(%s)
+            )
+            """,
+            [
+                lever["sphere_code"], lever["sphere_name"], lever["sub_sphere_code"], lever["sub_sphere_name"],
+                lever["lever_code"], lever["lever_code"], lever["lever_description"], lever["sort_order"],
+                lever["lever_code"],
+            ],
+        )
+    con.execute(
+        """
+        INSERT INTO action_levers_lookup
+          (sphere_code, sphere_name, sub_sphere_code, sub_sphere_name, lever_code, lever_name, lever_description, is_custom, sort_order)
+        SELECT NULL, NULL, NULL, NULL, %s, 'Unclassified (Legacy)',
+          'Actions and library options created before the lever framework was introduced. Reclassify as time allows.', TRUE, 9999
+        WHERE NOT EXISTS (
+          SELECT 1 FROM action_levers_lookup WHERE lower(lever_code) = lower(%s)
+        )
+        """,
+        [UNCLASSIFIED_LEGACY_LEVER_CODE, UNCLASSIFIED_LEGACY_LEVER_CODE],
+    )
+    con.execute("ALTER TABLE report_action_options ADD COLUMN IF NOT EXISTS lever_id INTEGER REFERENCES action_levers_lookup(lever_id)")
+    con.execute("ALTER TABLE client_report_actions ADD COLUMN IF NOT EXISTS lever_id INTEGER REFERENCES action_levers_lookup(lever_id)")
+    con.execute(
+        """
+        UPDATE report_action_options
+        SET lever_id = (SELECT lever_id FROM action_levers_lookup WHERE lower(lever_code) = lower(%s))
+        WHERE lever_id IS NULL
+        """,
+        [UNCLASSIFIED_LEGACY_LEVER_CODE],
+    )
+    con.execute(
+        """
+        UPDATE client_report_actions
+        SET lever_id = (SELECT lever_id FROM action_levers_lookup WHERE lower(lever_code) = lower(%s))
+        WHERE lever_id IS NULL
+        """,
+        [UNCLASSIFIED_LEGACY_LEVER_CODE],
+    )
+
     for ddl in (
         "ALTER TABLE report_action_options ADD COLUMN IF NOT EXISTS description TEXT",
         "ALTER TABLE report_action_options ADD COLUMN IF NOT EXISTS action_term VARCHAR(12) NOT NULL DEFAULT 'medium'",
@@ -392,6 +507,147 @@ def ensure_report_actions_schema(con) -> None:
             )
 
 
+def list_action_levers(*, include_inactive: bool = False, con=None) -> list[dict[str, Any]]:
+    if con is None:
+        with get_conn() as managed:
+            return list_action_levers(include_inactive=include_inactive, con=managed)
+
+    ensure_report_actions_schema(con)
+    where_sql = "" if include_inactive else "WHERE COALESCE(is_active, TRUE) = TRUE"
+    rows = con.execute(
+        f"""
+        SELECT lever_id, sphere_code, sphere_name, sub_sphere_code, sub_sphere_name,
+               lever_code, lever_name, lever_description, is_custom, is_active, sort_order
+        FROM action_levers_lookup
+        {where_sql}
+        ORDER BY is_custom ASC, sort_order ASC, lever_id ASC
+        """
+    ).fetchall()
+    return [
+        {
+            "lever_id": int(row[0]),
+            "sphere_code": row[1],
+            "sphere_name": row[2],
+            "sub_sphere_code": row[3],
+            "sub_sphere_name": row[4],
+            "lever_code": str(row[5] or ""),
+            "lever_name": str(row[6] or ""),
+            "lever_description": str(row[7] or "") or None,
+            "is_custom": bool(row[8]),
+            "is_active": bool(row[9]),
+            "sort_order": int(row[10] or 0),
+        }
+        for row in rows or []
+    ]
+
+
+def create_custom_lever(*, name: str, description: str | None = None, actor: str, con=None) -> dict[str, Any]:
+    if con is None:
+        with get_conn(autocommit=False) as managed:
+            return create_custom_lever(name=name, description=description, actor=actor, con=managed)
+
+    ensure_report_actions_schema(con)
+    clean_name = _clean_text(name)
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Custom lever name is required")
+
+    duplicate = con.execute(
+        "SELECT lever_id FROM action_levers_lookup WHERE lower(lever_name) = lower(%s) AND is_custom = TRUE",
+        [clean_name],
+    ).fetchone()
+    if duplicate:
+        raise HTTPException(status_code=400, detail="A custom lever with this name already exists")
+
+    next_seq_row = con.execute(
+        """
+        SELECT COALESCE(MAX(CAST(SUBSTRING(lever_code FROM 'CUSTOM-(\\d+)') AS INTEGER)), 0) + 1
+        FROM action_levers_lookup
+        WHERE lever_code LIKE %s
+        """,
+        ["CUSTOM-%"],
+    ).fetchone()
+    next_seq = int(next_seq_row[0]) if next_seq_row and next_seq_row[0] is not None else 1
+    lever_code = f"CUSTOM-{next_seq}"
+
+    row = con.execute(
+        """
+        INSERT INTO action_levers_lookup
+          (sphere_code, sphere_name, sub_sphere_code, sub_sphere_name, lever_code, lever_name, lever_description,
+           is_custom, is_active, sort_order, created_by, updated_by)
+        VALUES
+          (NULL, NULL, NULL, NULL, %s, %s, %s, TRUE, TRUE, %s, %s, %s)
+        RETURNING lever_id
+        """,
+        [lever_code, clean_name, _clean_text(description), 9999 + next_seq, actor, actor],
+    ).fetchone()
+    lever_id = int(row[0])
+
+    for lever in list_action_levers(include_inactive=True, con=con):
+        if int(lever["lever_id"]) == lever_id:
+            return lever
+    raise HTTPException(status_code=500, detail="Custom lever could not be reloaded")
+
+
+def _resolve_lever_id(raw_lever_id: Any, *, con, field_label: str = "lever_id") -> int:
+    """Validate that raw_lever_id refers to a real, active lever. Raises 400 if
+    missing or unknown -- lever assignment is mandatory for every action."""
+    lever_id_int = _safe_int(raw_lever_id, 0) if raw_lever_id not in (None, "") else None
+    if not lever_id_int:
+        raise HTTPException(status_code=400, detail=f"{field_label} is required")
+    row = con.execute(
+        "SELECT lever_id FROM action_levers_lookup WHERE lever_id = %s AND COALESCE(is_active, TRUE) = TRUE",
+        [int(lever_id_int)],
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=400, detail=f"Unknown or inactive {field_label}: {lever_id_int}")
+    return int(lever_id_int)
+
+
+def get_action_lever_summary(client_db_id: int, *, con=None) -> dict[str, Any]:
+    if con is None:
+        with get_conn() as managed:
+            return get_action_lever_summary(client_db_id, con=managed)
+
+    ensure_report_actions_schema(con)
+    levers = list_action_levers(include_inactive=False, con=con)
+    stats_rows = con.execute(
+        """
+        SELECT lever_id,
+               COUNT(*) AS action_count,
+               COUNT(*) FILTER (WHERE status = 'completed') AS completed_count,
+               COALESCE(AVG(progress), 0) AS avg_progress
+        FROM client_report_actions
+        WHERE client_db_id = %s AND lever_id IS NOT NULL
+        GROUP BY lever_id
+        """,
+        [int(client_db_id)],
+    ).fetchall()
+    stats_by_lever = {
+        int(row[0]): {
+            "action_count": int(row[1] or 0),
+            "completed_count": int(row[2] or 0),
+            "avg_progress": round(float(row[3] or 0)),
+        }
+        for row in stats_rows or []
+    }
+
+    standard_levers = []
+    custom_levers = []
+    for lever in levers:
+        stats = stats_by_lever.get(int(lever["lever_id"]), {"action_count": 0, "completed_count": 0, "avg_progress": 0})
+        entry = {**lever, **stats}
+        if lever["is_custom"]:
+            custom_levers.append(entry)
+        else:
+            standard_levers.append(entry)
+
+    return {
+        "client_db_id": int(client_db_id),
+        "levers": standard_levers,
+        "custom_levers": custom_levers,
+    }
+
+
 def list_report_action_options(
     *,
     include_inactive: bool = False,
@@ -402,24 +658,31 @@ def list_report_action_options(
             return list_report_action_options(include_inactive=include_inactive, con=managed)
 
     ensure_report_actions_schema(con)
-    where_sql = "" if include_inactive else "WHERE COALESCE(is_active, TRUE) = TRUE"
+    where_sql = "" if include_inactive else "WHERE COALESCE(o.is_active, TRUE) = TRUE"
     rows = con.execute(
         f"""
         SELECT
-          action_option_id,
-          action_name,
-          description,
-          action_term,
-          action_category,
-          scope_focus,
-          sort_order,
-          COALESCE(is_active, TRUE) AS is_active,
-          created_at,
-          updated_at,
-          COALESCE(is_default, FALSE) AS is_default
-        FROM report_action_options
+          o.action_option_id,
+          o.action_name,
+          o.description,
+          o.action_term,
+          o.action_category,
+          o.scope_focus,
+          o.sort_order,
+          COALESCE(o.is_active, TRUE) AS is_active,
+          o.created_at,
+          o.updated_at,
+          COALESCE(o.is_default, FALSE) AS is_default,
+          o.lever_id,
+          l.lever_code,
+          l.lever_name,
+          l.sphere_name,
+          l.sub_sphere_name,
+          l.is_custom AS lever_is_custom
+        FROM report_action_options o
+        LEFT JOIN action_levers_lookup l ON l.lever_id = o.lever_id
         {where_sql}
-        ORDER BY sort_order ASC, action_name ASC, action_option_id ASC
+        ORDER BY o.sort_order ASC, o.action_name ASC, o.action_option_id ASC
         """
     ).fetchall()
 
@@ -441,6 +704,12 @@ def list_report_action_options(
                 "created_at": str(row[8]) if row[8] is not None else None,
                 "updated_at": str(row[9]) if row[9] is not None else None,
                 "is_default": bool(row[10]),
+                "lever_id": int(row[11]) if row[11] is not None else None,
+                "lever_code": str(row[12] or "") or None,
+                "lever_name": str(row[13] or "") or None,
+                "lever_sphere_name": str(row[14] or "") or None,
+                "lever_sub_sphere_name": str(row[15] or "") or None,
+                "lever_is_custom": bool(row[16]) if row[16] is not None else None,
             }
         )
     return items
@@ -475,6 +744,7 @@ def upsert_report_action_option(
     sort_order = _safe_int(payload.get("sort_order"), 0)
     is_active = bool(payload.get("is_active", True))
     is_default = bool(payload.get("is_default", False))
+    lever_id = _resolve_lever_id(payload.get("lever_id"), con=con)
 
     duplicate = con.execute(
         """
@@ -493,9 +763,9 @@ def upsert_report_action_option(
         row = con.execute(
             """
             INSERT INTO report_action_options
-              (action_name, description, action_term, action_category, scope_focus, sort_order, is_active, is_default, created_by, updated_by)
+              (action_name, description, action_term, action_category, scope_focus, sort_order, is_active, is_default, lever_id, created_by, updated_by)
             VALUES
-              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING action_option_id
             """,
             [
@@ -507,6 +777,7 @@ def upsert_report_action_option(
                 sort_order,
                 is_active,
                 is_default,
+                lever_id,
                 actor,
                 actor,
             ],
@@ -531,6 +802,7 @@ def upsert_report_action_option(
                 sort_order = %s,
                 is_active = %s,
                 is_default = %s,
+                lever_id = %s,
                 updated_at = NOW(),
                 updated_by = %s
             WHERE action_option_id = %s
@@ -544,6 +816,7 @@ def upsert_report_action_option(
                 sort_order,
                 is_active,
                 is_default,
+                lever_id,
                 actor,
                 int(action_option_id),
             ],
@@ -582,9 +855,16 @@ def list_client_report_actions(client_db_id: int, *, con=None) -> list[dict[str,
           a.target_date,
           a.completed_at,
           a.owner_contact_id,
-          cc.full_name                  AS owner_name
+          cc.full_name                  AS owner_name,
+          a.lever_id,
+          l.lever_code,
+          l.lever_name,
+          l.sphere_name,
+          l.sub_sphere_name,
+          l.is_custom                   AS lever_is_custom
         FROM client_report_actions a
         LEFT JOIN client_contacts cc ON cc.contact_id = a.owner_contact_id
+        LEFT JOIN action_levers_lookup l ON l.lever_id = a.lever_id
         WHERE a.client_db_id = %s
         ORDER BY a.sort_order ASC, a.action_name ASC, a.client_action_id ASC
         """,
@@ -615,6 +895,12 @@ def list_client_report_actions(client_db_id: int, *, con=None) -> list[dict[str,
                 "completed_at": str(row[14]) if row[14] is not None else None,
                 "owner_contact_id": int(row[15]) if row[15] is not None else None,
                 "owner_name": str(row[16] or "") or None,
+                "lever_id": int(row[17]) if row[17] is not None else None,
+                "lever_code": str(row[18] or "") or None,
+                "lever_name": str(row[19] or "") or None,
+                "lever_sphere_name": str(row[20] or "") or None,
+                "lever_sub_sphere_name": str(row[21] or "") or None,
+                "lever_is_custom": bool(row[22]) if row[22] is not None else None,
             }
         )
     return items
@@ -701,6 +987,14 @@ def replace_client_report_actions(
         if scope_focus is None and option_defaults:
             scope_focus = _clean_text(option_defaults.get("scope_focus"))
 
+        raw_lever_id = raw_dict.get("lever_id")
+        if raw_lever_id in (None, "", 0, "0") and option_defaults:
+            raw_lever_id = option_defaults.get("lever_id")
+        try:
+            lever_id = _resolve_lever_id(raw_lever_id, con=con)
+        except HTTPException as exc:
+            raise HTTPException(status_code=400, detail=f"lever_id is required for action {idx + 1} ({action_name})") from exc
+
         # Restore preserved state from snapshot keyed by client_action_id
         incoming_action_id = raw_dict.get("client_action_id")
         incoming_action_id_int = int(incoming_action_id) if incoming_action_id else None
@@ -714,6 +1008,7 @@ def replace_client_report_actions(
                 "action_term": action_term,
                 "action_category": action_category,
                 "scope_focus": scope_focus,
+                "lever_id": lever_id,
                 "is_custom": bool(raw_dict.get("is_custom")) or option_id_int is None,
                 "sort_order": _safe_int(raw_dict.get("sort_order"), (idx + 1) * 10),
                 "status": saved_state["status"] if saved_state else str(raw_dict.get("status") or "open"),
@@ -731,10 +1026,10 @@ def replace_client_report_actions(
             """
             INSERT INTO client_report_actions
               (client_db_id, action_option_id, action_name, description, action_term, action_category,
-               scope_focus, is_custom, sort_order, status, progress, target_date, completed_at,
+               scope_focus, lever_id, is_custom, sort_order, status, progress, target_date, completed_at,
                owner_contact_id, created_by, updated_by)
             VALUES
-              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             [
                 int(client_db_id),
@@ -744,6 +1039,7 @@ def replace_client_report_actions(
                 item["action_term"],
                 item["action_category"],
                 item["scope_focus"],
+                item["lever_id"],
                 bool(item["is_custom"]),
                 int(item.get("sort_order") or ((idx + 1) * 10)),
                 item.get("status") or "open",
@@ -842,7 +1138,7 @@ def update_client_action(
     existing = con.execute(
         """
         SELECT client_action_id, status, progress, target_date, completed_at, owner_contact_id,
-               action_name, description, action_category, scope_focus, action_term
+               action_name, description, action_category, scope_focus, action_term, lever_id
         FROM client_report_actions
         WHERE client_action_id = %s AND client_db_id = %s
         """,
@@ -902,6 +1198,7 @@ def update_client_action(
         if "action_term" in payload
         else existing[10]
     )
+    new_lever_id = _resolve_lever_id(payload.get("lever_id"), con=con) if "lever_id" in payload else existing[11]
 
     # Auto-set completed_at on first transition to completed; clear it when re-opened
     old_completed_at = existing[4]
@@ -918,13 +1215,13 @@ def update_client_action(
         SET status = %s, progress = %s, target_date = %s,
             completed_at = %s, owner_contact_id = %s,
             action_name = %s, description = %s, action_category = %s,
-            scope_focus = %s, action_term = %s,
+            scope_focus = %s, action_term = %s, lever_id = %s,
             updated_at = NOW(), updated_by = %s
         WHERE client_action_id = %s
         """,
         [
             new_status, new_progress, new_target, new_completed_at, new_owner,
-            new_name, new_description, new_category, new_scope, new_term,
+            new_name, new_description, new_category, new_scope, new_term, new_lever_id,
             actor, int(client_action_id),
         ],
     )
