@@ -14,6 +14,7 @@ type Review = {
   status: string;
   approved_at: string | null;
   approved_by_name: string | null;
+  locked_by_crm_at: string | null;
 };
 
 type Comment = {
@@ -98,8 +99,9 @@ export default function ReviewPage() {
   }
 
   const isApproved = review?.status === "approved";
+  const isLockedByCrm = !!review?.locked_by_crm_at;
   const openCount = comments.filter(c => c.status === "open").length;
-  const canApprove = review?.status === "sent_for_review" && openCount === 0;
+  const canApprove = review?.status === "sent_for_review" && openCount === 0 && !isLockedByCrm;
 
   return (
     <PortalShell>
@@ -112,12 +114,17 @@ export default function ReviewPage() {
         </div>
 
         {/* Status bar */}
-        <div className={`rounded-xl border p-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between ${isApproved ? "bg-green-50 border-green-200" : "bg-white border-gray-200"}`}>
+        <div className={`rounded-xl border p-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between ${isApproved ? "bg-green-50 border-green-200" : isLockedByCrm ? "bg-amber-50 border-amber-200" : "bg-white border-gray-200"}`}>
           <div>
             {isApproved ? (
               <div className="flex items-center gap-2 text-green-700 font-medium">
                 <CheckCircle2 className="h-5 w-5" />
                 Report approved by {review?.approved_by_name} on {fmtDate(review?.approved_at ?? null)}
+              </div>
+            ) : isLockedByCrm ? (
+              <div className="flex items-center gap-2 text-amber-700 font-medium">
+                <CheckCircle2 className="h-5 w-5" />
+                This report has been finalised by NZI. Comments and approval are no longer available.
               </div>
             ) : (
               <div className="text-sm text-gray-600">
@@ -205,7 +212,7 @@ export default function ReviewPage() {
               </div>
 
               {/* Add comment form */}
-              {!isApproved && (
+              {!isApproved && !isLockedByCrm && (
                 <form onSubmit={e => void handleSubmit(e)} className="border-t border-gray-100 p-3 space-y-2">
                   <div className="flex gap-2">
                     <select

@@ -38,6 +38,7 @@ from api.report_template_routes import _ensure_report_template_schema
 from services.report_drafting import _get_section_config, generate_report_section_draft
 from core.database import get_conn
 from services.audit_log import record_audit_event
+from services.portal import ensure_portal_schema
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -599,6 +600,22 @@ def update_report_version(
                 """,
                 params,
             )
+
+            if payload.status is not None and normalized_status == "final":
+                # Marking a version Final locks the portal (comments/approval
+                # disabled) independently of the client's own approval, so the
+                # approved_by/approved_at audit trail never gets overwritten
+                # with an NZI actor pretending to be the client.
+                ensure_portal_schema(con)
+                con.execute(
+                    """
+                    UPDATE report_reviews
+                    SET locked_by_crm_at = NOW(), locked_by_crm_by = %s
+                    WHERE job_id = %s
+                    """,
+                    [_user.get("email", "unknown"), int(job_id)],
+                )
+
             after_df = con.execute(
                 """
                 SELECT *

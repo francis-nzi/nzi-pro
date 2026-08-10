@@ -359,7 +359,8 @@ def portal_snapshot_data(job_id: int, current_user: dict = Depends(portal_user_d
             SELECT rr.status, rr.portal_version_id,
                    rr.approved_at, rr.approved_by_name,
                    rr.published_at, rr.pdf_version_id,
-                   rr.sent_for_review_at, rr.review_id
+                   rr.sent_for_review_at, rr.review_id,
+                   rr.locked_by_crm_at
             FROM report_reviews rr
             WHERE rr.job_id = %s
             """,
@@ -412,6 +413,7 @@ def portal_snapshot_data(job_id: int, current_user: dict = Depends(portal_user_d
         "approved_by_name": str(review_row[3] or "") or None,
         "published_at": _dt(review_row[4]),
         "review_id": int(review_row[7]) if review_row[7] is not None else None,
+        "locked_by_crm_at": _dt(review_row[8]),
     }
 
 
@@ -505,6 +507,8 @@ def portal_add_comment(
 
         if review["status"] == "approved":
             raise HTTPException(status_code=400, detail="This report has already been approved and cannot receive new comments")
+        if review.get("locked_by_crm_at"):
+            raise HTTPException(status_code=400, detail="This report has been finalised and can no longer receive new comments")
 
         comment = add_comment(
             review["review_id"],

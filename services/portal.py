@@ -204,6 +204,12 @@ def ensure_portal_schema(con) -> None:
         "ALTER TABLE report_reviews ADD COLUMN IF NOT EXISTS published_at TIMESTAMP",
         "ALTER TABLE report_reviews ADD COLUMN IF NOT EXISTS published_by VARCHAR",
         "ALTER TABLE report_reviews ADD COLUMN IF NOT EXISTS pdf_version_id BIGINT",
+        # Set when NZI marks a report version "Final" in Report Printing --
+        # independent of the client's own approval (approved_at/approved_by_name
+        # above), so the audit trail never confuses "NZI finalised this" with
+        # "the client approved this".
+        "ALTER TABLE report_reviews ADD COLUMN IF NOT EXISTS locked_by_crm_at TIMESTAMP",
+        "ALTER TABLE report_reviews ADD COLUMN IF NOT EXISTS locked_by_crm_by VARCHAR",
     ):
         try:
             con.execute(ddl)
@@ -820,7 +826,8 @@ _REVIEW_SELECT = """
     SELECT review_id, job_id, status, sent_for_review_at, sent_by,
            approved_at, approved_by_name, approved_by_email, pdf_generated_at,
            created_at, updated_at,
-           portal_version_id, published_at, published_by, pdf_version_id
+           portal_version_id, published_at, published_by, pdf_version_id,
+           locked_by_crm_at, locked_by_crm_by
     FROM report_reviews
 """
 
@@ -842,6 +849,8 @@ def _row_to_review(row) -> dict[str, Any]:
         "published_at": str(row[12]) if row[12] else None,
         "published_by": str(row[13] or "") or None,
         "pdf_version_id": int(row[14]) if row[14] is not None else None,
+        "locked_by_crm_at": str(row[15]) if row[15] else None,
+        "locked_by_crm_by": str(row[16] or "") or None,
     }
 
 
@@ -863,7 +872,8 @@ def get_or_create_review(job_id: int, *, con=None) -> dict[str, Any]:
         RETURNING review_id, job_id, status, sent_for_review_at, sent_by,
                   approved_at, approved_by_name, approved_by_email, pdf_generated_at,
                   created_at, updated_at,
-                  portal_version_id, published_at, published_by, pdf_version_id
+                  portal_version_id, published_at, published_by, pdf_version_id,
+                  locked_by_crm_at, locked_by_crm_by
         """,
         [int(job_id)],
     ).fetchone()
@@ -903,6 +913,8 @@ def approve_review(
     review = get_or_create_review(job_id, con=con)
     if review["status"] == "approved":
         raise HTTPException(status_code=400, detail="This report has already been approved")
+    if review.get("locked_by_crm_at"):
+        raise HTTPException(status_code=400, detail="This report has been finalised by NZI and can no longer be approved through this workflow")
     # Block approval if there are open comments
     open_count = con.execute(
         """

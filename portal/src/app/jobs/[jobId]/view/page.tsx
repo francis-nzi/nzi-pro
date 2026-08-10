@@ -14,6 +14,7 @@ type SnapshotMeta = {
   approved_at: string | null;
   approved_by_name: string | null;
   version_label: string | null;
+  locked_by_crm_at: string | null;
 };
 
 function formatDate(iso: string | null): string {
@@ -37,14 +38,14 @@ export default function ReportViewPage() {
     apiFetch(`/portal/jobs/${jobId}/portal-snapshot-data`)
       .then(async (res) => {
         if (res.status === 404) {
-          setMeta({ review_status: "not_sent", published_at: null, approved_at: null, approved_by_name: null, version_label: null });
+          setMeta({ review_status: "not_sent", published_at: null, approved_at: null, approved_by_name: null, version_label: null, locked_by_crm_at: null });
           return;
         }
         if (!res.ok) return;
         const data = await res.json() as SnapshotMeta;
         setMeta(data);
       })
-      .catch(() => setMeta({ review_status: "not_sent", published_at: null, approved_at: null, approved_by_name: null, version_label: null }));
+      .catch(() => setMeta({ review_status: "not_sent", published_at: null, approved_at: null, approved_by_name: null, version_label: null, locked_by_crm_at: null }));
   }, [jobId]);
 
   async function downloadPdf() {
@@ -74,6 +75,7 @@ export default function ReportViewPage() {
 
   const isPublished = !!meta?.published_at;
   const isApproved = meta?.review_status === "approved";
+  const isLockedByCrm = !!meta?.locked_by_crm_at;
   const versionLabel = meta?.version_label?.trim() || "latest";
 
   // Finalised state — show download page instead of report
@@ -132,6 +134,11 @@ export default function ReportViewPage() {
             {isApproved && !isPublished && (
               <div className="text-xs text-amber-600 font-medium">
                 Approved — PDF being prepared by your consultant
+              </div>
+            )}
+            {isLockedByCrm && !isApproved && (
+              <div className="text-xs text-amber-600 font-medium">
+                Finalised by NZI — comments and approval are no longer available
               </div>
             )}
           </div>
