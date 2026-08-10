@@ -7,6 +7,19 @@ from fastapi import HTTPException
 
 from core.database import get_conn
 
+# Same memoization pattern as services.ai_prompt_schema's
+# _AI_PROMPT_SCHEMA_READY: this function is called on nearly every actions
+# read/write across the CRM and portal, and its DDL/seed statements (creating
+# tables, indexes, and looping the 24 standard action levers) cost real
+# per-statement network round-trips to Postgres -- ~2.3s per call when not
+# memoized. Re-running it every call was fine when it was a handful of
+# ALTER TABLE ... IF NOT EXISTS statements, but the added action-lever seed
+# loop made repeated calls expensive enough to contribute to a real page
+# timeout. A deploy always restarts the process (flag resets to False), so
+# schema changes still self-heal on every deploy -- this only skips the
+# redundant re-check within one process's lifetime.
+_REPORT_ACTIONS_SCHEMA_READY = False
+
 ACTION_TERM_ORDER = ["short", "medium", "long"]
 ACTION_TERM_LABELS = {
     "short": "Short term",
@@ -205,6 +218,10 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 
 def ensure_report_actions_schema(con) -> None:
+    global _REPORT_ACTIONS_SCHEMA_READY
+    if _REPORT_ACTIONS_SCHEMA_READY:
+        return
+
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS report_action_options (
@@ -505,6 +522,8 @@ def ensure_report_actions_schema(con) -> None:
                     int(item.get("sort_order") or 0),
                 ],
             )
+
+    _REPORT_ACTIONS_SCHEMA_READY = True
 
 
 def list_action_levers(*, include_inactive: bool = False, con=None) -> list[dict[str, Any]]:
