@@ -747,6 +747,14 @@ def _line_items(con, invoice_id: int) -> list[dict[str, Any]]:
         unit_amount = _safe_float(line.get("unit_price_ex_vat"), 0.0)
         if not unit_amount and qty:
             unit_amount = amount / qty if qty else amount
+        # Xero rejects a negative Quantity outright ("Quantity must not be
+        # less than zero"), even though negative amounts/discounts are
+        # otherwise fine. A discount line entered as e.g. qty=-1, rate=160
+        # must be sent as Quantity=1, UnitAmount=-160 instead -- same
+        # LineAmount, but a Xero-legal shape.
+        if qty < 0:
+            qty = -qty
+            unit_amount = -unit_amount
         description = " - ".join(
             part
             for part in [
@@ -936,6 +944,7 @@ def create_xero_invoice(invoice_id: int, *, con=None, connection: Mapping[str, A
     if con is None:
         con = get_conn()
     assert con is not None
+    xero_invoice: Mapping[str, Any] | None = None
     try:
         _ensure_schema(con)
         invoice = _invoice_row(con, int(invoice_id))
@@ -948,9 +957,19 @@ def create_xero_invoice(invoice_id: int, *, con=None, connection: Mapping[str, A
             raise HTTPException(status_code=502, detail="Xero did not return an invoice")
         result = _sync_local_invoice(con, int(invoice_id), xero_invoice, sync_status="synced")
         return {"ok": True, "invoice": result, "contact": contact, "xero_invoice": xero_invoice}
-    except HTTPException as exc:
+    except Exception as exc:
+        # If Xero already created/returned an invoice before something else
+        # failed (e.g. a transient DB error on the write-back below), we must
+        # still persist that InvoiceID -- otherwise it becomes invisible to
+        # us and the next sync attempt creates a second, orphaned invoice in
+        # Xero instead of updating this one. Only catching HTTPException here
+        # (as before) missed exactly that case.
+        error_detail = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
         try:
-            _save_invoice_link(con, invoice_id=int(invoice_id), xero_invoice={}, sync_status="failed", sync_error=str(exc.detail))
+            if isinstance(xero_invoice, Mapping) and str(xero_invoice.get("InvoiceID") or "").strip():
+                _save_invoice_link(con, invoice_id=int(invoice_id), xero_invoice=xero_invoice, sync_status="synced", sync_error=error_detail)
+            else:
+                _save_invoice_link(con, invoice_id=int(invoice_id), xero_invoice={}, sync_status="failed", sync_error=error_detail)
         except Exception:
             logger.debug("Failed to persist Xero invoice sync failure state", exc_info=True)
         raise
@@ -967,6 +986,7 @@ def update_xero_invoice(invoice_id: int, *, con=None, connection: Mapping[str, A
     if con is None:
         con = get_conn()
     assert con is not None
+    xero_invoice: Mapping[str, Any] | None = None
     try:
         _ensure_schema(con)
         invoice = _invoice_row(con, int(invoice_id))
@@ -982,9 +1002,16 @@ def update_xero_invoice(invoice_id: int, *, con=None, connection: Mapping[str, A
             raise HTTPException(status_code=502, detail="Xero did not return an updated invoice")
         result = _sync_local_invoice(con, int(invoice_id), xero_invoice, sync_status="synced")
         return {"ok": True, "invoice": result, "contact": contact, "xero_invoice": xero_invoice}
-    except HTTPException as exc:
+    except Exception as exc:
+        # See create_xero_invoice() -- persist the InvoiceID Xero already gave
+        # us even if something after that fails, so a retry updates this same
+        # invoice instead of creating an orphaned duplicate.
+        error_detail = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
         try:
-            _save_invoice_link(con, invoice_id=int(invoice_id), xero_invoice={}, sync_status="failed", sync_error=str(exc.detail))
+            if isinstance(xero_invoice, Mapping) and str(xero_invoice.get("InvoiceID") or "").strip():
+                _save_invoice_link(con, invoice_id=int(invoice_id), xero_invoice=xero_invoice, sync_status="synced", sync_error=error_detail)
+            else:
+                _save_invoice_link(con, invoice_id=int(invoice_id), xero_invoice={}, sync_status="failed", sync_error=error_detail)
         except Exception:
             logger.debug("Failed to persist Xero invoice sync failure state", exc_info=True)
         raise
@@ -1114,6 +1141,11 @@ def _credit_note_line_items(con, credit_note_id: int) -> list[dict[str, Any]]:
         unit_amount = _safe_float(line.get("unit_price_ex_vat"), 0.0)
         if not unit_amount and qty:
             unit_amount = amount / qty if qty else amount
+        # See _line_items(): Xero rejects negative Quantity outright, so fold
+        # the sign into UnitAmount instead -- same LineAmount, Xero-legal.
+        if qty < 0:
+            qty = -qty
+            unit_amount = -unit_amount
         description = " - ".join(
             part
             for part in [
@@ -1193,6 +1225,7 @@ def create_xero_credit_note(credit_note_id: int, *, con=None, connection: Mappin
     if con is None:
         con = get_conn()
     assert con is not None
+    xero_credit_note: Mapping[str, Any] | None = None
     try:
         _ensure_schema(con)
         credit_note = _credit_note_row(con, int(credit_note_id))
@@ -1205,9 +1238,16 @@ def create_xero_credit_note(credit_note_id: int, *, con=None, connection: Mappin
             raise HTTPException(status_code=502, detail="Xero did not return a credit note")
         result = _sync_local_credit_note(con, int(credit_note_id), xero_credit_note, sync_status="synced")
         return {"ok": True, "credit_note": result, "contact": contact, "xero_credit_note": xero_credit_note}
-    except HTTPException as exc:
+    except Exception as exc:
+        # See create_xero_invoice() -- persist the CreditNoteID Xero already
+        # gave us even if something after that fails, so a retry updates this
+        # same credit note instead of creating an orphaned duplicate.
+        error_detail = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
         try:
-            _save_credit_note_link(con, credit_note_id=int(credit_note_id), xero_credit_note={}, sync_status="failed", sync_error=str(exc.detail))
+            if isinstance(xero_credit_note, Mapping) and str(xero_credit_note.get("CreditNoteID") or "").strip():
+                _save_credit_note_link(con, credit_note_id=int(credit_note_id), xero_credit_note=xero_credit_note, sync_status="synced", sync_error=error_detail)
+            else:
+                _save_credit_note_link(con, credit_note_id=int(credit_note_id), xero_credit_note={}, sync_status="failed", sync_error=error_detail)
         except Exception:
             logger.debug("Failed to persist Xero credit note sync failure state", exc_info=True)
         raise
@@ -1224,6 +1264,7 @@ def update_xero_credit_note(credit_note_id: int, *, con=None, connection: Mappin
     if con is None:
         con = get_conn()
     assert con is not None
+    xero_credit_note: Mapping[str, Any] | None = None
     try:
         _ensure_schema(con)
         credit_note = _credit_note_row(con, int(credit_note_id))
@@ -1239,9 +1280,13 @@ def update_xero_credit_note(credit_note_id: int, *, con=None, connection: Mappin
             raise HTTPException(status_code=502, detail="Xero did not return an updated credit note")
         result = _sync_local_credit_note(con, int(credit_note_id), xero_credit_note, sync_status="synced")
         return {"ok": True, "credit_note": result, "contact": contact, "xero_credit_note": xero_credit_note}
-    except HTTPException as exc:
+    except Exception as exc:
+        error_detail = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
         try:
-            _save_credit_note_link(con, credit_note_id=int(credit_note_id), xero_credit_note={}, sync_status="failed", sync_error=str(exc.detail))
+            if isinstance(xero_credit_note, Mapping) and str(xero_credit_note.get("CreditNoteID") or "").strip():
+                _save_credit_note_link(con, credit_note_id=int(credit_note_id), xero_credit_note=xero_credit_note, sync_status="synced", sync_error=error_detail)
+            else:
+                _save_credit_note_link(con, credit_note_id=int(credit_note_id), xero_credit_note={}, sync_status="failed", sync_error=error_detail)
         except Exception:
             logger.debug("Failed to persist Xero credit note sync failure state", exc_info=True)
         raise
