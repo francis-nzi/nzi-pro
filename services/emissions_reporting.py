@@ -50,10 +50,12 @@ def _safe_text(value: Any) -> str | None:
 
 
 def _site_name_lookup(con) -> dict[int, str]:
+    from services.sites import site_display_name
+
     try:
         result = con.execute(
             """
-            SELECT site_id, site_name
+            SELECT site_id, site_name, location
             FROM client_sites
             """
         )
@@ -61,14 +63,15 @@ def _site_name_lookup(con) -> dict[int, str]:
     except Exception:
         return {}
     lookup: dict[int, str] = {}
-    for site_id, site_name in rows:
+    for site_id, site_name, location in rows:
         try:
             key = int(site_id)
         except Exception:
             continue
-        label = _clean_label(site_name, "")
-        if label:
-            lookup[key] = label
+        # Some sites (e.g. added with only an address, no separate display
+        # name) have an empty site_name -- fall back to location the same
+        # way the CRM's own site list does, instead of "Site {id}".
+        lookup[key] = site_display_name(site_id, site_name, location)
     return lookup
 
 
