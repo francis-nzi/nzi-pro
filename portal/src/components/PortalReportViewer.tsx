@@ -1621,6 +1621,34 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
               ))}
             </div>
           )}
+          {(report_metadata?.client_signee_name || report_metadata?.client_signee_position || report_metadata?.client_signature_date) && (
+            <div className="pt-4 space-y-4 max-w-sm" style={{ breakInside: "avoid", pageBreakInside: "avoid" }}>
+              <p className="text-sm font-semibold text-gray-800">Approved by:</p>
+              <div className="space-y-5">
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">Name:</p>
+                  {report_metadata?.client_signee_name && (
+                    <p className="text-sm text-gray-800">{report_metadata.client_signee_name}</p>
+                  )}
+                  <div className="border-b border-gray-400 w-56" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">Position:</p>
+                  {report_metadata?.client_signee_position && (
+                    <p className="text-sm text-gray-800">{report_metadata.client_signee_position}</p>
+                  )}
+                  <div className="border-b border-gray-400 w-56" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">Date:</p>
+                  {report_metadata?.client_signature_date && (
+                    <p className="text-sm text-gray-800">{fmtSignatureDate(report_metadata.client_signature_date)}</p>
+                  )}
+                  <div className="border-b border-gray-400 w-56" />
+                </div>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -1683,34 +1711,6 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
               {report_metadata?.consultant_name && <p className="text-sm text-gray-700">{report_metadata.consultant_name}</p>}
               {report_metadata?.consultant_signature_date && <p className="text-sm text-gray-700">{fmtSignatureDate(report_metadata.consultant_signature_date)}</p>}
             </div>
-            {(report_metadata?.client_signee_name || report_metadata?.client_signee_position || report_metadata?.client_signature_date) && (
-              <div className="pt-4 space-y-4 max-w-sm">
-                <p className="text-sm font-semibold text-gray-800">Approved by:</p>
-                <div className="space-y-5">
-                  <div>
-                    <p className="text-sm text-gray-500 mb-1">Name:</p>
-                    {report_metadata?.client_signee_name && (
-                      <p className="text-sm text-gray-800">{report_metadata.client_signee_name}</p>
-                    )}
-                    <div className="border-b border-gray-400 w-56" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500 mb-1">Position:</p>
-                    {report_metadata?.client_signee_position && (
-                      <p className="text-sm text-gray-800">{report_metadata.client_signee_position}</p>
-                    )}
-                    <div className="border-b border-gray-400 w-56" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500 mb-1">Date:</p>
-                    {report_metadata?.client_signature_date && (
-                      <p className="text-sm text-gray-800">{fmtSignatureDate(report_metadata.client_signature_date)}</p>
-                    )}
-                    <div className="border-b border-gray-400 w-56" />
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </CardContent>
       </Card>
