@@ -51,27 +51,29 @@ def list_report_versions(
 ):
     import traceback as _tb
     try:
-        # Run schema migrations on a separate connection so any DDL failure
-        # cannot corrupt the read connection's state.
-        try:
-            with get_conn() as ddl_con:
-                try:
-                    _ensure_report_template_schema(ddl_con)
-                except Exception:
-                    pass
-                try:
-                    _ensure_job_files_table(ddl_con)
-                except Exception:
-                    pass
-                try:
-                    _ensure_report_versions_schema(ddl_con)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
+        # A single connection for both the schema-ensure calls and the read
+        # below -- get_conn() defaults to autocommit=True (no explicit
+        # transaction spans these statements), so a failed DDL call can't
+        # poison a later statement on the same connection the way it could
+        # under an explicit transaction. Using one connection instead of two
+        # halves this endpoint's pressure on the connection pool, which is
+        # capped low (max 8) relative to how many concurrent fetches a single
+        # Report Printing page load can fire.
         try:
             with get_conn() as con:
+                try:
+                    _ensure_report_template_schema(con)
+                except Exception:
+                    pass
+                try:
+                    _ensure_job_files_table(con)
+                except Exception:
+                    pass
+                try:
+                    _ensure_report_versions_schema(con)
+                except Exception:
+                    pass
+
                 job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
                 if not job_exists:
                     raise HTTPException(status_code=404, detail="Job not found")
