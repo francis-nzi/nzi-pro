@@ -704,9 +704,9 @@ def list_ai_prompt_runs(
               streaming_at, completed_at, created_at
             FROM ai_prompt_runs
             WHERE org_id = %s
-              AND (%s IS NULL OR client_db_id = %s)
-              AND (%s IS NULL OR job_id = %s)
-              AND (%s IS NULL OR section_key = %s)
+              AND (%s::bigint IS NULL OR client_db_id = %s)
+              AND (%s::bigint IS NULL OR job_id = %s)
+              AND (%s::text IS NULL OR section_key = %s)
             ORDER BY created_at DESC, run_id DESC
             LIMIT %s
             """,

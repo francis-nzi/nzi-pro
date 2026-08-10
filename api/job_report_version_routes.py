@@ -114,7 +114,7 @@ def list_report_versions(
                 ).df()
             versions: list[dict[str, Any]] = []
             if rows is not None and not rows.empty:
-                for row_dict in rows.where(rows.notna(), other=None).to_dict("records"):
+                for row_dict in rows.astype(object).where(rows.notna(), other=None).to_dict("records"):
                     versions.append(_serialize_report_version_row(row_dict))
         except HTTPException:
             raise
