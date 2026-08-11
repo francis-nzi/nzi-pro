@@ -231,11 +231,18 @@ function formatTooltipValueWithName(value: unknown, name: unknown, fullName?: st
 
 // ─── WrapLegend ──────────────────────────────────────────────────────────────
 
-type LegendEntry = { color?: string; value?: string };
-function WrapLegend({ payload }: { payload?: LegendEntry[] }) {
+type LegendEntry = { color?: string; value?: string; type?: string };
+function WrapLegend({ payload, center }: { payload?: LegendEntry[]; center?: boolean }) {
+  // Recharts hands a custom `content` renderer the full payload regardless of
+  // each series' `legendType` -- only the *default* built-in legend renderer
+  // respects `legendType="none"`, and (confirmed against this repo's two
+  // Recharts majors: portal on 2.12.7, CRM's frontend app on 3.7.0) even that
+  // default behaviour isn't consistent across versions. Filter explicitly
+  // here instead of relying on either.
+  const visible = (payload ?? []).filter((entry) => entry.type !== "none");
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 10px", fontSize: 10, paddingTop: 4 }}>
-      {(payload ?? []).map((entry, i) => (
+    <div style={{ display: "flex", flexWrap: "wrap", justifyContent: center ? "center" : "flex-start", gap: "3px 10px", fontSize: 10, paddingTop: 4 }}>
+      {visible.map((entry, i) => (
         <span key={i} style={{ display: "flex", alignItems: "center", gap: 3, whiteSpace: "nowrap" }}>
           <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: entry.color ?? "#999", flexShrink: 0 }} />
           <span>{entry.value}</span>
@@ -465,7 +472,7 @@ function IntensityPathwayChart({
           <XAxis dataKey="year" ticks={tickYears} tickFormatter={(v: number) => String(v)} tick={{ fontSize: 10 }} />
           <YAxis tickFormatter={(v: number) => v.toFixed(1)} tick={{ fontSize: 10 }} />
           <Tooltip formatter={((value: unknown, label: unknown) => [value != null ? `${Number(value).toFixed(3)} tCO₂e` : "—", String(label ?? "")]) as any} labelFormatter={(label: unknown) => `Year: ${label}`} />
-          <Legend iconType="circle" />
+          <Legend content={(p) => <WrapLegend payload={p.payload as LegendEntry[] | undefined} center />} />
           {interimYear && interimYear > baselineYear && interimYear < endYear && (
             <ReferenceLine x={interimYear} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: "Interim", position: "top", fill: "#f59e0b", fontSize: 9 }} />
           )}
