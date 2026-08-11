@@ -648,11 +648,6 @@
       </div>
     </div>
 
-    {% if fp_summary %}
-    <div class="sub-head">Emissions Analysis</div>
-    <p>{{ fp_summary }}</p>
-    {% endif %}
-
     <div class="sub-head">Emissions by Scope and Category</div>
   </section>
 
@@ -743,6 +738,11 @@
     </table>
     {% else %}
     <div class="placeholder-box">Emissions by Scope and Category data will be available once emission sources have been configured for this job.</div>
+    {% endif %}
+
+    {% if fp_summary %}
+    <div class="sub-head">Emissions Analysis</div>
+    <p>{{ fp_summary }}</p>
     {% endif %}
 
     <div class="warn-box"><strong>Note:</strong> Emissions figures are rounded to the nearest 2 decimal places. As a consequence, small differences in totals may occur due to rounding.</div>

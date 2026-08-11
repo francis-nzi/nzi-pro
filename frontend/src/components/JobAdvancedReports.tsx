@@ -1916,17 +1916,7 @@ export default function JobAdvancedReports({
                     <span className="text-xs font-semibold text-gray-700 text-right">100.0%</span>
                   </div>
                 </div>
-                {footprintSummaryText && (
-                  <div className="mt-4">
-                    <ReportMarkdown content={footprintSummaryText} />
-                  </div>
-                )}
               </div>
-            )}
-
-            {/* Footprint summary when no site breakdown is available */}
-            {(site_breakdowns?.overall?.length ?? 0) === 0 && footprintSummaryText && (
-              <ReportMarkdown content={footprintSummaryText} />
             )}
 
           </CardContent>
@@ -2414,6 +2404,7 @@ export default function JobAdvancedReports({
                     {hasBenchmark && <span className="text-xs font-bold text-right" style={{ color: grandPct < 0 ? "#16a34a" : grandPct > 0 ? "#dc2626" : "#6b7280" }}>{grandPct >= 0 ? "+" : ""}{fmt(grandPct, 1)}%</span>}
                   </div>
                 </div>
+                {footprintSummaryText && <ReportMarkdown content={footprintSummaryText} />}
                 <p className="text-xs text-gray-600">A detailed breakdown of emissions is set out in Appendix 1.</p>
               </CardContent>
             </Card>

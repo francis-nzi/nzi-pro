@@ -1111,30 +1111,8 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <span className="text-xs font-semibold text-gray-700 text-right">100.0%</span>
                 </div>
               </div>
-              {(() => {
-                const txt = String(data.template_variables?.footprint_summary ?? "").trim();
-                if (!txt) return null;
-                return (
-                  <div className="mt-4 space-y-3">
-                    {txt.split(/\n\n+/).map((para, i) => (
-                      <p key={i} className="text-sm leading-relaxed text-gray-700">{para.trim()}</p>
-                    ))}
-                  </div>
-                );
-              })()}
             </div>
           )}
-          {(site_breakdowns?.overall?.length ?? 0) === 0 && (() => {
-            const txt = String(data.template_variables?.footprint_summary ?? "").trim();
-            if (!txt) return null;
-            return (
-              <div className="space-y-3">
-                {txt.split(/\n\n+/).map((para, i) => (
-                  <p key={i} className="text-sm leading-relaxed text-gray-700">{para.trim()}</p>
-                ))}
-              </div>
-            );
-          })()}
         </CardContent>
       </Card>
 
@@ -1592,6 +1570,17 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                 </div>
               </div>
               </div>
+              {(() => {
+                const txt = String(data.template_variables?.footprint_summary ?? "").trim();
+                if (!txt) return null;
+                return (
+                  <div className="space-y-3">
+                    {txt.split(/\n\n+/).map((para, i) => (
+                      <p key={i} className="text-sm leading-relaxed text-gray-700">{para.trim()}</p>
+                    ))}
+                  </div>
+                );
+              })()}
               <p className="text-xs text-gray-600">A detailed breakdown of emissions is set out in Appendix 1.</p>
             </CardContent>
           </Card>
