@@ -1491,9 +1491,6 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
             {report_metadata?.activity_commentary && (
               <p className="mt-4 text-sm text-gray-600 leading-relaxed">{report_metadata.activity_commentary}</p>
             )}
-            <div className="mt-4 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3">
-              <p className="text-xs text-gray-700"><span className="font-semibold">Note:</span> Emissions figures are rounded to the nearest 1 decimal place. As a consequence, small differences in totals may occur due to rounding.</p>
-            </div>
           </CardContent>
         </Card>
       )}
@@ -1751,6 +1748,9 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
               </tr>
             </tbody>
           </table>
+          <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3">
+            <p className="text-xs text-gray-700"><span className="font-semibold">Note:</span> Emissions figures are rounded to the nearest 1 decimal place. As a consequence, small differences in totals may occur due to rounding.</p>
+          </div>
         </CardContent>
       </Card>
 
