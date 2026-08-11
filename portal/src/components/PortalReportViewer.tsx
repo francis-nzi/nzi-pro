@@ -109,10 +109,13 @@ type SiteBreakdowns = {
 
 type EmissionCategory = {
   scope?: string | null;
+  dataset_category?: string | null;
+  lookup_category?: string | null;
   category?: string | null;
   report_label?: string | null;
   activity_group?: string | null;
   emissions?: number | null;
+  calc_tco2e?: number | null;
 };
 
 type GlossaryCard = { term: string; definition: string };
@@ -169,6 +172,37 @@ function toYearNumber(start: string | null | undefined, end: string | null | und
   const sy = start ? new Date(start).getFullYear() : null;
   const ey = end ? new Date(end).getFullYear() : null;
   return ey ?? sy ?? null;
+}
+
+const ACTIVITY_COLORS = ["#0ea5e9", "#14b8a6", "#f97316", "#8b5cf6", "#22c55e", "#ef4444", "#64748b", "#eab308"];
+
+// Same grouping + scaling as the CRM's buildActivityBarData
+// (frontend/src/components/report-widgets/activity-data.ts) -- groups by the
+// granular category field (falling back through dataset/lookup/report_label/
+// activity_group) rather than the coarser activity_totals bucket, which only
+// has ~5 broad groups and mislabels categories like Capital Goods as "Other".
+function buildActivityBarData(rows: EmissionCategory[], targetTotal = 0, limit = 8) {
+  const map = new Map<string, number>();
+  rows.forEach((row) => {
+    const raw = String(row.dataset_category || row.lookup_category || row.category || row.report_label || row.activity_group || "").trim();
+    const label = raw.length > 0 ? raw : "Unknown";
+    map.set(label, (map.get(label) ?? 0) + toNum(row.calc_tco2e ?? row.emissions ?? 0));
+  });
+
+  const rawEntries = Array.from(map.entries())
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, limit);
+
+  const rawTotal = rawEntries.reduce((acc, row) => acc + row.value, 0);
+  const scale = rawTotal > 0 && targetTotal > 0 && Math.abs(rawTotal - targetTotal) > 0.05 ? targetTotal / rawTotal : 1;
+
+  return rawEntries.map((row, index) => ({
+    name: row.name.length > 26 ? row.name.slice(0, 24) + "…" : row.name,
+    fullName: row.name,
+    value: row.value * scale,
+    fill: ACTIVITY_COLORS[index % ACTIVITY_COLORS.length],
+  }));
 }
 
 function fmt(v: number, dp = 1): string {
@@ -745,7 +779,6 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
 
   const {
     scope_totals, benchmark_totals, categories, benchmark_categories,
-    activity_totals, activity_group_order, activity_group_colors,
     intensity_metrics, job_actions, target_data, summary,
     report_metadata, template_variables, site_breakdowns, glossary_cards,
   } = data;
@@ -770,11 +803,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
 
   const scopeDonutData = SCOPE_LABELS.filter(s => toNum(scope_totals?.[s]) > 0).map(s => ({ name: s, value: toNum(scope_totals?.[s]) }));
 
-  const activityOrder = activity_group_order ?? Object.keys(activity_totals ?? {});
-  const activityBarData = activityOrder
-    .filter(k => toNum(activity_totals?.[k]) > 0)
-    .map(k => ({ name: k.length > 26 ? k.slice(0, 24) + "…" : k, fullName: k, value: toNum(activity_totals?.[k]), fill: activity_group_colors?.[k] ?? "#999" }))
-    .sort((a, b) => b.value - a.value);
+  const activityBarData = buildActivityBarData(categories ?? [], totalEmissions);
 
   const activityChartHeight = Math.max(200, activityBarData.length * 52 + 40);
   const hasPathway = baselineYear > 2000 && netZeroYear > baselineYear;
@@ -1471,10 +1500,14 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
 
       {/* ── 7. Emissions by Scope and Category ─────────────────────────── */}
       {(categories?.length ?? 0) > 0 && (() => {
+        // Same grouping + "% vs BM" trend calc as the CRM's Report Printing
+        // view -- category label prioritizes the granular `category` field
+        // (falling back to activity_group), and the % column compares each
+        // row's own current-vs-benchmark change, not composition-of-total.
         const aggMap = new Map<string, { scope: string; label: string; current: number; benchmark: number }>();
         for (const row of (categories ?? [])) {
           const scope = row.scope ?? "";
-          const label = row.activity_group?.trim() || "Other Emissions";
+          const label = row.category?.trim() || row.activity_group?.trim() || "Other Emissions";
           const key = `${scope}||${label}`;
           const existing = aggMap.get(key);
           if (existing) { existing.current += toNum(row.emissions); }
@@ -1482,7 +1515,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
         }
         for (const row of (benchmark_categories ?? [])) {
           const scope = row.scope ?? "";
-          const label = row.activity_group?.trim() || "Other Emissions";
+          const label = row.category?.trim() || row.activity_group?.trim() || "Other Emissions";
           const key = `${scope}||${label}`;
           const existing = aggMap.get(key);
           if (existing) { existing.benchmark += toNum(row.emissions); }
@@ -1496,6 +1529,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
         const grandCurrentTotal = totalEmissions;
         const grandBenchmarkTotal = toNum(benchmark_totals?.Total);
         const hasBenchmark = grandBenchmarkTotal > 0 || (benchmark_categories?.length ?? 0) > 0;
+        const grandPct = grandBenchmarkTotal > 0 ? ((grandCurrentTotal - grandBenchmarkTotal) / grandBenchmarkTotal) * 100 : 0;
 
         const tableRows: React.ReactElement[] = [];
         let rowIdx = 0;
@@ -1505,27 +1539,35 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
           const scopeCurrent = scopeRows.reduce((s, r) => s + r.current, 0);
           const scopeBenchmark = hasBenchmark ? scopeRows.reduce((s, r) => s + r.benchmark, 0) : null;
           scopeRows.forEach(r => {
-            const pct = grandCurrentTotal > 0 ? (r.current / grandCurrentTotal) * 100 : 0;
+            const pct = r.benchmark !== 0 ? ((r.current - r.benchmark) / r.benchmark) * 100 : null;
             const bg = rowIdx % 2 === 0 ? "bg-white" : "bg-gray-50";
             tableRows.push(
-              <div key={`${r.scope}-${r.label}`} className={`grid grid-cols-[80px_1fr_120px_120px_60px] border-b border-gray-100 px-3 py-2 ${bg}`}>
+              <div key={`${r.scope}-${r.label}`} className={`grid grid-cols-[80px_1fr_120px_120px_70px] border-b border-gray-100 px-3 py-2 ${bg}`}>
                 <span className="text-xs text-gray-500">{r.scope}</span>
                 <span className="text-xs text-gray-700 pr-2">{r.label}</span>
                 {hasBenchmark ? <span className="text-xs text-gray-700 text-right">{fmt(r.benchmark)}</span> : <span className="text-xs text-gray-400 text-right">—</span>}
                 <span className="text-xs text-gray-700 text-right">{fmt(r.current)}</span>
-                <span className="text-xs text-gray-700 text-right">{pct.toFixed(1)}%</span>
+                {hasBenchmark ? (
+                  pct === null
+                    ? <span className="text-xs text-right text-gray-400">-</span>
+                    : <span className="text-xs text-right" style={{ color: pct < 0 ? "#16a34a" : pct > 0 ? "#dc2626" : "#6b7280" }}>{pct >= 0 ? "+" : ""}{fmt(pct, 1)}%</span>
+                ) : <span className="text-xs text-gray-400 text-right">—</span>}
               </div>
             );
             rowIdx++;
           });
-          const scopePct = grandCurrentTotal > 0 ? (scopeCurrent / grandCurrentTotal) * 100 : 0;
+          const subPct = scopeBenchmark && scopeBenchmark !== 0 ? ((scopeCurrent - scopeBenchmark) / scopeBenchmark) * 100 : null;
           tableRows.push(
-            <div key={`subtotal-${scope}`} className="grid grid-cols-[80px_1fr_120px_120px_60px] border-b border-gray-200 px-3 py-2" style={{ backgroundColor: `${BRAND}12` }}>
+            <div key={`subtotal-${scope}`} className="grid grid-cols-[80px_1fr_120px_120px_70px] border-b border-gray-200 px-3 py-2" style={{ backgroundColor: `${BRAND}12` }}>
               <span className="text-xs font-semibold text-gray-700">{scope}</span>
               <span className="text-xs font-semibold text-gray-700">Sub-total</span>
               {hasBenchmark ? <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeBenchmark ?? 0)}</span> : <span className="text-xs text-gray-400 text-right">—</span>}
               <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeCurrent)}</span>
-              <span className="text-xs font-semibold text-gray-700 text-right">{scopePct.toFixed(1)}%</span>
+              {hasBenchmark ? (
+                subPct === null
+                  ? <span className="text-xs font-semibold text-right text-gray-400">-</span>
+                  : <span className="text-xs font-semibold text-right" style={{ color: subPct < 0 ? "#16a34a" : subPct > 0 ? "#dc2626" : "#6b7280" }}>{subPct >= 0 ? "+" : ""}{fmt(subPct, 1)}%</span>
+              ) : <span className="text-xs text-gray-400 text-right">—</span>}
             </div>
           );
         }
@@ -1535,27 +1577,25 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
             <CardContent className="space-y-4">
               <div className="overflow-x-auto">
               <div className="overflow-hidden rounded-lg border border-gray-200 min-w-[480px]">
-                <div className="grid grid-cols-[80px_1fr_120px_120px_60px] px-3 py-2" style={{ backgroundColor: BRAND }}>
+                <div className="grid grid-cols-[80px_1fr_120px_120px_70px] px-3 py-2" style={{ backgroundColor: BRAND }}>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white">Scope</span>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white">Category</span>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">
                     {hasBenchmark ? `${data.job_data.benchmark_period_start ? formatDate(data.job_data.benchmark_period_start) : "Benchmark"} tCO₂e` : "Benchmark tCO₂e"}
                   </span>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Current Year tCO₂e</span>
-                  <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">%</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">% vs BM</span>
                 </div>
                 {tableRows}
-                <div className="grid grid-cols-[80px_1fr_120px_120px_60px] border-t-2 border-gray-300 px-3 py-2 bg-gray-50">
+                <div className="grid grid-cols-[80px_1fr_120px_120px_70px] border-t-2 border-gray-300 px-3 py-2 bg-gray-50">
                   <span className="text-xs font-bold text-gray-700 uppercase col-span-2">Total Emissions</span>
                   {hasBenchmark ? <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandBenchmarkTotal)}</span> : <span className="text-xs text-gray-400 text-right">—</span>}
                   <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandCurrentTotal)}</span>
-                  <span className="text-xs font-bold text-gray-700 text-right">100.0%</span>
+                  {hasBenchmark ? <span className="text-xs font-bold text-right" style={{ color: grandPct < 0 ? "#16a34a" : grandPct > 0 ? "#dc2626" : "#6b7280" }}>{grandPct >= 0 ? "+" : ""}{fmt(grandPct, 1)}%</span> : <span className="text-xs text-gray-400 text-right">—</span>}
                 </div>
               </div>
               </div>
-              <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3">
-                <p className="text-xs text-gray-700"><span className="font-semibold">Note:</span> Emissions figures are rounded to the nearest 1 decimal place. As a consequence, small differences in totals may occur due to rounding.</p>
-              </div>
+              <p className="text-xs text-gray-600">A detailed breakdown of emissions is set out in Appendix 1.</p>
             </CardContent>
           </Card>
         );
