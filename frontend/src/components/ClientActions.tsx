@@ -378,7 +378,7 @@ export default function ClientActions({
         <CardHeader>
           <CardTitle>Action Lever Framework</CardTitle>
           <CardDescription>
-            Every action is categorized against the ISO 14060 action lever framework. Click a lever to filter the list below.
+            Every action is categorized against our Spheres of Influence action lever framework. Click a lever to filter the list below.
           </CardDescription>
         </CardHeader>
         <CardContent>

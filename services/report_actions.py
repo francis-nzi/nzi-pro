@@ -41,8 +41,10 @@ DEFAULT_ACTION_CATEGORIES = [
 
 UNCLASSIFIED_LEGACY_LEVER_CODE = "UNCLASSIFIED-LEGACY"
 
-# ISO 14060-style action lever framework: 3 Spheres -> 9 Sub-Spheres -> 24
-# Levers. Text transcribed verbatim from the reference "Sub-Spheres and
+# Corporate net-zero action lever framework: 3 Spheres -> 9 Sub-Spheres -> 24
+# Levers, based on Futerra and Oxford Net Zero's "Spheres of Influence" white
+# paper (Smith School, University of Oxford, Sept 2025) -- not an ISO
+# standard. Text transcribed verbatim from the reference "Sub-Spheres and
 # Action Levers" table. Mirrored in sql_migrations/0064_action_lever_framework.sql.
 STANDARD_ACTION_LEVERS: list[dict[str, Any]] = [
     {"sphere_code": "A", "sphere_name": "Products and Services", "sub_sphere_code": "A1", "sub_sphere_name": "Product and Service Innovation", "lever_code": "A1.1", "lever_description": "Develop and scale products that accelerate others' emissions reductions (i.e., resulting in avoided emissions)", "sort_order": 10},
