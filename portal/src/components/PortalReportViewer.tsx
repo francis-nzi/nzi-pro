@@ -165,6 +165,12 @@ function toNum(v: unknown): number {
   return isFinite(n) ? n : 0;
 }
 
+function toYearNumber(start: string | null | undefined, end: string | null | undefined): number | null {
+  const sy = start ? new Date(start).getFullYear() : null;
+  const ey = end ? new Date(end).getFullYear() : null;
+  return ey ?? sy ?? null;
+}
+
 function fmt(v: number, dp = 1): string {
   return v.toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp });
 }
@@ -631,6 +637,55 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
     return [{ year: by, scope1: toNum(data?.scope_totals?.["Scope 1"]), scope2: toNum(data?.scope_totals?.["Scope 2"]), scope3: toNum(data?.scope_totals?.["Scope 3"]), total: te }];
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Same computation as the CRM's Report Printing view (JobAdvancedReports.tsx) --
+  // matches the current/benchmark/previous rows from the yearly emissions series
+  // rather than the narrower benchmark_totals field, which is often empty.
+  const scopeYearOnYearBar = useMemo(() => {
+    if (!data || effectiveYearlyEmissions.length === 0) return null;
+
+    const currentYear =
+      toYearNumber(data.job_data.reporting_period_start, data.job_data.reporting_period_end) ??
+      toNum(data.job_data?.reporting_year) ??
+      new Date().getFullYear();
+    const firstHistoricalYear = effectiveYearlyEmissions.length > 0 ? effectiveYearlyEmissions[0]?.year ?? null : null;
+    const benchmarkBarYear =
+      toYearNumber(data.job_data.benchmark_period_start, data.job_data.benchmark_period_end) ??
+      firstHistoricalYear ??
+      currentYear;
+    const currentRow = effectiveYearlyEmissions.find((row) => row.year === currentYear) ?? effectiveYearlyEmissions[effectiveYearlyEmissions.length - 1] ?? null;
+    const benchmarkRow =
+      effectiveYearlyEmissions.find((row) => row.year === benchmarkBarYear) ??
+      effectiveYearlyEmissions.find((row) => row.year === firstHistoricalYear) ??
+      effectiveYearlyEmissions[0] ??
+      null;
+    const isBenchmarkReportYear = benchmarkBarYear === currentYear;
+
+    if (!currentRow || !benchmarkRow) return null;
+
+    const previousRow =
+      effectiveYearlyEmissions
+        .filter((row) => row.year < currentRow.year)
+        .sort((a, b) => b.year - a.year)[0] ?? null;
+
+    const isPreviousBenchmark = previousRow?.year === benchmarkBarYear;
+    const changePct = (cur: number, bm: number) => (bm > 0 ? Math.round(((cur - bm) / bm) * 1000) / 10 : null);
+
+    return {
+      benchmarkLabel: `BM ${benchmarkRow.year}`,
+      previousLabel: previousRow ? `Previous Year ${previousRow.year}` : "Previous Year",
+      currentLabel: `Current Year ${currentRow.year}`,
+      showBenchmarkBar: !isBenchmarkReportYear,
+      showPreviousBar: !isBenchmarkReportYear && !isPreviousBenchmark,
+      showComparisonPct: !isBenchmarkReportYear,
+      data: [
+        { scope: "Scope 1", benchmark: benchmarkRow.scope1, previous: previousRow?.scope1 ?? null, current: currentRow.scope1, pct: changePct(currentRow.scope1, benchmarkRow.scope1) },
+        { scope: "Scope 2", benchmark: benchmarkRow.scope2, previous: previousRow?.scope2 ?? null, current: currentRow.scope2, pct: changePct(currentRow.scope2, benchmarkRow.scope2) },
+        { scope: "Scope 3", benchmark: benchmarkRow.scope3, previous: previousRow?.scope3 ?? null, current: currentRow.scope3, pct: changePct(currentRow.scope3, benchmarkRow.scope3) },
+        { scope: "Total", benchmark: benchmarkRow.total, previous: previousRow?.total ?? null, current: currentRow.total, pct: changePct(currentRow.total, benchmarkRow.total) },
+      ],
+    };
+  }, [data, effectiveYearlyEmissions]);
+
   async function submitNote() {
     if (!noteText.trim()) return;
     setSubmittingNote(true);
@@ -1054,6 +1109,152 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
         </CardContent>
       </Card>
 
+      {/* ── 4b. Intensity Metric Analysis ──────────────────────────────── */}
+      {intensity_metrics && Object.keys(intensity_metrics).length > 0 && (() => {
+        const currentPeriodLabel = (() => {
+          const s = data.job_data.reporting_period_start;
+          const e = data.job_data.reporting_period_end;
+          if (!s && !e) return "Current Year";
+          const sYear = s ? new Date(s).getFullYear() : null;
+          const eYear = e ? new Date(e).getFullYear() : null;
+          if (sYear && eYear && sYear !== eYear) return `${sYear}–${eYear}`;
+          return String(sYear ?? eYear ?? "Current Year");
+        })();
+
+        const benchmarkPeriodLabel = (() => {
+          const s = data.job_data.benchmark_period_start;
+          const e = data.job_data.benchmark_period_end;
+          if (!s && !e) return "Benchmark Year";
+          const sYear = s ? new Date(s).getFullYear() : null;
+          const eYear = e ? new Date(e).getFullYear() : null;
+          if (sYear && eYear && sYear !== eYear) return `${sYear}–${eYear}`;
+          return String(sYear ?? eYear ?? "Benchmark Year");
+        })();
+
+        const benchmarkTotal = toNum(benchmark_totals?.Total) ||
+          (toNum(benchmark_totals?.["Scope 1"]) + toNum(benchmark_totals?.["Scope 2"]) + toNum(benchmark_totals?.["Scope 3"]));
+
+        const calcIntensity = (m: { value?: number | null; divider?: number | null }, emissions: number) => {
+          const v = toNum(m.value);
+          const d = toNum(m.divider) || 1;
+          return v > 0 && emissions > 0 ? (emissions * d) / v : null;
+        };
+
+        const pctChange = (curr: number | null, bench: number | null): number | null => {
+          if (curr == null || bench == null || bench === 0) return null;
+          return ((curr - bench) / Math.abs(bench)) * 100;
+        };
+        const fmtPct = (p: number | null) => {
+          if (p == null) return "—";
+          return `${p > 0 ? "+" : ""}${p.toFixed(1)}%`;
+        };
+        const pctColor = (p: number | null) =>
+          p == null ? "text-gray-400" : p < 0 ? "text-green-600" : p > 0 ? "text-red-600" : "text-gray-600";
+
+        const perLabel = (key: string, m: { label?: string | null; divider?: number | null }) => {
+          const label = m.label?.trim() || key;
+          const d = toNum(m.divider) || 1;
+          return d === 1 ? `Per ${label}` : `Per ${d.toLocaleString()} ${label}`;
+        };
+
+        const MetricIcon = ({ metricKey }: { metricKey: string }) => {
+          if (metricKey === "employees") return (
+            <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: BRAND }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+            </svg>
+          );
+          return <span className="text-2xl font-bold" style={{ color: BRAND }}>£</span>;
+        };
+
+        const seen = new Set<string>();
+        const dedupedMetricEntries = [...Object.entries(intensity_metrics)]
+          .sort(([a], [b]) => (a === "employees" ? -1 : b === "employees" ? 1 : 0))
+          .filter(([key, m]) => {
+            const lbl = perLabel(key, m);
+            if (seen.has(lbl)) return false;
+            seen.add(lbl);
+            return true;
+          });
+
+        const summaryParts = dedupedMetricEntries.map(([key, m]) => {
+          const intensity = calcIntensity(m, totalEmissions);
+          if (intensity == null) return null;
+          const label = m.label?.trim() || key;
+          const d = toNum(m.divider) || 1;
+          const perStr = d === 1 ? `per ${label.toLowerCase()}` : `per ${d.toLocaleString()} ${label.toLowerCase()}`;
+          return `${fmt(intensity)} tCO₂e ${perStr}`;
+        }).filter(Boolean);
+
+        const employeeCount = toNum(intensity_metrics.employees?.value);
+
+        return (
+          <Card data-section="Intensity Metric Analysis">
+            <CardHeader className="pb-3"><SectionHeader title="Intensity Metric Analysis" /></CardHeader>
+            <CardContent className="space-y-5">
+              <p className="text-sm text-gray-700 leading-relaxed">
+                Intensity metrics help normalise emissions data, taking into account variations in production levels or activity volumes. This allows for a more accurate assessment of emission trends over time, regardless of changes in business operations. The initial intensity metrics for the company are below and will be used for comparative purposes in following years.
+              </p>
+              <div>
+                <p className="text-sm font-semibold text-center text-gray-700 mb-2">Intensity Metrics (tonnes CO₂e)</p>
+                <div className="overflow-x-auto">
+                <div className="overflow-hidden rounded-lg border border-gray-200 min-w-[480px]">
+                  <div className="grid grid-cols-[56px_1fr_110px_110px_90px] border-b border-gray-200 bg-gray-50 px-3 py-1.5">
+                    <span /><span />
+                    <div className="text-right">
+                      <p className="text-xs font-semibold text-gray-600">Benchmark</p>
+                      <p className="text-xs text-gray-500">{benchmarkPeriodLabel}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-semibold text-gray-600">Current</p>
+                      <p className="text-xs text-gray-500">{currentPeriodLabel}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-semibold text-gray-600">Change</p>
+                    </div>
+                  </div>
+                  {dedupedMetricEntries.map(([key, m], i) => {
+                    const bmM = data.benchmark_intensity_metrics?.[key] ?? m;
+                    const benchIntensity = calcIntensity(bmM, benchmarkTotal);
+                    const currIntensity  = calcIntensity(m, totalEmissions);
+                    const pct = pctChange(currIntensity, benchIntensity);
+                    return (
+                      <div key={key} className={`grid grid-cols-[56px_1fr_110px_110px_90px] items-center border-b border-gray-100 last:border-0 px-3 py-4 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                        <div className="flex items-center justify-center"><MetricIcon metricKey={key} /></div>
+                        <span className="text-sm font-medium text-gray-700">{perLabel(key, m)}</span>
+                        <span className="text-right text-sm text-gray-600">{benchIntensity != null ? fmt(benchIntensity) : "—"}</span>
+                        <span className="text-right text-sm font-semibold text-gray-800">{currIntensity != null ? fmt(currIntensity) : "—"}</span>
+                        <span className={`text-right text-sm font-semibold ${pctColor(pct)}`}>{fmtPct(pct)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                </div>
+              </div>
+              {summaryParts.length > 0 && (
+                <p className="text-sm text-gray-700 leading-relaxed">
+                  The chosen intensity metrics shows a carbon emissions value of{" "}
+                  {summaryParts.map((part, i) => (
+                    <React.Fragment key={i}>{i > 0 && " and "}<strong>{part}</strong></React.Fragment>
+                  ))}.
+                  {employeeCount > 0 && <> The business headcount averaged {employeeCount} {employeeCount === 1 ? "person" : "people"} during the benchmark period.</>}
+                </p>
+              )}
+              {hasPathway && effectiveYearlyEmissions.length > 0 && (
+                <div>
+                  <p className="text-sm font-semibold text-gray-700 mb-3">Emissions Reduction Pathway to {netZeroYear} for Intensity Metrics</p>
+                  <IntensityPathwayChart
+                    yearlyEmissions={effectiveYearlyEmissions} baselineYear={baselineYear} endYear={netZeroYear}
+                    interimYear={interimYear} interimS1Pct={interimS1Pct} interimS2Pct={interimS2Pct} interimS3Pct={interimS3Pct}
+                    targetPct={targetPct} scope1Fallback={scope1} scope2Fallback={scope2} scope3Fallback={scope3}
+                    intensityMetrics={intensity_metrics}
+                  />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
+
       {/* ── 5. Analysis by Scope ───────────────────────────────────────── */}
       <Card data-section="Analysis by Scope">
         <CardHeader className="pb-3">
@@ -1116,75 +1317,51 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
           </div>
 
           {/* Year-on-Year Comparison by Scope */}
-          {(() => {
-            const bScope1 = toNum(benchmark_totals?.["Scope 1"]);
-            const bScope2 = toNum(benchmark_totals?.["Scope 2"]);
-            const bScope3 = toNum(benchmark_totals?.["Scope 3"]);
-            const bTotal  = toNum(benchmark_totals?.Total) || (bScope1 + bScope2 + bScope3);
-            if (bTotal <= 0) return null;
-
-            const chgPct = (cur: number, bm: number) => bm > 0 ? Math.round(((cur - bm) / bm) * 1000) / 10 : null;
-
-            const bLabel = (() => {
-              const s = data.job_data.benchmark_period_start;
-              const e = data.job_data.benchmark_period_end;
-              if (s && e) return `${formatDate(s)} – ${formatDate(e)}`;
-              return s ? formatDate(s) : "Benchmark Year";
-            })();
-
-            const cLabel = (() => {
-              const s = data.job_data.reporting_period_start;
-              const e = data.job_data.reporting_period_end;
-              if (s && e) return `${formatDate(s)} – ${formatDate(e)}`;
-              return s ? formatDate(s) : "Current Year";
-            })();
-
-            const barData = [
-              { scope: "Scope 1", benchmark: bScope1, current: scope1, pct: chgPct(scope1, bScope1) },
-              { scope: "Scope 2", benchmark: bScope2, current: scope2, pct: chgPct(scope2, bScope2) },
-              { scope: "Scope 3", benchmark: bScope3, current: scope3, pct: chgPct(scope3, bScope3) },
-              { scope: "Total",   benchmark: bTotal,  current: totalEmissions, pct: chgPct(totalEmissions, bTotal) },
-            ];
-
-            return (
-              <div>
-                <p className="text-sm font-semibold text-gray-700 mb-3">Year-on-Year Comparison by Scope</p>
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={barData} margin={{ top: 20, right: 24, left: 8, bottom: 32 }} barCategoryGap="30%" barGap={4}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F0F0F0" />
-                    <XAxis
-                      dataKey="scope"
-                      axisLine={false} tickLine={false} interval={0}
-                      tick={(tickProps: any) => {
-                        const { x, y, payload } = tickProps as { x: number; y: number; payload: { value: string } };
-                        const row = barData.find(d => d.scope === payload?.value);
-                        const pct = row?.pct ?? null;
-                        return (
-                          <g transform={`translate(${x},${y})`}>
-                            <text textAnchor="middle" fontSize={11} fill="#334155" y={14}>{payload?.value}</text>
-                            {pct != null && (
-                              <text textAnchor="middle" fontSize={10} fill={pct < 0 ? "#16a34a" : "#dc2626"} y={28}>
-                                {pct < 0 ? "" : "+"}{pct.toFixed(1)}%
-                              </text>
-                            )}
-                          </g>
-                        );
-                      }}
-                    />
-                    <YAxis tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} label={{ value: "tCO₂e", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "#94a3b8" } }} />
-                    <Tooltip formatter={(v: unknown, name: unknown) => [typeof v === "number" ? `${fmt(v)} tCO₂e` : "—", String(name ?? "")]} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="top" />
-                    <Bar dataKey="benchmark" name={bLabel} fill="#94a3b8" radius={[3,3,0,0]} isAnimationActive={false}>
+          {scopeYearOnYearBar && (
+            <div>
+              <p className="text-sm font-semibold text-gray-700 mb-3">Year-on-Year Comparison by Scope</p>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={scopeYearOnYearBar.data} margin={{ top: 20, right: 24, left: 8, bottom: 32 }} barCategoryGap="30%" barGap={4}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F0F0F0" />
+                  <XAxis
+                    dataKey="scope"
+                    axisLine={false} tickLine={false} interval={0}
+                    tick={(tickProps: any) => {
+                      const { x, y, payload } = tickProps as { x: number; y: number; payload: { value: string } };
+                      const row = scopeYearOnYearBar.data.find(d => d.scope === payload?.value);
+                      const pct = scopeYearOnYearBar.showComparisonPct ? row?.pct ?? null : null;
+                      return (
+                        <g transform={`translate(${x},${y})`}>
+                          <text textAnchor="middle" fontSize={11} fill="#334155" y={14}>{payload?.value}</text>
+                          {pct != null && (
+                            <text textAnchor="middle" fontSize={10} fill={pct < 0 ? "#16a34a" : "#dc2626"} y={28}>
+                              {pct < 0 ? "" : "+"}{pct.toFixed(1)}%
+                            </text>
+                          )}
+                        </g>
+                      );
+                    }}
+                  />
+                  <YAxis tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} label={{ value: "tCO₂e", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "#94a3b8" } }} />
+                  <Tooltip formatter={(v: unknown, name: unknown) => [typeof v === "number" ? `${fmt(v)} tCO₂e` : "—", String(name ?? "")]} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="top" />
+                  {scopeYearOnYearBar.showBenchmarkBar && (
+                    <Bar dataKey="benchmark" name={scopeYearOnYearBar.benchmarkLabel} fill="#94a3b8" radius={[3,3,0,0]} isAnimationActive={false}>
                       <LabelList dataKey="benchmark" position="top" formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmt(v, 1) : ""} style={{ fontSize: 9, fill: "#64748b" }} />
                     </Bar>
-                    <Bar dataKey="current" name={cLabel} fill={BRAND} radius={[3,3,0,0]} isAnimationActive={false}>
-                      <LabelList dataKey="current" position="top" formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmt(v, 1) : ""} style={{ fontSize: 9, fill: BRAND }} />
+                  )}
+                  {scopeYearOnYearBar.showPreviousBar && (
+                    <Bar dataKey="previous" name={scopeYearOnYearBar.previousLabel} fill="#64748b" radius={[3,3,0,0]} isAnimationActive={false}>
+                      <LabelList dataKey="previous" position="top" formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmt(v, 1) : ""} style={{ fontSize: 9, fill: "#475569" }} />
                     </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            );
-          })()}
+                  )}
+                  <Bar dataKey="current" name={scopeYearOnYearBar.currentLabel} fill={BRAND} radius={[3,3,0,0]} isAnimationActive={false}>
+                    <LabelList dataKey="current" position="top" formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmt(v, 1) : ""} style={{ fontSize: 9, fill: BRAND }} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
           {/* Scope Descriptions */}
           <div>
@@ -1379,152 +1556,6 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
               <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3">
                 <p className="text-xs text-gray-700"><span className="font-semibold">Note:</span> Emissions figures are rounded to the nearest 1 decimal place. As a consequence, small differences in totals may occur due to rounding.</p>
               </div>
-            </CardContent>
-          </Card>
-        );
-      })()}
-
-      {/* ── 8. Intensity Metric Analysis ───────────────────────────────── */}
-      {intensity_metrics && Object.keys(intensity_metrics).length > 0 && (() => {
-        const currentPeriodLabel = (() => {
-          const s = data.job_data.reporting_period_start;
-          const e = data.job_data.reporting_period_end;
-          if (!s && !e) return "Current Year";
-          const sYear = s ? new Date(s).getFullYear() : null;
-          const eYear = e ? new Date(e).getFullYear() : null;
-          if (sYear && eYear && sYear !== eYear) return `${sYear}–${eYear}`;
-          return String(sYear ?? eYear ?? "Current Year");
-        })();
-
-        const benchmarkPeriodLabel = (() => {
-          const s = data.job_data.benchmark_period_start;
-          const e = data.job_data.benchmark_period_end;
-          if (!s && !e) return "Benchmark Year";
-          const sYear = s ? new Date(s).getFullYear() : null;
-          const eYear = e ? new Date(e).getFullYear() : null;
-          if (sYear && eYear && sYear !== eYear) return `${sYear}–${eYear}`;
-          return String(sYear ?? eYear ?? "Benchmark Year");
-        })();
-
-        const benchmarkTotal = toNum(benchmark_totals?.Total) ||
-          (toNum(benchmark_totals?.["Scope 1"]) + toNum(benchmark_totals?.["Scope 2"]) + toNum(benchmark_totals?.["Scope 3"]));
-
-        const calcIntensity = (m: { value?: number | null; divider?: number | null }, emissions: number) => {
-          const v = toNum(m.value);
-          const d = toNum(m.divider) || 1;
-          return v > 0 && emissions > 0 ? (emissions * d) / v : null;
-        };
-
-        const pctChange = (curr: number | null, bench: number | null): number | null => {
-          if (curr == null || bench == null || bench === 0) return null;
-          return ((curr - bench) / Math.abs(bench)) * 100;
-        };
-        const fmtPct = (p: number | null) => {
-          if (p == null) return "—";
-          return `${p > 0 ? "+" : ""}${p.toFixed(1)}%`;
-        };
-        const pctColor = (p: number | null) =>
-          p == null ? "text-gray-400" : p < 0 ? "text-green-600" : p > 0 ? "text-red-600" : "text-gray-600";
-
-        const perLabel = (key: string, m: { label?: string | null; divider?: number | null }) => {
-          const label = m.label?.trim() || key;
-          const d = toNum(m.divider) || 1;
-          return d === 1 ? `Per ${label}` : `Per ${d.toLocaleString()} ${label}`;
-        };
-
-        const MetricIcon = ({ metricKey }: { metricKey: string }) => {
-          if (metricKey === "employees") return (
-            <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: BRAND }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-            </svg>
-          );
-          return <span className="text-2xl font-bold" style={{ color: BRAND }}>£</span>;
-        };
-
-        const seen = new Set<string>();
-        const dedupedMetricEntries = [...Object.entries(intensity_metrics)]
-          .sort(([a], [b]) => (a === "employees" ? -1 : b === "employees" ? 1 : 0))
-          .filter(([key, m]) => {
-            const lbl = perLabel(key, m);
-            if (seen.has(lbl)) return false;
-            seen.add(lbl);
-            return true;
-          });
-
-        const summaryParts = dedupedMetricEntries.map(([key, m]) => {
-          const intensity = calcIntensity(m, totalEmissions);
-          if (intensity == null) return null;
-          const label = m.label?.trim() || key;
-          const d = toNum(m.divider) || 1;
-          const perStr = d === 1 ? `per ${label.toLowerCase()}` : `per ${d.toLocaleString()} ${label.toLowerCase()}`;
-          return `${fmt(intensity)} tCO₂e ${perStr}`;
-        }).filter(Boolean);
-
-        const employeeCount = toNum(intensity_metrics.employees?.value);
-
-        return (
-          <Card data-section="Intensity Metric Analysis">
-            <CardHeader className="pb-3"><SectionHeader title="Intensity Metric Analysis" /></CardHeader>
-            <CardContent className="space-y-5">
-              <p className="text-sm text-gray-700 leading-relaxed">
-                Intensity metrics help normalise emissions data, taking into account variations in production levels or activity volumes. This allows for a more accurate assessment of emission trends over time, regardless of changes in business operations. The initial intensity metrics for the company are below and will be used for comparative purposes in following years.
-              </p>
-              <div>
-                <p className="text-sm font-semibold text-center text-gray-700 mb-2">Intensity Metrics (tonnes CO₂e)</p>
-                <div className="overflow-x-auto">
-                <div className="overflow-hidden rounded-lg border border-gray-200 min-w-[480px]">
-                  <div className="grid grid-cols-[56px_1fr_110px_110px_90px] border-b border-gray-200 bg-gray-50 px-3 py-1.5">
-                    <span /><span />
-                    <div className="text-right">
-                      <p className="text-xs font-semibold text-gray-600">Benchmark</p>
-                      <p className="text-xs text-gray-500">{benchmarkPeriodLabel}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs font-semibold text-gray-600">Current</p>
-                      <p className="text-xs text-gray-500">{currentPeriodLabel}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs font-semibold text-gray-600">Change</p>
-                    </div>
-                  </div>
-                  {dedupedMetricEntries.map(([key, m], i) => {
-                    const bmM = data.benchmark_intensity_metrics?.[key] ?? m;
-                    const benchIntensity = calcIntensity(bmM, benchmarkTotal);
-                    const currIntensity  = calcIntensity(m, totalEmissions);
-                    const pct = pctChange(currIntensity, benchIntensity);
-                    return (
-                      <div key={key} className={`grid grid-cols-[56px_1fr_110px_110px_90px] items-center border-b border-gray-100 last:border-0 px-3 py-4 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
-                        <div className="flex items-center justify-center"><MetricIcon metricKey={key} /></div>
-                        <span className="text-sm font-medium text-gray-700">{perLabel(key, m)}</span>
-                        <span className="text-right text-sm text-gray-600">{benchIntensity != null ? fmt(benchIntensity) : "—"}</span>
-                        <span className="text-right text-sm font-semibold text-gray-800">{currIntensity != null ? fmt(currIntensity) : "—"}</span>
-                        <span className={`text-right text-sm font-semibold ${pctColor(pct)}`}>{fmtPct(pct)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-                </div>
-              </div>
-              {summaryParts.length > 0 && (
-                <p className="text-sm text-gray-700 leading-relaxed">
-                  The chosen intensity metrics shows a carbon emissions value of{" "}
-                  {summaryParts.map((part, i) => (
-                    <React.Fragment key={i}>{i > 0 && " and "}<strong>{part}</strong></React.Fragment>
-                  ))}.
-                  {employeeCount > 0 && <> The business headcount averaged {employeeCount} {employeeCount === 1 ? "person" : "people"} during the benchmark period.</>}
-                </p>
-              )}
-              {hasPathway && effectiveYearlyEmissions.length > 0 && (
-                <div>
-                  <p className="text-sm font-semibold text-gray-700 mb-3">Emissions Reduction Pathway to {netZeroYear} for Intensity Metrics</p>
-                  <IntensityPathwayChart
-                    yearlyEmissions={effectiveYearlyEmissions} baselineYear={baselineYear} endYear={netZeroYear}
-                    interimYear={interimYear} interimS1Pct={interimS1Pct} interimS2Pct={interimS2Pct} interimS3Pct={interimS3Pct}
-                    targetPct={targetPct} scope1Fallback={scope1} scope2Fallback={scope2} scope3Fallback={scope3}
-                    intensityMetrics={intensity_metrics}
-                  />
-                </div>
-              )}
             </CardContent>
           </Card>
         );
