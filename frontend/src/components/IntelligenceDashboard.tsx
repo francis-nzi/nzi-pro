@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Briefcase, CheckSquare, Pencil, RefreshCcw, Search, ShieldCheck, Sparkles, Trash2, TrendingUp, Users, X } from "lucide-react";
+import { AlertCircle, Briefcase, CheckSquare, Pencil, RefreshCcw, Search, ShieldCheck, Trash2, TrendingUp, Users, X } from "lucide-react";
 import CallPrepPanel from "@/components/CallPrepPanel";
 import LogTouchpointModal from "@/components/LogTouchpointModal";
 import { Badge } from "@/components/ui/badge";
@@ -52,7 +52,7 @@ function ragBadge(priority: string) {
   switch (priority?.toLowerCase()) {
     case "urgent": return <Badge className="bg-rose-100 text-rose-700 border-rose-200 font-medium">Urgent</Badge>;
     case "high": return <Badge className="bg-amber-100 text-amber-700 border-amber-200 font-medium">High</Badge>;
-    case "normal": return <Badge className="bg-sky-100 text-sky-700 border-sky-200 font-medium">Normal</Badge>;
+    case "normal": return <Badge variant="outline" className="font-medium">Normal</Badge>;
     case "low": return <Badge className="bg-slate-100 text-slate-600 border-slate-200 font-medium">Low</Badge>;
     default: return <Badge variant="outline">{priority || "Normal"}</Badge>;
   }
@@ -61,7 +61,7 @@ function ragBadge(priority: string) {
 function taskStatusBadge(status: string) {
   switch (status?.toLowerCase()) {
     case "done": return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">Done</Badge>;
-    case "in_progress": return <Badge className="bg-blue-100 text-blue-700 border-blue-200">In Progress</Badge>;
+    case "in_progress": return <Badge className="bg-amber-100 text-amber-700 border-amber-200">In Progress</Badge>;
     case "blocked": return <Badge className="bg-rose-100 text-rose-700 border-rose-200">Blocked</Badge>;
     case "cancelled": return <Badge className="bg-slate-100 text-slate-500 border-slate-200">Cancelled</Badge>;
     default: return <Badge variant="outline">Open</Badge>;
@@ -148,28 +148,6 @@ type IntelligenceResponse = {
   generated_at: string;
   crm_owner: string;
 };
-
-function scopeLabel(value: string | null) {
-  return value?.trim() || "All CRMs";
-}
-
-function scoreTone(score: number) {
-  if (score >= 70) return "bg-emerald-50 text-emerald-700 border-emerald-200";
-  if (score >= 40) return "bg-amber-50 text-amber-700 border-amber-200";
-  return "bg-rose-50 text-rose-700 border-rose-200";
-}
-
-function scoreAccent(score: number) {
-  if (score >= 70) return "from-emerald-50 to-emerald-100/40";
-  if (score >= 40) return "from-amber-50 to-amber-100/40";
-  return "from-rose-50 to-rose-100/40";
-}
-
-function queueTone(priority: number) {
-  if (priority <= 1) return "border-rose-200 bg-rose-50";
-  if (priority === 2) return "border-amber-200 bg-amber-50";
-  return "border-sky-200 bg-sky-50";
-}
 
 export default function IntelligenceDashboard({ baseUrl, crmOwner }: IntelligenceDashboardProps) {
   const [scopeOwner, setScopeOwner] = useState<string | null>(crmOwner);
@@ -490,45 +468,30 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-xs uppercase tracking-[0.22em] text-muted-foreground">Insights</div>
-          <h2 className="text-3xl font-semibold text-foreground">
-            {viewMode === "all" && isSuperAdmin ? "All CRM dashboard" : "Personal CRM dashboard"}
-          </h2>
-          <div className="mt-1 text-sm text-muted-foreground">
-            {viewMode === "all" && isSuperAdmin
-              ? "Viewing all CRMs"
-              : scopeOwner
-                ? `Viewing ${scopeLabel(scopeOwner)}`
-                : "Loading your CRM scope..."}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {isSuperAdmin && (
+          <div className="flex items-center rounded-full border bg-muted/20 p-1">
+            <button
+              type="button"
+              onClick={() => setViewMode("personal")}
+              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${viewMode === "personal" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              Personal
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("all")}
+              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${viewMode === "all" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              All CRMs
+            </button>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {isSuperAdmin && (
-            <div className="flex items-center rounded-full border bg-muted/20 p-1">
-              <button
-                type="button"
-                onClick={() => setViewMode("personal")}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${viewMode === "personal" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                Personal
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("all")}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${viewMode === "all" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                All CRMs
-              </button>
-            </div>
-          )}
-          {data && <Badge variant="outline" className="rounded-full">{formatDate(data.generated_at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</Badge>}
-          <Button variant="outline" onClick={refresh} disabled={loading}>
-            <RefreshCcw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-        </div>
+        )}
+        {data && <Badge variant="outline" className="rounded-full text-xs font-normal text-muted-foreground">Updated {formatDate(data.generated_at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</Badge>}
+        <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
+          <RefreshCcw className={`mr-2 h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
       </div>
 
       {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
@@ -538,30 +501,13 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
 
       {data ? (
         <>
-          <Card className="overflow-hidden border-border/70 bg-gradient-to-r from-background via-background to-muted/25 shadow-sm">
-            <CardContent className="flex flex-col gap-4 p-6 lg:flex-row lg:items-center lg:justify-between">
-              <div className="max-w-3xl">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-[0.22em] text-muted-foreground">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  <span>Personal insights feed</span>
-                </div>
-                <div className="mt-2 text-sm text-muted-foreground">
-                  Your portfolio at a glance — open tasks, jobs needing attention, follow-up reminders, and upcoming renewals.
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="outline" className="rounded-full">{scopeOwner ? scopeLabel(scopeOwner) : "All CRMs"}</Badge>
-                {opsJobs && <Badge variant="secondary" className="rounded-full">{opsJobs.overdue + opsJobs.due_soon} jobs at risk</Badge>}
-                <Badge variant="secondary" className="rounded-full">{data.renewal_pipeline.length} renewals</Badge>
-              </div>
-            </CardContent>
-          </Card>
-
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {/* Total Clients — special card with traffic-light breakdown */}
             {data && (() => {
+              // crm_person matches clients where this CRM is either the owner or the
+              // client_manager, since most staff are set up as manager rather than owner.
               const ownerParam = (viewMode !== "all" && scopeOwner)
-                ? `&crm_owner=${encodeURIComponent(scopeOwner)}`
+                ? `&crm_person=${encodeURIComponent(scopeOwner)}`
                 : "";
               return (
                 <Link href={`/clients?${ownerParam ? ownerParam.slice(1) : ""}`} className="block">
@@ -669,6 +615,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
             })}
           </div>
 
+          {(tasksLoading || myTasks.length > 0) && (
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-3">
@@ -682,8 +629,6 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
             <CardContent className="p-0">
               {tasksLoading ? (
                 <div className="px-6 py-4 text-sm text-muted-foreground">Loading tasks...</div>
-              ) : myTasks.length === 0 ? (
-                <div className="px-6 py-4 text-sm text-muted-foreground">No open tasks assigned to you.</div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -710,15 +655,12 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
                             onClick={() => setTaskDetail(task)}
                           >
                             <td className="px-4 py-3">
-                              {task.priority === "urgent" && <Badge className="bg-rose-100 text-rose-700 border-rose-200">Urgent</Badge>}
-                              {task.priority === "high" && <Badge className="bg-amber-100 text-amber-700 border-amber-200">High</Badge>}
-                              {task.priority === "normal" && <Badge className="bg-sky-100 text-sky-700 border-sky-200">Normal</Badge>}
-                              {task.priority === "low" && <Badge className="bg-slate-100 text-slate-600 border-slate-200">Low</Badge>}
+                              {ragBadge(task.priority)}
                             </td>
                             <td className="px-4 py-3 font-medium max-w-[200px] truncate">{task.title}</td>
                             <td className="px-4 py-3 text-xs" onClick={(e) => e.stopPropagation()}>
                               {task.job_id && task.job_number ? (
-                                <a href={`/jobs/${task.job_id}/tasks`} className="text-emerald-700 hover:underline font-medium">
+                                <a href={`/jobs/${task.job_id}/tasks`} className="text-foreground hover:underline font-medium">
                                   {task.job_number}
                                 </a>
                               ) : <span className="text-muted-foreground">—</span>}
@@ -730,9 +672,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
                               {dueStr}
                             </td>
                             <td className="px-4 py-3">
-                              {task.status === "in_progress" && <Badge className="bg-blue-100 text-blue-700 border-blue-200">In Progress</Badge>}
-                              {task.status === "blocked" && <Badge className="bg-rose-100 text-rose-700 border-rose-200">Blocked</Badge>}
-                              {task.status === "open" && <Badge variant="outline">Open</Badge>}
+                              {taskStatusBadge(task.status)}
                             </td>
                           </tr>
                         );
@@ -743,9 +683,11 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
               )}
             </CardContent>
           </Card>
+          )}
 
           {/* Jobs */}
           {(() => {
+            if (opsJobs && opsJobs.current_jobs.length === 0) return null;
             const allJobs = opsJobs?.current_jobs ?? [];
             const filtered = jobRagFilter === "all"
               ? allJobs
@@ -788,9 +730,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
                   {!opsJobs ? (
                     <div className="px-6 py-4 text-sm text-muted-foreground">Loading jobs...</div>
                   ) : filtered.length === 0 ? (
-                    <div className="px-6 py-4 text-sm text-muted-foreground">
-                      {allJobs.length === 0 ? "No active jobs found." : "No jobs match this filter."}
-                    </div>
+                    <div className="px-6 py-4 text-sm text-muted-foreground">No jobs match this filter.</div>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
@@ -816,7 +756,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
                                   <span className={`inline-block h-2.5 w-2.5 rounded-full ${dotCls}`} title={ms ?? "No milestones"} />
                                 </td>
                                 <td className="px-4 py-3 text-xs font-medium">
-                                  <Link href={`/jobs/${job.job_id}`} className="text-emerald-700 hover:underline">
+                                  <Link href={`/jobs/${job.job_id}`} className="text-foreground hover:underline">
                                     {job.job_number}
                                   </Link>
                                 </td>
@@ -847,8 +787,10 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
           })()}
 
           {/* Follow-up Reminders + Renewals side by side */}
+          {(data.action_queue.length > 0 || data.renewal_pipeline.length > 0) && (
           <div className="grid gap-6 xl:grid-cols-2">
             {(() => {
+              if (data.action_queue.length === 0) return null;
               const FOLLOW_UP_PAGE_SIZE = 10;
               const searchLower = followUpSearch.trim().toLowerCase();
               // Sort: priority ascending (1 = most urgent), then by due_date ascending (oldest first)
@@ -888,7 +830,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
                   </CardHeader>
                   <CardContent className="space-y-2 pt-0">
                     {filtered.length === 0 ? (
-                      <EmptyState title="No matches" description={searchLower ? "Try a different client name." : "All clients are up to date."} />
+                      <EmptyState title="No matches" description="Try a different client name." />
                     ) : (
                       <>
                         {pageItems.map((item) => (
@@ -927,6 +869,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
               );
             })()}
 
+            {data.renewal_pipeline.length > 0 && (
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-3">
@@ -935,10 +878,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
                 </div>
               </CardHeader>
               <CardContent className="space-y-2">
-                {data.renewal_pipeline.length === 0 ? (
-                  <EmptyState title="No renewals due soon" description="No active engagements ending in the next 90 days." />
-                ) : (
-                  data.renewal_pipeline.slice(0, 8).map((item) => (
+                {data.renewal_pipeline.slice(0, 8).map((item) => (
                     <div key={`${item.client_db_id}-${item.engagement_end_date ?? "renewal"}`} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5">
                       <div className="min-w-0">
                         <Link href={`/clients/${item.client_db_id}`} className="font-medium hover:underline text-sm truncate block">
@@ -954,11 +894,12 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
                         {item.days_remaining <= 0 ? "Expired" : `${item.days_remaining}d`}
                       </Badge>
                     </div>
-                  ))
-                )}
+                ))}
               </CardContent>
             </Card>
+            )}
           </div>
+          )}
         </>
       ) : null}
 
@@ -985,7 +926,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
                 {taskDetail.job_id && taskDetail.job_number && (
                   <a
                     href={`/jobs/${taskDetail.job_id}/tasks`}
-                    className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                    className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold text-foreground border-border bg-muted/30 hover:bg-muted/60 transition-colors"
                   >
                     Job {taskDetail.job_number}
                   </a>

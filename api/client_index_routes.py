@@ -54,6 +54,7 @@ def list_clients(
     status: str | None = None,
     crm_owner: str | None = None,
     client_manager: str | None = None,
+    crm_person: str | None = None,
     risk: str | None = None,
     portfolio: str | None = None,
     include_archived: bool = Query(False),
@@ -199,6 +200,13 @@ def list_clients(
             if crm_owner:
                 item_where.append("LOWER(TRIM(crm_owner)) = LOWER(TRIM(%s))")
                 item_params.append(crm_owner)
+            if crm_person:
+                # "Is this my client" for a CRM's personal portfolio view -- most staff
+                # are set up as client_manager rather than the formal crm_owner, so
+                # match either instead of only the exact owner (unlike the crm_owner
+                # facet filter above, which stays owner-only for precise drill-down).
+                item_where.append("(LOWER(TRIM(crm_owner)) = LOWER(TRIM(%s)) OR LOWER(TRIM(COALESCE(client_manager, ''))) = LOWER(TRIM(%s)))")
+                item_params.extend([crm_person, crm_person])
             if portfolio:
                 item_where.append("LOWER(TRIM(portfolio)) = LOWER(TRIM(%s))")
                 item_params.append(portfolio)

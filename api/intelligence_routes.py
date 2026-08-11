@@ -285,12 +285,16 @@ def _load_scoped_clients(con, org_id: str, crm_owner: str | None) -> list[dict[s
     filters = ["c.org_id = ?"]
     params: list[object] = [org_id]
     if crm_owner:
-        # Match clients owned directly OR linked via a job assigned to this CRM
+        # Match clients owned directly, linked via a job assigned to this CRM, or
+        # where this CRM is the client_manager -- most staff are set up as the
+        # manager rather than the formal owner, so owner-only matching under-scoped
+        # their personal portfolio.
         filters.append(
             "(COALESCE(NULLIF(TRIM(c.crm_owner), ''), 'Unassigned') = ? "
-            "OR EXISTS (SELECT 1 FROM jobs j WHERE j.client_db_id = c.db_id AND COALESCE(NULLIF(TRIM(j.crm_name), ''), '') = ?))"
+            "OR EXISTS (SELECT 1 FROM jobs j WHERE j.client_db_id = c.db_id AND COALESCE(NULLIF(TRIM(j.crm_name), ''), '') = ?) "
+            "OR COALESCE(NULLIF(TRIM(c.client_manager), ''), '') = ?)"
         )
-        params.extend([crm_owner, crm_owner])
+        params.extend([crm_owner, crm_owner, crm_owner])
     query = f"""
         SELECT
             c.db_id,

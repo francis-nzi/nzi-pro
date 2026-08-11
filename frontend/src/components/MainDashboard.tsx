@@ -322,25 +322,11 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
     <div className="space-y-5">
 
       {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold" style={{ color: "#F26624" }}>Dashboard</h2>
-          <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
-            {isSuperuser ? <Shield className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
-            <span>{isSuperuser ? "All CRMs — Superuser View" : `Viewing: ${crm || currentUserLabel || "Selected CRM"}`}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {showFilters && (
-            <>
-              <FilterSelect label="Year"     value={year?.toString() ?? ""}    onValue={v => setYear(+v)}             options={yearOpts.map(y => ({ label: String(y), value: String(y) }))} placeholder="Year…"    w="w-28" />
-              {indOpts.length > 0 && <FilterSelect label="Industry" value={ind ?? ALL} onValue={v => setInd(v === ALL ? null : v)} options={[{ label: "All", value: ALL }, ...indOpts.map(i => ({ label: i, value: i }))]} placeholder="All" w="w-40" />}
-              {crmOpts.length > 0 && <CrmSearchSelect label="CRM" value={crm ?? ALL} onValue={(v) => setCrm(v === ALL ? null : v)} options={crmOpts} placeholder="Search team members..." w="w-64" />}
-            </>
-          )}
-          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setShowFilters(v => !v)}>
-            {showFilters ? "Hide filters" : "Filters"}
-          </Button>
+      <div>
+        <h2 className="text-2xl font-semibold text-foreground">Dashboard</h2>
+        <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
+          {isSuperuser ? <Shield className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
+          <span>{isSuperuser ? "All CRMs — Superuser View" : `Viewing: ${crm || currentUserLabel || "Selected CRM"}`}</span>
         </div>
       </div>
 
@@ -361,14 +347,28 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
       {/* Tabs */}
       {(ov || !loading) && (
         <Tabs value={activeTab} onValueChange={(value) => updateActiveTab(value as typeof activeTab)} className="w-full">
-          <TabsList className="mb-1">
-            <TabsTrigger value="today">Today</TabsTrigger>
-            <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
-            <TabsTrigger value="financial">Financial</TabsTrigger>
-            <TabsTrigger value="delivery">Delivery</TabsTrigger>
-            <TabsTrigger value="emissions">Emissions</TabsTrigger>
-            <TabsTrigger value="tasks">Tasks</TabsTrigger>
-          </TabsList>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
+            <TabsList>
+              <TabsTrigger value="today">Today</TabsTrigger>
+              <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
+              <TabsTrigger value="financial">Financial</TabsTrigger>
+              <TabsTrigger value="delivery">Delivery</TabsTrigger>
+              <TabsTrigger value="emissions">Emissions</TabsTrigger>
+              <TabsTrigger value="tasks">Tasks</TabsTrigger>
+            </TabsList>
+            <div className="flex items-center gap-2 flex-wrap">
+              {showFilters && (
+                <>
+                  <FilterSelect label="Year"     value={year?.toString() ?? ""}    onValue={v => setYear(+v)}             options={yearOpts.map(y => ({ label: String(y), value: String(y) }))} placeholder="Year…"    w="w-28" />
+                  {indOpts.length > 0 && <FilterSelect label="Industry" value={ind ?? ALL} onValue={v => setInd(v === ALL ? null : v)} options={[{ label: "All", value: ALL }, ...indOpts.map(i => ({ label: i, value: i }))]} placeholder="All" w="w-40" />}
+                  {crmOpts.length > 0 && <CrmSearchSelect label="CRM" value={crm ?? ALL} onValue={(v) => setCrm(v === ALL ? null : v)} options={crmOpts} placeholder="Search team members..." w="w-64" />}
+                </>
+              )}
+              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setShowFilters(v => !v)}>
+                {showFilters ? "Hide filters" : "Filters"}
+              </Button>
+            </div>
+          </div>
 
           {/* Today */}
           <TabsContent value="today" className="space-y-5 pt-3">
