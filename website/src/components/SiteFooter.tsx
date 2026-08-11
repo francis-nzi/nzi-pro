@@ -33,6 +33,13 @@ export function SiteFooter() {
             <Link href="/faq">FAQ</Link>
           </div>
           <div>
+            <span>Standards</span>
+            <Link href="/standards">Standards</Link>
+            <Link href="/ghg-protocol">GHG Protocol</Link>
+            <Link href="/iso-14064">ISO 14064</Link>
+            <Link href="/iso-14060">ISO 14060</Link>
+          </div>
+          <div>
             <span>Company</span>
             <Link href="/about">About</Link>
             <Link href="/regulations">Regulations</Link>

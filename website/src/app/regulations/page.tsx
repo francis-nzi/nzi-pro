@@ -112,6 +112,8 @@ const regions: { name: string; items: RegionItem[] }[] = [
       {
         q: "What are the ISSB Standards (IFRS S1 and IFRS S2)?",
         a: "The ISSB Standards, IFRS S1 (general sustainability disclosures) and IFRS S2 (climate-related disclosures), are the emerging global baseline for sustainability reporting, designed so a single, comparable standard can be adopted or endorsed by jurisdictions worldwide. Australia, Singapore, the UK and many other markets are building their regimes on top of them. Net Zero International develops its reporting under the ISSB Standards, alongside the GHG Protocol and GRI, so your data is ready wherever disclosure rules land.",
+        faqSchema: true,
+        link: { href: "/standards", label: "See the standards behind our reporting" },
       },
     ],
   },
@@ -187,6 +189,8 @@ export default function RegulationsPage() {
         </Link>
 
         <div className="related-links">
+          <Link href="/uk-srs-readiness" className="related-link">UK SRS Readiness</Link>
+          <Link href="/standards" className="related-link">Standards</Link>
           <Link href="/cbam" className="related-link">CBAM</Link>
           <Link href="/carbon-reduction-plans" className="related-link">Carbon Reduction Plans</Link>
           <Link href="/scope-3" className="related-link">Scope 3</Link>

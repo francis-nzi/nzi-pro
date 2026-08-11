@@ -20,6 +20,15 @@ export const navLinks: NavLink[] = [
       { href: "/uk-srs-readiness", label: "UK SRS Readiness" },
     ],
   },
+  {
+    href: "/standards",
+    label: "Standards",
+    children: [
+      { href: "/ghg-protocol", label: "GHG Protocol" },
+      { href: "/iso-14064", label: "ISO 14064" },
+      { href: "/iso-14060", label: "ISO 14060" },
+    ],
+  },
   { href: "/nz-insights-pro", label: "NZ Insights Pro" },
   {
     href: "/resources",

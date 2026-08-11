@@ -174,6 +174,7 @@ export default function UkSrsReadinessPage() {
 
         <div className="related-links">
           <Link href="/regulations" className="related-link">Regulations</Link>
+          <Link href="/standards" className="related-link">Standards</Link>
           <Link href="/nz-insights-pro" className="related-link">NZ Insights Pro</Link>
           <Link href="/carbon-reduction-plans" className="related-link">Carbon Reduction Plans</Link>
           <Link href="/scope-3" className="related-link">Scope 3</Link>
