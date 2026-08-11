@@ -51,7 +51,9 @@ const regions: { name: string; items: RegionItem[] }[] = [
       },
       {
         q: "What is the UK's SDR (Sustainability Disclosure Requirements)?",
-        a: "The UK's SDR is the Financial Conduct Authority's regime for sustainability-related disclosures and investment product labels, introduced with anti-greenwashing rules to make sustainability claims clearer and more trustworthy. In parallel, the UK is developing UK Sustainability Reporting Standards (UK SRS) based on the ISSB standards, which would underpin future corporate climate disclosure.",
+        a: "The UK's SDR is the Financial Conduct Authority's regime for sustainability-related disclosures and investment product labels, introduced with anti-greenwashing rules to make sustainability claims clearer and more trustworthy. In parallel, the UK has published UK Sustainability Reporting Standards (UK SRS), based on the ISSB standards, which the FCA has proposed making mandatory for listed companies from January 2027.",
+        faqSchema: true,
+        link: { href: "/uk-srs-readiness", label: "See our UK SRS readiness guide" },
       },
       {
         q: "UK ETS",

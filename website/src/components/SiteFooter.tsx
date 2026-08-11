@@ -42,6 +42,7 @@ export function SiteFooter() {
           <div>
             <span>Support</span>
             <Link href="/regulations">Reporting</Link>
+            <Link href="/uk-srs-readiness">UK SRS Readiness</Link>
             <Link href="/resources">Knowledge hub</Link>
             <Link href="/contact">Talk to us</Link>
           </div>

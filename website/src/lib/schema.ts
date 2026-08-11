@@ -36,6 +36,8 @@ export const organizationSchema = {
     "ISSB Standards",
     "IFRS S1",
     "IFRS S2",
+    "UK Sustainability Reporting Standards",
+    "UK SRS",
     "CSRD",
     "EU ETS",
     "UK ETS",

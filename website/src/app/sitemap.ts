@@ -14,6 +14,7 @@ export default function sitemap() {
     "/workshops",
     "/training",
     "/regulations",
+    "/uk-srs-readiness",
     "/glossary",
     "/faq",
     "/ai-era",

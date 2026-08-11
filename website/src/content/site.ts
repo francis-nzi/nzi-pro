@@ -17,6 +17,7 @@ export const navLinks: NavLink[] = [
       { href: "/workshops", label: "Workshops" },
       { href: "/training", label: "Training" },
       { href: "/regulations", label: "Regulations" },
+      { href: "/uk-srs-readiness", label: "UK SRS Readiness" },
     ],
   },
   { href: "/nz-insights-pro", label: "NZ Insights Pro" },
