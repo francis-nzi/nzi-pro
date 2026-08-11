@@ -2085,8 +2085,8 @@
             {% set action_term_counts = job_actions.get('term_counts', {}) %}
             
             <p>
-                To achieve our net zero commitment, {{ job_data.client_name }} has identified the following key 
-                areas for emissions reduction. These actions will be implemented in phases over the coming years.
+                {{ job_data.client_name or "The organisation" }} has identified the following key areas for
+                emissions reduction. These actions will support the company strategy to meet the reduction targets.
             </p>
 
             {% if job_actions.get('summary_sentence') %}

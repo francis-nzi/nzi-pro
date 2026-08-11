@@ -1560,7 +1560,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
         <CardHeader className="pb-3"><SectionHeader title="Carbon Reduction Actions" /></CardHeader>
         <CardContent className="space-y-5">
           <p className="text-sm text-gray-700 leading-relaxed">
-            To achieve our net zero commitment, {data.job_data.client_name ?? "the organisation"} has identified the following key areas for emissions reduction. These actions will be implemented in phases over the coming years.
+            {data.job_data.client_name ?? "The organisation"} has identified the following key areas for emissions reduction. These actions will support the company strategy to meet the reduction targets.
           </p>
           <div>
             <p className="text-sm font-bold text-gray-800 mb-3">Planned Initiatives</p>
