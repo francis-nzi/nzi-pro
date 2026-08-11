@@ -66,6 +66,7 @@ function ClientsContent() {
   const [riskFilter, setRiskFilter] = useState(() => searchParams.get("risk") ?? "");
   const [portfolioFilter, setPortfolioFilter] = useState(() => searchParams.get("portfolio") ?? "");
   const [clientManagerFilter, setClientManagerFilter] = useState(() => searchParams.get("client_manager") ?? "");
+  const [personFilter, setPersonFilter] = useState(() => searchParams.get("crm_person") ?? "");
   const [facets, setFacets] = useState<ClientFacets>({
     industries: [],
     statuses: [],
@@ -91,6 +92,7 @@ function ClientsContent() {
         if (riskFilter.trim()) params.set("risk", riskFilter.trim());
         if (portfolioFilter.trim()) params.set("portfolio", portfolioFilter.trim());
         if (clientManagerFilter.trim()) params.set("client_manager", clientManagerFilter.trim());
+        if (personFilter.trim()) params.set("crm_person", personFilter.trim());
         params.set("limit", String(limit));
         params.set("offset", String(offset));
         params.set("sort_by", sortBy);
@@ -140,7 +142,7 @@ function ClientsContent() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [baseUrl, q, industryFilter, statusFilter, ownerFilter, riskFilter, portfolioFilter, clientManagerFilter, limit, offset, sortBy, sortDir]);
+  }, [baseUrl, q, industryFilter, statusFilter, ownerFilter, riskFilter, portfolioFilter, clientManagerFilter, personFilter, limit, offset, sortBy, sortDir]);
 
   const page = Math.floor(offset / limit) + 1;
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -225,6 +227,19 @@ function ClientsContent() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="sticky top-16 z-20 rounded-md border bg-background/95 p-4 backdrop-blur">
+              {personFilter && (
+                <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                  <span>Showing clients where <strong>{personFilter}</strong> is the owner or manager.</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => { setPersonFilter(""); setOffset(0); }}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              )}
               <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                 <span className="font-medium">Risk legend:</span>
                 <span className="rounded-full bg-rose-100 px-2 py-0.5 text-rose-800">Overdue</span>
