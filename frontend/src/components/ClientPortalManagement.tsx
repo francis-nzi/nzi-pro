@@ -61,6 +61,8 @@ type PortalUser = {
   invited_by: string | null;
   role: string;
   site_ids: number[] | null;
+  mfa_enabled: boolean;
+  mfa_enabled_at: string | null;
 };
 
 type PortalSite = { site_id: number; site_name: string };
@@ -887,6 +889,7 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
 
   // Reset password
   const [resettingUserId, setResettingUserId] = useState<number | null>(null);
+  const [resettingMfaUserId, setResettingMfaUserId] = useState<number | null>(null);
 
   const loadAccess = useCallback(async () => {
     const res = await fetch(`${baseUrl}/clients/${clientId}/portal-access`, { credentials: "include" });
@@ -1092,6 +1095,32 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
       setError((e as Error).message);
     } finally {
       setResettingUserId(null);
+    }
+  }
+
+  async function handleResetMfa(user: PortalUser) {
+    const confirmed = await confirmAction({
+      title: "Reset MFA for this user?",
+      description: `${user.full_name || user.email} will need to set up two-factor authentication again the next time they log in. Use this if they've lost their authenticator device or recovery codes. Their password is not affected.`,
+      confirmLabel: "Reset MFA",
+      destructive: true,
+    });
+    if (!confirmed) return;
+    setResettingMfaUserId(user.portal_user_id);
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/portal-users/${user.portal_user_id}/reset-mfa`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+      const data = await safeJson<{ ok?: boolean; detail?: string }>(res);
+      if (!res.ok) throw new Error(data.detail ?? "Failed to reset MFA");
+      setStatusMsg("MFA reset — the user will set it up again on next login.");
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setResettingMfaUserId(null);
     }
   }
 
@@ -1589,6 +1618,12 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
                       <Badge variant={user.is_active ? "secondary" : "outline"}>
                         {user.is_active ? "Active" : "Inactive"}
                       </Badge>
+                      <Badge
+                        variant="outline"
+                        className={user.mfa_enabled ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}
+                      >
+                        {user.mfa_enabled ? "MFA enabled" : "MFA not set up"}
+                      </Badge>
                       <Button variant="ghost" size="sm" onClick={() => void handleToggleActive(user)}>
                         {user.is_active ? "Deactivate" : "Reactivate"}
                       </Button>
@@ -1609,6 +1644,17 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
                       >
                         {resettingUserId === user.portal_user_id ? "Resetting…" : "Reset password"}
                       </Button>
+                      {user.mfa_enabled && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs text-muted-foreground"
+                          disabled={resettingMfaUserId === user.portal_user_id}
+                          onClick={() => void handleResetMfa(user)}
+                        >
+                          {resettingMfaUserId === user.portal_user_id ? "Resetting…" : "Reset MFA"}
+                        </Button>
+                      )}
                     </div>
                   </div>
 

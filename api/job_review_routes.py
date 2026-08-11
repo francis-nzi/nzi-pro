@@ -26,6 +26,7 @@ from services.portal_data_entry import (
 )
 from services.portal import (
     add_comment,
+    admin_reset_portal_user_mfa,
     admin_reset_portal_user_password,
     create_portal_user,
     ensure_portal_schema,
@@ -210,6 +211,29 @@ def reset_portal_user_password(
     updated, temporary_password = admin_reset_portal_user_password(int(portal_user_id))
     _send_password_reset_email(updated, temporary_password=temporary_password)
     return {"ok": True, "item": updated, "temporary_password": temporary_password}
+
+
+@router.post("/clients/{client_db_id}/portal-users/{portal_user_id}/reset-mfa")
+def reset_portal_user_mfa(
+    client_db_id: int,
+    portal_user_id: int,
+    _user: dict = Depends(_current_user),
+):
+    """For a client who's lost their authenticator device and recovery codes.
+    Clears their MFA enrollment so they're taken through setup again next
+    login -- does not touch their password."""
+    assert_permission(_user, "jobs.edit")
+    assert_client_access(_user, int(client_db_id))
+    with get_conn() as con:
+        ensure_portal_schema(con)
+        row = con.execute(
+            "SELECT client_db_id FROM client_portal_users WHERE portal_user_id = %s",
+            [int(portal_user_id)],
+        ).fetchone()
+    if not row or int(row[0]) != int(client_db_id):
+        raise HTTPException(status_code=404, detail="Portal user not found")
+    updated = admin_reset_portal_user_mfa(int(portal_user_id))
+    return {"ok": True, "item": updated}
 
 
 @router.post("/clients/{client_db_id}/portal-users/{portal_user_id}/resend-invite")

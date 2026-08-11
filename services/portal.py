@@ -501,14 +501,20 @@ def list_portal_users(client_db_id: int, *, con=None) -> list[dict[str, Any]]:
     rows = con.execute(
         """
         SELECT portal_user_id, client_db_id, contact_id, email, full_name,
-               is_active, created_at, last_login_at, created_by, invited_at, invited_by, role
+               is_active, created_at, last_login_at, created_by, invited_at, invited_by, role,
+               COALESCE(mfa_enabled, FALSE), mfa_enabled_at
         FROM client_portal_users
         WHERE client_db_id = %s
         ORDER BY full_name ASC
         """,
         [int(client_db_id)],
     ).fetchall()
-    users = [_row_to_portal_user(r) for r in (rows or [])]
+    users = []
+    for r in (rows or []):
+        user = _row_to_portal_user(r)
+        user["mfa_enabled"] = bool(r[12])
+        user["mfa_enabled_at"] = str(r[13]) if r[13] else None
+        users.append(user)
     for user in users:
         user["site_ids"] = get_portal_user_site_ids(user["portal_user_id"], con=con)
     return users
@@ -522,13 +528,19 @@ def get_portal_user_by_id(portal_user_id: int, *, con=None) -> dict[str, Any] | 
     row = con.execute(
         """
         SELECT portal_user_id, client_db_id, contact_id, email, full_name,
-               is_active, created_at, last_login_at, created_by, invited_at, invited_by, role
+               is_active, created_at, last_login_at, created_by, invited_at, invited_by, role,
+               COALESCE(mfa_enabled, FALSE), mfa_enabled_at
         FROM client_portal_users
         WHERE portal_user_id = %s
         """,
         [int(portal_user_id)],
     ).fetchone()
-    return _row_to_portal_user(row) if row else None
+    if not row:
+        return None
+    user = _row_to_portal_user(row)
+    user["mfa_enabled"] = bool(row[12])
+    user["mfa_enabled_at"] = str(row[13]) if row[13] else None
+    return user
 
 
 def get_portal_user_by_email(email: str, *, con=None) -> dict[str, Any] | None:
@@ -747,6 +759,39 @@ def admin_reset_portal_user_password(portal_user_id: int, *, con=None) -> tuple[
     set_portal_user_password(portal_user_id, temporary_password, con=con)
     updated = get_portal_user_by_id(portal_user_id, con=con)
     return updated, temporary_password
+
+
+def admin_reset_portal_user_mfa(portal_user_id: int, *, con=None) -> dict[str, Any]:
+    """CRM-initiated MFA reset -- for a client who's lost their authenticator
+    device and burned through their recovery codes. Clears the enrolled
+    secret and recovery codes so the user is taken through MFA setup again
+    on their next login (mfa_setup_required = not mfa_enabled), the same way
+    a brand-new portal user is. Does not touch their password.
+    """
+    if con is None:
+        with get_conn(autocommit=False) as managed:
+            return admin_reset_portal_user_mfa(portal_user_id, con=managed)
+    user = get_portal_user_by_id(portal_user_id, con=con)
+    if not user:
+        raise HTTPException(status_code=404, detail="Portal user not found")
+    con.execute(
+        """
+        UPDATE client_portal_users
+        SET mfa_enabled = FALSE,
+            mfa_secret_encrypted = NULL,
+            mfa_setup_secret_encrypted = NULL,
+            mfa_recovery_codes_hash = '[]',
+            mfa_enabled_at = NULL,
+            mfa_last_used_at = NULL,
+            updated_at = NOW()
+        WHERE portal_user_id = %s
+        """,
+        [int(portal_user_id)],
+    )
+    updated = get_portal_user_by_id(portal_user_id, con=con)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Portal user not found")
+    return updated
 
 
 # ---------------------------------------------------------------------------
