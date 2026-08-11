@@ -15,6 +15,22 @@ import { Badge } from "@/components/ui/badge";
 import { KpiCard } from "@/components/shared/KpiCard";
 import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
 
+// Client logos stored as a relative /uploads/... path only resolve against
+// whichever domain is actually serving the Python API's static files -- not
+// against the portal's own domain. Route through the portal's own
+// /api/backend proxy (next.config.js rewrites this to the real API base).
+function resolveLogoPreviewSrc(raw: string | null | undefined): string | null {
+  const value = String(raw || "").trim();
+  if (!value) return null;
+  if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("data:")) {
+    return value;
+  }
+  if (value.startsWith("/uploads/")) {
+    return `/api/backend${value}`;
+  }
+  return value;
+}
+
 const PortalReporting = dynamic(() => import("@/components/PortalReporting"), {
   ssr: false,
   loading: () => <div className="py-12 text-center text-sm text-gray-400">Loading reporting data...</div>,
@@ -233,6 +249,8 @@ function DashboardPageInner() {
 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [clientName, setClientName] = useState("");
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoFailed, setLogoFailed] = useState(false);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(true);
@@ -242,8 +260,8 @@ function DashboardPageInner() {
 
   useEffect(() => {
     apiFetch("/portal/dashboard")
-      .then(r => r.json() as Promise<{ jobs: Job[]; client_name: string }>)
-      .then(d => { setJobs(d.jobs ?? []); setClientName(d.client_name ?? ""); })
+      .then(r => r.json() as Promise<{ jobs: Job[]; client_name: string; logo_url: string | null }>)
+      .then(d => { setJobs(d.jobs ?? []); setClientName(d.client_name ?? ""); setLogoUrl(resolveLogoPreviewSrc(d.logo_url)); })
       .catch(() => {})
       .finally(() => setJobsLoading(false));
 
@@ -287,9 +305,20 @@ function DashboardPageInner() {
   return (
     <PortalShell activeTab={activeTab} onTabChange={handleTabChange}>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{displayName}</h1>
-          <p className="mt-1 text-sm text-gray-500">Carbon emissions data and report history.</p>
+        <div className="flex items-center gap-3">
+          {logoUrl && !logoFailed && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={logoUrl}
+              alt={displayName}
+              className="h-10 w-10 shrink-0 rounded-md border border-gray-200 bg-white object-contain p-1"
+              onError={() => setLogoFailed(true)}
+            />
+          )}
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{displayName}</h1>
+            <p className="mt-1 text-sm text-gray-500">Carbon emissions data and report history.</p>
+          </div>
         </div>
 
         {activeTab === "dashboard" && (

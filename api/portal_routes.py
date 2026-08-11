@@ -93,14 +93,15 @@ def portal_dashboard(current_user: dict = Depends(portal_user_dep)):
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         jobs = portal_dashboard_jobs(client_db_id, con=con)
-        # Client name
+        # Client name + logo
         client_row = con.execute(
-            "SELECT client_name FROM clients WHERE db_id = %s",
+            "SELECT client_name, logo_url FROM clients WHERE db_id = %s",
             [client_db_id],
         ).fetchone()
     return {
         "ok": True,
         "client_name": str(client_row[0] or "") if client_row else "",
+        "logo_url": str(client_row[1] or "") if client_row and client_row[1] else None,
         "jobs": jobs,
     }
 

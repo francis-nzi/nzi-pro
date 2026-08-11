@@ -174,6 +174,23 @@ function toYearNumber(start: string | null | undefined, end: string | null | und
   return ey ?? sy ?? null;
 }
 
+// Client logos stored as a relative /uploads/... path only resolve against
+// whichever domain is actually serving the Python API's static files -- not
+// against the portal's own domain. Route them through the portal's own
+// /api/backend proxy (next.config.js rewrites this to the real API base),
+// matching the equivalent resolveLogoPreviewSrc helper in the CRM app.
+function resolveLogoPreviewSrc(raw: string | null | undefined): string {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("data:")) {
+    return value;
+  }
+  if (value.startsWith("/uploads/")) {
+    return `/api/backend${value}`;
+  }
+  return value;
+}
+
 const ACTIVITY_COLORS = ["#0ea5e9", "#14b8a6", "#f97316", "#8b5cf6", "#22c55e", "#ef4444", "#64748b", "#eab308"];
 
 // Same grouping + scaling as the CRM's buildActivityBarData
@@ -517,7 +534,7 @@ function CoverPage({ data }: { data: LiveData }) {
       )}
       <h1 className="mt-8 text-2xl font-bold leading-snug" style={{ color: "#1e3a5f" }}>{reportTitle}</h1>
       {job_data.logo_url && (
-        <img src={job_data.logo_url} alt={job_data.client_name ?? "Client"} className="mt-5 max-h-16 max-w-[160px] w-auto object-contain" />
+        <img src={resolveLogoPreviewSrc(job_data.logo_url)} alt={job_data.client_name ?? "Client"} className="mt-5 max-h-16 max-w-[160px] w-auto object-contain" />
       )}
       <div className="mt-8 w-full max-w-md text-left border border-l-4 border-gray-200 rounded-md overflow-hidden" style={{ borderLeftColor: "#1e3a5f" }}>
         {params.map(([label, value]) => value ? (
