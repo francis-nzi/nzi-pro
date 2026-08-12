@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,7 +26,27 @@ type Row = {
   calc_tco2e: number | null;
   review_status: "pending_review" | "approved" | "rejected" | null;
   review_note: string | null;
+  month_1: number | null;
+  month_2: number | null;
+  month_3: number | null;
+  month_4: number | null;
+  month_5: number | null;
+  month_6: number | null;
+  month_7: number | null;
+  month_8: number | null;
+  month_9: number | null;
+  month_10: number | null;
+  month_11: number | null;
+  month_12: number | null;
 };
+
+const MONTH_KEYS = Array.from({ length: 12 }, (_, i) => `month_${i + 1}` as keyof Row);
+
+// Rows created before the monthly-grid feature only have a flat qty, no
+// month_N detail to edit -- fall back to the old single-total edit for those.
+function rowHasMonthlyDetail(row: Row): boolean {
+  return MONTH_KEYS.some((k) => row[k] !== null && row[k] !== undefined);
+}
 
 const REVIEW_LABEL: Record<string, { label: string; className: string }> = {
   pending_review: { label: "Awaiting review", className: "bg-amber-100 text-amber-800" },
@@ -105,6 +125,9 @@ export default function PortalCommutingTab() {
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
   const [editEmployeeName, setEditEmployeeName] = useState("");
   const [editQty, setEditQty] = useState("");
+  // Separate from `months` (the Add form) so editing a row can't collide with
+  // an Add panel left open at the same time.
+  const [editMonths, setEditMonths] = useState<string[]>(Array(12).fill(""));
   const [rowActionSaving, setRowActionSaving] = useState(false);
 
   useEffect(() => {
@@ -273,15 +296,55 @@ export default function PortalCommutingTab() {
     }
   }
 
+  function editMonthsSum(): number {
+    return editMonths.reduce((sum, val) => {
+      const parsed = val.trim() === "" ? 0 : Number(val);
+      return sum + (Number.isFinite(parsed) ? parsed : 0);
+    }, 0);
+  }
+
+  function editMonthsPayload(): (number | null)[] {
+    return editMonths.map((val) => {
+      const trimmed = val.trim();
+      if (trimmed === "") return null;
+      const parsed = Number(trimmed);
+      return Number.isFinite(parsed) ? parsed : null;
+    });
+  }
+
+  function copyFirstEditMonthToAll() {
+    const firstValue = editMonths[getMonthIndex(reportingPeriodStart, 0)] ?? "";
+    setEditMonths(Array(12).fill(firstValue));
+  }
+
+  function updateEditMonth(actualIndex: number, value: string) {
+    const next = [...editMonths];
+    next[actualIndex] = value;
+    setEditMonths(next);
+  }
+
+  function usesMonthlyEdit(row: Row | undefined): boolean {
+    return !!row && row.source_subtype === "commuting" && rowHasMonthlyDetail(row);
+  }
+
   async function saveRowEdit(sourceId: number) {
-    if (!editEmployeeName.trim() || !isPositiveNumber(editQty)) return;
+    const row = rows.find((r) => r.source_id === sourceId);
+    const useMonths = usesMonthlyEdit(row);
+    if (!editEmployeeName.trim()) return;
+    if (useMonths ? editMonthsSum() <= 0 : !isPositiveNumber(editQty)) return;
     setRowActionSaving(true);
     setError("");
     try {
+      const body: Record<string, unknown> = { employee_name: editEmployeeName.trim() };
+      if (useMonths) {
+        body.months = editMonthsPayload();
+      } else {
+        body.qty = Number(editQty);
+      }
       const res = await apiFetch(`/portal/commuting/rows/${sourceId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employee_name: editEmployeeName.trim(), qty: Number(editQty) }),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
         setEditingRowId(null);
@@ -319,12 +382,13 @@ export default function PortalCommutingTab() {
       return <span className="text-xs text-muted-foreground">—</span>;
     }
     if (editingRowId === row.source_id) {
+      const useMonths = usesMonthlyEdit(row);
       return (
         <div className={`flex items-center ${justify} gap-2`}>
           <Button
             size="sm"
             variant="outline"
-            disabled={rowActionSaving || !editEmployeeName.trim() || !isPositiveNumber(editQty)}
+            disabled={rowActionSaving || !editEmployeeName.trim() || (useMonths ? editMonthsSum() <= 0 : !isPositiveNumber(editQty))}
             onClick={() => void saveRowEdit(row.source_id)}
           >
             Save
@@ -343,6 +407,7 @@ export default function PortalCommutingTab() {
             setEditingRowId(row.source_id);
             setEditEmployeeName(row.employee_name || "");
             setEditQty(row.qty !== null && row.qty !== undefined ? String(row.qty) : "");
+            setEditMonths(MONTH_KEYS.map((k) => (row[k] !== null && row[k] !== undefined ? String(row[k]) : "")));
           }}
         >
           Edit
@@ -354,13 +419,21 @@ export default function PortalCommutingTab() {
     );
   }
 
-  // Shared by both commuting entry paths (dropdown and vehicle-registration).
-  function renderMonthlyGrid(unitLabel: string) {
+  // Shared by the Add form (both commuting entry paths) and row editing --
+  // takes the values/handlers as params so Add and Edit can each pass their
+  // own state without the two colliding.
+  function renderMonthlyGridFor(
+    unitLabel: string,
+    values: string[],
+    onChange: (actualIndex: number, value: string) => void,
+    onCopyFirst: () => void,
+    sum: number,
+  ) {
     return (
       <div>
         <div className="flex items-center justify-between gap-2">
           <label className="text-xs text-muted-foreground">Monthly Distance ({unitLabel}, round trip)</label>
-          <Button type="button" variant="outline" size="sm" onClick={copyFirstMonthToAll}>
+          <Button type="button" variant="outline" size="sm" onClick={onCopyFirst}>
             Copy First Month to All
           </Button>
         </div>
@@ -374,8 +447,8 @@ export default function PortalCommutingTab() {
                   type="number"
                   min="0"
                   step="any"
-                  value={months[actualIndex]}
-                  onChange={(e) => updateMonth(actualIndex, e.target.value)}
+                  value={values[actualIndex]}
+                  onChange={(e) => onChange(actualIndex, e.target.value)}
                 />
               </div>
             );
@@ -383,10 +456,18 @@ export default function PortalCommutingTab() {
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
           Leave a month blank if they weren&rsquo;t commuting that month (e.g. joined or left partway through the
-          year). Total: {monthsSum().toFixed(0)} {unitLabel}/year.
+          year). Total: {sum.toFixed(0)} {unitLabel}/year.
         </p>
       </div>
     );
+  }
+
+  function renderMonthlyGrid(unitLabel: string) {
+    return renderMonthlyGridFor(unitLabel, months, updateMonth, copyFirstMonthToAll, monthsSum());
+  }
+
+  function renderEditMonthlyGrid(unitLabel: string) {
+    return renderMonthlyGridFor(unitLabel, editMonths, updateEditMonth, copyFirstEditMonthToAll, editMonthsSum());
   }
 
   return (
@@ -599,38 +680,50 @@ export default function PortalCommutingTab() {
                 {rows.map((row) => {
                   const review = row.review_status ? REVIEW_LABEL[row.review_status] : null;
                   const isEditing = editingRowId === row.source_id;
+                  const editWithGrid = isEditing && usesMonthlyEdit(row);
                   return (
-                    <tr key={row.source_id} className="border-b last:border-0">
-                      <td className="p-2">
-                        {isEditing ? (
-                          <Input value={editEmployeeName} onChange={(e) => setEditEmployeeName(e.target.value)} className="h-7 w-28" />
-                        ) : (
-                          row.employee_name || "-"
-                        )}
-                      </td>
-                      <td className="p-2">{row.source_subtype || "-"}</td>
-                      <td className="p-2 text-right font-mono">
-                        {isEditing ? (
-                          <Input type="number" min="0" step="any" value={editQty} onChange={(e) => setEditQty(e.target.value)} className="ml-auto h-7 w-20 text-right" />
-                        ) : (
-                          <>{row.qty ?? "-"} {row.uom || ""}</>
-                        )}
-                      </td>
-                      <td className="p-2 text-right font-mono">{row.calc_tco2e?.toFixed(4) ?? "-"}</td>
-                      <td className="p-2">
-                        {review ? (
-                          <>
-                            <span className={`rounded-full px-2 py-0.5 text-xs ${review.className}`}>{review.label}</span>
-                            {row.review_status === "rejected" && row.review_note && (
-                              <div className="mt-1 text-xs text-muted-foreground">{row.review_note}</div>
-                            )}
-                          </>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td className="p-2 text-right">{renderActions(row, "end")}</td>
-                    </tr>
+                    <Fragment key={row.source_id}>
+                      <tr className="border-b last:border-0">
+                        <td className="p-2">
+                          {isEditing ? (
+                            <Input value={editEmployeeName} onChange={(e) => setEditEmployeeName(e.target.value)} className="h-7 w-28" />
+                          ) : (
+                            row.employee_name || "-"
+                          )}
+                        </td>
+                        <td className="p-2">{row.source_subtype || "-"}</td>
+                        <td className="p-2 text-right font-mono">
+                          {editWithGrid ? (
+                            <span className="text-xs text-muted-foreground">Edit monthly figures below &darr;</span>
+                          ) : isEditing ? (
+                            <Input type="number" min="0" step="any" value={editQty} onChange={(e) => setEditQty(e.target.value)} className="ml-auto h-7 w-20 text-right" />
+                          ) : (
+                            <>{row.qty ?? "-"} {row.uom || ""}</>
+                          )}
+                        </td>
+                        <td className="p-2 text-right font-mono">{row.calc_tco2e?.toFixed(4) ?? "-"}</td>
+                        <td className="p-2">
+                          {review ? (
+                            <>
+                              <span className={`rounded-full px-2 py-0.5 text-xs ${review.className}`}>{review.label}</span>
+                              {row.review_status === "rejected" && row.review_note && (
+                                <div className="mt-1 text-xs text-muted-foreground">{row.review_note}</div>
+                              )}
+                            </>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td className="p-2 text-right">{renderActions(row, "end")}</td>
+                      </tr>
+                      {editWithGrid && (
+                        <tr className="border-b last:border-0 bg-muted/20">
+                          <td className="p-3" colSpan={6}>
+                            {renderEditMonthlyGrid(row.uom || "miles")}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -641,6 +734,7 @@ export default function PortalCommutingTab() {
             {rows.map((row) => {
               const review = row.review_status ? REVIEW_LABEL[row.review_status] : null;
               const isEditing = editingRowId === row.source_id;
+              const editWithGrid = isEditing && usesMonthlyEdit(row);
               return (
                 <div key={row.source_id} className="rounded-md border p-3 text-sm">
                   <div className="flex items-start justify-between gap-2">
@@ -659,16 +753,20 @@ export default function PortalCommutingTab() {
                   {review?.label && row.review_status === "rejected" && row.review_note && (
                     <div className="mt-1 text-xs text-muted-foreground">{row.review_note}</div>
                   )}
-                  <div className="mt-2 flex items-baseline justify-between font-mono text-sm">
-                    <span>
-                      {isEditing ? (
-                        <Input type="number" min="0" step="any" value={editQty} onChange={(e) => setEditQty(e.target.value)} className="h-7 w-20" />
-                      ) : (
-                        <>{row.qty ?? "-"} {row.uom || ""}</>
-                      )}
-                    </span>
-                    <span className="text-xs text-muted-foreground">{row.calc_tco2e?.toFixed(4) ?? "-"} tCO&#8322;e</span>
-                  </div>
+                  {editWithGrid ? (
+                    <div className="mt-2">{renderEditMonthlyGrid(row.uom || "miles")}</div>
+                  ) : (
+                    <div className="mt-2 flex items-baseline justify-between font-mono text-sm">
+                      <span>
+                        {isEditing ? (
+                          <Input type="number" min="0" step="any" value={editQty} onChange={(e) => setEditQty(e.target.value)} className="h-7 w-20" />
+                        ) : (
+                          <>{row.qty ?? "-"} {row.uom || ""}</>
+                        )}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{row.calc_tco2e?.toFixed(4) ?? "-"} tCO&#8322;e</span>
+                    </div>
+                  )}
                   <div className="mt-2 border-t pt-2">{renderActions(row, "start")}</div>
                 </div>
               );

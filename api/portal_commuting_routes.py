@@ -111,7 +111,9 @@ def portal_commuting_list_rows(current_user: dict = Depends(portal_user_dep)):
         df = con.execute(
             """
             SELECT source_id, employee_name, source_subtype, qty, uom, calc_tco2e,
-                   review_status, review_note, notes, created_at
+                   review_status, review_note, notes, created_at,
+                   month_1, month_2, month_3, month_4, month_5, month_6,
+                   month_7, month_8, month_9, month_10, month_11, month_12
             FROM job_emission_sources
             WHERE job_id = %s AND source_type = 'employee_commuting' AND submitted_by_portal = TRUE
               AND (enabled = TRUE OR review_status IN ('pending_review', 'rejected'))
@@ -306,7 +308,29 @@ def portal_commuting_update_row(
             params.append(str(payload.get("notes") or "").strip() or None)
 
         new_qty = None
-        if "qty" in payload:
+        if "months" in payload:
+            months_in = payload.get("months")
+            if not isinstance(months_in, list):
+                raise HTTPException(status_code=400, detail="months must be a list of 12 numbers")
+            parsed_months: list[float | None] = [None] * 12
+            for i in range(min(12, len(months_in))):
+                value = months_in[i]
+                if value is None:
+                    continue
+                try:
+                    parsed_months[i] = float(value)
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=400, detail=f"months[{i}] must be a number or null")
+            total = sum(v for v in parsed_months if v is not None)
+            if total <= 0:
+                raise HTTPException(status_code=400, detail="Total distance must be greater than zero")
+            for i in range(12):
+                set_clauses.append(f"month_{i + 1} = %s")
+                params.append(parsed_months[i])
+            new_qty = total
+            set_clauses.append("qty = %s")
+            params.append(new_qty)
+        elif "qty" in payload:
             try:
                 new_qty = float(payload.get("qty"))
             except (TypeError, ValueError):
