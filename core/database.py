@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Sequence
 
@@ -205,40 +206,67 @@ def _get_pool():
     return _pool  # None while pool is still warming up
 
 
+_CONNECT_ATTEMPTS = 3
+_CONNECT_RETRY_BACKOFF_SECONDS = 0.25
+
+
 def get_conn(*, autocommit: bool = True):
-    pool = _get_pool()
-    if pool is not None:
-        try:
-            pool_ctx = pool.connection(timeout=5)
-            raw_conn = pool_ctx.__enter__()
+    """Borrow a connection, retrying transient failures a couple of times.
+
+    Supabase's session-mode pooler has a hard ceiling on total client
+    sessions (see the pool sizing comment above); under real concurrent
+    load a borrow or a direct connect can occasionally fail even though
+    the database itself is fine a moment later. Previously a single
+    failure here surfaced straight to the caller as a 500 -- e.g. a file
+    upload would succeed, then the immediate reload of the file list
+    would 500 purely from this kind of momentary contention. Retrying a
+    couple of times with a short backoff lets that self-heal instead.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(_CONNECT_ATTEMPTS):
+        pool = _get_pool()
+        if pool is not None:
             try:
-                # Pool configuration establishes a safe idle default, but the
-                # requested mode must be applied on every borrow.  Previously
-                # pooled connections always remained autocommit=True, so code
-                # using get_conn(autocommit=False) could partially commit before
-                # a later exception.
-                raw_conn.autocommit = autocommit
-            except Exception:
-                pool_ctx.__exit__(*sys.exc_info())
-                raise
-            return _PgConn(raw_conn, autocommit=autocommit, _pool_ctx=pool_ctx)
+                pool_ctx = pool.connection(timeout=5)
+                raw_conn = pool_ctx.__enter__()
+                try:
+                    # Pool configuration establishes a safe idle default, but the
+                    # requested mode must be applied on every borrow.  Previously
+                    # pooled connections always remained autocommit=True, so code
+                    # using get_conn(autocommit=False) could partially commit before
+                    # a later exception.
+                    raw_conn.autocommit = autocommit
+                except Exception:
+                    pool_ctx.__exit__(*sys.exc_info())
+                    raise
+                return _PgConn(raw_conn, autocommit=autocommit, _pool_ctx=pool_ctx)
+            except Exception as exc:
+                last_exc = exc
+                logger.warning("Pool borrow failed (attempt %d/%d): %s", attempt + 1, _CONNECT_ATTEMPTS, exc)
+
+        # Fallback: direct connection (pool not ready yet, unavailable, or just failed above)
+        try:
+            import psycopg
+        except Exception as e:
+            raise RuntimeError(
+                "Postgres backend requires psycopg. Add psycopg[binary] to requirements."
+            ) from e
+
+        url = os.getenv("DATABASE_URL")
+        if not url:
+            raise RuntimeError("DATABASE_URL is not set")
+        url = _ensure_sslmode(url)
+        try:
+            conn = psycopg.connect(url, autocommit=autocommit, connect_timeout=5)
+            return _PgConn(conn, autocommit=autocommit)
         except Exception as exc:
-            logger.warning("Pool borrow failed, using direct connection: %s", exc)
+            last_exc = exc
+            logger.warning("Direct connection failed (attempt %d/%d): %s", attempt + 1, _CONNECT_ATTEMPTS, exc)
 
-    # Fallback: direct connection (pool not ready yet, or unavailable)
-    try:
-        import psycopg
-    except Exception as e:
-        raise RuntimeError(
-            "Postgres backend requires psycopg. Add psycopg[binary] to requirements."
-        ) from e
+        if attempt < _CONNECT_ATTEMPTS - 1:
+            time.sleep(_CONNECT_RETRY_BACKOFF_SECONDS * (attempt + 1))
 
-    url = os.getenv("DATABASE_URL")
-    if not url:
-        raise RuntimeError("DATABASE_URL is not set")
-    url = _ensure_sslmode(url)
-    conn = psycopg.connect(url, autocommit=autocommit)
-    return _PgConn(conn, autocommit=autocommit)
+    raise RuntimeError(f"Could not obtain a database connection after {_CONNECT_ATTEMPTS} attempts: {last_exc}") from last_exc
 
 
 def next_id(table: str, pk: str) -> int:
