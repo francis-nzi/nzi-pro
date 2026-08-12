@@ -26,6 +26,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
 import ActionLeverGrid, { type ActionLeverSummary } from "@/components/ActionLeverGrid";
 import LeverSelect, { type LeverOption } from "@/components/LeverSelect";
@@ -1020,6 +1021,7 @@ export default function PortalActions() {
   const [showAddActionModal, setShowAddActionModal] = useState(false);
   const [showCancelled, setShowCancelled] = useState(false);
   const [editingAction, setEditingAction] = useState<Action | null>(null);
+  const [activeTab, setActiveTab] = useState<"actions" | "framework">("actions");
   const [expandedCategories, setExpandedCategories] = useState<Set<string> | null>(null);
   const sectionRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
   const actionsListRef = useRef<HTMLDivElement | null>(null);
@@ -1082,7 +1084,13 @@ export default function PortalActions() {
 
   function selectLever(leverId: number) {
     setLeverFilter(prev => (prev === leverId ? null : leverId));
-    actionsListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Selecting a lever happens from the Framework tab, but the filtered list
+    // lives on the Actions tab -- switch over, then scroll once that tab's
+    // content has actually mounted.
+    setActiveTab("actions");
+    requestAnimationFrame(() => {
+      actionsListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   const filtered = useMemo(() => {
@@ -1162,17 +1170,22 @@ export default function PortalActions() {
 
   return (
     <div className="space-y-6">
-      {/* Action lever framework summary */}
-      <div>
-        <h2 className="mb-2 text-sm font-semibold text-foreground">Action lever framework</h2>
-        <ActionLeverGrid
-          summary={leverSummary}
-          loading={leverSummaryLoading}
-          selectedLeverId={leverFilter}
-          onSelectLever={selectLever}
-        />
-      </div>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "actions" | "framework")}>
+        <TabsList>
+          <TabsTrigger value="actions">Actions</TabsTrigger>
+          <TabsTrigger value="framework">Action lever framework</TabsTrigger>
+        </TabsList>
 
+        <TabsContent value="framework">
+          <ActionLeverGrid
+            summary={leverSummary}
+            loading={leverSummaryLoading}
+            selectedLeverId={leverFilter}
+            onSelectLever={selectLever}
+          />
+        </TabsContent>
+
+        <TabsContent value="actions" className="space-y-6">
       {/* Summary + library button */}
       <div ref={actionsListRef} className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex gap-5">
@@ -1293,6 +1306,8 @@ export default function PortalActions() {
           </div>
         </>
       )}
+        </TabsContent>
+      </Tabs>
 
       {editingAction && (
         <UpdateModal
