@@ -41,6 +41,33 @@ function isPositiveNumber(value: string): boolean {
   return Number.isFinite(n) && n > 0;
 }
 
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Months are displayed starting from the job's own reporting period (matching
+// the CRM's Data Entry Monthly editor), but always stored calendar-indexed
+// (months[0]=Jan .. months[11]=Dec) regardless of display order -- same
+// convention as job_scope_rows.month_N, so it lines up with the rest of the
+// system rather than drifting into a fiscal-position-vs-calendar-month mismatch.
+function getOrderedMonths(reportingPeriodStart: string | null): string[] {
+  if (!reportingPeriodStart) return MONTH_NAMES;
+  try {
+    const startIdx = new Date(reportingPeriodStart).getMonth();
+    return [...MONTH_NAMES.slice(startIdx), ...MONTH_NAMES.slice(0, startIdx)];
+  } catch {
+    return MONTH_NAMES;
+  }
+}
+
+function getMonthIndex(reportingPeriodStart: string | null, displayIndex: number): number {
+  if (!reportingPeriodStart) return displayIndex;
+  try {
+    const startIdx = new Date(reportingPeriodStart).getMonth();
+    return (startIdx + displayIndex) % 12;
+  } catch {
+    return displayIndex;
+  }
+}
+
 export default function PortalCommutingTab() {
   const [options, setOptions] = useState<Options | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -59,18 +86,22 @@ export default function PortalCommutingTab() {
   const [modeValue, setModeValue] = useState("");
   const [serviceValue, setServiceValue] = useState("");
   const [unitValue, setUnitValue] = useState("miles");
-  const [monthlyDistance, setMonthlyDistance] = useState("");
+  // Shared by both commuting entry paths (dropdown and vehicle-registration) --
+  // only one is visible at a time via entryMode, so one array covers both.
+  // months[0]=Jan .. months[11]=Dec; a blank month means no commuting that
+  // month (e.g. a starter/leaver), not zero distance every day.
+  const [months, setMonths] = useState<string[]>(Array(12).fill(""));
   const [annualDays, setAnnualDays] = useState("");
   const [hoursPerDay, setHoursPerDay] = useState("");
   const [notes, setNotes] = useState("");
 
   // "I drive my own car" -- registration lookup instead of mode/service dropdowns.
   const [regNumber, setRegNumber] = useState("");
-  const [regAnnualMiles, setRegAnnualMiles] = useState("");
   const [regLookupError, setRegLookupError] = useState("");
 
   const [jobNumber, setJobNumber] = useState<string | null>(null);
   const [reportingYear, setReportingYear] = useState<number | null>(null);
+  const [reportingPeriodStart, setReportingPeriodStart] = useState<string | null>(null);
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
   const [editEmployeeName, setEditEmployeeName] = useState("");
   const [editQty, setEditQty] = useState("");
@@ -110,6 +141,7 @@ export default function PortalCommutingTab() {
         setRows(d.rows || []);
         setJobNumber(d.job_number || null);
         setReportingYear(d.reporting_year || null);
+        setReportingPeriodStart(d.reporting_period_start || null);
         setDataEntryExpired(Boolean(d.portal_data_entry_expired));
       } else if (res.status === 404) {
         const d = await res.json().catch(() => ({}));
@@ -124,17 +156,43 @@ export default function PortalCommutingTab() {
 
   function resetForm() {
     setEmployeeName("");
-    setMonthlyDistance("");
+    setMonths(Array(12).fill(""));
     setAnnualDays("");
     setHoursPerDay("");
     setNotes("");
     setRegNumber("");
-    setRegAnnualMiles("");
     setRegLookupError("");
   }
 
+  function updateMonth(actualIndex: number, value: string) {
+    const next = [...months];
+    next[actualIndex] = value;
+    setMonths(next);
+  }
+
+  function monthsSum(): number {
+    return months.reduce((sum, val) => {
+      const parsed = val.trim() === "" ? 0 : Number(val);
+      return sum + (Number.isFinite(parsed) ? parsed : 0);
+    }, 0);
+  }
+
+  function monthsPayload(): (number | null)[] {
+    return months.map((val) => {
+      const trimmed = val.trim();
+      if (trimmed === "") return null;
+      const parsed = Number(trimmed);
+      return Number.isFinite(parsed) ? parsed : null;
+    });
+  }
+
+  function copyFirstMonthToAll() {
+    const firstValue = months[getMonthIndex(reportingPeriodStart, 0)] ?? "";
+    setMonths(Array(12).fill(firstValue));
+  }
+
   async function submitByVehicle() {
-    if (!employeeName.trim() || !regNumber.trim() || !isPositiveNumber(regAnnualMiles)) return;
+    if (!employeeName.trim() || !regNumber.trim() || monthsSum() <= 0) return;
     setSaving(true);
     setError("");
     setRegLookupError("");
@@ -146,7 +204,7 @@ export default function PortalCommutingTab() {
         body: JSON.stringify({
           employee_name: employeeName.trim(),
           registration_number: regNumber.trim(),
-          annual_quantity: Number(regAnnualMiles),
+          months: monthsPayload(),
         }),
       });
       if (res.ok) {
@@ -167,7 +225,7 @@ export default function PortalCommutingTab() {
 
   async function submitRow() {
     if (!employeeName.trim()) return;
-    if (rowType === "commuting" && !isPositiveNumber(monthlyDistance)) return;
+    if (rowType === "commuting" && monthsSum() <= 0) return;
     if (rowType === "wfh" && (!isPositiveNumber(annualDays) || !isPositiveNumber(hoursPerDay))) return;
     setSaving(true);
     setError("");
@@ -183,11 +241,11 @@ export default function PortalCommutingTab() {
           mode_value: modeValue,
           service_value: serviceValue,
           unit_value: unitValue,
-          // The portal asks for one average monthly round-trip distance rather
-          // than one-way distance x office days x weeks/year -- annual_quantity
-          // is accepted directly by the backend (see _manual_entry_to_parsed_row
-          // in api/employee_commuting_routes.py), bypassing that formula.
-          annual_quantity: Number(monthlyDistance) * 12,
+          // Monthly breakdown instead of a single annual figure -- lets
+          // starters/leavers and irregular travel patterns be entered
+          // accurately. The backend sums these into annual_quantity (see
+          // _manual_entry_to_parsed_row in api/employee_commuting_routes.py).
+          months: monthsPayload(),
         });
       } else {
         Object.assign(payload, {
@@ -296,6 +354,41 @@ export default function PortalCommutingTab() {
     );
   }
 
+  // Shared by both commuting entry paths (dropdown and vehicle-registration).
+  function renderMonthlyGrid(unitLabel: string) {
+    return (
+      <div>
+        <div className="flex items-center justify-between gap-2">
+          <label className="text-xs text-muted-foreground">Monthly Distance ({unitLabel}, round trip)</label>
+          <Button type="button" variant="outline" size="sm" onClick={copyFirstMonthToAll}>
+            Copy First Month to All
+          </Button>
+        </div>
+        <div className="mt-2 grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6">
+          {getOrderedMonths(reportingPeriodStart).map((label, displayIndex) => {
+            const actualIndex = getMonthIndex(reportingPeriodStart, displayIndex);
+            return (
+              <div key={`${label}-${displayIndex}`}>
+                <label className="text-xs text-muted-foreground">{label}</label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={months[actualIndex]}
+                  onChange={(e) => updateMonth(actualIndex, e.target.value)}
+                />
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Leave a month blank if they weren&rsquo;t commuting that month (e.g. joined or left partway through the
+          year). Total: {monthsSum().toFixed(0)} {unitLabel}/year.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
@@ -387,26 +480,18 @@ export default function PortalCommutingTab() {
 
             {rowType === "commuting" && entryMode === "vehicle" ? (
               <div className="space-y-3">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div>
-                    <label className="text-xs text-muted-foreground">Vehicle Registration Number</label>
-                    <Input
-                      placeholder="e.g. AB12 CDE"
-                      value={regNumber}
-                      onChange={(e) => setRegNumber(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground">Annual Commuting Miles</label>
-                    <Input type="number" value={regAnnualMiles} onChange={(e) => setRegAnnualMiles(e.target.value)} />
-                  </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Vehicle Registration Number</label>
+                  <Input
+                    placeholder="e.g. AB12 CDE"
+                    value={regNumber}
+                    onChange={(e) => setRegNumber(e.target.value)}
+                  />
                 </div>
-                {regAnnualMiles.trim() && !isPositiveNumber(regAnnualMiles) && (
-                  <div className="text-xs text-rose-700">Annual commuting miles must be greater than 0.</div>
-                )}
+                {renderMonthlyGrid("miles")}
                 {regLookupError && <div className="text-xs text-rose-700">{regLookupError}</div>}
                 <Button
-                  disabled={saving || !employeeName.trim() || !regNumber.trim() || !isPositiveNumber(regAnnualMiles)}
+                  disabled={saving || !employeeName.trim() || !regNumber.trim() || monthsSum() <= 0}
                   onClick={() => void submitByVehicle()}
                 >
                   {saving ? "Looking up & submitting..." : "Submit Entry"}
@@ -447,13 +532,7 @@ export default function PortalCommutingTab() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="md:col-span-2">
-                  <label className="text-xs text-muted-foreground">Average Monthly Distance (round trip)</label>
-                  <Input type="number" min="0" step="any" value={monthlyDistance} onChange={(e) => setMonthlyDistance(e.target.value)} />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Include the full commute, there and back. E.g. 20 {unitValue} each way, 5 days a week &asymp; 800 {unitValue}/month.
-                  </p>
-                </div>
+                <div className="md:col-span-2">{renderMonthlyGrid(unitValue)}</div>
               </div>
             ) : (
               <div className="grid gap-3 md:grid-cols-2">
@@ -486,7 +565,7 @@ export default function PortalCommutingTab() {
                   saving ||
                   !employeeName.trim() ||
                   (rowType === "commuting"
-                    ? !isPositiveNumber(monthlyDistance)
+                    ? monthsSum() <= 0
                     : !isPositiveNumber(annualDays) || !isPositiveNumber(hoursPerDay))
                 }
                 onClick={() => void submitRow()}

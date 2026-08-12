@@ -1296,6 +1296,27 @@ def _insert_ready_rows(con, job_id: int, ready_rows: list[dict[str, Any]]) -> in
     return inserted
 
 
+def _parse_months(entry: dict[str, Any]) -> list[float | None] | None:
+    """Optional 12-value monthly breakdown from the portal's monthly entry
+    grid -- months[0]=Jan .. months[11]=Dec, same calendar-indexed convention
+    used everywhere else (see services/monthly_emissions.py). Returns None
+    if the entry has no `months` field at all (e.g. legacy Excel upload)."""
+    raw = entry.get("months")
+    if not isinstance(raw, list):
+        return None
+    months: list[float | None] = [None] * 12
+    for i in range(min(12, len(raw))):
+        months[i] = _safe_float(raw[i])
+    return months
+
+
+def _months_sum(months: list[float | None] | None) -> float | None:
+    if not months:
+        return None
+    values = [m for m in months if m is not None]
+    return float(sum(values)) if values else None
+
+
 def _manual_entry_to_parsed_row(entry: dict[str, Any]) -> dict[str, Any] | None:
     row_type = _safe_str(entry.get("row_type")).lower()
     employee_name = _safe_str(entry.get("employee_name"))
@@ -1305,7 +1326,10 @@ def _manual_entry_to_parsed_row(entry: dict[str, Any]) -> dict[str, Any] | None:
         one_way_distance = _safe_float(entry.get("one_way_distance"))
         office_days = _safe_float(entry.get("office_days"))
         weeks_per_year = _safe_float(entry.get("weeks_per_year"))
+        months = _parse_months(entry)
         annual_quantity = _safe_float(entry.get("annual_quantity"))
+        if annual_quantity is None:
+            annual_quantity = _months_sum(months)
         if annual_quantity is None and None not in (one_way_distance, office_days, weeks_per_year):
             annual_quantity = float(one_way_distance) * 2.0 * float(office_days) * float(weeks_per_year)
         return {
@@ -1317,6 +1341,7 @@ def _manual_entry_to_parsed_row(entry: dict[str, Any]) -> dict[str, Any] | None:
             "service_value": _safe_str(entry.get("service_value")),
             "unit_value": _safe_str(entry.get("unit_value")),
             "annual_quantity": annual_quantity,
+            "months": months,
             "notes": notes,
             "one_way_distance": one_way_distance,
             "office_days": office_days,
@@ -1442,43 +1467,54 @@ def _resolve_manual_commuting_rows(
                 100,
                 factor_record.get("ghg_unit"),
             )
-            ready_rows.append(
-                {
-                    "scope": "Scope 3",
-                    "site_id": site_id,
-                    "source_type": "employee_commuting",
-                    "source_subtype": "commuting",
-                    "source_name": (
-                        f"{employee_name} - Employee Commuting - {mode.title()}"
-                        + (f" - {variant.title()}" if variant else "")
-                    ).strip(" -"),
-                    "asset_identifier": None,
-                    "employee_name": employee_name or None,
-                    "dataset_id": factor_record.get("dataset_id"),
-                    "factor_db_id": factor_record.get("factor_db_id"),
-                    "original_id": resolved_original_id,
-                    "category": "Employee Commuting",
-                    "qty": float(converted_qty),
-                    "uom": factor_uom,
-                    "factor": factor_record.get("factor"),
-                    "ghg_unit": factor_record.get("ghg_unit"),
-                    "calc_tco2e": calc_tco2e,
-                    "apply_pct": 100,
-                    "data_source": DIRECT_COMMUTING_DATA_SOURCE,
-                    "data_confidence": "M",
-                    "notes": notes,
-                    "detail_json": {
-                        "entry_type": "commuting",
-                        "mode_value": parsed_row.get("mode_value"),
-                        "service_value": parsed_row.get("service_value"),
-                        "unit_value": parsed_row.get("unit_value"),
-                        "one_way_distance": parsed_row.get("one_way_distance"),
-                        "office_days": parsed_row.get("office_days"),
-                        "weeks_per_year": parsed_row.get("weeks_per_year"),
-                        "manual_entry": True,
-                    },
-                }
-            )
+            # Convert each month individually (same unit conversion as the
+            # annual total) so month_1..12 stay in factor_uom, matching qty.
+            months_in = parsed_row.get("months")
+            months_converted: list[float | None] = [None] * 12
+            if months_in:
+                for i, month_val in enumerate(months_in):
+                    if month_val is None:
+                        continue
+                    months_converted[i] = _convert_quantity(float(month_val), input_unit, factor_uom)
+
+            ready_row = {
+                "scope": "Scope 3",
+                "site_id": site_id,
+                "source_type": "employee_commuting",
+                "source_subtype": "commuting",
+                "source_name": (
+                    f"{employee_name} - Employee Commuting - {mode.title()}"
+                    + (f" - {variant.title()}" if variant else "")
+                ).strip(" -"),
+                "asset_identifier": None,
+                "employee_name": employee_name or None,
+                "dataset_id": factor_record.get("dataset_id"),
+                "factor_db_id": factor_record.get("factor_db_id"),
+                "original_id": resolved_original_id,
+                "category": "Employee Commuting",
+                "qty": float(converted_qty),
+                "uom": factor_uom,
+                "factor": factor_record.get("factor"),
+                "ghg_unit": factor_record.get("ghg_unit"),
+                "calc_tco2e": calc_tco2e,
+                "apply_pct": 100,
+                "data_source": DIRECT_COMMUTING_DATA_SOURCE,
+                "data_confidence": "M",
+                "notes": notes,
+                "detail_json": {
+                    "entry_type": "commuting",
+                    "mode_value": parsed_row.get("mode_value"),
+                    "service_value": parsed_row.get("service_value"),
+                    "unit_value": parsed_row.get("unit_value"),
+                    "one_way_distance": parsed_row.get("one_way_distance"),
+                    "office_days": parsed_row.get("office_days"),
+                    "weeks_per_year": parsed_row.get("weeks_per_year"),
+                    "manual_entry": True,
+                },
+            }
+            for i in range(12):
+                ready_row[f"month_{i + 1}"] = months_converted[i]
+            ready_rows.append(ready_row)
             continue
 
         original_id = WFH_ORIGINAL_ID
@@ -1579,19 +1615,21 @@ def _insert_manual_commuting_rows(
     inserted_ids: list[int] = []
     for row in ready_rows:
         dataset_id = _dataset_id_for_insert(con, row.get("dataset_id"))
+        month_cols = ", ".join(f"month_{i}" for i in range(1, 13))
+        month_placeholders = ", ".join(["%s"] * 12)
         result = con.execute(
-            """
+            f"""
             INSERT INTO job_emission_sources (
               job_id, group_id, scope, category, source_type, source_subtype, site_id,
               source_name, asset_identifier, employee_name, dataset_id, factor_db_id, original_id,
               qty, uom, factor, ghg_unit, apply_pct, data_source, data_confidence, notes,
-              detail_json, calc_tco2e, enabled, submitted_by_portal, review_status
+              detail_json, calc_tco2e, enabled, submitted_by_portal, review_status, {month_cols}
             )
             VALUES (
               %s, %s, %s, %s, %s, %s, %s,
               %s, %s, %s, %s, %s, %s,
               %s, %s, %s, %s, %s, %s, %s, %s,
-              %s, %s, %s, %s, %s
+              %s, %s, %s, %s, %s, {month_placeholders}
             )
             RETURNING source_id
             """,
@@ -1622,6 +1660,7 @@ def _insert_manual_commuting_rows(
                 not submitted_by_portal,
                 bool(submitted_by_portal),
                 "pending_review" if submitted_by_portal else None,
+                *[row.get(f"month_{i}") for i in range(1, 13)],
             ],
         ).fetchone()
         inserted += 1

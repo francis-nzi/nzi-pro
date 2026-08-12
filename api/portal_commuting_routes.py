@@ -23,6 +23,8 @@ from api.employee_commuting_routes import (
     _calc_commuting_tco2e,
     _ensure_emission_register_schema,
     _insert_manual_commuting_rows,
+    _months_sum,
+    _parse_months,
     _resolve_manual_commuting_rows,
 )
 from api.portal_auth_routes import portal_user_dep
@@ -197,12 +199,16 @@ def portal_commuting_create_row_by_vehicle(
     _assert_not_a_full_name(employee_name)
     if not registration:
         raise HTTPException(status_code=400, detail="registration_number is required")
-    try:
-        annual_quantity = float(payload.get("annual_quantity"))
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="annual_quantity is required and must be a number")
+
+    months = _parse_months(payload)
+    annual_quantity = _months_sum(months)
+    if annual_quantity is None:
+        try:
+            annual_quantity = float(payload.get("annual_quantity"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="months or annual_quantity is required")
     if annual_quantity <= 0:
-        raise HTTPException(status_code=400, detail="annual_quantity must be greater than zero")
+        raise HTTPException(status_code=400, detail="Total annual distance must be greater than zero")
 
     vehicle_data, lookup_error = lookup_vehicle_by_registration(registration)
     if lookup_error:
@@ -242,6 +248,9 @@ def portal_commuting_create_row_by_vehicle(
             "notes": f"Employee/Team: {employee_name} — matched via registration lookup to {factor.get('report_label')}",
             "detail_json": {"entry_type": "commuting", "manual_entry": True, "via": "registration_lookup"},
         }
+        if months:
+            for i in range(12):
+                ready_row[f"month_{i + 1}"] = months[i]
 
         _inserted, inserted_ids = _insert_manual_commuting_rows(con, job_id, [ready_row], submitted_by_portal=True)
 

@@ -126,6 +126,12 @@ def _ensure_schema(con) -> None:
     con.execute("ALTER TABLE job_emission_sources ADD COLUMN IF NOT EXISTS review_note TEXT")
     con.execute("ALTER TABLE job_emission_sources ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR")
     con.execute("ALTER TABLE job_emission_sources ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ")
+    # Optional monthly breakdown (e.g. Employee Commuting entries with a
+    # varying travel pattern, or a starter/leaver mid-year) -- month_1=Jan
+    # .. month_12=Dec, same calendar-indexed convention as job_scope_rows.
+    # qty stays the source of truth (their sum); these are additive detail.
+    for _month_num in range(1, 13):
+        con.execute(f"ALTER TABLE job_emission_sources ADD COLUMN IF NOT EXISTS month_{_month_num} NUMERIC")
     con.execute(
         """
         UPDATE job_emission_groups g
