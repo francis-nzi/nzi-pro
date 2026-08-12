@@ -1466,7 +1466,7 @@ def create_quote(client_id: int, body: dict = Body(...), _user: dict = Depends(_
             org_id = _quote_org_id(_user)
             _require_org_plan_active(con, org_id)
             client_exists = con.execute(
-                "SELECT client_db_id FROM clients WHERE db_id = %s" + (" AND org_id = %s" if org_id else ""),
+                "SELECT db_id FROM clients WHERE db_id = %s" + (" AND org_id = %s" if org_id else ""),
                 [int(client_id)] + ([org_id] if org_id else []),
             ).fetchone()
             if not client_exists:
