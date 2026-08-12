@@ -59,9 +59,7 @@ export default function PortalCommutingTab() {
   const [modeValue, setModeValue] = useState("");
   const [serviceValue, setServiceValue] = useState("");
   const [unitValue, setUnitValue] = useState("miles");
-  const [oneWayDistance, setOneWayDistance] = useState("");
-  const [officeDays, setOfficeDays] = useState("");
-  const [weeksPerYear, setWeeksPerYear] = useState("48");
+  const [monthlyDistance, setMonthlyDistance] = useState("");
   const [annualDays, setAnnualDays] = useState("");
   const [hoursPerDay, setHoursPerDay] = useState("");
   const [notes, setNotes] = useState("");
@@ -126,9 +124,7 @@ export default function PortalCommutingTab() {
 
   function resetForm() {
     setEmployeeName("");
-    setOneWayDistance("");
-    setOfficeDays("");
-    setWeeksPerYear("48");
+    setMonthlyDistance("");
     setAnnualDays("");
     setHoursPerDay("");
     setNotes("");
@@ -171,7 +167,7 @@ export default function PortalCommutingTab() {
 
   async function submitRow() {
     if (!employeeName.trim()) return;
-    if (rowType === "commuting" && (!isPositiveNumber(oneWayDistance) || !isPositiveNumber(officeDays) || !isPositiveNumber(weeksPerYear))) return;
+    if (rowType === "commuting" && !isPositiveNumber(monthlyDistance)) return;
     if (rowType === "wfh" && (!isPositiveNumber(annualDays) || !isPositiveNumber(hoursPerDay))) return;
     setSaving(true);
     setError("");
@@ -187,9 +183,11 @@ export default function PortalCommutingTab() {
           mode_value: modeValue,
           service_value: serviceValue,
           unit_value: unitValue,
-          one_way_distance: Number(oneWayDistance),
-          office_days: Number(officeDays),
-          weeks_per_year: Number(weeksPerYear),
+          // The portal asks for one average monthly round-trip distance rather
+          // than one-way distance x office days x weeks/year -- annual_quantity
+          // is accepted directly by the backend (see _manual_entry_to_parsed_row
+          // in api/employee_commuting_routes.py), bypassing that formula.
+          annual_quantity: Number(monthlyDistance) * 12,
         });
       } else {
         Object.assign(payload, {
@@ -449,17 +447,12 @@ export default function PortalCommutingTab() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">One-Way Distance</label>
-                  <Input type="number" min="0" step="any" value={oneWayDistance} onChange={(e) => setOneWayDistance(e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">Office Days / Week</label>
-                  <Input type="number" min="0" step="any" value={officeDays} onChange={(e) => setOfficeDays(e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">Weeks / Year</label>
-                  <Input type="number" min="0" step="any" value={weeksPerYear} onChange={(e) => setWeeksPerYear(e.target.value)} />
+                <div className="md:col-span-2">
+                  <label className="text-xs text-muted-foreground">Average Monthly Distance (round trip)</label>
+                  <Input type="number" min="0" step="any" value={monthlyDistance} onChange={(e) => setMonthlyDistance(e.target.value)} />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Include the full commute, there and back. E.g. 20 {unitValue} each way, 5 days a week &asymp; 800 {unitValue}/month.
+                  </p>
                 </div>
               </div>
             ) : (
@@ -493,7 +486,7 @@ export default function PortalCommutingTab() {
                   saving ||
                   !employeeName.trim() ||
                   (rowType === "commuting"
-                    ? !isPositiveNumber(oneWayDistance) || !isPositiveNumber(officeDays) || !isPositiveNumber(weeksPerYear)
+                    ? !isPositiveNumber(monthlyDistance)
                     : !isPositiveNumber(annualDays) || !isPositiveNumber(hoursPerDay))
                 }
                 onClick={() => void submitRow()}
