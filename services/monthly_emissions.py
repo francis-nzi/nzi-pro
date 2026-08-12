@@ -708,7 +708,10 @@ class JobMonthlyEmissionsResolver:
 
         grouped: list[str] = []
         current: dict[str, Any] | None = None
-        for detail in sorted(non_zero_factor_details, key=lambda d: int(d.get("month_index") or 0)):
+        # Sort chronologically (year, then calendar month), not by raw month_index --
+        # month_index is the calendar month (1=Jan), which for a non-January fiscal
+        # year is not itself in chronological order across the reporting period.
+        for detail in sorted(non_zero_factor_details, key=lambda d: (d.get("year") or 0, int(d.get("month_index") or 0))):
             group_key = (
                 detail.get("dataset_id"),
                 detail.get("factor"),
@@ -892,6 +895,12 @@ class JobMonthlyEmissionsResolver:
                         "emissions_tco2e": month_after,
                     }
                 )
+
+            # month_details is built in month_index order (1=Jan..12=Dec), which is
+            # not chronological for a job whose fiscal year doesn't start in
+            # January -- re-sort by actual (year, month) so the Audit tab reads in
+            # the same order as the reporting period itself.
+            month_details.sort(key=lambda d: (d.get("year") or 0, int(d.get("month_index") or 0)))
 
             display_factor, factor_label, dataset_label, factor_blended = self._build_monthly_factor_summary(month_details)
             return {
