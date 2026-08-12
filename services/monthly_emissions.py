@@ -188,25 +188,37 @@ class JobMonthlyEmissionsResolver:
                 self.dataset_name_by_id[int(dataset_id)] = name
 
         for month_record in self.resolution.get("months") or []:
-            idx = _safe_int(month_record.get("index"))
-            if idx is None or idx <= 0:
-                continue
             date_txt = str(month_record.get("date") or "").strip()
-            year_val: int | None = None
-            if date_txt:
+            if not date_txt:
+                continue
+            month_date: date | None = None
+            try:
+                month_date = datetime.fromisoformat(date_txt).date()
+            except Exception:
                 try:
-                    year_val = datetime.fromisoformat(date_txt).year
+                    month_date = date.fromisoformat(date_txt)
                 except Exception:
-                    try:
-                        year_val = date.fromisoformat(date_txt).year
-                    except Exception:
-                        year_val = None
-            self.month_year_map[int(idx)] = year_val
-            self.month_label_map[int(idx)] = str(month_record.get("label") or f"M{idx}")
+                    month_date = None
+            if month_date is None:
+                continue
+
+            # job_scope_rows.month_N is always calendar-month-indexed (month_1 =
+            # January ... month_12 = December) regardless of which month the job's
+            # fiscal reporting period starts in -- see JobDataEntry.tsx's
+            # getMonthIndex()/saveMonthlyData(), which write monthlyValues into
+            # month_N using the calendar month, only reordering the *display*
+            # labels to start from the fiscal year. Keying these maps by the
+            # month's position within the reporting period (its "index" here)
+            # instead of by its actual calendar month silently priced quantities
+            # against the wrong year's factor dataset for any job whose fiscal
+            # year doesn't start in January.
+            calendar_idx = int(month_date.month)
+            self.month_year_map[calendar_idx] = int(month_date.year)
+            self.month_label_map[calendar_idx] = str(month_record.get("label") or f"M{calendar_idx}")
             scope_map: dict[str, int | None] = {}
             for scope, dataset_id in (month_record.get("scope_datasets") or {}).items():
                 scope_map[str(scope)] = int(dataset_id) if dataset_id is not None else None
-            self.month_scope_dataset_map[int(idx)] = scope_map
+            self.month_scope_dataset_map[calendar_idx] = scope_map
 
     def prewarm(self, rows: Iterable[Mapping[str, Any]]) -> None:
         """Bulk-fetch factor_lookup/db_id data needed for the given rows in a
