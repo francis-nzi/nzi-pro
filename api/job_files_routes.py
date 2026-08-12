@@ -382,6 +382,18 @@ def list_job_files(
                 params.append(row_id)
             query += " ORDER BY uploaded_at DESC"
             df = con.execute(query, params).df()
+            # astype(object) first -- a plain df.where(df.notna(), None) is a
+            # no-op on float64 columns. row_id/file_size are nullable ints;
+            # when a NULL mixes with a real value across rows in the same
+            # result set, pandas promotes the column to float64 and the NULL
+            # becomes NaN instead of None. `int(nan)` would raise inside this
+            # handler's own try/except, but other columns can carry a raw NaN
+            # straight through to the JSON response, which Starlette's
+            # JSONResponse rejects outright (allow_nan=False) as an unhandled
+            # ValueError -- see api/portal_data_entry_routes.py for the same
+            # fix applied elsewhere.
+            if df is not None and not df.empty:
+                df = df.astype(object).where(df.notna(), None)
 
         files = []
         if df is not None and not df.empty:
