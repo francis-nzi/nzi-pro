@@ -1079,7 +1079,7 @@ def get_job_scope_data(
                     jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4, jsr.month_5, jsr.month_6,
                     jsr.month_7, jsr.month_8, jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12,
                     jsr.data_source, jsr.data_confidence, jsr.notes, jsr.is_custom_entry, jsr.enabled, jsr.created_at, jsr.updated_at,
-                    jsr.linked_row_id, jsr.is_auto_generated,
+                    jsr.linked_row_id, jsr.is_auto_generated, jsr.auto_pair_kind,
                     fl.factor AS lookup_factor,
                     fl.ghg_unit AS lookup_ghg_unit,
                     {fl_parts['fl_category_expr']} AS lookup_category,
@@ -1222,6 +1222,7 @@ def get_job_scope_data(
                         "enabled": safe_bool(r.get("enabled")),
                         "linked_row_id": safe_int(r.get("linked_row_id")),
                         "is_auto_generated": safe_bool(r.get("is_auto_generated")),
+                        "auto_pair_kind": r.get("auto_pair_kind"),
                         # Cheap scalars (no per-month array) so a row whose factor is
                         # blended across two factor-dataset years is disclosed even in
                         # the compact table view, not only when a row is expanded.
@@ -2460,6 +2461,13 @@ def update_scope_data_row(
             if not row_exists:
                 raise HTTPException(status_code=404, detail="Row not found")
 
+            if before and before.get("auto_pair_kind") == "employee_commuting":
+                raise HTTPException(
+                    status_code=403,
+                    detail="This row is consolidated from approved Employee Commuting data and can't be edited "
+                           "directly — make changes on the Employee Commuting tab instead.",
+                )
+
             site_id = payload.get("site_id") if "site_id" in payload else None
             if site_id is not None:
                 try:
@@ -2933,7 +2941,14 @@ def delete_scope_data_row(
             
             if not row_exists:
                 raise HTTPException(status_code=404, detail="Row not found")
-            
+
+            if before and before.get("auto_pair_kind") == "employee_commuting":
+                raise HTTPException(
+                    status_code=403,
+                    detail="This row is consolidated from approved Employee Commuting data and can't be deleted "
+                           "directly — make changes on the Employee Commuting tab instead.",
+                )
+
             # Soft delete by setting enabled=FALSE
             con.execute(
                 "UPDATE job_scope_rows SET enabled=FALSE, updated_at=NOW() WHERE row_id=%s",

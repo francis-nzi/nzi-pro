@@ -35,6 +35,7 @@ from core.database import get_conn
 from services.audit_log import record_audit_event
 from services.dataset_selector import get_applicable_datasets, get_scope_primary_datasets
 from services.download_filenames import build_download_filename
+from services.employee_commuting_consolidation import sync_commuting_scope_rows
 from services.vehicle_categorization import categorize_vehicle
 from services.vehicle_lookup import lookup_vehicle_by_registration
 from services.virus_scan import VirusScanError, scan_bytes
@@ -2128,6 +2129,7 @@ def commit_employee_commuting_direct_entries(
             disabled = _disable_existing_manual_commuting_rows(con, int(job_id), validated_site_id)
 
         inserted, _inserted_ids = _insert_manual_commuting_rows(con, int(job_id), preview["ready_rows"])
+        sync_commuting_scope_rows(con, int(job_id))
 
         record_audit_event(
             con,
@@ -2218,6 +2220,7 @@ def update_employee_commuting_direct_entry(
 
         row = preview["ready_rows"][0]
         _update_manual_commuting_row(con, int(job_id), int(source_id), row)
+        sync_commuting_scope_rows(con, int(job_id))
 
         record_audit_event(
             con,
@@ -2364,6 +2367,8 @@ def review_commuting_row(
                 [note, reviewer, int(source_id)],
             )
 
+        sync_commuting_scope_rows(con, int(job_id))
+
         record_audit_event(
             con,
             request=request,
@@ -2455,6 +2460,9 @@ def bulk_review_commuting_rows(
                 metadata={"decision": decision, "note": note, "bulk": True},
             )
             reviewed.append(source_id)
+
+        if reviewed:
+            sync_commuting_scope_rows(con, int(job_id))
 
     return {
         "ok": True,

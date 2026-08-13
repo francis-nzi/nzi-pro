@@ -12,6 +12,7 @@ from core.database import get_conn
 from openpyxl import load_workbook
 from services.business_travel_upload_template import generate_business_travel_upload_template
 from services.emission_register_template import build_emission_register_workbook
+from services.employee_commuting_consolidation import sync_commuting_scope_rows
 from services.audit_log import record_audit_event
 from services.virus_scan import VirusScanError, scan_bytes
 
@@ -992,6 +993,7 @@ def delete_emission_source(
                 "UPDATE job_emission_sources SET enabled=FALSE, updated_at=NOW() WHERE source_id=%s AND job_id=%s",
                 [int(source_id), int(job_id)],
             )
+            sync_commuting_scope_rows(con, int(job_id))
             return {"ok": True, "source_id": int(source_id), "job_id": int(job_id)}
     except HTTPException:
         raise

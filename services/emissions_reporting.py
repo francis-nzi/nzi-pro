@@ -295,6 +295,11 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                 LIMIT 1
             ) fl ON TRUE
             WHERE COALESCE(js.enabled, TRUE) = TRUE
+              -- Employee Commuting is represented via its consolidated
+              -- job_scope_rows rows (legacy_rows above), not directly here --
+              -- see services/employee_commuting_consolidation.py. Including
+              -- both would double-count every approved commuting entry.
+              AND js.source_type IS DISTINCT FROM 'employee_commuting'
         )
         SELECT *
         FROM (
@@ -510,6 +515,11 @@ def load_combined_emissions_summary_rows(con, job_ids: list[int]):
                 LIMIT 1
             ) fl ON TRUE
             WHERE COALESCE(js.enabled, TRUE) = TRUE
+              -- Employee Commuting is represented via its consolidated
+              -- job_scope_rows rows (legacy_rows above), not directly here --
+              -- see services/employee_commuting_consolidation.py. Including
+              -- both would double-count every approved commuting entry.
+              AND js.source_type IS DISTINCT FROM 'employee_commuting'
             GROUP BY
                 jc.job_id,
                 jc.client_id,

@@ -108,6 +108,7 @@ type ScopeDataRow = {
   is_custom_entry: boolean;
   linked_row_id?: number | null;
   is_auto_generated?: boolean;
+  auto_pair_kind?: string | null;
   site_id: number | null;
   month_1: number | null;
   month_2: number | null;
@@ -1545,6 +1546,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     return Boolean(row.uses_emissions_fallback);
   }
 
+  function isCommutingConsolidatedRow(row: ScopeDataRow): boolean {
+    return Boolean(row.is_auto_generated) && row.auto_pair_kind === "employee_commuting";
+  }
+
   function formatMaybeNumber(value: number | null | undefined, digits = 2): string {
     if (value === null || value === undefined || Number.isNaN(value)) return "-";
     return value.toFixed(digits);
@@ -2281,7 +2286,14 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                 Unit missing
                               </div>
                             )}
-                            {row.is_auto_generated ? (
+                            {isCommutingConsolidatedRow(row) ? (
+                              <div
+                                className="inline-flex rounded-full bg-teal-100 px-2 py-0.5 text-[11px] font-medium text-teal-900"
+                                title="Consolidated total of every approved Employee Commuting entry for this factor and site — edit or remove individual entries on the Employee Commuting tab."
+                              >
+                                Employee Commuting
+                              </div>
+                            ) : row.is_auto_generated ? (
                               <div
                                 className="inline-flex rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-medium text-purple-900"
                                 title="Automatically calculated by summing every grid-electricity row at this site that pairs to this T&D factor - not directly editable."
@@ -2318,7 +2330,14 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                         </td>
                         {visibleColumns.qty && (
                           <td className="p-2 text-right">
-                            {row.is_auto_generated ? (
+                            {isCommutingConsolidatedRow(row) ? (
+                              <span
+                                className="inline-block px-2 py-1 font-mono"
+                                title="Consolidated total from approved Employee Commuting entries - edit on the Employee Commuting tab."
+                              >
+                                {row.qty?.toFixed(2) || "0.00"}
+                              </span>
+                            ) : row.is_auto_generated ? (
                               <span
                                 className="inline-block px-2 py-1 font-mono"
                                 title="Automatically calculated by summing linked grid-electricity rows at this site - not directly editable."
@@ -2420,9 +2439,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               size="sm"
                               className="h-9 w-9 rounded-full p-0"
                               onClick={() => openRowEditorModal(row)}
-                              disabled={pendingSaveRowIds.has(row.row_id) || deletingRowId === row.row_id}
+                              disabled={pendingSaveRowIds.has(row.row_id) || deletingRowId === row.row_id || isCommutingConsolidatedRow(row)}
                               aria-label="Edit row"
-                              title="Edit row"
+                              title={isCommutingConsolidatedRow(row) ? "Consolidated from Employee Commuting — edit on the Employee Commuting tab" : "Edit row"}
                             >
                               <PencilLine className="h-4 w-4" />
                               <span className="sr-only">Edit</span>
@@ -2432,9 +2451,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               size="sm"
                               className="h-9 w-9 rounded-full p-0 text-destructive hover:text-destructive"
                               onClick={() => deleteRow(row.row_id)}
-                              disabled={deletingRowId === row.row_id}
+                              disabled={deletingRowId === row.row_id || isCommutingConsolidatedRow(row)}
                               aria-label="Delete row"
-                              title="Delete row"
+                              title={isCommutingConsolidatedRow(row) ? "Consolidated from Employee Commuting — remove entries on the Employee Commuting tab" : "Delete row"}
                             >
                               <Trash2 className="h-4 w-4" />
                               <span className="sr-only">{deletingRowId === row.row_id ? "Deleting..." : "Delete"}</span>

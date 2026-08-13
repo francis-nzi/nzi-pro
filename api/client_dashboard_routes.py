@@ -660,6 +660,7 @@ def get_client_dashboard(
                                         JOIN job_context jc ON jc.job_id = js.job_id
                                         LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
                                         WHERE COALESCE(js.enabled, TRUE) = TRUE
+                                          AND js.source_type IS DISTINCT FROM 'employee_commuting'
                                     ),
                                     combined_rows AS (
                                         SELECT * FROM legacy_rows
@@ -736,6 +737,7 @@ def get_client_dashboard(
                                         JOIN job_context jc ON jc.job_id = js.job_id
                                         LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
                                         WHERE COALESCE(js.enabled, TRUE) = TRUE
+                                          AND js.source_type IS DISTINCT FROM 'employee_commuting'
                                     ),
                                     combined_rows AS (
                                         SELECT * FROM legacy_rows

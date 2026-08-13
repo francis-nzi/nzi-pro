@@ -29,6 +29,7 @@ from api.employee_commuting_routes import (
 )
 from api.portal_auth_routes import portal_user_dep
 from core.database import get_conn
+from services.employee_commuting_consolidation import sync_commuting_scope_rows
 from services.portal import PORTAL_ROLE_CAN_MANAGE_ACTIONS
 from services.portal_data_entry import (
     PORTAL_DATA_ENTRY_EXPIRED_MESSAGE,
@@ -357,6 +358,7 @@ def portal_commuting_update_row(
         params.append(int(source_id))
 
         con.execute(f"UPDATE job_emission_sources SET {', '.join(set_clauses)} WHERE source_id = %s", params)
+        sync_commuting_scope_rows(con, int(existing[5]))
 
     return {"ok": True, "source_id": source_id, "review_status": "pending_review"}
 

@@ -319,6 +319,11 @@ def _load_data_output_rows(con, job_id: int):
             ) fl ON TRUE
             WHERE js.job_id = %s
               AND COALESCE(js.enabled, TRUE) = TRUE
+              -- Employee Commuting is represented via its consolidated
+              -- job_scope_rows rows (legacy_rows above), not directly here --
+              -- see services/employee_commuting_consolidation.py. Including
+              -- both would double-count every approved commuting entry.
+              AND js.source_type IS DISTINCT FROM 'employee_commuting'
         )
         SELECT *
         FROM (
