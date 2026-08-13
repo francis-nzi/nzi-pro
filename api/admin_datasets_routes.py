@@ -708,6 +708,29 @@ def _normalize_report_label_text(value: str | None, remove_terms: list[str]) -> 
     return text.strip(" -|")
 
 
+@router.get("/factors/categories")
+def list_factor_categories(_user: dict = Depends(_current_user)):
+    """Distinct category values currently in use across factor_lookup, for
+    the Category dropdown on the factor editor/search filter. Kept to
+    existing values only (no free entry) so the same category can't drift
+    into typo'd variants across rows -- see the same field's discussion
+    when the Duplicate button was added."""
+    try:
+        with get_conn() as con:
+            _ensure_factor_lookup_schema(con)
+            df = con.execute(
+                """
+                SELECT DISTINCT category
+                FROM factor_lookup
+                WHERE category IS NOT NULL AND TRIM(category) != ''
+                """
+            ).df()
+        categories = [] if df is None or df.empty else sorted(str(c) for c in df["category"].dropna().tolist())
+        return {"items": categories}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load categories: {e}")
+
+
 @router.get("/factors")
 def search_factors(
     q: str = "",

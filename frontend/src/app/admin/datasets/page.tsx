@@ -202,6 +202,7 @@ export default function DatasetsPage() {
   
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [factors, setFactors] = useState<Factor[]>([]);
+  const [factorCategoryOptions, setFactorCategoryOptions] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
 
@@ -332,6 +333,23 @@ export default function DatasetsPage() {
   useEffect(() => {
     loadDatasets();
   }, [loadDatasets]);
+
+  const loadFactorCategories = useCallback(async () => {
+    try {
+      const res = await fetchWithAuth(`${baseUrl}/admin/factors/categories`);
+      if (!res.ok) {
+        throw new Error(await readErrorMessage(res, `Failed to load categories (${res.status})`));
+      }
+      const json = await res.json();
+      setFactorCategoryOptions(json.items || []);
+    } catch (e) {
+      setStatus(`Error loading categories: ${(e as Error).message}`);
+    }
+  }, [baseUrl]);
+
+  useEffect(() => {
+    loadFactorCategories();
+  }, [loadFactorCategories]);
 
   const loadBrowseDatasets = useCallback(
     async (targetPage: number = browsePage) => {
@@ -682,7 +700,7 @@ export default function DatasetsPage() {
       setUploadingDatasetId(null);
       setUploadPreview(null);
       setPreviewedFile(null);
-      await loadDatasets();
+      await Promise.all([loadDatasets(), loadFactorCategories()]);
     } catch (e) {
       setUploadStatus(`Error: ${(e as Error).message}`);
       setUploadingDatasetId(null);
@@ -734,7 +752,10 @@ export default function DatasetsPage() {
       setWorkbookStatus(payload?.message || "Workbook imported successfully.");
       setWorkbookFile(null);
       setWorkbookUploading(false);
-      await loadDatasets();
+      // A workbook import can introduce brand-new category values (unlike
+      // the single-row editor, which is a strict pick-from-existing dropdown)
+      // -- refresh the options so they're selectable without a page reload.
+      await Promise.all([loadDatasets(), loadFactorCategories()]);
     } catch (e) {
       setWorkbookStatus(`Error: ${(e as Error).message}`);
       setWorkbookUploading(false);
@@ -1434,14 +1455,14 @@ export default function DatasetsPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="factorCategoryFilter">Category</Label>
-                    <Input
+                    <SearchableStringSelect
                       id="factorCategoryFilter"
                       value={factorCategoryFilter}
-                      onChange={(e) => setFactorCategoryFilter(e.target.value)}
+                      options={factorCategoryOptions}
                       placeholder="Category..."
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") searchFactors(1);
-                      }}
+                      showClearButton
+                      allowCustomValue={false}
+                      onValueChange={setFactorCategoryFilter}
                     />
                   </div>
                   <div className="space-y-2">
@@ -2323,7 +2344,15 @@ export default function DatasetsPage() {
                 <Label htmlFor="factorCategory">
                   Category{editingFactor?.factor_definition_id ? <span className="ml-1 text-xs font-semibold text-blue-600">★ All years</span> : null}
                 </Label>
-                <Input id="factorCategory" value={factorCategory} onChange={(e) => setFactorCategory(e.target.value)} />
+                <SearchableStringSelect
+                  id="factorCategory"
+                  value={factorCategory}
+                  options={factorCategoryOptions}
+                  placeholder="Select a category..."
+                  showClearButton
+                  allowCustomValue={false}
+                  onValueChange={setFactorCategory}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="factorLevel1">

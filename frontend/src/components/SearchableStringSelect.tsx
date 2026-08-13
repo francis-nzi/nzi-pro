@@ -17,6 +17,10 @@ type SearchableStringSelectProps = {
   noMatchesText?: string;
   showClearButton?: boolean;
   optionBadges?: Record<string, string | number>;
+  /** When false, only values from `options` can be selected -- typing
+   * something that isn't in the list and pressing Enter is a no-op instead
+   * of committing the typed text. Defaults to true (existing behavior). */
+  allowCustomValue?: boolean;
   onValueChange: (value: string) => void;
 };
 
@@ -31,6 +35,7 @@ export default function SearchableStringSelect({
   noMatchesText = "No matches found",
   showClearButton = false,
   optionBadges,
+  allowCustomValue = true,
   onValueChange,
 }: SearchableStringSelectProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -78,7 +83,7 @@ export default function SearchableStringSelect({
       event.preventDefault();
       if (filteredOptions.length > 0) {
         handleSelect(filteredOptions[0]);
-      } else if (query.trim()) {
+      } else if (query.trim() && allowCustomValue) {
         onValueChange(query.trim());
         setOpen(false);
       }
