@@ -22,6 +22,7 @@ type LookupClient = {
   client_name: string;
   headquarters: string;
   currency: string;
+  default_bill_to: string;
 };
 
 type PaymentTerm = { term_id: number; name: string };
@@ -151,7 +152,7 @@ function AddQuotePageContent() {
         const defaultContactId = json.default_contact_id != null ? String(json.default_contact_id) : "";
         setContactId(defaultContactId);
         setAttention(String(json.default_attention || ""));
-        setBillTo(String(json.client?.headquarters || ""));
+        setBillTo(String(json.client?.default_bill_to || json.client?.headquarters || ""));
 
         const defaultContact = (json.contacts || []).find((c: Contact) => String(c.contact_id) === defaultContactId);
         if (defaultContact?.email) setEmailTo(defaultContact.email);
@@ -176,7 +177,7 @@ function AddQuotePageContent() {
           setPaymentTermId(existing.payment_term_id != null ? String(existing.payment_term_id) : "");
           setContactId(existing.contact_id != null ? String(existing.contact_id) : defaultContactId);
           setAttention(String(existing.attention || json.default_attention || ""));
-          setBillTo(String(existing.bill_to || json.client?.headquarters || ""));
+          setBillTo(String(existing.bill_to || json.client?.default_bill_to || json.client?.headquarters || ""));
           setNotes(String(existing.notes || ""));
           setQuoteStatus(String(existing.status || "Draft"));
 

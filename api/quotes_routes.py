@@ -1137,7 +1137,8 @@ def quote_lookups(client_id: int, _user: dict = Depends(_current_user)):
             org_id = _quote_org_id(_user)
             client_row = con.execute(
                 """
-                SELECT client_name, headquarters, currency
+                SELECT client_name, headquarters, currency,
+                       addr_line1, addr_line2, addr_city, addr_region, addr_postcode, addr_country
                 FROM clients
                 WHERE db_id = %s
                 """,
@@ -1292,12 +1293,21 @@ def quote_lookups(client_id: int, _user: dict = Depends(_current_user)):
             default_attention = str(contacts[0].get("full_name") or "")
             default_contact_id = _safe_int(contacts[0].get("contact_id"), None)
 
+        client_name = str(client_row[0] or "")
+        # Same composition as _serialize_invoice's bill_to fallback -- client
+        # name plus non-blank address lines, one per line. `headquarters` is a
+        # separate short label field (often just the client's own name again),
+        # not a postal address, so it can't stand in for this.
+        address_lines = [str(client_row[i] or "").strip() for i in range(3, 9)]
+        default_bill_to = "\n".join([line for line in [client_name, *address_lines] if line])
+
         return {
             "client": {
                 "client_db_id": int(client_id),
-                "client_name": str(client_row[0] or ""),
+                "client_name": client_name,
                 "headquarters": str(client_row[1] or ""),
                 "currency": str(client_row[2] or "GBP"),
+                "default_bill_to": default_bill_to,
             },
             "payment_terms": payment_terms,
             "currencies": currencies,

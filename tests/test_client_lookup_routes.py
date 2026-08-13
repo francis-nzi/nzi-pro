@@ -52,7 +52,10 @@ class _DashboardConn(_FakeConn):
 
 
 def test_quote_lookups_allows_client_row_without_org_filter(monkeypatch) -> None:
-    conn = _FakeConn(("Advanced Electric Machines (AEM)", "London, UK", "GBP"))
+    conn = _FakeConn((
+        "Advanced Electric Machines (AEM)", "London, UK", "GBP",
+        "1 Example Road", "", "London", "", "SW1A 1AA", "United Kingdom",
+    ))
     monkeypatch.setattr(quotes_routes, "assert_client_access", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(quotes_routes, "_quote_org_id", lambda *_args, **_kwargs: "org-a")
     monkeypatch.setattr(quotes_routes, "get_conn", lambda: conn)
@@ -61,6 +64,9 @@ def test_quote_lookups_allows_client_row_without_org_filter(monkeypatch) -> None
 
     assert result["client"]["client_name"] == "Advanced Electric Machines (AEM)"
     assert result["client"]["currency"] == "GBP"
+    assert result["client"]["default_bill_to"] == (
+        "Advanced Electric Machines (AEM)\n1 Example Road\nLondon\nSW1A 1AA\nUnited Kingdom"
+    )
     assert any("FROM clients" in sql and "WHERE db_id = %s" in sql for sql, _ in conn.queries)
 
 
