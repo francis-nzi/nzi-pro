@@ -88,6 +88,7 @@ function NewJobPageContent() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const router = useRouter();
   const [preselectedClientId, setPreselectedClientId] = useState("");
+  const [fromQuoteId, setFromQuoteId] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -369,8 +370,9 @@ function NewJobPageContent() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const value = new URLSearchParams(window.location.search).get("clientId");
-    setPreselectedClientId(value || "");
+    const search = new URLSearchParams(window.location.search);
+    setPreselectedClientId(search.get("clientId") || "");
+    setFromQuoteId(search.get("fromQuoteId") || "");
   }, []);
 
   useEffect(() => {
@@ -669,6 +671,18 @@ function NewJobPageContent() {
         if (!customFieldsRes.ok) {
           console.warn("Custom field save failed:", await customFieldsRes.text());
           successMsg += " | Some group details could not be saved";
+        }
+      }
+
+      if (fromQuoteId && json.job_number) {
+        try {
+          await fetch(`${baseUrl}/quotes/${fromQuoteId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ job_number: json.job_number }),
+          });
+        } catch (err) {
+          console.warn("Failed to link job back to quote:", err);
         }
       }
 

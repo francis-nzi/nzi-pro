@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useMemo, useState, useEffect, type Dispatch, type SetStateAction } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import PageHeader from "@/components/PageHeader";
 import { CompanyIdentityBlock, CompanyLegalFooter } from "@/components/CompanyIdentityBlock";
@@ -83,6 +83,7 @@ function addDaysIso(days: number): string {
 
 function AddQuotePageContent() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
+  const router = useRouter();
   const params = useParams<{ clientId: string }>();
   const searchParams = useSearchParams();
   const clientId = Number(params?.clientId);
@@ -421,6 +422,38 @@ function AddQuotePageContent() {
     }
   }
 
+  async function acceptQuote(): Promise<boolean> {
+    if (!quoteId) {
+      setError("Save draft first before accepting.");
+      return false;
+    }
+    setStatusBusy(true);
+    setError("");
+    setStatus("");
+    try {
+      const res = await fetch(`${baseUrl}/quotes/${quoteId}/accept`, { method: "POST" });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed to accept quote (${res.status})${t ? `: ${t}` : ""}`);
+      }
+      const q = await res.json();
+      setQuoteStatus(q.status || "Accepted");
+      setStatus("Quote accepted.");
+      return true;
+    } catch (e) {
+      setError((e as Error).message);
+      return false;
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
+  async function acceptAndCreateJob() {
+    const ok = await acceptQuote();
+    if (!ok || !quoteId) return;
+    router.push(`/jobs/new?clientId=${clientId}&fromQuoteId=${quoteId}`);
+  }
+
   function openEmailDialog() {
     if (!quoteId) {
       setError("Save draft first before emailing.");
@@ -712,6 +745,16 @@ function AddQuotePageContent() {
               </Button>
               <Button variant="outline" onClick={openEmailDialog} disabled={!quoteId || saving || statusBusy}>
                 Email PDF
+              </Button>
+              <Button
+                variant="outline"
+                onClick={acceptQuote}
+                disabled={!quoteId || saving || statusBusy || quoteStatus === "Accepted"}
+              >
+                Accept
+              </Button>
+              <Button onClick={acceptAndCreateJob} disabled={!quoteId || saving || statusBusy}>
+                Accept &amp; Create Job
               </Button>
             </div>
           </CardContent>

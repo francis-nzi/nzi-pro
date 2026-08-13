@@ -99,6 +99,8 @@ def _ensure_quote_tables(con) -> None:
     con.execute("ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS vat_rate_pct DOUBLE PRECISION")
     con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP")
     con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS approved_by VARCHAR")
+    con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP")
+    con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS accepted_by VARCHAR")
     con.execute("ALTER TABLE quote_email_log ADD COLUMN IF NOT EXISTS org_id UUID")
     con.execute(
         """
@@ -1637,6 +1639,38 @@ def approve_quote(quote_id: int, _user: dict = Depends(_current_user)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to approve quote: {e}")
+
+
+@router.post("/quotes/{quote_id}/accept")
+def accept_quote(quote_id: int, _user: dict = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
+            exists = con.execute(
+                "SELECT quote_id FROM quotes WHERE quote_id = %s" + (" AND org_id = %s" if org_id else ""),
+                [int(quote_id)] + ([org_id] if org_id else []),
+            ).fetchone()
+            if not exists:
+                raise HTTPException(status_code=404, detail="Quote not found")
+            acceptor = str(_user.get("email") or _user.get("user_id") or "system")
+            con.execute(
+                """
+                UPDATE quotes
+                SET status = 'Accepted',
+                    accepted_at = NOW(),
+                    accepted_by = %s,
+                    updated_at = NOW()
+                WHERE quote_id = %s
+                """ + (" AND org_id = %s" if org_id else "") + """
+                """,
+                [acceptor, int(quote_id)] + ([org_id] if org_id else []),
+            )
+            return _serialize_quote(con, int(quote_id), org_id=org_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to accept quote: {e}")
 
 
 @router.post("/quotes/{quote_id}/revise")
