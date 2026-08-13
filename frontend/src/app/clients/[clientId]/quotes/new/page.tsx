@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import EmailComposerDialog from "@/components/shared/EmailComposerDialog";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -115,6 +116,7 @@ function AddQuotePageContent() {
   const [billTo, setBillTo] = useState("");
   const [notes, setNotes] = useState("");
   const [emailTo, setEmailTo] = useState("");
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
   const [pdfRefreshKey, setPdfRefreshKey] = useState<number>(Date.now());
   const [mainLines, setMainLines] = useState<QuoteLine[]>([newLine("main")]);
   const [optionLines, setOptionLines] = useState<QuoteLine[]>([]);
@@ -419,37 +421,14 @@ function AddQuotePageContent() {
     }
   }
 
-  async function emailQuote() {
+  function openEmailDialog() {
     if (!quoteId) {
       setError("Save draft first before emailing.");
       return;
     }
-    if (!emailTo.trim()) {
-      setError("Enter an email recipient.");
-      return;
-    }
-    setStatusBusy(true);
     setError("");
     setStatus("");
-    try {
-      const res = await fetch(`${baseUrl}/quotes/${quoteId}/email-pdf`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: emailTo.trim(),
-        }),
-      });
-      if (!res.ok) {
-        const t = await res.text().catch(() => "");
-        throw new Error(`Failed to email quote (${res.status})${t ? `: ${t}` : ""}`);
-      }
-      setQuoteStatus("Sent");
-      setStatus("Quote PDF emailed.");
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setStatusBusy(false);
-    }
+    setShowEmailDialog(true);
   }
 
   function onContactChange(v: string) {
@@ -731,7 +710,7 @@ function AddQuotePageContent() {
               <Button variant="outline" onClick={reviseQuote} disabled={!quoteId || saving || statusBusy}>
                 Revise
               </Button>
-              <Button variant="outline" onClick={emailQuote} disabled={!quoteId || saving || statusBusy}>
+              <Button variant="outline" onClick={openEmailDialog} disabled={!quoteId || saving || statusBusy}>
                 Email PDF
               </Button>
             </div>
@@ -764,6 +743,19 @@ function AddQuotePageContent() {
           </CardContent>
         </Card>
       </div>
+
+      <EmailComposerDialog
+        open={showEmailDialog}
+        onClose={() => setShowEmailDialog(false)}
+        baseUrl={baseUrl}
+        kind="quote"
+        id={quoteId}
+        defaultTo={emailTo}
+        onSent={() => {
+          setQuoteStatus("Sent");
+          setStatus("Quote PDF emailed.");
+        }}
+      />
     </div>
   );
 }

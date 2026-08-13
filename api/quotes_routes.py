@@ -1048,12 +1048,13 @@ def _serialize_quote(con, quote_id: int, org_id: str | None = None) -> dict[str,
         params.append(str(org_id).strip())
     q = con.execute(
         """
-        SELECT quote_id, client_db_id, contact_id, quote_number, quote_date, valid_to, salesperson,
-               payment_term_id, pt.name AS payment_term_name, currency_code, description, notes, status, revision_of_quote_id,
-               job_number, attention, bill_to, created_at, updated_at, org_id
+        SELECT quotes.quote_id, quotes.client_db_id, quotes.contact_id, quotes.quote_number, quotes.quote_date, quotes.valid_to, quotes.salesperson,
+               quotes.payment_term_id, pt.name AS payment_term_name, quotes.currency_code, quotes.description, quotes.notes, quotes.status, quotes.revision_of_quote_id,
+               quotes.job_number, quotes.attention, quotes.bill_to, quotes.created_at, quotes.updated_at, quotes.org_id, c.client_name
         FROM quotes
         LEFT JOIN payment_terms_lookup pt ON pt.term_id = quotes.payment_term_id
-        WHERE quote_id = %s
+        LEFT JOIN clients c ON c.db_id = quotes.client_db_id
+        WHERE quotes.quote_id = %s
         """ + quote_org_clause + """
         """,
         params,
@@ -1105,6 +1106,7 @@ def _serialize_quote(con, quote_id: int, org_id: str | None = None) -> dict[str,
     return {
         "quote_id": int(q[0]),
         "client_db_id": int(q[1]),
+        "client_name": str(q[20] or "") if len(q) > 20 and q[20] is not None else "",
         "contact_id": _safe_int(q[2], None),
         "quote_number": str(q[3] or ""),
         "quote_date": q[4].isoformat() if q[4] else None,
@@ -1873,6 +1875,43 @@ def email_quote_pdf(quote_id: int, body: dict = Body(...), _user: dict = Depends
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to email quote PDF: {e}")
+
+
+@router.get("/quotes/{quote_id}/email-preview")
+def preview_quote_email(quote_id: int, _user: dict = Depends(_current_user)):
+    """Bring the quote_send template forward, rendered with this quote's own
+    details, so the caller can show it for editing before actually sending --
+    same content email_quote_pdf would use by default, minus the signature
+    (added once, at send time) and without sending anything."""
+    try:
+        with get_conn() as con:
+            _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
+            quote = _serialize_quote(con, int(quote_id), org_id=org_id)
+            sender = str(_user.get("email") or _user.get("user_id") or "system")
+            email_ctx = {
+                "quote_number": str(quote.get("quote_number") or f"Q{int(quote_id):06d}/1"),
+                "client_name": str(quote.get("client_name") or ""),
+                "attention_name": str(quote.get("attention") or ""),
+                "valid_to": str(quote.get("valid_to") or ""),
+                "job_number": str(quote.get("job_number") or ""),
+                "sender_name": str(_user.get("full_name") or sender),
+                "custom_message": "",
+            }
+            rendered = build_email_content(
+                con=con,
+                template_key="quote_send",
+                context=email_ctx,
+                fallback_subject=f"Quote {quote.get('quote_number') or quote_id} from {str((quote.get('company_profile') or {}).get('company_display_name') or 'Net Zero International')}",
+                fallback_body="Please find the attached quote PDF.",
+                sender_identifier=sender,
+                include_signature=False,
+            )
+        return {"subject": rendered["subject"], "message": rendered["body_text"]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to build email preview: {e}")
 
 
 @router.get("/quotes/{quote_id}/email-log")
@@ -2803,6 +2842,40 @@ def email_invoice_pdf(invoice_id: int, body: dict = Body(...), _user: dict = Dep
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to email invoice PDF: {e}")
+
+
+@router.get("/invoices/{invoice_id}/email-preview")
+def preview_invoice_email(invoice_id: int, _user: dict = Depends(_current_user)):
+    """Same as preview_quote_email, for invoices."""
+    try:
+        with get_conn() as con:
+            _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
+            invoice = _serialize_invoice(con, int(invoice_id), org_id=org_id)
+            sender = str(_user.get("email") or _user.get("user_id") or "system")
+            email_ctx = {
+                "invoice_number": str(invoice.get("invoice_number") or f"I{int(invoice_id):06d}"),
+                "client_name": str(invoice.get("client_name") or ""),
+                "attention_name": str(invoice.get("attention") or ""),
+                "due_date": str(invoice.get("due_date") or ""),
+                "job_number": str(invoice.get("job_number") or ""),
+                "sender_name": str(_user.get("full_name") or sender),
+                "custom_message": "",
+            }
+            rendered = build_email_content(
+                con=con,
+                template_key="invoice_send",
+                context=email_ctx,
+                fallback_subject=f"Invoice {invoice.get('invoice_number') or invoice_id} from {str((invoice.get('company_profile') or {}).get('company_display_name') or 'Net Zero International')}",
+                fallback_body="Please find the attached invoice PDF.",
+                sender_identifier=sender,
+                include_signature=False,
+            )
+        return {"subject": rendered["subject"], "message": rendered["body_text"]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to build email preview: {e}")
 
 
 @router.get("/clients/{client_id}/financial/summary")

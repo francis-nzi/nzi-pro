@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
+import EmailComposerDialog from "@/components/shared/EmailComposerDialog";
 
 type ViewMode = "quotes" | "invoices" | "other-costs" | "profit-loss";
 
@@ -152,8 +153,6 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
   const [summary, setSummary] = useState<JobFinancialSummary | null>(null);
   const [selectedQuoteId, setSelectedQuoteId] = useState<string>("");
   const [emailComposer, setEmailComposer] = useState<{ kind: "quote" | "invoice"; id: number } | null>(null);
-  const [emailAddress, setEmailAddress] = useState("");
-  const [emailSending, setEmailSending] = useState(false);
   const [invoiceDate, setInvoiceDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate] = useState<string>(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
   const [invoiceStatus, setInvoiceStatus] = useState<string>("Draft");
@@ -481,35 +480,6 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
     window.open(`${baseUrl}/${kind}s/${id}/pdf`, "_blank", "noopener,noreferrer");
   }
 
-  async function sendEmailPdf() {
-    if (!emailComposer) return;
-    if (!emailAddress.trim()) {
-      setStatus("Enter a recipient email address first.");
-      return;
-    }
-    setEmailSending(true);
-    setStatus("");
-    try {
-      const res = await fetch(`${baseUrl}/${emailComposer.kind}s/${emailComposer.id}/email-pdf`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ to: emailAddress.trim() }),
-      });
-      if (!res.ok) {
-        const t = await res.text().catch(() => "");
-        throw new Error(`Failed to email PDF (${res.status})${t ? `: ${t}` : ""}`);
-      }
-      setStatus(`${emailComposer.kind === "quote" ? "Quote" : "Invoice"} PDF emailed to ${emailAddress.trim()}.`);
-      setEmailComposer(null);
-      setEmailAddress("");
-    } catch (e) {
-      setStatus((e as Error).message);
-    } finally {
-      setEmailSending(false);
-    }
-  }
-
   async function syncCreditNoteToXero(creditNoteId: number) {
     setStatus("");
     try {
@@ -650,6 +620,7 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
 
   if (mode === "quotes") {
     return (
+      <>
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -670,30 +641,28 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
                   <div className="font-semibold">{money.format(Number(q.total || 0))} {q.currency_code || ""}</div>
                   <Button size="sm" variant="outline" onClick={() => void convertQuote(q.quote_id)}>Convert</Button>
                   <Button size="sm" variant="outline" onClick={() => openPdf("quote", q.quote_id)}>PDF</Button>
-                  <Button size="sm" variant="outline" onClick={() => { setEmailComposer({ kind: "quote", id: q.quote_id }); setEmailAddress(""); setStatus(""); }}>Email</Button>
+                  <Button size="sm" variant="outline" onClick={() => { setEmailComposer({ kind: "quote", id: q.quote_id }); setStatus(""); }}>Email</Button>
                   <Button size="sm" variant="outline" asChild><Link href={`/clients/${clientId}/quotes/new?quoteId=${q.quote_id}`}>Open</Link></Button>
                 </div>
               </div>
-              {emailComposer?.kind === "quote" && emailComposer.id === q.quote_id ? (
-                <div className="mt-2 flex items-center gap-2 border-t pt-2">
-                  <Input
-                    className="h-8"
-                    placeholder="client@example.com"
-                    value={emailAddress}
-                    onChange={(e) => setEmailAddress(e.target.value)}
-                  />
-                  <Button size="sm" onClick={() => void sendEmailPdf()} disabled={emailSending}>
-                    {emailSending ? "Sending..." : "Send"}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setEmailComposer(null)}>Cancel</Button>
-                </div>
-              ) : null}
             </div>
           ))}
           {!loading && quotes.length === 0 ? <div className="text-sm text-muted-foreground">No quotes linked to this job number.</div> : null}
           {status ? <div className="text-sm text-muted-foreground">{status}</div> : null}
         </CardContent>
       </Card>
+      <EmailComposerDialog
+        open={emailComposer?.kind === "quote"}
+        onClose={() => setEmailComposer(null)}
+        baseUrl={baseUrl}
+        kind="quote"
+        id={emailComposer?.kind === "quote" ? emailComposer.id : null}
+        onSent={() => {
+          setStatus("Quote PDF emailed.");
+          setEmailComposer(null);
+        }}
+      />
+      </>
     );
   }
 
@@ -1137,24 +1106,10 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
                 <div className="flex items-center gap-2">
                   <div className="font-semibold">{money.format(Number(inv.total || 0))} {inv.currency_code || ""}</div>
                   <Button size="sm" variant="outline" onClick={() => openPdf("invoice", inv.invoice_id)}>PDF</Button>
-                  <Button size="sm" variant="outline" onClick={() => { setEmailComposer({ kind: "invoice", id: inv.invoice_id }); setEmailAddress(""); setStatus(""); }}>Email</Button>
+                  <Button size="sm" variant="outline" onClick={() => { setEmailComposer({ kind: "invoice", id: inv.invoice_id }); setStatus(""); }}>Email</Button>
                   <Button size="sm" variant="outline" asChild><Link href={`/clients/${clientId}/invoices/${inv.invoice_id}`}>Open</Link></Button>
                 </div>
               </div>
-              {emailComposer?.kind === "invoice" && emailComposer.id === inv.invoice_id ? (
-                <div className="mt-2 flex items-center gap-2 border-t pt-2">
-                  <Input
-                    className="h-8"
-                    placeholder="client@example.com"
-                    value={emailAddress}
-                    onChange={(e) => setEmailAddress(e.target.value)}
-                  />
-                  <Button size="sm" onClick={() => void sendEmailPdf()} disabled={emailSending}>
-                    {emailSending ? "Sending..." : "Send"}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setEmailComposer(null)}>Cancel</Button>
-                </div>
-              ) : null}
             </div>
           ))}
           {!loading && invoices.length === 0 ? <div className="text-sm text-muted-foreground">No invoices for this job yet.</div> : null}
@@ -1189,6 +1144,18 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
           {!loading && creditNotes.length === 0 ? <div className="text-sm text-muted-foreground">No credit notes for this job yet.</div> : null}
         </CardContent>
       </Card>
+
+      <EmailComposerDialog
+        open={emailComposer?.kind === "invoice"}
+        onClose={() => setEmailComposer(null)}
+        baseUrl={baseUrl}
+        kind="invoice"
+        id={emailComposer?.kind === "invoice" ? emailComposer.id : null}
+        onSent={() => {
+          setStatus("Invoice PDF emailed.");
+          setEmailComposer(null);
+        }}
+      />
     </div>
   );
 }

@@ -424,6 +424,7 @@ def build_email_content(
     sender_identifier: str,
     override_subject: str | None = None,
     override_body: str | None = None,
+    include_signature: bool = True,
 ) -> dict[str, str]:
     tpl = resolve_template(con, template_key)
     subject = render_template_text(tpl["subject_template"], context) if tpl and tpl.get("is_active") else fallback_subject
@@ -432,11 +433,20 @@ def build_email_content(
     if override_subject and str(override_subject).strip():
         subject = str(override_subject).strip()
     if override_body and str(override_body).strip():
-        body_html = str(override_body).strip()
+        # An override comes from a plain-text edit (e.g. a user editing the
+        # brought-forward template in a textarea before sending), not markup
+        # -- turn its line breaks into <br/> so paragraphing survives in the
+        # HTML email instead of collapsing onto one line.
+        escaped = (
+            str(override_body).strip()
+            .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        )
+        body_html = escaped.replace("\n", "<br/>")
 
-    signature = get_user_signature_html(con, sender_identifier)
-    if signature:
-        body_html = f"{body_html}<br/><br/>{signature}"
+    if include_signature:
+        signature = get_user_signature_html(con, sender_identifier)
+        if signature:
+            body_html = f"{body_html}<br/><br/>{signature}"
 
     body_text = _strip_html(body_html)
     return {

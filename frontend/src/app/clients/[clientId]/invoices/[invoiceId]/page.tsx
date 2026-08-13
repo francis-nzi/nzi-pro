@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import EmailComposerDialog from "@/components/shared/EmailComposerDialog";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -117,6 +118,7 @@ export default function InvoiceDetailPage() {
   const [contacts, setContacts] = useState<LookupContact[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [emailCc, setEmailCc] = useState("");
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -356,32 +358,10 @@ export default function InvoiceDetailPage() {
     }
   }
 
-  async function emailInvoicePdf() {
-    setSaving(true);
+  function openEmailDialog() {
     setError("");
     setStatus("");
-    try {
-      if (!emailTo.trim()) throw new Error("Recipient email is required");
-      const res = await fetch(`${baseUrl}/invoices/${invoiceId}/email-pdf`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          to: emailTo.trim(),
-          cc: emailCc.trim(),
-        }),
-      });
-      if (!res.ok) {
-        const t = await res.text().catch(() => "");
-        throw new Error(`Failed to email invoice PDF (${res.status})${t ? `: ${t}` : ""}`);
-      }
-      if (statusValue.toLowerCase() === "draft") setStatusValue("Sent");
-      setStatus("Invoice PDF emailed.");
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setSaving(false);
-    }
+    setShowEmailDialog(true);
   }
 
   async function createCreditNote() {
@@ -689,7 +669,7 @@ export default function InvoiceDetailPage() {
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={markPaid} disabled={saving}>Mark Paid</Button>
               <Button onClick={saveInvoice} disabled={saving}>{saving ? "Saving..." : "Save Invoice"}</Button>
-              <Button variant="outline" onClick={emailInvoicePdf} disabled={saving}>Email PDF</Button>
+              <Button variant="outline" onClick={openEmailDialog} disabled={saving}>Email PDF</Button>
               <Button variant="outline" onClick={syncToXero} disabled={saving}>
                 {xeroInfo?.xero_invoice_id ? "Resync to Xero" : "Sync to Xero"}
               </Button>
@@ -721,6 +701,20 @@ export default function InvoiceDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      <EmailComposerDialog
+        open={showEmailDialog}
+        onClose={() => setShowEmailDialog(false)}
+        baseUrl={baseUrl}
+        kind="invoice"
+        id={invoiceId}
+        defaultTo={emailTo}
+        defaultCc={emailCc}
+        onSent={() => {
+          if (statusValue.toLowerCase() === "draft") setStatusValue("Sent");
+          setStatus("Invoice PDF emailed.");
+        }}
+      />
     </div>
   );
 }
