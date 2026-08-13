@@ -413,6 +413,10 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
                 _effective_benchmark_year = int(str(_bm_pe)[:4])
             except Exception:
                 pass
+    # job_data is returned to the frontend as-is (see the payload below), so
+    # without this, job.benchmark_year stays the raw (often unset) clients.benchmark_year
+    # instead of the resolved value every fetch above already uses internally.
+    job_data["benchmark_year"] = _effective_benchmark_year
 
     benchmark_categories: list[dict[str, Any]] = []
     try:
