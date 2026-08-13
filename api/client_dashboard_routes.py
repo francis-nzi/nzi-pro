@@ -215,7 +215,7 @@ def _load_client_jobs(con, client_db_id: int, org_id: str | None, crp_only: bool
                 LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
                 JOIN clients c ON c.db_id = j.client_db_id
                 WHERE j.client_db_id = %s AND j.is_crp = TRUE AND {org_match}
-                ORDER BY dashboard_year ASC NULLS LAST
+                ORDER BY dashboard_year ASC NULLS LAST, j.job_id ASC
                 """.format(org_match=_org_match_clause()),
                 [int(client_db_id), org_id],
             ).df()
@@ -234,7 +234,7 @@ def _load_client_jobs(con, client_db_id: int, org_id: str | None, crp_only: bool
             LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
             JOIN clients c ON c.db_id = j.client_db_id
             WHERE j.client_db_id = %s AND {org_match}
-                ORDER BY dashboard_year ASC NULLS LAST
+                ORDER BY dashboard_year ASC NULLS LAST, j.job_id ASC
             """.format(org_match=_org_match_clause()),
             [int(client_db_id), org_id],
         ).df()
@@ -254,7 +254,7 @@ def _load_client_jobs(con, client_db_id: int, org_id: str | None, crp_only: bool
             FROM jobs j
             LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
             WHERE j.client_db_id = %s AND j.is_crp = TRUE
-            ORDER BY dashboard_year ASC NULLS LAST
+            ORDER BY dashboard_year ASC NULLS LAST, j.job_id ASC
             """,
             [int(client_db_id)],
         ).df()
@@ -273,7 +273,7 @@ def _load_client_jobs(con, client_db_id: int, org_id: str | None, crp_only: bool
         FROM jobs j
         LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
         WHERE j.client_db_id = %s
-        ORDER BY dashboard_year ASC NULLS LAST
+        ORDER BY dashboard_year ASC NULLS LAST, j.job_id ASC
         """,
         [int(client_db_id)],
     ).df()

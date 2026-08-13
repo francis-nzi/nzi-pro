@@ -74,7 +74,7 @@ def _load_client_jobs(con, client_db_id: int, crp_only: bool = True):
             FROM jobs j
             LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
             WHERE j.client_db_id = %s AND j.is_crp = TRUE
-            ORDER BY dashboard_year ASC NULLS LAST
+            ORDER BY dashboard_year ASC NULLS LAST, j.job_id ASC
             """,
             [int(client_db_id)],
         ).df()
@@ -94,7 +94,7 @@ def _load_client_jobs(con, client_db_id: int, crp_only: bool = True):
         FROM jobs j
         LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
         WHERE j.client_db_id = %s
-        ORDER BY dashboard_year ASC NULLS LAST
+        ORDER BY dashboard_year ASC NULLS LAST, j.job_id ASC
         """,
         [int(client_db_id)],
     ).df()
