@@ -743,7 +743,7 @@ def _portal_load_jobs(con, client_db_id: int):
         LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
         WHERE j.client_db_id = %s
           AND COALESCE(j.portal_visible, TRUE) = TRUE
-        ORDER BY dashboard_year ASC NULLS LAST
+        ORDER BY dashboard_year ASC NULLS LAST, j.job_id ASC
         """,
         [int(client_db_id)],
     ).df()
@@ -1099,7 +1099,14 @@ def portal_reporting_data(current_user: dict = Depends(portal_user_dep)):
             if jobs_df is None or jobs_df.empty:
                 return empty_resp
 
-            job_ids = [int(j) for j in jobs_df["job_id"].tolist()]
+            # Dedupe to one job per dashboard year (most recently created wins)
+            # so two jobs covering the same year don't get double-counted --
+            # matches the CRM-side dedup in client_reporting_routes.py.
+            from api.client_reporting_routes import _build_year_jobs
+            year_jobs = _build_year_jobs(jobs_df)
+            job_ids = [int(yj["job_id"]) for yj in year_jobs]
+            if not job_ids:
+                return empty_resp
             try:
                 scope_df = load_combined_reporting_rows(con, job_ids)
             except Exception as exc:
