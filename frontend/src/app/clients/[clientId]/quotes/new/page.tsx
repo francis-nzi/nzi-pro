@@ -691,7 +691,7 @@ function AddQuotePageContent() {
           </CardContent>
         </Card>
 
-        {renderLinesTable("Options (Excluded from Total)", optionLines, setOptionLines, "option")}
+        {renderLinesTable("Options", optionLines, setOptionLines, "option")}
 
         <Card className="mt-6">
           <CardHeader>

@@ -894,14 +894,6 @@ def _build_financial_pdf_story(
 
     _lines_table(lines)
     story.append(Spacer(1, 5 * mm))
-    if options_lines is not None:
-        if options_lines:
-            _lines_table(options_lines, "Options (Excluded from Total)")
-        else:
-            story.append(Paragraph("<b>Options (Excluded from Total)</b>", normal_style))
-            story.append(Spacer(1, 1.5 * mm))
-            story.append(Paragraph("(No options)", normal_style))
-        story.append(Spacer(1, 5 * mm))
 
     totals_data = [
         [
@@ -924,6 +916,15 @@ def _build_financial_pdf_story(
         )
     )
     story.append(totals_table)
+
+    if options_lines is not None:
+        story.append(Spacer(1, 5 * mm))
+        if options_lines:
+            _lines_table(options_lines, "Options")
+        else:
+            story.append(Paragraph("<b>Options</b>", normal_style))
+            story.append(Spacer(1, 1.5 * mm))
+            story.append(Paragraph("(No options)", normal_style))
 
     if payment_terms_text is not None:
         story.append(Spacer(1, 5 * mm))
