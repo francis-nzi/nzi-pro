@@ -2251,6 +2251,33 @@ def update_employee_commuting_direct_entry(
     }
 
 
+@router.get("/jobs/{job_id}/employee-commuting/approved-summary")
+def list_approved_commuting_rows(job_id: int, _user: dict[str, str] = Depends(_current_user)):
+    """Read-only listing of approved employee-commuting rows for this job --
+    surfaced on the Data Entry page so this data doesn't only live on the
+    dedicated Employee Commuting tab. job_scope_rows (what Data Entry itself
+    edits) can't represent this: it's one row per factor, and commuting
+    needs one row per employee under the same factor. Editing still happens
+    on the Employee Commuting tab; this is display-only."""
+    with get_conn() as con:
+        _ensure_emission_register_schema(con)
+        df = con.execute(
+            """
+            SELECT source_id, employee_name, source_subtype, qty, uom, calc_tco2e, notes
+            FROM job_emission_sources
+            WHERE job_id = %s AND source_type = 'employee_commuting' AND enabled = TRUE
+            ORDER BY employee_name, source_id
+            """,
+            [int(job_id)],
+        ).df()
+        if df is None or df.empty:
+            return {"job_id": int(job_id), "rows": [], "total_tco2e": 0.0}
+        df = df.astype(object).where(df.notna(), None)
+        rows = [{k: r.get(k) for k in r.index} for _, r in df.iterrows()]
+        total_tco2e = sum(float(r.get("calc_tco2e") or 0.0) for r in rows)
+        return {"job_id": int(job_id), "rows": rows, "total_tco2e": total_tco2e}
+
+
 @router.get("/jobs/{job_id}/employee-commuting/pending-review")
 def list_pending_review_commuting_rows(job_id: int, _user: dict[str, str] = Depends(_current_user)):
     """Client-portal-submitted commuting rows awaiting CRM approval."""

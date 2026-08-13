@@ -30,6 +30,7 @@ import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import LoadingOrbit from "@/components/LoadingOrbit";
 import PendingPortalSubmissions from "@/components/PendingPortalSubmissions";
 import PendingPortalCommutingSubmissions from "@/components/PendingPortalCommutingSubmissions";
+import ApprovedCommutingSummary from "@/components/ApprovedCommutingSummary";
 import { withAuditHeaders } from "@/lib/auth-client";
 import { dispatchJobScopeRefresh, JOB_SCOPE_REFRESH_EVENT } from "@/lib/job-scope-refresh";
 import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
@@ -233,6 +234,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const [methodologyDefaults, setMethodologyDefaults] = useState<MethodologyRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [commutingRefreshKey, setCommutingRefreshKey] = useState(0);
   const [jobData, setJobData] = useState<{
     reporting_period_start?: string | null;
     client_db_id?: number | null;
@@ -1960,7 +1962,15 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       )}
 
       <PendingPortalSubmissions jobId={jobId} baseUrl={effectiveBaseUrl} onReviewed={loadData} />
-      <PendingPortalCommutingSubmissions jobId={jobId} baseUrl={effectiveBaseUrl} onReviewed={loadData} />
+      <PendingPortalCommutingSubmissions
+        jobId={jobId}
+        baseUrl={effectiveBaseUrl}
+        onReviewed={() => {
+          loadData();
+          setCommutingRefreshKey((k) => k + 1);
+        }}
+      />
+      <ApprovedCommutingSummary jobId={jobId} baseUrl={effectiveBaseUrl} refreshKey={commutingRefreshKey} />
 
       {/* Template Capture Action */}
       <Card>
