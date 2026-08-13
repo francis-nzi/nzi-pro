@@ -294,8 +294,13 @@ def portal_commuting_update_row(
         ).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Row not found")
-        if existing[1] == "approved":
-            raise HTTPException(status_code=409, detail="This row has already been approved and can no longer be edited here")
+        # Approved rows are still editable -- a client entering commuting data
+        # monthly (see the 12-month grid) needs to keep adding to an already-
+        # approved row as the year goes on, not lose access to it the moment
+        # the CRM reviews the months entered so far. The edit below already
+        # resets review_status to pending_review so the CRM sees it needs
+        # another look; enabled is left as-is so the row doesn't vanish from
+        # reports mid-year just because a new month was added.
         _assert_data_entry_open(con, int(existing[5]))
 
         set_clauses: list[str] = []

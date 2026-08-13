@@ -2349,3 +2349,89 @@ def review_commuting_row(
         )
 
     return {"ok": True, "source_id": int(source_id), "review_status": "approved" if decision == "approve" else "rejected"}
+
+
+@router.patch("/jobs/{job_id}/employee-commuting/bulk-review")
+def bulk_review_commuting_rows(
+    request: Request,
+    job_id: int,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Approve or reject several portal-submitted commuting rows in one call
+    (mass-approve/reject) -- same rules as review_commuting_row per row, just
+    batched so one bad row (already approved, wrong job) doesn't block the rest."""
+    decision = str(body.get("decision") or "").strip().lower()
+    if decision not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
+    raw_ids = body.get("source_ids")
+    if not isinstance(raw_ids, list) or not raw_ids:
+        raise HTTPException(status_code=400, detail="source_ids must be a non-empty list")
+    try:
+        source_ids = [int(x) for x in raw_ids]
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="source_ids must all be integers")
+    note = body.get("note")
+    reviewer = str(_user.get("email") or _user.get("full_name") or "crm")
+
+    reviewed: list[int] = []
+    failed: list[dict[str, Any]] = []
+
+    with get_conn() as con:
+        _ensure_emission_register_schema(con)
+        for source_id in source_ids:
+            row = con.execute(
+                """
+                SELECT submitted_by_portal, review_status
+                FROM job_emission_sources
+                WHERE source_id = %s AND job_id = %s AND source_type = 'employee_commuting'
+                """,
+                [source_id, int(job_id)],
+            ).fetchone()
+            if not row:
+                failed.append({"source_id": source_id, "reason": "Row not found"})
+                continue
+            if not row[0]:
+                failed.append({"source_id": source_id, "reason": "Not a portal submission"})
+                continue
+            if row[1] == "approved":
+                failed.append({"source_id": source_id, "reason": "Already approved"})
+                continue
+
+            if decision == "approve":
+                con.execute(
+                    """
+                    UPDATE job_emission_sources
+                    SET enabled = TRUE, review_status = 'approved', review_note = %s,
+                        reviewed_by = %s, reviewed_at = NOW()
+                    WHERE source_id = %s
+                    """,
+                    [note, reviewer, source_id],
+                )
+            else:
+                con.execute(
+                    """
+                    UPDATE job_emission_sources
+                    SET review_status = 'rejected', review_note = %s, reviewed_by = %s, reviewed_at = NOW()
+                    WHERE source_id = %s
+                    """,
+                    [note, reviewer, source_id],
+                )
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action=f"commuting_row_{decision}",
+                entity_type="job_emission_source",
+                entity_id=source_id,
+                job_id=int(job_id),
+                metadata={"decision": decision, "note": note, "bulk": True},
+            )
+            reviewed.append(source_id)
+
+    return {
+        "ok": True,
+        "review_status": "approved" if decision == "approve" else "rejected",
+        "reviewed": reviewed,
+        "failed": failed,
+    }

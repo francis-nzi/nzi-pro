@@ -378,7 +378,7 @@ export default function PortalCommutingTab() {
   // Shared between the table (desktop) and card (mobile) layouts below.
   function renderActions(row: Row, align: "start" | "end") {
     const justify = align === "end" ? "justify-end" : "justify-start";
-    if (row.review_status === "approved" || dataEntryExpired) {
+    if (dataEntryExpired) {
       return <span className="text-xs text-muted-foreground">—</span>;
     }
     if (editingRowId === row.source_id) {
@@ -412,9 +412,11 @@ export default function PortalCommutingTab() {
         >
           Edit
         </button>
-        <button className="text-rose-700 hover:underline disabled:opacity-50" disabled={rowActionSaving} onClick={() => void deleteRow(row.source_id)}>
-          Delete
-        </button>
+        {row.review_status !== "approved" && (
+          <button className="text-rose-700 hover:underline disabled:opacity-50" disabled={rowActionSaving} onClick={() => void deleteRow(row.source_id)}>
+            Delete
+          </button>
+        )}
       </div>
     );
   }
