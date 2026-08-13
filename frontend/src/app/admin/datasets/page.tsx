@@ -441,9 +441,7 @@ export default function DatasetsPage() {
     }
   }
 
-  function startEditFactor(factor: Factor) {
-    setEditingFactor(factor);
-    setFactorDbId(String(factor.db_id));
+  function populateFactorEditorFields(factor: Factor) {
     const datasetRef = factorDatasetOption(
       {
         dataset_id: factor.dataset_id || 0,
@@ -479,7 +477,26 @@ export default function DatasetsPage() {
     setFactorValidFrom(factor.valid_from || "");
     setFactorValidTo(factor.valid_to || "");
     setFactorValue(factor.factor != null ? String(factor.factor) : "");
+  }
+
+  function startEditFactor(factor: Factor) {
+    setEditingFactor(factor);
+    setFactorDbId(String(factor.db_id));
+    populateFactorEditorFields(factor);
     setFactorEditorStatus(`Editing factor row ${factor.db_id}.`);
+    setFactorEditorDialogOpen(true);
+  }
+
+  function startDuplicateFactor(factor: Factor) {
+    // Same fields as edit, but editingFactor stays null so saveFactorRow()
+    // POSTs a new row instead of PATCHing this one -- and factorDbId stays
+    // blank so the dialog shows "New row", not the source row's ID.
+    setEditingFactor(null);
+    setFactorDbId("");
+    populateFactorEditorFields(factor);
+    setFactorEditorStatus(
+      `Duplicated from row ${factor.db_id} — Original ID and Report Label must stay unique, so change at least one before saving.`
+    );
     setFactorEditorDialogOpen(true);
   }
 
@@ -1603,9 +1620,14 @@ export default function DatasetsPage() {
                               <td className="p-2 text-right">{f.factor}</td>
                               <td className="p-2">{f.ghg_unit || f.uom || "-"}</td>
                               <td className="p-2">
-                                <Button type="button" variant="outline" size="sm" onClick={() => startEditFactor(f)}>
-                                  Edit
-                                </Button>
+                                <div className="flex gap-2">
+                                  <Button type="button" variant="outline" size="sm" onClick={() => startEditFactor(f)}>
+                                    Edit
+                                  </Button>
+                                  <Button type="button" variant="outline" size="sm" onClick={() => startDuplicateFactor(f)}>
+                                    Duplicate
+                                  </Button>
+                                </div>
                               </td>
                             </tr>
                           ))}
