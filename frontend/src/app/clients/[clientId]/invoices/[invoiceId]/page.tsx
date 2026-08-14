@@ -109,6 +109,7 @@ export default function InvoiceDetailPage() {
   const [paidDate, setPaidDate] = useState("");
   const [notes, setNotes] = useState("");
   const [quoteId, setQuoteId] = useState<string>("");
+  const [yourRef, setYourRef] = useState<string>("");
   const [currencyCode, setCurrencyCode] = useState("GBP");
   const [lines, setLines] = useState<InvoiceLine[]>([newLine()]);
   const [xeroInfo, setXeroInfo] = useState<XeroInvoiceInfo | null>(null);
@@ -161,6 +162,7 @@ export default function InvoiceDetailPage() {
         setPaidDate(String(inv.paid_date || ""));
         setNotes(String(inv.notes || ""));
         setQuoteId(inv.quote_id != null ? String(inv.quote_id) : "");
+        setYourRef(String(inv.your_ref || ""));
         setCurrencyCode(String(inv.currency_code || "GBP").toUpperCase());
         setEmailTo(String(inv.contact_email || ""));
         setXeroInfo({
@@ -269,6 +271,7 @@ export default function InvoiceDetailPage() {
         notes,
         amount_paid: Number(amountPaid || 0),
         paid_date: paidDate || null,
+        your_ref: yourRef,
         lines: lines.map((line, idx) => ({
           sort_order: idx + 1,
           item_id: line.item_id,
@@ -491,6 +494,10 @@ export default function InvoiceDetailPage() {
                 <div>
                   <div className="mb-1 text-xs text-muted-foreground">Quote ID</div>
                   <Input value={quoteId} onChange={(e) => setQuoteId(e.target.value)} />
+                </div>
+                <div>
+                  <div className="mb-1 text-xs text-muted-foreground">Your Ref (e.g. Purchase Order)</div>
+                  <Input value={yourRef} onChange={(e) => setYourRef(e.target.value)} placeholder="PO number or client reference" />
                 </div>
                 <div>
                   <div className="mb-1 text-xs text-muted-foreground">Amount Paid</div>

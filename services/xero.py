@@ -582,7 +582,7 @@ def _invoice_row(con, invoice_id: int) -> dict[str, Any]:
         SELECT invoice_id, client_db_id, job_id, quote_id, invoice_number, invoice_date, due_date,
                currency_code, subtotal, vat, total, status, notes, paid_date, amount_paid,
                xero_invoice_id, xero_invoice_number, xero_status, xero_sync_status,
-               xero_synced_at, xero_sync_error
+               xero_synced_at, xero_sync_error, your_ref
         FROM invoices
         WHERE invoice_id = %s
         """,
@@ -857,7 +857,11 @@ def build_xero_invoice_payload(con, invoice_id: int, *, contact_id: str | None =
         "Contact": {"ContactID": contact_id, "Name": str(client.get("client_name") or "").strip()},
         "Date": invoice_date,
         "DueDate": due_date,
-        "Reference": job_reference or str(invoice.get("invoice_number") or "").strip() or None,
+        # The client's own PO/reference takes priority in Xero's Reference
+        # field -- it's what that field is actually for. The job number is
+        # still visible on the invoice regardless via its own zero-value
+        # line item above, so nothing is lost when Your Ref is set.
+        "Reference": str(invoice.get("your_ref") or "").strip() or job_reference or str(invoice.get("invoice_number") or "").strip() or None,
         "LineAmountTypes": "Exclusive",
         "Status": _xero_invoice_status(invoice.get("status")),
         "CurrencyCode": str(invoice.get("currency_code") or client.get("currency") or "GBP").strip().upper(),

@@ -163,6 +163,7 @@ def _ensure_quote_tables(con) -> None:
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_sync_status VARCHAR DEFAULT 'pending'")
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_synced_at TIMESTAMP")
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_sync_error TEXT")
+    con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS your_ref VARCHAR")
     con.execute("ALTER TABLE invoice_email_log ADD COLUMN IF NOT EXISTS org_id UUID")
     con.execute(
         """
@@ -630,7 +631,7 @@ def _serialize_invoice(con, invoice_id: int, org_id: str | None = None) -> dict[
         SELECT invoice_id, client_db_id, job_id, quote_id, invoice_number, invoice_date, due_date,
                currency_code, subtotal, vat, total, status, notes, paid_date, amount_paid,
                xero_invoice_id, xero_invoice_number, xero_status, xero_sync_status, xero_synced_at, xero_sync_error,
-               created_at, updated_at
+               created_at, updated_at, your_ref
         FROM invoices
         WHERE invoice_id = %s
         """ + org_clause + """
@@ -724,6 +725,7 @@ def _serialize_invoice(con, invoice_id: int, org_id: str | None = None) -> dict[
         "notes": str(row[12] or ""),
         "paid_date": row[13].isoformat() if row[13] else None,
         "amount_paid": round(_safe_float(row[14]), 2),
+        "your_ref": str(row[23] or "") if len(row) > 23 and row[23] is not None else "",
         "xero_invoice_id": str(row[15] or "") if row[15] is not None else "",
         "xero_invoice_number": str(row[16] or "") if row[16] is not None else "",
         "xero_status": str(row[17] or "") if row[17] is not None else "",
@@ -1050,7 +1052,7 @@ def _render_invoice_pdf_bytes(invoice: dict[str, Any]) -> bytes:
         ("Invoice Number", str(invoice.get("invoice_number") or "-")),
         ("Due Date", _display_date(invoice.get("due_date"))),
         ("Job Number", str(invoice.get("job_number") or "-")),
-    ]
+    ] + ([("Your Ref", str(invoice.get("your_ref")))] if str(invoice.get("your_ref") or "").strip() else [])
     totals_rows = [
         ("Sub-total", f"{_safe_float(invoice.get('subtotal'), 0.0):,.2f}"),
         ("VAT", f"{_safe_float(invoice.get('vat'), 0.0):,.2f}"),
@@ -2235,10 +2237,10 @@ def create_invoice(client_id: int, body: dict = Body(...), _user: dict = Depends
                 """
                 INSERT INTO invoices (
                   client_db_id, org_id, job_id, quote_id, invoice_number, invoice_date, due_date,
-                  currency_code, subtotal, vat, total, status, notes, paid_date, amount_paid,
+                  currency_code, subtotal, vat, total, status, notes, paid_date, amount_paid, your_ref,
                   created_at, updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                 """,
                 [
                     int(client_id),
@@ -2256,6 +2258,7 @@ def create_invoice(client_id: int, body: dict = Body(...), _user: dict = Depends
                     str(body.get("notes") or ""),
                     str(body.get("paid_date") or "") or None,
                     _safe_float(body.get("amount_paid"), 0.0),
+                    str(body.get("your_ref") or "").strip() or None,
                 ],
             )
             row = con.execute(
@@ -2670,6 +2673,7 @@ def update_invoice(invoice_id: int, body: dict = Body(...), _user: dict = Depend
                 ("notes", "notes"),
                 ("paid_date", "paid_date"),
                 ("amount_paid", "amount_paid"),
+                ("your_ref", "your_ref"),
             ]:
                 if key not in body:
                     continue
