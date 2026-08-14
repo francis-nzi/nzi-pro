@@ -184,6 +184,42 @@ def _map_xero_invoice_payment_fields(xero_invoice: Mapping[str, Any]) -> dict[st
     }
 
 
+# Same idea as _map_xero_invoice_payment_fields but for ACCRECCREDIT credit
+# notes, which reuse the same Xero Status enum -- "PAID" here means fully
+# applied/refunded (RemainingCredit == 0), not literally paid. This CRM's
+# own credit-note vocabulary has no "Part Applied"/"Overdue" equivalent
+# (see credit-notes/new/page.tsx STATUS_OPTIONS), so an AUTHORISED credit
+# note -- applied or not -- just maps to "Sent".
+def _map_xero_credit_note_payment_fields(xero_credit_note: Mapping[str, Any]) -> dict[str, Any]:
+    raw_status = str(xero_credit_note.get("Status") or "").strip().upper()
+    total = _safe_float(xero_credit_note.get("Total"), 0.0)
+    remaining_credit = _safe_float(xero_credit_note.get("RemainingCredit"), 0.0)
+    applied_amount = round(max(total - remaining_credit, 0.0), 2)
+
+    if raw_status in ("VOIDED", "DELETED"):
+        crm_status = "Void"
+    elif raw_status == "PAID":
+        crm_status = "Applied"
+    elif raw_status in ("DRAFT", "SUBMITTED"):
+        crm_status = "Draft"
+    elif raw_status == "AUTHORISED":
+        crm_status = "Sent"
+    else:
+        crm_status = None
+
+    applied_date = None
+    if crm_status == "Applied":
+        fully_applied_on = _parse_xero_date_value(xero_credit_note.get("FullyPaidOnDate"))
+        applied_date = (fully_applied_on or _today()).isoformat()
+
+    return {
+        "status": crm_status,
+        "applied_amount": applied_amount,
+        "applied_date": applied_date,
+        "raw_xero_status": raw_status,
+    }
+
+
 def _json_request(
     method: str,
     url: str,
@@ -1377,7 +1413,7 @@ def _credit_note_row(con, credit_note_id: int) -> dict[str, Any]:
         SELECT credit_note_id, client_db_id, job_id, invoice_id, credit_note_number, credit_note_date,
                currency_code, subtotal, vat, total, status, notes,
                xero_credit_note_id, xero_credit_note_number, xero_status, xero_sync_status,
-               xero_synced_at, xero_sync_error
+               xero_synced_at, xero_sync_error, org_id
         FROM credit_notes
         WHERE credit_note_id = %s
         """,
@@ -1405,7 +1441,18 @@ def _credit_note_link(con, credit_note_id: int) -> dict[str, Any] | None:
     return _fetch_one(con, "SELECT * FROM xero_credit_note_links WHERE credit_note_id = %s", [int(credit_note_id)])
 
 
-def _save_credit_note_link(con, *, credit_note_id: int, xero_credit_note: Mapping[str, Any] | None, sync_status: str, sync_error: str | None = None) -> dict[str, Any]:
+def _save_credit_note_link(
+    con,
+    *,
+    credit_note_id: int,
+    xero_credit_note: Mapping[str, Any] | None,
+    sync_status: str,
+    sync_error: str | None = None,
+    sync_direction: str = "push",
+) -> dict[str, Any]:
+    """See _save_invoice_link()'s docstring -- same push/pull distinction:
+    "push" leaves the CRM's own status/applied_amount/applied_date alone,
+    "pull" treats Xero as the source of truth for them."""
     xero_credit_note_id = str((xero_credit_note or {}).get("CreditNoteID") or "").strip() if xero_credit_note else ""
     xero_credit_note_number = str((xero_credit_note or {}).get("CreditNoteNumber") or "").strip() if xero_credit_note else ""
     xero_status = str((xero_credit_note or {}).get("Status") or "").strip() if xero_credit_note else ""
@@ -1427,6 +1474,14 @@ def _save_credit_note_link(con, *, credit_note_id: int, xero_credit_note: Mappin
         """,
         [int(credit_note_id), xero_credit_note_id or None, xero_credit_note_number or None, xero_status or None, sync_status, sync_error, int(credit_note_id)],
     )
+
+    payment_fields = (
+        _map_xero_credit_note_payment_fields(xero_credit_note or {}) if (xero_credit_note and sync_direction == "pull") else None
+    )
+    mapped_status = payment_fields.get("status") if payment_fields else None
+    mapped_applied_amount = payment_fields.get("applied_amount") if payment_fields else None
+    mapped_applied_date = payment_fields.get("applied_date") if payment_fields else None
+
     con.execute(
         """
         UPDATE credit_notes
@@ -1437,10 +1492,25 @@ def _save_credit_note_link(con, *, credit_note_id: int, xero_credit_note: Mappin
             xero_sync_error = %s,
             xero_synced_at = NOW(),
             credit_note_number = COALESCE(%s, credit_note_number),
-            status = COALESCE(%s, status)
+            status = COALESCE(%s, status),
+            applied_amount = CASE WHEN %s THEN %s ELSE applied_amount END,
+            applied_date = CASE WHEN %s THEN %s ELSE applied_date END
         WHERE credit_note_id = %s
         """,
-        [xero_credit_note_id or None, xero_credit_note_number or None, xero_status or None, sync_status, sync_error, xero_credit_note_number or None, xero_status or None, int(credit_note_id)],
+        [
+            xero_credit_note_id or None,
+            xero_credit_note_number or None,
+            xero_status or None,
+            sync_status,
+            sync_error,
+            xero_credit_note_number or None,
+            mapped_status,
+            payment_fields is not None,
+            mapped_applied_amount,
+            payment_fields is not None,
+            mapped_applied_date,
+            int(credit_note_id),
+        ],
     )
     return {
         "credit_note_id": int(credit_note_id),
@@ -1449,6 +1519,9 @@ def _save_credit_note_link(con, *, credit_note_id: int, xero_credit_note: Mappin
         "xero_status": xero_status or None,
         "xero_sync_status": sync_status,
         "xero_sync_error": sync_error,
+        "status": mapped_status,
+        "applied_amount": mapped_applied_amount,
+        "applied_date": mapped_applied_date,
     }
 
 
@@ -1537,8 +1610,22 @@ def build_xero_credit_note_payload(con, credit_note_id: int, *, contact_id: str 
     return {k: v for k, v in payload.items() if v not in (None, "", [], {})}
 
 
-def _sync_local_credit_note(con, credit_note_id: int, xero_credit_note: Mapping[str, Any], sync_status: str = "synced", sync_error: str | None = None) -> dict[str, Any]:
-    return _save_credit_note_link(con, credit_note_id=int(credit_note_id), xero_credit_note=xero_credit_note, sync_status=sync_status, sync_error=sync_error)
+def _sync_local_credit_note(
+    con,
+    credit_note_id: int,
+    xero_credit_note: Mapping[str, Any],
+    sync_status: str = "synced",
+    sync_error: str | None = None,
+    sync_direction: str = "push",
+) -> dict[str, Any]:
+    return _save_credit_note_link(
+        con,
+        credit_note_id=int(credit_note_id),
+        xero_credit_note=xero_credit_note,
+        sync_status=sync_status,
+        sync_error=sync_error,
+        sync_direction=sync_direction,
+    )
 
 
 def create_xero_credit_note(credit_note_id: int, *, con=None, connection: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -1619,7 +1706,12 @@ def update_xero_credit_note(credit_note_id: int, *, con=None, connection: Mappin
                 logger.debug("Failed to close Xero connection context cleanly after credit note sync", exc_info=True)
 
 
-def sync_credit_note_status_from_xero(credit_note_id: int, *, con=None, connection: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def sync_credit_note_status_from_xero(
+    credit_note_id: int, *, con=None, connection: Mapping[str, Any] | None = None, source: str = "manual"
+) -> dict[str, Any]:
+    """Pull the current state of a credit note from Xero and treat it as the
+    source of truth for status/applied_amount/applied_date -- mirrors
+    sync_invoice_status_from_xero(). `source` is for the audit trail."""
     manage_con = con is None
     if con is None:
         con = get_conn()
@@ -1630,12 +1722,31 @@ def sync_credit_note_status_from_xero(credit_note_id: int, *, con=None, connecti
         xero_credit_note_id = str(credit_note.get("xero_credit_note_id") or "").strip()
         if not xero_credit_note_id:
             raise HTTPException(status_code=400, detail="Credit note is not linked to Xero")
+        prior_status = str(credit_note.get("status") or "")
         connection = _refresh_token(connection or get_xero_connection(con) or {})
         response = _json_request("GET", f"{XERO_API_BASE.rstrip('/')}/CreditNotes/{xero_credit_note_id}", headers=_xero_headers(connection))
         xero_credit_note = (response.get("CreditNotes") or [{}])[0]
         if not isinstance(xero_credit_note, Mapping) or not str(xero_credit_note.get("CreditNoteID") or "").strip():
             raise HTTPException(status_code=502, detail="Xero did not return a credit note")
-        result = _sync_local_credit_note(con, int(credit_note_id), xero_credit_note, sync_status="synced")
+        result = _sync_local_credit_note(con, int(credit_note_id), xero_credit_note, sync_status="synced", sync_direction="pull")
+        new_status = str(result.get("status") or "")
+        if new_status and new_status != prior_status:
+            try:
+                record_audit_event(
+                    con,
+                    request=None,
+                    actor={"email": "xero-sync@system", "full_name": "Xero", "org_id": credit_note.get("org_id")},
+                    action="credit_note_status_synced_from_xero",
+                    entity_type="credit_note",
+                    entity_id=int(credit_note_id),
+                    client_id=credit_note.get("client_db_id"),
+                    job_id=credit_note.get("job_id"),
+                    before={"status": prior_status},
+                    after={"status": new_status, "applied_amount": result.get("applied_amount"), "applied_date": result.get("applied_date")},
+                    metadata={"source": source, "xero_status": result.get("xero_status")},
+                )
+            except Exception:
+                logger.warning("Failed to record audit event for credit_note_id=%s Xero status sync", credit_note_id, exc_info=True)
         return {"ok": True, "credit_note": result, "xero_credit_note": xero_credit_note}
     finally:
         if manage_con:
@@ -1643,6 +1754,42 @@ def sync_credit_note_status_from_xero(credit_note_id: int, *, con=None, connecti
                 con.__exit__(None, None, None)  # type: ignore[attr-defined]
             except Exception:
                 logger.debug("Failed to close Xero connection context cleanly after credit note status sync", exc_info=True)
+
+
+def reconcile_open_credit_notes_with_xero(limit: int = 200) -> dict[str, Any]:
+    """Safety net for missed/failed webhook deliveries -- mirrors
+    reconcile_open_invoices_with_xero() for credit notes."""
+    with get_conn() as con:
+        _ensure_schema(con)
+        rows = _fetch_all(
+            con,
+            """
+            SELECT credit_note_id FROM credit_notes
+            WHERE xero_credit_note_id IS NOT NULL AND xero_credit_note_id != ''
+              AND LOWER(COALESCE(status, '')) NOT IN ('applied', 'void')
+            ORDER BY updated_at ASC
+            LIMIT %s
+            """,
+            [int(limit)],
+        )
+        if not rows:
+            return {"ok": True, "checked": 0, "changed": 0, "errors": []}
+        checked = 0
+        changed = 0
+        errors: list[dict[str, Any]] = []
+        connection = _refresh_token(get_xero_connection(con) or {})
+        for row in rows:
+            credit_note_id = int(row["credit_note_id"])
+            checked += 1
+            try:
+                before = _credit_note_row(con, credit_note_id).get("status")
+                result = sync_credit_note_status_from_xero(credit_note_id, con=con, connection=connection, source="reconciliation")
+                after = (result.get("credit_note") or {}).get("status")
+                if after and after != before:
+                    changed += 1
+            except Exception as exc:
+                errors.append({"credit_note_id": credit_note_id, "error": str(exc)})
+        return {"ok": True, "checked": checked, "changed": changed, "errors": errors}
 
 
 def handle_xero_webhook(payload: Mapping[str, Any] | list[Any] | None) -> dict[str, Any]:
@@ -1696,7 +1843,7 @@ def handle_xero_webhook(payload: Mapping[str, Any] | list[Any] | None) -> dict[s
                 if not local:
                     continue
                 try:
-                    synced.append(sync_credit_note_status_from_xero(int(local["credit_note_id"]), con=con))
+                    synced.append(sync_credit_note_status_from_xero(int(local["credit_note_id"]), con=con, source="webhook"))
                 except Exception as exc:
                     synced.append({"credit_note_id": int(local["credit_note_id"]), "error": str(exc)})
     return {"ok": True, "received_events": len(events), "invoice_ids": invoice_ids, "credit_note_ids": credit_note_ids, "synced": synced}

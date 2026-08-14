@@ -43,3 +43,18 @@ def cron_xero_invoice_reconcile(
     _check_secret(x_cron_secret)
     from services.xero import reconcile_open_invoices_with_xero
     return reconcile_open_invoices_with_xero(limit=limit)
+
+
+@router.post("/xero-credit-note-reconcile")
+def cron_xero_credit_note_reconcile(
+    x_cron_secret: str | None = Header(default=None),
+    limit: int = Query(200, ge=1, le=1000),
+):
+    """
+    Same as /xero-invoice-reconcile but for credit notes -- re-pulls every
+    Xero-linked credit note that isn't already Applied/Void.
+    Protected by X-Cron-Secret header matching CRON_SECRET env var.
+    """
+    _check_secret(x_cron_secret)
+    from services.xero import reconcile_open_credit_notes_with_xero
+    return reconcile_open_credit_notes_with_xero(limit=limit)

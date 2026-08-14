@@ -62,6 +62,8 @@ def _ensure_credit_note_tables(con) -> None:
         )
         """
     )
+    con.execute("ALTER TABLE credit_notes ADD COLUMN IF NOT EXISTS applied_amount DOUBLE PRECISION DEFAULT 0")
+    con.execute("ALTER TABLE credit_notes ADD COLUMN IF NOT EXISTS applied_date DATE")
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS credit_note_lines (
@@ -229,7 +231,7 @@ def _serialize_credit_note(con, credit_note_id: int, org_id: str | None = None) 
         SELECT credit_note_id, client_db_id, job_id, invoice_id, credit_note_number, credit_note_date,
                currency_code, subtotal, vat, total, status, notes,
                xero_credit_note_id, xero_credit_note_number, xero_status, xero_sync_status,
-               xero_synced_at, xero_sync_error, created_at, updated_at
+               xero_synced_at, xero_sync_error, created_at, updated_at, applied_amount, applied_date
         FROM credit_notes
         WHERE credit_note_id = %s
         """ + org_clause + """
@@ -293,6 +295,8 @@ def _serialize_credit_note(con, credit_note_id: int, org_id: str | None = None) 
         "xero_sync_error": str(row[17] or "") if row[17] is not None else "",
         "created_at": row[18].isoformat() if row[18] else None,
         "updated_at": row[19].isoformat() if row[19] else None,
+        "applied_amount": round(_safe_float(row[20]), 2) if len(row) > 20 else 0.0,
+        "applied_date": row[21].isoformat() if len(row) > 21 and row[21] else None,
         "bill_to": bill_to,
         "lines": lines,
         "company_profile": get_company_profile(con),
