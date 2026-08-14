@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import secrets
 from datetime import date, datetime, timedelta
 from typing import Any, Mapping
@@ -23,6 +24,16 @@ XERO_AUTH_URL = "https://login.xero.com/identity/connect/authorize"
 XERO_TOKEN_URL = "https://identity.xero.com/connect/token"
 XERO_CONNECTIONS_URL = "https://api.xero.com/connections"
 XERO_DEFAULT_AUTH_TYPE = "custom_connection"
+
+# Deliberately loose (not RFC 5322) -- just enough to catch the common CRM
+# data-entry mistake of a truncated address (e.g. "name@company" with no
+# TLD), which Xero's own validation rejects outright and fails the whole
+# contact/invoice sync rather than just omitting the email.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _looks_like_valid_email(value: str) -> bool:
+    return bool(_EMAIL_RE.match(value.strip()))
 XERO_DEFAULT_SCOPE = "accounting.contacts accounting.invoices"
 XERO_DEFAULT_ACCOUNT_CODE = "200"
 XERO_DEFAULT_TAX_TYPE = "NONE"
@@ -632,7 +643,14 @@ def _contact_payload(con, client_db_id: int) -> dict[str, Any]:
     )
     payload: dict[str, Any] = {"Name": str(client.get("client_name") or f"Client {client_db_id}").strip()}
     if email_row and email_row.get("email"):
-        payload["EmailAddress"] = str(email_row.get("email") or "").strip()
+        candidate_email = str(email_row.get("email") or "").strip()
+        # Xero rejects the whole contact (and every invoice/quote sync that
+        # depends on it) if EmailAddress isn't a valid address -- e.g. a
+        # truncated CRM contact email missing its domain suffix. Omit it
+        # rather than failing the sync; the contact still syncs everything
+        # else, and fixing the contact's email in the CRM picks it up next sync.
+        if _looks_like_valid_email(candidate_email):
+            payload["EmailAddress"] = candidate_email
     if str(client.get("company_reg") or "").strip():
         payload["TaxNumber"] = str(client.get("company_reg") or "").strip()
     address = {
