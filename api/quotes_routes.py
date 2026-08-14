@@ -48,6 +48,18 @@ def _safe_int(value: Any, default: int | None = None) -> int | None:
         return default
 
 
+def _preferred_bill_to_address_lines(billing_lines: list[Any], registered_lines: list[Any]) -> list[str]:
+    """Prefer the client's dedicated billing address (clients.billing_addr_*)
+    over their registered-office address (clients.addr_*) when a billing
+    address has actually been entered -- e.g. accounts payable sitting at a
+    different location to the registered office. Falls back to the
+    registered-office lines when no billing address is set."""
+    billing = [str(line or "").strip() for line in billing_lines]
+    if any(billing):
+        return billing
+    return [str(line or "").strip() for line in registered_lines]
+
+
 def _ensure_quote_tables(con) -> None:
     con.execute(
         """
@@ -655,7 +667,11 @@ def _serialize_invoice(con, invoice_id: int, org_id: str | None = None) -> dict[
             job_number = str(j_row[0] or "")
     client_db_id = int(row[1])
     c_row = con.execute(
-        "SELECT client_name, addr_line1, addr_line2, addr_city, addr_region, addr_postcode, addr_country FROM clients WHERE db_id = %s",
+        """
+        SELECT client_name, addr_line1, addr_line2, addr_city, addr_region, addr_postcode, addr_country,
+               billing_addr_line1, billing_addr_line2, billing_addr_city, billing_addr_region, billing_addr_postcode, billing_addr_country
+        FROM clients WHERE db_id = %s
+        """,
         [client_db_id],
     ).fetchone()
     client_name = str(c_row[0] or "") if c_row else ""
@@ -663,7 +679,7 @@ def _serialize_invoice(con, invoice_id: int, org_id: str | None = None) -> dict[
         # No linked quote (or its bill_to is blank) -- fall back to the
         # client's own name/address so the invoice always shows who it's
         # for, instead of leaving that block empty.
-        address_lines = [str(c_row[i] or "").strip() for i in range(1, 7)]
+        address_lines = _preferred_bill_to_address_lines(c_row[7:13], c_row[1:7])
         bill_to = "\n".join([line for line in [client_name, *address_lines] if line])
     return {
         "invoice_id": int(row[0]),
@@ -1143,7 +1159,8 @@ def quote_lookups(client_id: int, _user: dict = Depends(_current_user)):
             client_row = con.execute(
                 """
                 SELECT client_name, headquarters, currency,
-                       addr_line1, addr_line2, addr_city, addr_region, addr_postcode, addr_country
+                       addr_line1, addr_line2, addr_city, addr_region, addr_postcode, addr_country,
+                       billing_addr_line1, billing_addr_line2, billing_addr_city, billing_addr_region, billing_addr_postcode, billing_addr_country
                 FROM clients
                 WHERE db_id = %s
                 """,
@@ -1302,8 +1319,10 @@ def quote_lookups(client_id: int, _user: dict = Depends(_current_user)):
         # Same composition as _serialize_invoice's bill_to fallback -- client
         # name plus non-blank address lines, one per line. `headquarters` is a
         # separate short label field (often just the client's own name again),
-        # not a postal address, so it can't stand in for this.
-        address_lines = [str(client_row[i] or "").strip() for i in range(3, 9)]
+        # not a postal address, so it can't stand in for this. Prefers the
+        # dedicated billing address over the registered-office address when
+        # the two differ (e.g. accounts payable at a separate location).
+        address_lines = _preferred_bill_to_address_lines(client_row[9:15], client_row[3:9])
         default_bill_to = "\n".join([line for line in [client_name, *address_lines] if line])
 
         return {
