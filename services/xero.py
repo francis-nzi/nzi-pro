@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -14,7 +16,7 @@ from urllib.request import Request, urlopen
 from fastapi import HTTPException
 
 from core.database import get_conn
-from services.audit_log import fetch_row_dict
+from services.audit_log import fetch_row_dict, record_audit_event
 
 import logging
 
@@ -98,6 +100,88 @@ def _safe_date(value: Any, fallback: date | None = None) -> str | None:
     except Exception:
         logger.debug("Failed to parse Xero date value; using fallback", exc_info=True)
         return text[:10] or (fallback.isoformat() if fallback else None)
+
+
+_MS_JSON_DATE_RE = re.compile(r"/Date\((\d+)")
+
+
+def _parse_xero_date_value(value: Any) -> date | None:
+    """Parse a date coming *from* Xero, which the Accounting API renders as
+    either a plain ISO string ("2024-01-15" / "2024-01-15T00:00:00") or the
+    legacy MS-AJAX form ("/Date(1705276800000+0000)/") depending on the
+    field and API version -- handle both rather than assume one."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    ms_match = _MS_JSON_DATE_RE.match(text)
+    if ms_match:
+        try:
+            return datetime.utcfromtimestamp(int(ms_match.group(1)) / 1000).date()
+        except Exception:
+            return None
+    try:
+        return date.fromisoformat(text[:10])
+    except Exception:
+        return None
+
+
+def _xero_webhook_key() -> str:
+    return _env("XERO_WEBHOOK_KEY")
+
+
+def verify_xero_webhook_signature(raw_body: bytes, signature: str | None) -> bool:
+    """Validate the `x-xero-signature` header Xero sends with every webhook
+    delivery: base64(HMAC-SHA256(raw request body, webhook signing key)).
+    Without this, the webhook endpoint would process a POST from anyone who
+    finds the URL, not just Xero."""
+    key = _xero_webhook_key()
+    if not key or not signature:
+        return False
+    computed = base64.b64encode(hmac.new(key.encode("utf-8"), raw_body, hashlib.sha256).digest()).decode("utf-8")
+    return hmac.compare_digest(computed, signature.strip())
+
+
+# Xero's own Status enum for an ACCREC invoice: DRAFT, SUBMITTED, AUTHORISED,
+# PAID, VOIDED, DELETED. It has no "Sent"/"Part Paid"/"Overdue" concept --
+# those are this CRM's own vocabulary -- so an AUTHORISED invoice has to be
+# further disambiguated using AmountPaid/AmountDue/DueDate.
+def _map_xero_invoice_payment_fields(xero_invoice: Mapping[str, Any]) -> dict[str, Any]:
+    raw_status = str(xero_invoice.get("Status") or "").strip().upper()
+    amount_paid = _safe_float(xero_invoice.get("AmountPaid"), 0.0)
+    amount_due = _safe_float(xero_invoice.get("AmountDue"), 0.0)
+
+    if raw_status in ("VOIDED", "DELETED"):
+        crm_status = "Void"
+    elif raw_status == "PAID":
+        crm_status = "Paid"
+    elif raw_status in ("DRAFT", "SUBMITTED"):
+        crm_status = "Draft"
+    elif raw_status == "AUTHORISED":
+        if amount_paid > 0 and amount_due > 0:
+            crm_status = "Part Paid"
+        else:
+            due = _parse_xero_date_value(xero_invoice.get("DueDate"))
+            crm_status = "Overdue" if (due is not None and due < _today() and amount_due > 0) else "Sent"
+    else:
+        crm_status = None
+
+    paid_date = None
+    if crm_status == "Paid":
+        fully_paid_on = _parse_xero_date_value(xero_invoice.get("FullyPaidOnDate"))
+        paid_date = (fully_paid_on or _today()).isoformat()
+
+    return {
+        "status": crm_status,
+        "amount_paid": round(amount_paid, 2),
+        "paid_date": paid_date,
+        "raw_xero_status": raw_status,
+    }
 
 
 def _json_request(
@@ -582,7 +666,7 @@ def _invoice_row(con, invoice_id: int) -> dict[str, Any]:
         SELECT invoice_id, client_db_id, job_id, quote_id, invoice_number, invoice_date, due_date,
                currency_code, subtotal, vat, total, status, notes, paid_date, amount_paid,
                xero_invoice_id, xero_invoice_number, xero_status, xero_sync_status,
-               xero_synced_at, xero_sync_error, your_ref
+               xero_synced_at, xero_sync_error, your_ref, org_id
         FROM invoices
         WHERE invoice_id = %s
         """,
@@ -708,7 +792,25 @@ def _save_contact_link(con, *, client_db_id: int, contact: Mapping[str, Any], sy
     }
 
 
-def _save_invoice_link(con, *, invoice_id: int, xero_invoice: Mapping[str, Any] | None, sync_status: str, sync_error: str | None = None) -> dict[str, Any]:
+def _save_invoice_link(
+    con,
+    *,
+    invoice_id: int,
+    xero_invoice: Mapping[str, Any] | None,
+    sync_status: str,
+    sync_error: str | None = None,
+    sync_direction: str = "push",
+) -> dict[str, Any]:
+    """Persist Xero bookkeeping fields (link, raw status, sync state) for an
+    invoice.  `sync_direction` controls whether the CRM's own `status` /
+    `amount_paid` / `paid_date` get touched:
+      - "push" (default): we just told Xero what status to have (via
+        create/update), so those fields are left alone -- Xero's echoed-back
+        status doesn't necessarily reflect real payment reconciliation yet.
+      - "pull": we're reading Xero as the source of truth (webhook or
+        reconciliation sync), so status/amount_paid/paid_date get mapped
+        from Xero's actual Status/AmountPaid/AmountDue/FullyPaidOnDate.
+    """
     xero_invoice_id = str((xero_invoice or {}).get("InvoiceID") or "").strip() if xero_invoice else ""
     xero_invoice_number = str((xero_invoice or {}).get("InvoiceNumber") or "").strip() if xero_invoice else ""
     xero_status = str((xero_invoice or {}).get("Status") or "").strip() if xero_invoice else ""
@@ -730,6 +832,12 @@ def _save_invoice_link(con, *, invoice_id: int, xero_invoice: Mapping[str, Any] 
         """,
         [int(invoice_id), xero_invoice_id or None, xero_invoice_number or None, xero_status or None, sync_status, sync_error, int(invoice_id)],
     )
+
+    payment_fields = _map_xero_invoice_payment_fields(xero_invoice or {}) if (xero_invoice and sync_direction == "pull") else None
+    mapped_status = payment_fields.get("status") if payment_fields else None
+    mapped_amount_paid = payment_fields.get("amount_paid") if payment_fields else None
+    mapped_paid_date = payment_fields.get("paid_date") if payment_fields else None
+
     con.execute(
         """
         UPDATE invoices
@@ -740,10 +848,25 @@ def _save_invoice_link(con, *, invoice_id: int, xero_invoice: Mapping[str, Any] 
             xero_sync_error = %s,
             xero_synced_at = NOW(),
             invoice_number = COALESCE(%s, invoice_number),
-            status = COALESCE(%s, status)
+            status = COALESCE(%s, status),
+            amount_paid = CASE WHEN %s THEN %s ELSE amount_paid END,
+            paid_date = CASE WHEN %s THEN %s ELSE paid_date END
         WHERE invoice_id = %s
         """,
-        [xero_invoice_id or None, xero_invoice_number or None, xero_status or None, sync_status, sync_error, xero_invoice_number or None, xero_status or None, int(invoice_id)],
+        [
+            xero_invoice_id or None,
+            xero_invoice_number or None,
+            xero_status or None,
+            sync_status,
+            sync_error,
+            xero_invoice_number or None,
+            mapped_status,
+            payment_fields is not None,
+            mapped_amount_paid,
+            payment_fields is not None,
+            mapped_paid_date,
+            int(invoice_id),
+        ],
     )
     return {
         "invoice_id": int(invoice_id),
@@ -752,6 +875,9 @@ def _save_invoice_link(con, *, invoice_id: int, xero_invoice: Mapping[str, Any] 
         "xero_status": xero_status or None,
         "xero_sync_status": sync_status,
         "xero_sync_error": sync_error,
+        "status": mapped_status,
+        "amount_paid": mapped_amount_paid,
+        "paid_date": mapped_paid_date,
     }
 
 
@@ -957,8 +1083,22 @@ def test_xero_connection(*, con=None) -> dict[str, Any]:
                 logger.debug("Failed to close Xero connection context cleanly", exc_info=True)
 
 
-def _sync_local_invoice(con, invoice_id: int, xero_invoice: Mapping[str, Any], sync_status: str = "synced", sync_error: str | None = None) -> dict[str, Any]:
-    return _save_invoice_link(con, invoice_id=int(invoice_id), xero_invoice=xero_invoice, sync_status=sync_status, sync_error=sync_error)
+def _sync_local_invoice(
+    con,
+    invoice_id: int,
+    xero_invoice: Mapping[str, Any],
+    sync_status: str = "synced",
+    sync_error: str | None = None,
+    sync_direction: str = "push",
+) -> dict[str, Any]:
+    return _save_invoice_link(
+        con,
+        invoice_id=int(invoice_id),
+        xero_invoice=xero_invoice,
+        sync_status=sync_status,
+        sync_error=sync_error,
+        sync_direction=sync_direction,
+    )
 
 
 def _find_unclaimed_xero_invoice_by_reference(
@@ -1140,7 +1280,14 @@ def void_xero_invoice(invoice_id: int, *, con=None, connection: Mapping[str, Any
                 logger.debug("Failed to close Xero connection context cleanly after voiding invoice", exc_info=True)
 
 
-def sync_invoice_status_from_xero(invoice_id: int, *, con=None, connection: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def sync_invoice_status_from_xero(
+    invoice_id: int, *, con=None, connection: Mapping[str, Any] | None = None, source: str = "manual"
+) -> dict[str, Any]:
+    """Pull the current state of an invoice from Xero and treat it as the
+    source of truth for status/amount_paid/paid_date -- this is how a
+    payment recorded directly in Xero (marked paid, partially paid, etc.)
+    makes its way back into the CRM. `source` is just for the audit trail
+    (e.g. "webhook", "reconciliation", "manual")."""
     manage_con = con is None
     if con is None:
         con = get_conn()
@@ -1151,12 +1298,31 @@ def sync_invoice_status_from_xero(invoice_id: int, *, con=None, connection: Mapp
         xero_invoice_id = str(invoice.get("xero_invoice_id") or "").strip()
         if not xero_invoice_id:
             raise HTTPException(status_code=400, detail="Invoice is not linked to Xero")
+        prior_status = str(invoice.get("status") or "")
         connection = _refresh_token(connection or get_xero_connection(con) or {})
         response = _json_request("GET", f"{XERO_API_BASE.rstrip('/')}/Invoices/{xero_invoice_id}", headers=_xero_headers(connection))
         xero_invoice = (response.get("Invoices") or [{}])[0]
         if not isinstance(xero_invoice, Mapping) or not str(xero_invoice.get("InvoiceID") or "").strip():
             raise HTTPException(status_code=502, detail="Xero did not return an invoice")
-        result = _sync_local_invoice(con, int(invoice_id), xero_invoice, sync_status="synced")
+        result = _sync_local_invoice(con, int(invoice_id), xero_invoice, sync_status="synced", sync_direction="pull")
+        new_status = str(result.get("status") or "")
+        if new_status and new_status != prior_status:
+            try:
+                record_audit_event(
+                    con,
+                    request=None,
+                    actor={"email": "xero-sync@system", "full_name": "Xero", "org_id": invoice.get("org_id")},
+                    action="invoice_status_synced_from_xero",
+                    entity_type="invoice",
+                    entity_id=int(invoice_id),
+                    client_id=invoice.get("client_db_id"),
+                    job_id=invoice.get("job_id"),
+                    before={"status": prior_status},
+                    after={"status": new_status, "amount_paid": result.get("amount_paid"), "paid_date": result.get("paid_date")},
+                    metadata={"source": source, "xero_status": result.get("xero_status")},
+                )
+            except Exception:
+                logger.warning("Failed to record audit event for invoice_id=%s Xero status sync", invoice_id, exc_info=True)
         return {"ok": True, "invoice": result, "xero_invoice": xero_invoice}
     finally:
         if manage_con:
@@ -1164,6 +1330,44 @@ def sync_invoice_status_from_xero(invoice_id: int, *, con=None, connection: Mapp
                 con.__exit__(None, None, None)  # type: ignore[attr-defined]
             except Exception:
                 logger.debug("Failed to close Xero connection context cleanly after invoice status sync", exc_info=True)
+
+
+def reconcile_open_invoices_with_xero(limit: int = 200) -> dict[str, Any]:
+    """Safety net for missed/failed webhook deliveries: re-pull every invoice
+    that's linked to Xero and not already Paid/Void, so a payment recorded
+    in Xero eventually lands here even if the webhook never arrived. Meant
+    to be called periodically (see api/internal_cron_routes.py)."""
+    with get_conn() as con:
+        _ensure_schema(con)
+        rows = _fetch_all(
+            con,
+            """
+            SELECT invoice_id FROM invoices
+            WHERE xero_invoice_id IS NOT NULL AND xero_invoice_id != ''
+              AND LOWER(COALESCE(status, '')) NOT IN ('paid', 'void')
+            ORDER BY updated_at ASC
+            LIMIT %s
+            """,
+            [int(limit)],
+        )
+        if not rows:
+            return {"ok": True, "checked": 0, "changed": 0, "errors": []}
+        checked = 0
+        changed = 0
+        errors: list[dict[str, Any]] = []
+        connection = _refresh_token(get_xero_connection(con) or {})
+        for row in rows:
+            invoice_id = int(row["invoice_id"])
+            checked += 1
+            try:
+                before = _invoice_row(con, invoice_id).get("status")
+                result = sync_invoice_status_from_xero(invoice_id, con=con, connection=connection, source="reconciliation")
+                after = (result.get("invoice") or {}).get("status")
+                if after and after != before:
+                    changed += 1
+            except Exception as exc:
+                errors.append({"invoice_id": invoice_id, "error": str(exc)})
+        return {"ok": True, "checked": checked, "changed": changed, "errors": errors}
 
 
 def _credit_note_row(con, credit_note_id: int) -> dict[str, Any]:
@@ -1484,7 +1688,7 @@ def handle_xero_webhook(payload: Mapping[str, Any] | list[Any] | None) -> dict[s
                 if not local:
                     continue
                 try:
-                    synced.append(sync_invoice_status_from_xero(int(local["invoice_id"]), con=con))
+                    synced.append(sync_invoice_status_from_xero(int(local["invoice_id"]), con=con, source="webhook"))
                 except Exception as exc:
                     synced.append({"invoice_id": int(local["invoice_id"]), "error": str(exc)})
             for xero_credit_note_id in credit_note_ids:

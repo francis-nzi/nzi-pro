@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from urllib.parse import quote_plus, urlparse, urlunparse
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from api.auth import _current_user
@@ -243,6 +244,21 @@ def credit_note_status(credit_note_id: int, _user: dict = Depends(_current_user)
 
 
 @router.post("/webhook")
-def webhook(payload: dict = Body(default={})):
+async def webhook(request: Request, x_xero_signature: str | None = Header(default=None, alias="x-xero-signature")):
+    # Xero signs every delivery with HMAC-SHA256 over the raw body using the
+    # webhook signing key from the Developer Portal -- verify it before
+    # trusting anything in the payload, otherwise this endpoint would act on
+    # a POST from anyone who finds the URL, not just Xero. Must read the raw
+    # bytes (not the parsed body) since the signature is over the exact
+    # bytes Xero sent.
+    raw_body = await request.body()
+    if not xero_service._xero_webhook_key():  # type: ignore[attr-defined]
+        raise HTTPException(status_code=503, detail="XERO_WEBHOOK_KEY env var is not configured")
+    if not xero_service.verify_xero_webhook_signature(raw_body, x_xero_signature):
+        raise HTTPException(status_code=401, detail="Invalid Xero webhook signature")
+    try:
+        payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
     return xero_service.handle_xero_webhook(payload)
 

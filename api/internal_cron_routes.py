@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 
 router = APIRouter(prefix="/internal/cron", tags=["internal-cron"])
 
@@ -26,3 +26,20 @@ def cron_m365_renew(x_cron_secret: str | None = Header(default=None)):
     from api.job_communications_routes import renew_m365_subscriptions_due
     result = renew_m365_subscriptions_due(threshold_hours=24)
     return result
+
+
+@router.post("/xero-invoice-reconcile")
+def cron_xero_invoice_reconcile(
+    x_cron_secret: str | None = Header(default=None),
+    limit: int = Query(200, ge=1, le=1000),
+):
+    """
+    Re-pull every Xero-linked invoice that isn't already Paid/Void, so a
+    payment recorded in Xero (marked paid, partially paid, voided, etc.)
+    lands in the CRM even if the webhook delivery for it was missed.
+    Protected by X-Cron-Secret header matching CRON_SECRET env var.
+    Call periodically (e.g. every 1-4 hours) via Render cron job.
+    """
+    _check_secret(x_cron_secret)
+    from services.xero import reconcile_open_invoices_with_xero
+    return reconcile_open_invoices_with_xero(limit=limit)
