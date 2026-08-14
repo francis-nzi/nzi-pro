@@ -3,6 +3,8 @@ Client Reporting API Routes
 Provides year-over-year emissions comparison data for client reporting.
 """
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Depends, Query
 from core.database import get_conn
 from api.auth import _current_user
@@ -123,6 +125,32 @@ def _build_year_jobs(jobs_df):
     return year_jobs
 
 
+def _synthetic_benchmark_scope_entry(con, client_db_id: int, client_benchmark_year: int | None, existing_years: list[int]) -> dict[str, Any] | None:
+    """Build a by_scope-shaped entry for the client's third-party benchmark
+    year when no job's own reporting period covers it (e.g. a benchmark
+    supplied by a third party and entered directly on Client -> Targets,
+    with the first real job starting the following year). Without this the
+    benchmark totals captured there never appear in the YoY comparison at
+    all, even though clients.benchmark_year correctly names 2022 as the
+    baseline."""
+    if client_benchmark_year is None or client_benchmark_year in existing_years:
+        return None
+    row = con.execute(
+        """
+        SELECT benchmark_scope_1_tco2e, benchmark_scope_2_tco2e, benchmark_scope_3_tco2e, benchmark_total_tco2e
+        FROM clients WHERE db_id = %s
+        """,
+        [int(client_db_id)],
+    ).fetchone()
+    if not row or row[3] is None:
+        return None
+    entry: dict[str, Any] = {"year": int(client_benchmark_year), "total": round(float(row[3]), 2)}
+    for label, value in (("Scope 1", row[0]), ("Scope 2", row[1]), ("Scope 3", row[2])):
+        if value is not None:
+            entry[label] = round(float(value), 2)
+    return entry
+
+
 @router.get("/clients/{client_db_id}/reporting")
 def get_client_reporting(
     client_db_id: int,
@@ -142,27 +170,39 @@ def get_client_reporting(
         with get_conn() as con:
             # Verify client exists and get benchmark_year
             client_check = con.execute(
-                "SELECT client_name, benchmark_year FROM clients WHERE db_id = %s",
+                "SELECT client_name, benchmark_year, benchmark_period_end FROM clients WHERE db_id = %s",
                 [int(client_db_id)]
             ).fetchone()
 
             if not client_check:
                 raise HTTPException(status_code=404, detail="Client not found")
 
+            # Prefer the explicit benchmark_year; fall back to the year of
+            # benchmark_period_end when only the period (not the year) was set --
+            # e.g. a third-party-supplied benchmark entered on Client -> Targets.
+            # Without this, the YoY table's "BM" badge falls back to the earliest
+            # job year instead of the client's real benchmark year (see
+            # job_live_report_routes.py's _effective_benchmark_year for the same fix).
             client_benchmark_year = int(client_check[1]) if client_check[1] is not None else None
+            if client_benchmark_year is None and client_check[2] is not None:
+                try:
+                    client_benchmark_year = int(str(client_check[2])[:4])
+                except Exception:
+                    client_benchmark_year = None
             
             # Use all client jobs so the comparison table reflects every reporting
             # year that exists for the client, including non-CRP historical jobs.
             jobs_df = _load_client_jobs(con, int(client_db_id), crp_only=False)
             
             if jobs_df is None or jobs_df.empty:
+                bm_entry = _synthetic_benchmark_scope_entry(con, int(client_db_id), client_benchmark_year, [])
                 return {
                     "client_db_id": int(client_db_id),
                     "client_name": client_check[0],
                     "benchmark_year": client_benchmark_year,
-                    "years": [],
+                    "years": [bm_entry["year"]] if bm_entry else [],
                     "year_jobs": [],
-                    "by_scope": [],
+                    "by_scope": [bm_entry] if bm_entry else [],
                     "by_activity": [],
                     "by_site": []
                 }
@@ -173,13 +213,14 @@ def get_client_reporting(
             job_ids = [yj["job_id"] for yj in year_jobs]
 
             if not job_ids:
+                bm_entry = _synthetic_benchmark_scope_entry(con, int(client_db_id), client_benchmark_year, [])
                 return {
                     "client_db_id": int(client_db_id),
                     "client_name": client_check[0],
                     "benchmark_year": client_benchmark_year,
-                    "years": [],
+                    "years": [bm_entry["year"]] if bm_entry else [],
                     "year_jobs": [],
-                    "by_scope": [],
+                    "by_scope": [bm_entry] if bm_entry else [],
                     "by_activity": [],
                     "by_site": []
                 }
@@ -188,13 +229,17 @@ def get_client_reporting(
             scope_df = load_combined_reporting_rows(con, job_ids)
 
             if scope_df is None or scope_df.empty:
+                empty_years = sorted([int(y) for y in jobs_df['dashboard_year'].dropna().unique().tolist()])
+                bm_entry = _synthetic_benchmark_scope_entry(con, int(client_db_id), client_benchmark_year, empty_years)
+                if bm_entry:
+                    empty_years = sorted(empty_years + [bm_entry["year"]])
                 return {
                     "client_db_id": int(client_db_id),
                     "client_name": client_check[0],
                     "benchmark_year": client_benchmark_year,
-                    "years": sorted([int(y) for y in jobs_df['dashboard_year'].dropna().unique().tolist()]),
+                    "years": empty_years,
                     "year_jobs": _build_year_jobs(jobs_df),
-                    "by_scope": [],
+                    "by_scope": [bm_entry] if bm_entry else [],
                     "by_activity": [],
                     "by_site": []
                 }
@@ -231,13 +276,20 @@ def get_client_reporting(
             
             # Get unique years
             years = sorted([int(y) for y in scope_df['dashboard_year'].dropna().unique().tolist()])
-            
+
+            bm_entry = _synthetic_benchmark_scope_entry(con, int(client_db_id), client_benchmark_year, years)
+            if bm_entry:
+                years = sorted(years + [bm_entry["year"]])
+
             # === BY SCOPE ===
             # Group by year and scope
             scope_groups = scope_df.groupby(['dashboard_year', 'scope'])['emissions'].sum().reset_index()
-            
+
             by_scope = []
             for year in years:
+                if bm_entry and year == bm_entry["year"]:
+                    by_scope.append(bm_entry)
+                    continue
                 year_data = {"year": int(year)}
                 year_rows = scope_groups[scope_groups['dashboard_year'] == year]
                 for _, row in year_rows.iterrows():
