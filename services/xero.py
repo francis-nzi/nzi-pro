@@ -961,6 +961,45 @@ def _sync_local_invoice(con, invoice_id: int, xero_invoice: Mapping[str, Any], s
     return _save_invoice_link(con, invoice_id=int(invoice_id), xero_invoice=xero_invoice, sync_status=sync_status, sync_error=sync_error)
 
 
+def _find_unclaimed_xero_invoice_by_reference(
+    con, connection: Mapping[str, Any], *, contact_id: str, reference: str, exclude_invoice_id: int
+) -> dict[str, Any] | None:
+    """Look up an existing ACCREC invoice in Xero for this contact with a
+    matching Reference, so a sync whose local xero_invoice_id link was lost
+    (e.g. the CRM invoice row was deleted and recreated, or a prior sync's
+    DB write silently failed after Xero already created the invoice)
+    reattaches to the real invoice instead of creating a duplicate.
+
+    Only returns a match that no *other* CRM invoice already links to --
+    a client can legitimately have several real invoices against the same
+    job (partial billing), which would share the same Reference. Without
+    this guard, syncing the second real invoice would incorrectly grab the
+    first one's Xero record instead of creating its own.
+    """
+    if not contact_id or not reference:
+        return None
+    escaped_ref = reference.replace('"', '\\"')
+    where = f'Contact.ContactID=Guid("{contact_id}")&&Reference=="{escaped_ref}"&&Status!="VOIDED"&&Status!="DELETED"'
+    url = f"{XERO_API_BASE.rstrip('/')}/Invoices?{urlencode({'where': where, 'order': 'Date DESC'})}"
+    try:
+        response = _json_request("GET", url, headers=_xero_headers(connection))
+    except HTTPException:
+        logger.warning("Xero reference lookup failed for invoice_id=%s reference=%r", exclude_invoice_id, reference, exc_info=True)
+        return None
+    for candidate in response.get("Invoices") or []:
+        xero_invoice_id = str((candidate or {}).get("InvoiceID") or "").strip()
+        if not xero_invoice_id:
+            continue
+        claimed = _fetch_one(
+            con,
+            "SELECT invoice_id FROM invoices WHERE xero_invoice_id = %s AND invoice_id != %s",
+            [xero_invoice_id, int(exclude_invoice_id)],
+        )
+        if not claimed:
+            return dict(candidate)
+    return None
+
+
 def create_xero_invoice(invoice_id: int, *, con=None, connection: Mapping[str, Any] | None = None) -> dict[str, Any]:
     manage_con = con is None
     if con is None:
@@ -973,6 +1012,19 @@ def create_xero_invoice(invoice_id: int, *, con=None, connection: Mapping[str, A
         connection = _refresh_token(connection or get_xero_connection(con) or {})
         contact = upsert_xero_contact(int(invoice.get("client_db_id") or 0), con=con, connection=connection)
         payload = build_xero_invoice_payload(con, int(invoice_id), contact_id=contact.get("xero_contact_id"), include_invoice_number=False)
+
+        existing = _find_unclaimed_xero_invoice_by_reference(
+            con,
+            connection,
+            contact_id=str(contact.get("xero_contact_id") or ""),
+            reference=str(payload.get("Reference") or ""),
+            exclude_invoice_id=int(invoice_id),
+        )
+        if existing:
+            xero_invoice = existing
+            result = _sync_local_invoice(con, int(invoice_id), xero_invoice, sync_status="synced")
+            return {"ok": True, "invoice": result, "contact": contact, "xero_invoice": xero_invoice, "relinked_existing": True}
+
         response = _json_request("PUT", f"{XERO_API_BASE.rstrip('/')}/Invoices", headers=_xero_headers(connection), payload={"Invoices": [payload]})
         xero_invoice = (response.get("Invoices") or [{}])[0]
         if not isinstance(xero_invoice, Mapping) or not str(xero_invoice.get("InvoiceID") or "").strip():
@@ -1043,6 +1095,49 @@ def update_xero_invoice(invoice_id: int, *, con=None, connection: Mapping[str, A
                 con.__exit__(None, None, None)  # type: ignore[attr-defined]
             except Exception:
                 logger.debug("Failed to close Xero connection context cleanly after invoice sync", exc_info=True)
+
+
+def void_xero_invoice(invoice_id: int, *, con=None, connection: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Void (not delete) the Xero invoice linked to this CRM invoice, if any.
+    Xero doesn't allow deleting AUTHORISED invoices via the API, only voiding
+    them, which keeps a record in Xero but removes it from Accounts
+    Receivable. Called from delete_invoice so a synced invoice's Xero
+    counterpart doesn't become an orphan the moment the CRM record is
+    deleted -- best-effort: any failure here (not connected, already paid,
+    etc.) is returned rather than raised, so it never blocks the CRM delete
+    itself."""
+    manage_con = con is None
+    if con is None:
+        con = get_conn()
+    assert con is not None
+    try:
+        _ensure_schema(con)
+        invoice = _invoice_row(con, int(invoice_id))
+        xero_invoice_id = str(invoice.get("xero_invoice_id") or "").strip()
+        if not xero_invoice_id:
+            return {"ok": True, "skipped": "not_linked"}
+        conn_row = connection or get_xero_connection(con)
+        if not conn_row:
+            return {"ok": True, "skipped": "not_connected"}
+        connection = _refresh_token(conn_row)
+        response = _json_request(
+            "PUT",
+            f"{XERO_API_BASE.rstrip('/')}/Invoices",
+            headers=_xero_headers(connection),
+            payload={"Invoices": [{"InvoiceID": xero_invoice_id, "Status": "VOIDED"}]},
+        )
+        xero_invoice = (response.get("Invoices") or [{}])[0]
+        return {"ok": True, "xero_invoice": xero_invoice}
+    except Exception as exc:
+        error_detail = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+        logger.warning("Failed to void Xero invoice for invoice_id=%s: %s", invoice_id, error_detail)
+        return {"ok": False, "error": error_detail}
+    finally:
+        if manage_con:
+            try:
+                con.__exit__(None, None, None)  # type: ignore[attr-defined]
+            except Exception:
+                logger.debug("Failed to close Xero connection context cleanly after voiding invoice", exc_info=True)
 
 
 def sync_invoice_status_from_xero(invoice_id: int, *, con=None, connection: Mapping[str, Any] | None = None) -> dict[str, Any]:

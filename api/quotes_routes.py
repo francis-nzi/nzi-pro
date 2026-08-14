@@ -2736,18 +2736,29 @@ def delete_invoice(invoice_id: int, _user: dict = Depends(_current_user)):
             _ensure_quote_tables(con)
             org_id = _quote_org_id(_user)
             exists = con.execute(
-                "SELECT invoice_id FROM invoices WHERE invoice_id = %s AND org_id = %s",
+                "SELECT invoice_id, xero_invoice_id FROM invoices WHERE invoice_id = %s AND org_id = %s",
                 [int(invoice_id), org_id],
             ).fetchone()
             if not exists:
                 raise HTTPException(status_code=404, detail="Invoice not found")
+
+            xero_void_result = None
+            if str(exists[1] or "").strip():
+                # Deleting the CRM record must not silently orphan an
+                # already-synced Xero invoice -- void it first (best-effort,
+                # never blocks the delete itself) so it doesn't linger in
+                # Accounts Receivable with nothing on the CRM side pointing
+                # at it. See services/xero.py::void_xero_invoice.
+                from services.xero import void_xero_invoice
+                xero_void_result = void_xero_invoice(int(invoice_id), con=con)
+
             con.execute(
                 "DELETE FROM invoice_lines WHERE invoice_id = %s AND COALESCE(org_id, %s) = %s",
                 [int(invoice_id), org_id, org_id],
             )
             con.execute("DELETE FROM xero_invoice_links WHERE invoice_id = %s", [int(invoice_id)])
             con.execute("DELETE FROM invoices WHERE invoice_id = %s AND org_id = %s", [int(invoice_id), org_id])
-        return {"ok": True, "invoice_id": int(invoice_id)}
+        return {"ok": True, "invoice_id": int(invoice_id), "xero_void_result": xero_void_result}
     except HTTPException:
         raise
     except Exception as e:
