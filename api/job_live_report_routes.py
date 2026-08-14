@@ -251,6 +251,47 @@ def _build_yearly_emissions(con, client_db_id: int) -> list[dict[str, Any]]:
         if intensity_by_metric:
             entry["intensity_by_metric"] = intensity_by_metric
         yearly_emissions.append(entry)
+
+    # If the client's true benchmark year (e.g. a third-party-supplied
+    # baseline entered on Client -> Targets) isn't covered by any job, the
+    # reduction-pathway/historical-trend charts that consume this list would
+    # otherwise fall back to using the CURRENT job's totals as the "baseline"
+    # -- see buildEmissionsReductionPathwayData in pathway-data.ts, which
+    # looks up yearlyEmissions.find(row => row.year === baselineYear) and
+    # falls back to the caller's live scope totals when nothing matches.
+    # Prepending the real benchmark figures here fixes that fallback for
+    # every consumer of this list (Report Printing, PDF, Insights) in one
+    # place -- see services/employee_commuting_consolidation.py's sibling
+    # for a similar single-source-of-truth fix earlier this session.
+    covered_years = {int(e["year"]) for e in yearly_emissions}
+    client_row = con.execute(
+        """
+        SELECT benchmark_year, benchmark_period_end,
+               benchmark_scope_1_tco2e, benchmark_scope_2_tco2e, benchmark_scope_3_tco2e, benchmark_total_tco2e
+        FROM clients WHERE db_id = %s
+        """,
+        [int(client_db_id)],
+    ).fetchone()
+    if client_row:
+        bm_year = _coerce_int(client_row[0])
+        if bm_year is None and client_row[1] is not None:
+            try:
+                bm_year = int(str(client_row[1])[:4])
+            except Exception:
+                bm_year = None
+        if bm_year is not None and bm_year not in covered_years and client_row[5] is not None:
+            bm_s1 = float(client_row[2]) if client_row[2] is not None else 0.0
+            bm_s2 = float(client_row[3]) if client_row[3] is not None else 0.0
+            bm_s3 = float(client_row[4]) if client_row[4] is not None else 0.0
+            yearly_emissions.append({
+                "year": bm_year,
+                "scope1": round(bm_s1, 2),
+                "scope2": round(bm_s2, 2),
+                "scope3": round(bm_s3, 2),
+                "total": round(float(client_row[5]), 2),
+            })
+            yearly_emissions.sort(key=lambda e: e["year"])
+
     return yearly_emissions
 
 
