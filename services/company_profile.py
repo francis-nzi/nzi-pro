@@ -83,6 +83,24 @@ COMPANY_PROFILE_FIELDS: list[dict[str, str]] = [
         "description": "Registered company number for invoices, quotes, and legal footers.",
     },
     {
+        "key": "bank_account_name",
+        "label": "Bank Account Name",
+        "default": "",
+        "description": "Account holder name shown in invoice payment details.",
+    },
+    {
+        "key": "bank_sort_code",
+        "label": "Bank Sort Code",
+        "default": "",
+        "description": "Sort code shown in invoice payment details.",
+    },
+    {
+        "key": "bank_account_number",
+        "label": "Bank Account Number",
+        "default": "",
+        "description": "Account number shown in invoice payment details.",
+    },
+    {
         "key": "certificate_signatory_name",
         "label": "Certificate Signatory Name",
         "default": "David Hawes",
@@ -150,6 +168,21 @@ def company_address_html(profile: dict[str, Any]) -> str:
 
 def company_address_text(profile: dict[str, Any]) -> str:
     return "\n".join(company_address_lines(profile))
+
+
+def company_bank_details_lines(profile: dict[str, Any]) -> list[tuple[str, str]]:
+    """(label, value) pairs for the account name/sort code/account number,
+    only including whichever of the three are actually set."""
+    out: list[tuple[str, str]] = []
+    for key, label in (
+        ("bank_account_name", "Account Name"),
+        ("bank_sort_code", "Sort Code"),
+        ("bank_account_number", "Account Number"),
+    ):
+        value = str(profile.get(key) or "").strip()
+        if value:
+            out.append((label, value))
+    return out
 
 
 def company_footer_parts(profile: dict[str, Any]) -> list[str]:

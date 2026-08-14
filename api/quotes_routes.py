@@ -17,7 +17,7 @@ from api.auth import _current_user
 from api.org_admin_helpers import _require_org_plan_active
 from api.permissions import assert_client_access, assert_job_access
 from core.database import get_conn
-from services.company_profile import company_address_html, company_footer_text, get_company_profile
+from services.company_profile import company_address_html, company_bank_details_lines, company_footer_text, get_company_profile
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
 from services.tenancy import require_org
@@ -831,6 +831,7 @@ def _build_financial_pdf_story(
     notes: str | None,
     payment_terms_text: str | None,
     company_profile: dict[str, Any],
+    show_bank_details: bool = False,
 ) -> list[Any]:
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("FinancialTitle", parent=styles["Title"], fontSize=28, leading=30, spaceAfter=3 * mm, alignment=0)
@@ -974,6 +975,15 @@ def _build_financial_pdf_story(
             story.append(Spacer(1, 1.5 * mm))
             story.append(Paragraph("(No options)", normal_style))
 
+    if show_bank_details:
+        bank_lines = company_bank_details_lines(company_profile)
+        if bank_lines:
+            story.append(Spacer(1, 6 * mm))
+            story.append(Paragraph("<b>Payment Details</b>", normal_style))
+            story.append(Spacer(1, 1.5 * mm))
+            bank_text = "<br/>".join(f"<b>{label}:</b> {value}" for label, value in bank_lines)
+            story.append(Paragraph(bank_text, normal_style))
+
     if payment_terms_text is not None:
         story.append(Spacer(1, 5 * mm))
         term_value = str(payment_terms_text or "").strip() or "-"
@@ -1082,6 +1092,7 @@ def _render_invoice_pdf_bytes(invoice: dict[str, Any]) -> bytes:
         notes=str(invoice.get("notes") or ""),
         payment_terms_text=None,
         company_profile=company_profile,
+        show_bank_details=True,
     )
     footer = _pdf_footer(company_profile)
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
