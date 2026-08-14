@@ -403,14 +403,15 @@ def list_client_credit_notes(client_id: int, _user: dict = Depends(_current_user
             org_id = _quote_org_id(_user)
             df = con.execute(
                 """
-                SELECT credit_note_id, client_db_id, job_id, invoice_id, credit_note_number, credit_note_date,
-                       currency_code, subtotal, vat, total, status, notes,
-                       xero_credit_note_id, xero_credit_note_number, xero_status, xero_sync_status,
-                       xero_synced_at, xero_sync_error, created_at, updated_at
-                FROM credit_notes
-                WHERE client_db_id = %s
-                  AND org_id = %s
-                ORDER BY COALESCE(credit_note_date, created_at) DESC, credit_note_id DESC
+                SELECT cn.credit_note_id, cn.client_db_id, cn.job_id, j.job_number, cn.invoice_id, cn.credit_note_number, cn.credit_note_date,
+                       cn.currency_code, cn.subtotal, cn.vat, cn.total, cn.status, cn.notes,
+                       cn.xero_credit_note_id, cn.xero_credit_note_number, cn.xero_status, cn.xero_sync_status,
+                       cn.xero_synced_at, cn.xero_sync_error, cn.created_at, cn.updated_at
+                FROM credit_notes cn
+                LEFT JOIN jobs j ON j.job_id = cn.job_id
+                WHERE cn.client_db_id = %s
+                  AND cn.org_id = %s
+                ORDER BY COALESCE(cn.credit_note_date, cn.created_at) DESC, cn.credit_note_id DESC
                 """,
                 [int(client_id), org_id],
             ).df()
@@ -430,6 +431,7 @@ def list_client_credit_notes(client_id: int, _user: dict = Depends(_current_user
                             "credit_note_id": credit_note_id,
                             "client_db_id": _safe_int(r.get("client_db_id"), 0),
                             "job_id": _safe_int(r.get("job_id"), None),
+                            "job_number": str(r.get("job_number") or ""),
                             "invoice_id": _safe_int(r.get("invoice_id"), None),
                             "credit_note_number": str(r.get("credit_note_number") or ""),
                             "credit_note_date": r.get("credit_note_date").isoformat() if r.get("credit_note_date") else None,

@@ -2096,14 +2096,15 @@ def list_client_invoices(client_id: int, _user: dict = Depends(_current_user)):
             org_id = _quote_org_id(_user)
             df = con.execute(
                 """
-                SELECT invoice_id, client_db_id, job_id, quote_id, invoice_number, invoice_date, due_date,
-                       currency_code, subtotal, vat, total, status, notes, paid_date, amount_paid,
-                       xero_invoice_id, xero_invoice_number, xero_status, xero_sync_status, xero_synced_at, xero_sync_error,
-                       created_at, updated_at
-                FROM invoices
-                WHERE client_db_id = %s
-                  AND org_id = %s
-                ORDER BY COALESCE(invoice_date, created_at) DESC, invoice_id DESC
+                SELECT i.invoice_id, i.client_db_id, i.job_id, j.job_number, i.quote_id, i.invoice_number, i.invoice_date, i.due_date,
+                       i.currency_code, i.subtotal, i.vat, i.total, i.status, i.notes, i.paid_date, i.amount_paid,
+                       i.xero_invoice_id, i.xero_invoice_number, i.xero_status, i.xero_sync_status, i.xero_synced_at, i.xero_sync_error,
+                       i.created_at, i.updated_at
+                FROM invoices i
+                LEFT JOIN jobs j ON j.job_id = i.job_id
+                WHERE i.client_db_id = %s
+                  AND i.org_id = %s
+                ORDER BY COALESCE(i.invoice_date, i.created_at) DESC, i.invoice_id DESC
                 """,
                 [int(client_id), org_id],
             ).df()
@@ -2123,6 +2124,7 @@ def list_client_invoices(client_id: int, _user: dict = Depends(_current_user)):
                             "invoice_id": invoice_id,
                             "client_db_id": _safe_int(r.get("client_db_id"), 0),
                             "job_id": _safe_int(r.get("job_id"), None),
+                            "job_number": str(r.get("job_number") or ""),
                             "quote_id": _safe_int(r.get("quote_id"), None),
                             "invoice_number": str(r.get("invoice_number") or ""),
                             "invoice_date": r.get("invoice_date").isoformat() if r.get("invoice_date") else None,
