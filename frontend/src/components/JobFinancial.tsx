@@ -657,6 +657,7 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
         baseUrl={baseUrl}
         kind="quote"
         id={emailComposer?.kind === "quote" ? emailComposer.id : null}
+        clientId={clientId}
         onSent={() => {
           setStatus("Quote PDF emailed.");
           setEmailComposer(null);
@@ -1151,6 +1152,7 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
         baseUrl={baseUrl}
         kind="invoice"
         id={emailComposer?.kind === "invoice" ? emailComposer.id : null}
+        clientId={clientId}
         onSent={() => {
           setStatus("Invoice PDF emailed.");
           setEmailComposer(null);

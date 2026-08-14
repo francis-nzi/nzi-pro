@@ -708,6 +708,7 @@ export default function InvoiceDetailPage() {
         baseUrl={baseUrl}
         kind="invoice"
         id={invoiceId}
+        clientId={clientId}
         defaultTo={emailTo}
         defaultCc={emailCc}
         onSent={() => {

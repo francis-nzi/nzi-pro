@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,22 +16,113 @@ import {
 
 type Kind = "quote" | "invoice";
 
+type Suggestion = { name: string; email: string; group: "Client" | "NZI Team" };
+
 type Props = {
   open: boolean;
   onClose: () => void;
   baseUrl: string;
   kind: Kind;
   id: number | null;
+  clientId?: number | null;
   defaultTo?: string;
   defaultCc?: string;
   onSent?: () => void;
 };
 
+/** Text input that suggests recipients (this client's contacts + the NZI
+ * team) as you type, while staying a plain freely-editable email field --
+ * clicking a suggestion just fills/appends it, it never restricts what can
+ * be typed. `mode="single"` replaces the whole value (To); `mode="append"`
+ * adds a comma-separated entry without disturbing what's already there (CC). */
+function EmailFieldWithSuggestions({
+  id,
+  value,
+  onChange,
+  suggestions,
+  mode,
+  placeholder,
+}: {
+  id: string;
+  value: string;
+  onChange: (next: string) => void;
+  suggestions: Suggestion[];
+  mode: "single" | "append";
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const activeSegment = mode === "append" ? value.split(",").pop() || "" : value;
+  const query = activeSegment.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (!query) return suggestions.slice(0, 8);
+    return suggestions
+      .filter((s) => s.name.toLowerCase().includes(query) || s.email.toLowerCase().includes(query))
+      .slice(0, 8);
+  }, [suggestions, query]);
+
+  function pick(s: Suggestion) {
+    if (mode === "single") {
+      onChange(s.email);
+    } else {
+      const parts = value.split(",").map((p) => p.trim()).filter(Boolean);
+      parts.pop(); // drop the in-progress segment being typed, if any
+      if (!parts.includes(s.email)) parts.push(s.email);
+      onChange(parts.join(", ") + ", ");
+    }
+    setOpen(false);
+  }
+
+  return (
+    <div className="relative">
+      <Input
+        id={id}
+        type={mode === "single" ? "email" : "text"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => {
+          blurTimer.current = setTimeout(() => setOpen(false), 150);
+        }}
+        placeholder={placeholder}
+        autoComplete="off"
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border bg-background shadow-lg">
+          <div className="max-h-56 overflow-y-auto py-1">
+            {filtered.map((s) => (
+              <button
+                key={`${s.group}-${s.email}`}
+                type="button"
+                className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-slate-100"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  if (blurTimer.current) clearTimeout(blurTimer.current);
+                  pick(s);
+                }}
+              >
+                <span className="truncate">
+                  <span className="font-medium">{s.name || s.email}</span>
+                  {s.name ? <span className="ml-1.5 text-muted-foreground">{s.email}</span> : null}
+                </span>
+                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  {s.group}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Brings the quote_send/invoice_send template forward pre-filled with this
  * document's own details, and lets the user edit the subject/message before
  * actually sending -- instead of sending the template verbatim with no
  * chance to review it. */
-export default function EmailComposerDialog({ open, onClose, baseUrl, kind, id, defaultTo, defaultCc, onSent }: Props) {
+export default function EmailComposerDialog({ open, onClose, baseUrl, kind, id, clientId, defaultTo, defaultCc, onSent }: Props) {
   const [to, setTo] = useState("");
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState("");
@@ -39,6 +130,7 @@ export default function EmailComposerDialog({ open, onClose, baseUrl, kind, id, 
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
 
   useEffect(() => {
     if (!open || !id) return;
@@ -74,6 +166,42 @@ export default function EmailComposerDialog({ open, onClose, baseUrl, kind, id, 
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, id, kind]);
+
+  useEffect(() => {
+    if (!open || !clientId) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    Promise.all([
+      fetch(`${baseUrl}/clients/${clientId}/quotes/lookups`, { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : { contacts: [] }))
+        .catch(() => ({ contacts: [] })),
+      fetch(`${baseUrl}/admin/users`, { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : { items: [] }))
+        .catch(() => ({ items: [] })),
+    ]).then(([lookups, team]) => {
+      if (cancelled) return;
+      const contactSuggestions: Suggestion[] = (Array.isArray(lookups?.contacts) ? lookups.contacts : [])
+        .filter((c: { email?: string }) => c.email)
+        .map((c: { full_name?: string; email?: string }) => ({
+          name: c.full_name || "",
+          email: c.email || "",
+          group: "Client" as const,
+        }));
+      const teamSuggestions: Suggestion[] = (Array.isArray(team?.items) ? team.items : [])
+        .filter((m: { email?: string; status?: string }) => m.email && String(m.status || "Active").toLowerCase() === "active")
+        .map((m: { full_name?: string; email?: string }) => ({
+          name: m.full_name || "",
+          email: m.email || "",
+          group: "NZI Team" as const,
+        }));
+      setSuggestions([...contactSuggestions, ...teamSuggestions]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, clientId, baseUrl]);
 
   async function send() {
     if (!id) return;
@@ -122,11 +250,25 @@ export default function EmailComposerDialog({ open, onClose, baseUrl, kind, id, 
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <Label htmlFor="email-to">To</Label>
-              <Input id="email-to" type="email" value={to} onChange={(e) => setTo(e.target.value)} placeholder="client@example.com" />
+              <EmailFieldWithSuggestions
+                id="email-to"
+                value={to}
+                onChange={setTo}
+                suggestions={suggestions}
+                mode="single"
+                placeholder="client@example.com"
+              />
             </div>
             <div>
               <Label htmlFor="email-cc">CC (optional, comma-separated)</Label>
-              <Input id="email-cc" value={cc} onChange={(e) => setCc(e.target.value)} placeholder="colleague@example.com" />
+              <EmailFieldWithSuggestions
+                id="email-cc"
+                value={cc}
+                onChange={setCc}
+                suggestions={suggestions}
+                mode="append"
+                placeholder="colleague@example.com"
+              />
             </div>
           </div>
 

@@ -793,6 +793,7 @@ function AddQuotePageContent() {
         baseUrl={baseUrl}
         kind="quote"
         id={quoteId}
+        clientId={clientId}
         defaultTo={emailTo}
         onSent={() => {
           setQuoteStatus("Sent");

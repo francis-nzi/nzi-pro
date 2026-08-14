@@ -652,15 +652,17 @@ def _serialize_invoice(con, invoice_id: int, org_id: str | None = None) -> dict[
     attention = ""
     bill_to = ""
     job_number = ""
+    quote_contact_id: int | None = None
     if quote_id is not None:
         q_row = con.execute(
-            "SELECT attention, bill_to, job_number FROM quotes WHERE quote_id = %s" + (" AND org_id = %s" if org_id else ""),
+            "SELECT attention, bill_to, job_number, contact_id FROM quotes WHERE quote_id = %s" + (" AND org_id = %s" if org_id else ""),
             [int(quote_id)] + ([str(org_id).strip()] if org_id else []),
         ).fetchone()
         if q_row:
             attention = str(q_row[0] or "")
             bill_to = str(q_row[1] or "")
             job_number = str(q_row[2] or "")
+            quote_contact_id = _safe_int(q_row[3], None)
     if not job_number and _safe_int(row[2], None) is not None:
         j_row = con.execute("SELECT job_number FROM jobs WHERE job_id = %s", [_safe_int(row[2], None)]).fetchone()
         if j_row:
@@ -675,6 +677,30 @@ def _serialize_invoice(con, invoice_id: int, org_id: str | None = None) -> dict[
         [client_db_id],
     ).fetchone()
     client_name = str(c_row[0] or "") if c_row else ""
+    # Same contact resolution the quote email uses: the invoice's own quote's
+    # linked contact if it has one, else the client's primary (or first) contact
+    # -- invoices have no contact_id of their own to store this against.
+    contact_email = ""
+    contact_name = ""
+    contact_row = None
+    if quote_contact_id is not None:
+        contact_row = con.execute(
+            "SELECT full_name, email FROM client_contacts WHERE contact_id = %s AND client_db_id = %s",
+            [quote_contact_id, client_db_id],
+        ).fetchone()
+    if not contact_row:
+        contact_row = con.execute(
+            """
+            SELECT full_name, email FROM client_contacts
+            WHERE client_db_id = %s
+            ORDER BY COALESCE(is_primary, FALSE) DESC, contact_id ASC
+            LIMIT 1
+            """,
+            [client_db_id],
+        ).fetchone()
+    if contact_row:
+        contact_name = str(contact_row[0] or "")
+        contact_email = str(contact_row[1] or "")
     if not bill_to.strip() and c_row:
         # No linked quote (or its bill_to is blank) -- fall back to the
         # client's own name/address so the invoice always shows who it's
@@ -709,6 +735,8 @@ def _serialize_invoice(con, invoice_id: int, org_id: str | None = None) -> dict[
         "attention": attention,
         "bill_to": bill_to,
         "job_number": job_number,
+        "contact_email": contact_email,
+        "contact_name": contact_name,
         "lines": lines,
         "company_profile": get_company_profile(con),
     }
@@ -2839,7 +2867,7 @@ def email_invoice_pdf(invoice_id: int, body: dict = Body(...), _user: dict = Dep
             email_ctx = {
                 "invoice_number": str(invoice.get("invoice_number") or f"I{int(invoice_id):06d}"),
                 "client_name": str(invoice.get("client_name") or ""),
-                "attention_name": str(invoice.get("attention") or ""),
+                "attention_name": str(invoice.get("attention") or invoice.get("contact_name") or ""),
                 "due_date": str(invoice.get("due_date") or ""),
                 "job_number": str(invoice.get("job_number") or ""),
                 "sender_name": str(_user.get("full_name") or sender),
@@ -2909,7 +2937,7 @@ def preview_invoice_email(invoice_id: int, _user: dict = Depends(_current_user))
             email_ctx = {
                 "invoice_number": str(invoice.get("invoice_number") or f"I{int(invoice_id):06d}"),
                 "client_name": str(invoice.get("client_name") or ""),
-                "attention_name": str(invoice.get("attention") or ""),
+                "attention_name": str(invoice.get("attention") or invoice.get("contact_name") or ""),
                 "due_date": str(invoice.get("due_date") or ""),
                 "job_number": str(invoice.get("job_number") or ""),
                 "sender_name": str(_user.get("full_name") or sender),
