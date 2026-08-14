@@ -739,9 +739,6 @@ function AddQuotePageContent() {
               <Button onClick={saveDraft} disabled={saving || loading || statusBusy}>
                 {saving ? "Saving..." : "Save Draft"}
               </Button>
-              <Button variant="outline" onClick={approveQuote} disabled={!quoteId || saving || statusBusy}>
-                Approve
-              </Button>
               <Button variant="outline" onClick={reviseQuote} disabled={!quoteId || saving || statusBusy}>
                 Revise
               </Button>
