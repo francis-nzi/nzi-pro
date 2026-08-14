@@ -133,14 +133,14 @@ def portal_data_entry_sites(current_user: dict = Depends(portal_user_dep)):
     with get_conn() as con:
         rows = con.execute(
             """
-            SELECT site_id, site_name
+            SELECT site_id, site_name, COALESCE(is_registered_office, FALSE)
             FROM client_sites
             WHERE client_db_id = %s AND COALESCE(archived, FALSE) = FALSE
             ORDER BY site_name
             """,
             [client_db_id],
         ).fetchall()
-    sites = [{"site_id": int(r[0]), "site_name": r[1]} for r in rows]
+    sites = [{"site_id": int(r[0]), "site_name": r[1], "is_registered_office": bool(r[2])} for r in rows]
     if site_ids is not None:
         sites = [s for s in sites if s["site_id"] in site_ids]
     return {"sites": sites}

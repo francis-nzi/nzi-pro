@@ -111,14 +111,17 @@ def portal_commuting_list_rows(current_user: dict = Depends(portal_user_dep)):
         # review_status) -- only the former should still show here.
         df = con.execute(
             """
-            SELECT source_id, employee_name, source_subtype, qty, uom, calc_tco2e,
-                   review_status, review_note, notes, created_at,
-                   month_1, month_2, month_3, month_4, month_5, month_6,
-                   month_7, month_8, month_9, month_10, month_11, month_12
-            FROM job_emission_sources
-            WHERE job_id = %s AND source_type = 'employee_commuting' AND submitted_by_portal = TRUE
-              AND (enabled = TRUE OR review_status IN ('pending_review', 'rejected'))
-            ORDER BY source_id DESC
+            SELECT s.source_id, s.employee_name, s.source_subtype, s.qty, s.uom, s.calc_tco2e,
+                   s.review_status, s.review_note, s.notes, s.created_at,
+                   s.month_1, s.month_2, s.month_3, s.month_4, s.month_5, s.month_6,
+                   s.month_7, s.month_8, s.month_9, s.month_10, s.month_11, s.month_12,
+                   s.site_id, cs.site_name, fl.report_label
+            FROM job_emission_sources s
+            LEFT JOIN client_sites cs ON cs.site_id = s.site_id
+            LEFT JOIN v_factor_lookup fl ON fl.db_id = s.factor_db_id
+            WHERE s.job_id = %s AND s.source_type = 'employee_commuting' AND s.submitted_by_portal = TRUE
+              AND (s.enabled = TRUE OR s.review_status IN ('pending_review', 'rejected'))
+            ORDER BY s.source_id DESC
             """,
             [int(job_id)],
         ).df()
@@ -282,6 +285,13 @@ def portal_commuting_update_row(
             raise HTTPException(status_code=400, detail="employee_name is required")
         _assert_not_a_full_name(employee_name)
 
+    site_id = payload.get("site_id") if "site_id" in payload else None
+    if site_id is not None:
+        try:
+            site_id = int(site_id)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="site_id must be a number")
+
     with get_conn() as con:
         _ensure_emission_register_schema(con)
         existing = con.execute(
@@ -304,11 +314,22 @@ def portal_commuting_update_row(
         # reports mid-year just because a new month was added.
         _assert_data_entry_open(con, int(existing[5]))
 
+        if site_id is not None:
+            site_row = con.execute(
+                "SELECT 1 FROM client_sites WHERE site_id = %s AND client_db_id = %s AND COALESCE(archived, FALSE) = FALSE",
+                [site_id, client_db_id],
+            ).fetchone()
+            if not site_row:
+                raise HTTPException(status_code=400, detail="Selected site was not found")
+
         set_clauses: list[str] = []
         params: list = []
         if employee_name is not None:
             set_clauses.append("employee_name = %s")
             params.append(employee_name)
+        if site_id is not None:
+            set_clauses.append("site_id = %s")
+            params.append(site_id)
         if "notes" in payload:
             set_clauses.append("notes = %s")
             params.append(str(payload.get("notes") or "").strip() or None)

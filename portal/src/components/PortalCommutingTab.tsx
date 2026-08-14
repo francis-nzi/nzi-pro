@@ -17,6 +17,8 @@ import PortalCategoryHistoryTable from "@/components/PortalCategoryHistoryTable"
 
 type Options = { mode_options: string[]; service_options: string[]; unit_options: string[] };
 
+type Site = { site_id: number; site_name: string | null; is_registered_office?: boolean };
+
 type Row = {
   source_id: number;
   employee_name: string | null;
@@ -24,6 +26,9 @@ type Row = {
   qty: number | null;
   uom: string | null;
   calc_tco2e: number | null;
+  site_id: number | null;
+  site_name: string | null;
+  report_label: string | null;
   review_status: "pending_review" | "approved" | "rejected" | null;
   review_note: string | null;
   month_1: number | null;
@@ -130,6 +135,10 @@ export default function PortalCommutingTab() {
   const [editMonths, setEditMonths] = useState<string[]>(Array(12).fill(""));
   const [rowActionSaving, setRowActionSaving] = useState(false);
 
+  const [sites, setSites] = useState<Site[]>([]);
+  const [siteUpdatingRowId, setSiteUpdatingRowId] = useState<number | null>(null);
+  const defaultSiteId = sites.find((s) => s.is_registered_office)?.site_id ?? sites[0]?.site_id ?? null;
+
   useEffect(() => {
     apiFetch("/portal/commuting/options")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -139,6 +148,10 @@ export default function PortalCommutingTab() {
         if (d.service_options?.length) setServiceValue(d.service_options[0]);
       })
       .catch(() => setError("Failed to load commuting options."));
+    apiFetch("/portal/data-entry/sites")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d: { sites: Site[] }) => setSites(d.sites || []))
+      .catch(() => setSites([]));
     void loadRows();
 
     return () => {
@@ -358,6 +371,28 @@ export default function PortalCommutingTab() {
     }
   }
 
+  async function updateRowSite(sourceId: number, siteId: string) {
+    const parsed = Number(siteId);
+    if (!Number.isFinite(parsed)) return;
+    setSiteUpdatingRowId(sourceId);
+    setError("");
+    try {
+      const res = await apiFetch(`/portal/commuting/rows/${sourceId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site_id: parsed }),
+      });
+      if (res.ok) {
+        void loadRows();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setError(d?.detail || "Failed to update this entry's site.");
+      }
+    } finally {
+      setSiteUpdatingRowId(null);
+    }
+  }
+
   async function deleteRow(sourceId: number) {
     if (!window.confirm("Delete this entry? This can't be undone.")) return;
     setRowActionSaving(true);
@@ -373,6 +408,35 @@ export default function PortalCommutingTab() {
     } finally {
       setRowActionSaving(false);
     }
+  }
+
+  // Shared between the table (desktop) and card (mobile) layouts below.
+  // Falls back to the registered-office site when a row hasn't had one set
+  // yet (e.g. every row submitted before this selector existed).
+  function renderSiteSelect(row: Row) {
+    if (dataEntryExpired || sites.length === 0) {
+      return <span className="text-xs text-muted-foreground">{row.site_name || "-"}</span>;
+    }
+    const value = row.site_id !== null ? String(row.site_id) : defaultSiteId !== null ? String(defaultSiteId) : "";
+    return (
+      <Select
+        value={value}
+        onValueChange={(v) => void updateRowSite(row.source_id, v)}
+        disabled={siteUpdatingRowId === row.source_id}
+      >
+        <SelectTrigger className="h-7 w-36 text-xs">
+          <SelectValue placeholder="Select site..." />
+        </SelectTrigger>
+        <SelectContent>
+          {sites.map((site) => (
+            <SelectItem key={site.site_id} value={String(site.site_id)}>
+              {site.site_name || `Site #${site.site_id}`}
+              {site.is_registered_office ? " ★" : ""}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
   }
 
   // Shared between the table (desktop) and card (mobile) layouts below.
@@ -671,9 +735,9 @@ export default function PortalCommutingTab() {
               <thead>
                 <tr className="border-b bg-muted/50">
                   <th className="p-2 text-left">Initials / Staff No.</th>
-                  <th className="p-2 text-left">Type</th>
+                  <th className="p-2 text-left">Activity</th>
+                  <th className="p-2 text-left">Site</th>
                   <th className="p-2 text-right">Qty</th>
-                  <th className="p-2 text-right">tCO&#8322;e</th>
                   <th className="p-2 text-left">Status</th>
                   <th className="p-2 text-right">Actions</th>
                 </tr>
@@ -693,17 +757,17 @@ export default function PortalCommutingTab() {
                             row.employee_name || "-"
                           )}
                         </td>
-                        <td className="p-2">{row.source_subtype || "-"}</td>
+                        <td className="p-2">{row.report_label || row.source_subtype || "-"}</td>
+                        <td className="p-2">{renderSiteSelect(row)}</td>
                         <td className="p-2 text-right font-mono">
                           {editWithGrid ? (
                             <span className="text-xs text-muted-foreground">Edit monthly figures below &darr;</span>
                           ) : isEditing ? (
                             <Input type="number" min="0" step="any" value={editQty} onChange={(e) => setEditQty(e.target.value)} className="ml-auto h-7 w-20 text-right" />
                           ) : (
-                            <>{row.qty ?? "-"} {row.uom || ""}</>
+                            <>{row.qty !== null && row.qty !== undefined ? row.qty.toLocaleString() : "-"} {row.uom || ""}</>
                           )}
                         </td>
-                        <td className="p-2 text-right font-mono">{row.calc_tco2e?.toFixed(4) ?? "-"}</td>
                         <td className="p-2">
                           {review ? (
                             <>
@@ -746,7 +810,7 @@ export default function PortalCommutingTab() {
                       ) : (
                         <div className="font-medium">{row.employee_name || "-"}</div>
                       )}
-                      <div className="text-xs text-muted-foreground">{row.source_subtype || "-"}</div>
+                      <div className="text-xs text-muted-foreground">{row.report_label || row.source_subtype || "-"}</div>
                     </div>
                     {review ? (
                       <span className={`rounded-full px-2 py-0.5 text-xs ${review.className}`}>{review.label}</span>
@@ -755,6 +819,7 @@ export default function PortalCommutingTab() {
                   {review?.label && row.review_status === "rejected" && row.review_note && (
                     <div className="mt-1 text-xs text-muted-foreground">{row.review_note}</div>
                   )}
+                  <div className="mt-2">{renderSiteSelect(row)}</div>
                   {editWithGrid ? (
                     <div className="mt-2">{renderEditMonthlyGrid(row.uom || "miles")}</div>
                   ) : (
@@ -763,10 +828,9 @@ export default function PortalCommutingTab() {
                         {isEditing ? (
                           <Input type="number" min="0" step="any" value={editQty} onChange={(e) => setEditQty(e.target.value)} className="h-7 w-20" />
                         ) : (
-                          <>{row.qty ?? "-"} {row.uom || ""}</>
+                          <>{row.qty !== null && row.qty !== undefined ? row.qty.toLocaleString() : "-"} {row.uom || ""}</>
                         )}
                       </span>
-                      <span className="text-xs text-muted-foreground">{row.calc_tco2e?.toFixed(4) ?? "-"} tCO&#8322;e</span>
                     </div>
                   )}
                   <div className="mt-2 border-t pt-2">{renderActions(row, "start")}</div>
