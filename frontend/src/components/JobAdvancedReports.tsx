@@ -848,7 +848,9 @@ export default function JobAdvancedReports({
       toNum(jobData?.benchmark_year) ||
       firstHistoricalYear ||
       currentReportYear;
-    const displayStartYear = firstHistoricalYear ?? baseline;
+    // Always start at the benchmark year, not the earliest job on file --
+    // see pathway-data.ts's buildEmissionsReductionPathwayData for the same fix.
+    const displayStartYear = baseline;
     const endYear = netZeroYear > baseline ? netZeroYear : Math.max(baseline + 1, 2050);
     const benchmarkRow = yearly.find((row) => row.year === baseline);
     const benchS1 = benchmarkRow ? benchmarkRow.scope1 : scope1;

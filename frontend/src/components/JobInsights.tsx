@@ -406,7 +406,9 @@ export default function JobInsights({
 
     const firstHistoricalYear = yearlyEmissions.length > 0 ? yearlyEmissions[0].year : null;
     const baselineYear = benchmarkYear ?? firstHistoricalYear ?? currentYear;
-    const displayStartYear = firstHistoricalYear ?? baselineYear;
+    // Always start at the benchmark year, not the earliest job on file --
+    // see pathway-data.ts's buildEmissionsReductionPathwayData for the same fix.
+    const displayStartYear = baselineYear;
     const endYear = targetYear && targetYear > baselineYear ? targetYear : Math.max(baselineYear + 1, 2050);
 
     const benchmarkRow = yearlyEmissions.find((r) => r.year === baselineYear);

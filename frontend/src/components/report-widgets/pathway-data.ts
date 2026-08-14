@@ -53,7 +53,11 @@ export function buildEmissionsReductionPathwayData({
     benchmarkYear != null && benchmarkYear > 1900
       ? benchmarkYear
       : firstHistoricalYear ?? fallbackYear;
-  const displayStartYear = firstHistoricalYear ?? baselineYear;
+  // Always start at the benchmark year, not the earliest job on file -- a
+  // job predating a since-updated benchmark (e.g. a 2023 job kept around
+  // after the benchmark moved to 2024) shouldn't drag the chart's start
+  // backward once the benchmark itself has moved forward.
+  const displayStartYear = baselineYear;
   const endYear = targetYear != null && targetYear > baselineYear ? targetYear : Math.max(baselineYear + 1, 2050);
 
   const benchmarkRow = yearlyEmissions.find((row) => row.year === baselineYear) ?? null;
