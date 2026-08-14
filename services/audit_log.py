@@ -170,6 +170,56 @@ def request_org_id(request: Request | None) -> str | None:
         return None
 
 
+def fetch_entity_history(
+    con,
+    *,
+    entity_type: str,
+    entity_id: Any,
+    org_id: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Return paginated audit_log events for one specific entity (e.g. a single
+    quote/invoice/credit note), regardless of which job or client it's on."""
+    ensure_audit_log_table(con)
+    where_parts = ["a.entity_type = %s", "a.entity_id = %s"]
+    params: list[Any] = [str(entity_type), str(entity_id)]
+    if org_id:
+        where_parts.append("COALESCE(a.org_id, '') = %s")
+        params.append(str(org_id))
+    where_sql = " AND ".join(where_parts)
+
+    rows = con.execute(
+        f"""
+        SELECT a.audit_id, a.created_at, a.actor_email, a.actor_name,
+               a.action, a.entity_type, a.entity_id, a.diff_json, a.section
+        FROM audit_log a
+        WHERE {where_sql}
+        ORDER BY a.created_at DESC
+        LIMIT %s OFFSET %s
+        """,
+        params + [limit, offset],
+    ).fetchall()
+
+    total_row = con.execute(f"SELECT COUNT(*) FROM audit_log a WHERE {where_sql}", params).fetchone()
+    total = int(total_row[0]) if total_row else 0
+
+    items = []
+    for r in rows:
+        items.append({
+            "audit_id": r[0],
+            "created_at": str(r[1]) if r[1] else None,
+            "actor_email": r[2],
+            "actor_name": r[3],
+            "action": r[4],
+            "entity_type": r[5],
+            "entity_id": r[6],
+            "diff": parse_json_text(r[7]),
+            "section": r[8],
+        })
+    return {"items": items, "total": total}
+
+
 def fetch_row_dict(con, sql: str, params: list[Any] | tuple[Any, ...] | None = None) -> dict[str, Any] | None:
     df = con.execute(sql, list(params or [])).df()
     if df is None or df.empty:

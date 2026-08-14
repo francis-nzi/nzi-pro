@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import PageHeader from "@/components/PageHeader";
+import ActivityHistoryModal from "@/components/ActivityHistoryModal";
 import { CompanyIdentityBlock, CompanyLegalFooter } from "@/components/CompanyIdentityBlock";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import { Badge } from "@/components/ui/badge";
@@ -419,6 +420,7 @@ export default function CreditNoteDetailPage() {
                 {xeroHeaderLabel}
               </Badge>
               <Badge variant={xeroBadgeVariant as "default" | "secondary" | "destructive" | "outline"}>{xeroBadgeLabel}</Badge>
+              <ActivityHistoryModal url={`/credit-notes/${creditNoteId}/history`} baseUrl={baseUrl} label="History" />
               <Button variant="outline" asChild>
                 <Link href={`/clients/${clientId}?section=financial`}>Back to Financial</Link>
               </Button>

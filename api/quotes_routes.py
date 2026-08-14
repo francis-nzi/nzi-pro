@@ -6,7 +6,7 @@ import re
 import os
 import logging
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -17,6 +17,7 @@ from api.auth import _current_user
 from api.org_admin_helpers import _require_org_plan_active
 from api.permissions import assert_client_access, assert_job_access
 from core.database import get_conn
+from services.audit_log import fetch_entity_history, record_audit_event
 from services.company_profile import company_address_html, company_bank_details_lines, company_footer_text, get_company_profile
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
@@ -1500,6 +1501,25 @@ def get_quote(quote_id: int, _user: dict = Depends(_current_user)):
         raise HTTPException(status_code=500, detail=f"Failed to load quote: {e}")
 
 
+@router.get("/quotes/{quote_id}/history")
+def quote_history(
+    quote_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    _user: dict = Depends(_current_user),
+):
+    with get_conn() as con:
+        _ensure_quote_tables(con)
+        org_id = _quote_org_id(_user)
+        exists = con.execute(
+            "SELECT quote_id FROM quotes WHERE quote_id = %s" + (" AND org_id = %s" if org_id else ""),
+            [int(quote_id)] + ([org_id] if org_id else []),
+        ).fetchone()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Quote not found")
+        return fetch_entity_history(con, entity_type="quote", entity_id=int(quote_id), org_id=org_id, limit=limit, offset=offset)
+
+
 def _write_lines(con, quote_id: int, lines: list[dict[str, Any]]) -> None:
     con.execute("DELETE FROM quote_lines WHERE quote_id = %s", [int(quote_id)])
     for idx, line in enumerate(lines):
@@ -1534,7 +1554,7 @@ def _write_lines(con, quote_id: int, lines: list[dict[str, Any]]) -> None:
 
 
 @router.post("/clients/{client_id}/quotes")
-def create_quote(client_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+def create_quote(client_id: int, body: dict = Body(...), _user: dict = Depends(_current_user), request: Request = None):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
@@ -1599,7 +1619,12 @@ def create_quote(client_id: int, body: dict = Body(...), _user: dict = Depends(_
                 raise HTTPException(status_code=400, detail="lines must be an array")
             _write_lines(con, quote_id, lines)
 
-            return _serialize_quote(con, quote_id, org_id=org_id)
+            result = _serialize_quote(con, quote_id, org_id=org_id)
+            record_audit_event(
+                con, request=request, actor=_user, action="quote_created",
+                entity_type="quote", entity_id=quote_id, client_id=int(client_id), after=result,
+            )
+            return result
     except HTTPException:
         raise
     except Exception as e:
@@ -1607,7 +1632,7 @@ def create_quote(client_id: int, body: dict = Body(...), _user: dict = Depends(_
 
 
 @router.patch("/quotes/{quote_id}")
-def update_quote(quote_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+def update_quote(quote_id: int, body: dict = Body(...), _user: dict = Depends(_current_user), request: Request = None):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
@@ -1618,6 +1643,7 @@ def update_quote(quote_id: int, body: dict = Body(...), _user: dict = Depends(_c
             ).fetchone()
             if not existing:
                 raise HTTPException(status_code=404, detail="Quote not found")
+            before = _serialize_quote(con, int(quote_id), org_id=org_id)
 
             updates = []
             params: list[Any] = []
@@ -1662,7 +1688,13 @@ def update_quote(quote_id: int, body: dict = Body(...), _user: dict = Depends(_c
                     raise HTTPException(status_code=400, detail="lines must be an array")
                 _write_lines(con, int(quote_id), lines)
 
-            return _serialize_quote(con, int(quote_id), org_id=org_id)
+            result = _serialize_quote(con, int(quote_id), org_id=org_id)
+            record_audit_event(
+                con, request=request, actor=_user, action="quote_updated",
+                entity_type="quote", entity_id=int(quote_id),
+                client_id=_safe_int(result.get("client_db_id"), None), before=before, after=result,
+            )
+            return result
     except HTTPException:
         raise
     except Exception as e:
@@ -1670,7 +1702,7 @@ def update_quote(quote_id: int, body: dict = Body(...), _user: dict = Depends(_c
 
 
 @router.post("/quotes/{quote_id}/approve")
-def approve_quote(quote_id: int, _user: dict = Depends(_current_user)):
+def approve_quote(quote_id: int, _user: dict = Depends(_current_user), request: Request = None):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
@@ -1694,7 +1726,13 @@ def approve_quote(quote_id: int, _user: dict = Depends(_current_user)):
                 """,
                 [approver, int(quote_id)] + ([org_id] if org_id else []),
             )
-            return _serialize_quote(con, int(quote_id), org_id=org_id)
+            result = _serialize_quote(con, int(quote_id), org_id=org_id)
+            record_audit_event(
+                con, request=request, actor=_user, action="quote_approved",
+                entity_type="quote", entity_id=int(quote_id),
+                client_id=_safe_int(result.get("client_db_id"), None), after=result,
+            )
+            return result
     except HTTPException:
         raise
     except Exception as e:
@@ -1702,7 +1740,7 @@ def approve_quote(quote_id: int, _user: dict = Depends(_current_user)):
 
 
 @router.post("/quotes/{quote_id}/accept")
-def accept_quote(quote_id: int, _user: dict = Depends(_current_user)):
+def accept_quote(quote_id: int, _user: dict = Depends(_current_user), request: Request = None):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
@@ -1726,7 +1764,13 @@ def accept_quote(quote_id: int, _user: dict = Depends(_current_user)):
                 """,
                 [acceptor, int(quote_id)] + ([org_id] if org_id else []),
             )
-            return _serialize_quote(con, int(quote_id), org_id=org_id)
+            result = _serialize_quote(con, int(quote_id), org_id=org_id)
+            record_audit_event(
+                con, request=request, actor=_user, action="quote_accepted",
+                entity_type="quote", entity_id=int(quote_id),
+                client_id=_safe_int(result.get("client_db_id"), None), after=result,
+            )
+            return result
     except HTTPException:
         raise
     except Exception as e:
@@ -1734,7 +1778,7 @@ def accept_quote(quote_id: int, _user: dict = Depends(_current_user)):
 
 
 @router.post("/quotes/{quote_id}/revise")
-def revise_quote(quote_id: int, _user: dict = Depends(_current_user)):
+def revise_quote(quote_id: int, _user: dict = Depends(_current_user), request: Request = None):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
@@ -1828,7 +1872,13 @@ def revise_quote(quote_id: int, _user: dict = Depends(_current_user)):
                         }
                     )
             _write_lines(con, new_quote_id, lines)
-            return _serialize_quote(con, new_quote_id, org_id=org_id)
+            result = _serialize_quote(con, new_quote_id, org_id=org_id)
+            record_audit_event(
+                con, request=request, actor=_user, action="quote_revised",
+                entity_type="quote", entity_id=new_quote_id, client_id=int(q[1]),
+                after=result, metadata={"revision_of_quote_id": int(quote_id)},
+            )
+            return result
     except HTTPException:
         raise
     except Exception as e:
@@ -1836,13 +1886,13 @@ def revise_quote(quote_id: int, _user: dict = Depends(_current_user)):
 
 
 @router.post("/quotes/{quote_id}/email")
-def email_quote(quote_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+def email_quote(quote_id: int, body: dict = Body(...), _user: dict = Depends(_current_user), request: Request = None):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
             org_id = _quote_org_id(_user)
             exists = con.execute(
-                "SELECT quote_id FROM quotes WHERE quote_id = %s" + (" AND org_id = %s" if org_id else ""),
+                "SELECT quote_id, client_db_id FROM quotes WHERE quote_id = %s" + (" AND org_id = %s" if org_id else ""),
                 [int(quote_id)] + ([org_id] if org_id else []),
             ).fetchone()
             if not exists:
@@ -1864,6 +1914,11 @@ def email_quote(quote_id: int, body: dict = Body(...), _user: dict = Depends(_cu
             con.execute(
                 "UPDATE quotes SET status = 'Sent', updated_at = NOW() WHERE quote_id = %s AND org_id = %s",
                 [int(quote_id), org_id],
+            )
+            record_audit_event(
+                con, request=request, actor=_user, action="quote_sent",
+                entity_type="quote", entity_id=int(quote_id), client_id=_safe_int(exists[1], None),
+                metadata={"sent_to": sent_to, "subject": subject},
             )
             return {"ok": True, "message": "Quote email logged", "quote_id": int(quote_id), "sent_to": sent_to}
     except HTTPException:
@@ -1897,7 +1952,7 @@ def get_quote_pdf(quote_id: int, _user: dict = Depends(_current_user)):
 
 
 @router.post("/quotes/{quote_id}/email-pdf")
-def email_quote_pdf(quote_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+def email_quote_pdf(quote_id: int, body: dict = Body(...), _user: dict = Depends(_current_user), request: Request = None):
     try:
         to_email = str(body.get("to") or "").strip()
         if not to_email:
@@ -1964,6 +2019,11 @@ def email_quote_pdf(quote_id: int, body: dict = Body(...), _user: dict = Depends
                 )
             else:
                 raise HTTPException(status_code=500, detail=f"Failed to send email: {send_res.get('error') or 'Unknown error'}")
+            record_audit_event(
+                con, request=request, actor=_user, action="quote_sent",
+                entity_type="quote", entity_id=int(quote_id), client_id=_safe_int(quote.get("client_db_id"), None),
+                metadata={"sent_to": to_email, "cc": cc_emails, "subject": rendered["subject"], "kind": "quote_pdf"},
+            )
         return {"ok": True, "quote_id": int(quote_id), "sent_to": to_email, "email_id": int(send_res.get('email_id') or 0)}
     except HTTPException:
         raise
@@ -2217,7 +2277,7 @@ def list_job_invoices(job_id: int, _user: dict = Depends(_current_user)):
 
 
 @router.post("/clients/{client_id}/invoices")
-def create_invoice(client_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+def create_invoice(client_id: int, body: dict = Body(...), _user: dict = Depends(_current_user), request: Request = None):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
@@ -2287,7 +2347,12 @@ def create_invoice(client_id: int, body: dict = Body(...), _user: dict = Depends
                     "UPDATE invoices SET subtotal = %s, vat = %s, total = %s, updated_at = NOW() WHERE invoice_id = %s",
                     [computed_totals["subtotal"], computed_totals["vat"], computed_totals["total"], int(invoice_id)],
                 )
-            return _serialize_invoice(con, invoice_id, org_id=org_id)
+            result = _serialize_invoice(con, invoice_id, org_id=org_id)
+            record_audit_event(
+                con, request=request, actor=_user, action="invoice_created",
+                entity_type="invoice", entity_id=invoice_id, client_id=int(client_id), job_id=job_id, after=result,
+            )
+            return result
     except HTTPException:
         raise
     except Exception as e:
@@ -2295,7 +2360,7 @@ def create_invoice(client_id: int, body: dict = Body(...), _user: dict = Depends
 
 
 @router.post("/jobs/{job_id}/invoices")
-def create_job_invoice(job_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+def create_job_invoice(job_id: int, body: dict = Body(...), _user: dict = Depends(_current_user), request: Request = None):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
@@ -2313,7 +2378,7 @@ def create_job_invoice(job_id: int, body: dict = Body(...), _user: dict = Depend
 
             payload = dict(body or {})
             payload["job_id"] = int(job_id)
-            return create_invoice(int(client_id), payload, _user)
+            return create_invoice(int(client_id), payload, _user, request=request)
     except HTTPException:
         raise
     except Exception as e:
@@ -2657,7 +2722,7 @@ def delete_job_other_cost(job_id: int, other_cost_id: int, _user: dict = Depends
 
 
 @router.patch("/invoices/{invoice_id}")
-def update_invoice(invoice_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+def update_invoice(invoice_id: int, body: dict = Body(...), _user: dict = Depends(_current_user), request: Request = None):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
@@ -2669,6 +2734,7 @@ def update_invoice(invoice_id: int, body: dict = Body(...), _user: dict = Depend
             if not exists:
                 raise HTTPException(status_code=404, detail="Invoice not found")
             xero_invoice_id = str(exists[1] or "").strip() if len(exists) > 1 else ""
+            before = _serialize_invoice(con, int(invoice_id), org_id=org_id)
 
             updates = []
             params: list[Any] = []
@@ -2724,7 +2790,14 @@ def update_invoice(invoice_id: int, body: dict = Body(...), _user: dict = Depend
             params.append(int(invoice_id))
             params.append(org_id)
             con.execute(f"UPDATE invoices SET {', '.join(updates)} WHERE invoice_id = %s AND org_id = %s", params)
-            return _serialize_invoice(con, int(invoice_id), org_id=org_id)
+            result = _serialize_invoice(con, int(invoice_id), org_id=org_id)
+            record_audit_event(
+                con, request=request, actor=_user, action="invoice_updated",
+                entity_type="invoice", entity_id=int(invoice_id),
+                client_id=_safe_int(result.get("client_db_id"), None), job_id=_safe_int(result.get("job_id"), None),
+                before=before, after=result,
+            )
+            return result
     except HTTPException:
         raise
     except Exception as e:
@@ -2732,7 +2805,7 @@ def update_invoice(invoice_id: int, body: dict = Body(...), _user: dict = Depend
 
 
 @router.delete("/invoices/{invoice_id}")
-def delete_invoice(invoice_id: int, _user: dict = Depends(_current_user)):
+def delete_invoice(invoice_id: int, _user: dict = Depends(_current_user), request: Request = None):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
@@ -2743,6 +2816,7 @@ def delete_invoice(invoice_id: int, _user: dict = Depends(_current_user)):
             ).fetchone()
             if not exists:
                 raise HTTPException(status_code=404, detail="Invoice not found")
+            before = _serialize_invoice(con, int(invoice_id), org_id=org_id)
 
             xero_void_result = None
             if str(exists[1] or "").strip():
@@ -2760,6 +2834,12 @@ def delete_invoice(invoice_id: int, _user: dict = Depends(_current_user)):
             )
             con.execute("DELETE FROM xero_invoice_links WHERE invoice_id = %s", [int(invoice_id)])
             con.execute("DELETE FROM invoices WHERE invoice_id = %s AND org_id = %s", [int(invoice_id), org_id])
+            record_audit_event(
+                con, request=request, actor=_user, action="invoice_deleted",
+                entity_type="invoice", entity_id=int(invoice_id),
+                client_id=_safe_int(before.get("client_db_id"), None), job_id=_safe_int(before.get("job_id"), None),
+                before=before, metadata={"xero_void_result": xero_void_result},
+            )
         return {"ok": True, "invoice_id": int(invoice_id), "xero_void_result": xero_void_result}
     except HTTPException:
         raise
@@ -2780,8 +2860,27 @@ def get_invoice(invoice_id: int, _user: dict = Depends(_current_user)):
         raise HTTPException(status_code=500, detail=f"Failed to load invoice: {e}")
 
 
+@router.get("/invoices/{invoice_id}/history")
+def invoice_history(
+    invoice_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    _user: dict = Depends(_current_user),
+):
+    with get_conn() as con:
+        _ensure_quote_tables(con)
+        org_id = _quote_org_id(_user)
+        exists = con.execute(
+            "SELECT invoice_id FROM invoices WHERE invoice_id = %s AND org_id = %s",
+            [int(invoice_id), org_id],
+        ).fetchone()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        return fetch_entity_history(con, entity_type="invoice", entity_id=int(invoice_id), org_id=org_id, limit=limit, offset=offset)
+
+
 @router.post("/quotes/{quote_id}/convert-to-invoice")
-def convert_quote_to_invoice(quote_id: int, body: dict = Body(default={}), _user: dict = Depends(_current_user)):
+def convert_quote_to_invoice(quote_id: int, body: dict = Body(default={}), _user: dict = Depends(_current_user), request: Request = None):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
@@ -2845,7 +2944,14 @@ def convert_quote_to_invoice(quote_id: int, body: dict = Body(default={}), _user
                 raise HTTPException(status_code=500, detail="Failed to convert quote to invoice")
             invoice_id = int(row[0])
             _write_invoice_lines(con, int(invoice_id), lines, org_id=org_id)
-            return _serialize_invoice(con, int(invoice_id), org_id=org_id)
+            result = _serialize_invoice(con, int(invoice_id), org_id=org_id)
+            record_audit_event(
+                con, request=request, actor=_user, action="invoice_created",
+                entity_type="invoice", entity_id=invoice_id, client_id=int(quote["client_db_id"]),
+                job_id=_safe_int(body.get("job_id"), None), after=result,
+                metadata={"converted_from_quote_id": int(quote_id)},
+            )
+            return result
     except HTTPException:
         raise
     except Exception as e:
@@ -2878,7 +2984,7 @@ def get_invoice_pdf(invoice_id: int, _user: dict = Depends(_current_user)):
 
 
 @router.post("/invoices/{invoice_id}/email-pdf")
-def email_invoice_pdf(invoice_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+def email_invoice_pdf(invoice_id: int, body: dict = Body(...), _user: dict = Depends(_current_user), request: Request = None):
     try:
         to_email = str(body.get("to") or "").strip()
         if not to_email:
@@ -2946,6 +3052,12 @@ def email_invoice_pdf(invoice_id: int, body: dict = Body(...), _user: dict = Dep
                 )
             if str(send_res.get("status") or "") != "sent":
                 raise HTTPException(status_code=500, detail=f"Failed to send email: {send_res.get('error') or 'Unknown error'}")
+            record_audit_event(
+                con, request=request, actor=_user, action="invoice_sent",
+                entity_type="invoice", entity_id=int(invoice_id),
+                client_id=_safe_int(invoice.get("client_db_id"), None), job_id=_safe_int(invoice.get("job_id"), None),
+                metadata={"sent_to": to_email, "cc": cc_emails, "subject": rendered["subject"], "kind": "invoice_pdf"},
+            )
         return {"ok": True, "invoice_id": int(invoice_id), "sent_to": to_email, "email_id": int(send_res.get('email_id') or 0)}
     except HTTPException:
         raise

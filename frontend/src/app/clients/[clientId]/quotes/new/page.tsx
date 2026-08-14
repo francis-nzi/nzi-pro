@@ -5,6 +5,7 @@ import { Suspense, useMemo, useState, useEffect, type Dispatch, type SetStateAct
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import PageHeader from "@/components/PageHeader";
+import ActivityHistoryModal from "@/components/ActivityHistoryModal";
 import { CompanyIdentityBlock, CompanyLegalFooter } from "@/components/CompanyIdentityBlock";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -597,6 +598,7 @@ function AddQuotePageContent() {
           ]}
           actions={
             <div className="flex gap-2">
+              {quoteId ? <ActivityHistoryModal url={`/quotes/${quoteId}/history`} baseUrl={baseUrl} label="History" /> : null}
               <Button variant="outline" asChild>
                 <Link href={`/clients/${clientId}/quotes`}>Quotes List</Link>
               </Button>

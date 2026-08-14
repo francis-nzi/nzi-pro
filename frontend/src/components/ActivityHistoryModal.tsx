@@ -103,13 +103,17 @@ function DiffTable({ diff }: { diff: Record<string, unknown> }) {
 }
 
 type Props = {
-  jobId: number;
+  // Either supply jobId (+ optional entityType) to hit the job-scoped
+  // /jobs/{jobId}/history endpoint, or supply url directly to hit any other
+  // entity-scoped history endpoint (e.g. /quotes/{id}/history).
+  jobId?: number;
+  url?: string;
   baseUrl: string;
   entityType?: string;
   label?: string;
 };
 
-export default function ActivityHistoryModal({ jobId, baseUrl, entityType, label = "History" }: Props) {
+export default function ActivityHistoryModal({ jobId, url, baseUrl, entityType, label = "History" }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<HistoryItem[]>([]);
@@ -122,7 +126,8 @@ export default function ActivityHistoryModal({ jobId, baseUrl, entityType, label
     try {
       const params = new URLSearchParams({ limit: String(LIMIT), offset: String(newOffset) });
       if (entityType) params.set("entity_type", entityType);
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/history?${params}`);
+      const endpoint = url ? `${baseUrl}${url}` : `${baseUrl}/jobs/${jobId}/history`;
+      const res = await fetch(`${endpoint}?${params}`);
       if (!res.ok) return;
       const data = await res.json();
       setItems(Array.isArray(data?.items) ? data.items : []);
@@ -133,7 +138,7 @@ export default function ActivityHistoryModal({ jobId, baseUrl, entityType, label
     } finally {
       setLoading(false);
     }
-  }, [baseUrl, jobId, entityType]);
+  }, [baseUrl, jobId, url, entityType]);
 
   function handleOpen() {
     setOpen(true);

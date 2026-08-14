@@ -10,6 +10,7 @@ from api.auth import _current_user
 from api.permissions import ADMIN_ACCESS_PERMISSION, assert_permission
 from core.database import get_conn
 from services import xero as xero_service
+from services.audit_log import record_audit_event
 
 router = APIRouter(prefix="/xero", tags=["xero"])
 
@@ -154,22 +155,37 @@ def xero_oauth_callback(request: Request, code: str | None = None, state: str | 
 
 
 @router.post("/invoices/{invoice_id}/sync")
-def sync_invoice(invoice_id: int, _user: dict = Depends(_current_user)):
+def sync_invoice(invoice_id: int, _user: dict = Depends(_current_user), request: Request = None):
     _require_admin(_user)
     with get_conn() as con:
         xero_service._ensure_schema(con)  # type: ignore[attr-defined]
         invoice = xero_service._invoice_row(con, int(invoice_id))  # type: ignore[attr-defined]
         if str(invoice.get("xero_invoice_id") or "").strip():
-            return xero_service.update_xero_invoice(int(invoice_id), con=con)
-        return xero_service.create_xero_invoice(int(invoice_id), con=con)
+            result = xero_service.update_xero_invoice(int(invoice_id), con=con)
+        else:
+            result = xero_service.create_xero_invoice(int(invoice_id), con=con)
+        record_audit_event(
+            con, request=request, actor=_user, action="invoice_synced_to_xero",
+            entity_type="invoice", entity_id=int(invoice_id),
+            client_id=invoice.get("client_db_id"), job_id=invoice.get("job_id"), after=result,
+        )
+        return result
 
 
 @router.post("/invoices/{invoice_id}/resync")
-def resync_invoice(invoice_id: int, _user: dict = Depends(_current_user)):
+def resync_invoice(invoice_id: int, _user: dict = Depends(_current_user), request: Request = None):
     _require_admin(_user)
     with get_conn() as con:
         xero_service._ensure_schema(con)  # type: ignore[attr-defined]
-        return xero_service.update_xero_invoice(int(invoice_id), con=con)
+        invoice = xero_service._invoice_row(con, int(invoice_id))  # type: ignore[attr-defined]
+        result = xero_service.update_xero_invoice(int(invoice_id), con=con)
+        record_audit_event(
+            con, request=request, actor=_user, action="invoice_synced_to_xero",
+            entity_type="invoice", entity_id=int(invoice_id),
+            client_id=invoice.get("client_db_id"), job_id=invoice.get("job_id"), after=result,
+            metadata={"resync": True},
+        )
+        return result
 
 
 @router.get("/invoices/{invoice_id}/status")
@@ -183,22 +199,37 @@ def invoice_status(invoice_id: int, _user: dict = Depends(_current_user)):
 
 
 @router.post("/credit-notes/{credit_note_id}/sync")
-def sync_credit_note(credit_note_id: int, _user: dict = Depends(_current_user)):
+def sync_credit_note(credit_note_id: int, _user: dict = Depends(_current_user), request: Request = None):
     _require_admin(_user)
     with get_conn() as con:
         xero_service._ensure_schema(con)  # type: ignore[attr-defined]
         credit_note = xero_service._credit_note_row(con, int(credit_note_id))  # type: ignore[attr-defined]
         if str(credit_note.get("xero_credit_note_id") or "").strip():
-            return xero_service.update_xero_credit_note(int(credit_note_id), con=con)
-        return xero_service.create_xero_credit_note(int(credit_note_id), con=con)
+            result = xero_service.update_xero_credit_note(int(credit_note_id), con=con)
+        else:
+            result = xero_service.create_xero_credit_note(int(credit_note_id), con=con)
+        record_audit_event(
+            con, request=request, actor=_user, action="credit_note_synced_to_xero",
+            entity_type="credit_note", entity_id=int(credit_note_id),
+            client_id=credit_note.get("client_db_id"), job_id=credit_note.get("job_id"), after=result,
+        )
+        return result
 
 
 @router.post("/credit-notes/{credit_note_id}/resync")
-def resync_credit_note(credit_note_id: int, _user: dict = Depends(_current_user)):
+def resync_credit_note(credit_note_id: int, _user: dict = Depends(_current_user), request: Request = None):
     _require_admin(_user)
     with get_conn() as con:
         xero_service._ensure_schema(con)  # type: ignore[attr-defined]
-        return xero_service.update_xero_credit_note(int(credit_note_id), con=con)
+        credit_note = xero_service._credit_note_row(con, int(credit_note_id))  # type: ignore[attr-defined]
+        result = xero_service.update_xero_credit_note(int(credit_note_id), con=con)
+        record_audit_event(
+            con, request=request, actor=_user, action="credit_note_synced_to_xero",
+            entity_type="credit_note", entity_id=int(credit_note_id),
+            client_id=credit_note.get("client_db_id"), job_id=credit_note.get("job_id"), after=result,
+            metadata={"resync": True},
+        )
+        return result
 
 
 @router.get("/credit-notes/{credit_note_id}/status")

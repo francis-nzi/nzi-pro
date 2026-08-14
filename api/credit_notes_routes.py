@@ -5,7 +5,7 @@ from typing import Any
 import re
 import logging
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate
@@ -13,6 +13,7 @@ from reportlab.platypus import SimpleDocTemplate
 from api.auth import _current_user
 from api.org_admin_helpers import _require_org_plan_active
 from core.database import get_conn
+from services.audit_log import fetch_entity_history, record_audit_event
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
 
@@ -518,7 +519,7 @@ def list_job_credit_notes(job_id: int, _user: dict = Depends(_current_user)):
 
 
 @router.post("/clients/{client_id}/credit-notes")
-def create_credit_note(client_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+def create_credit_note(client_id: int, body: dict = Body(...), _user: dict = Depends(_current_user), request: Request = None):
     try:
         with get_conn() as con:
             _ensure_credit_note_tables(con)
@@ -593,7 +594,12 @@ def create_credit_note(client_id: int, body: dict = Body(...), _user: dict = Dep
                     "UPDATE credit_notes SET subtotal = %s, vat = %s, total = %s, updated_at = NOW() WHERE credit_note_id = %s",
                     [computed_totals["subtotal"], computed_totals["vat"], computed_totals["total"], int(credit_note_id)],
                 )
-            return _serialize_credit_note(con, credit_note_id, org_id=org_id)
+            result = _serialize_credit_note(con, credit_note_id, org_id=org_id)
+            record_audit_event(
+                con, request=request, actor=_user, action="credit_note_created",
+                entity_type="credit_note", entity_id=credit_note_id, client_id=int(client_id), job_id=job_id, after=result,
+            )
+            return result
     except HTTPException:
         raise
     except Exception as e:
@@ -601,7 +607,7 @@ def create_credit_note(client_id: int, body: dict = Body(...), _user: dict = Dep
 
 
 @router.post("/jobs/{job_id}/credit-notes")
-def create_job_credit_note(job_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+def create_job_credit_note(job_id: int, body: dict = Body(...), _user: dict = Depends(_current_user), request: Request = None):
     try:
         with get_conn() as con:
             _ensure_credit_note_tables(con)
@@ -619,7 +625,7 @@ def create_job_credit_note(job_id: int, body: dict = Body(...), _user: dict = De
 
             payload = dict(body or {})
             payload["job_id"] = int(job_id)
-            return create_credit_note(int(client_id), payload, _user)
+            return create_credit_note(int(client_id), payload, _user, request=request)
     except HTTPException:
         raise
     except Exception as e:
@@ -627,7 +633,7 @@ def create_job_credit_note(job_id: int, body: dict = Body(...), _user: dict = De
 
 
 @router.post("/invoices/{invoice_id}/credit-notes")
-def create_credit_note_from_invoice(invoice_id: int, body: dict = Body(default={}), _user: dict = Depends(_current_user)):
+def create_credit_note_from_invoice(invoice_id: int, body: dict = Body(default={}), _user: dict = Depends(_current_user), request: Request = None):
     try:
         with get_conn() as con:
             _ensure_credit_note_tables(con)
@@ -666,7 +672,7 @@ def create_credit_note_from_invoice(invoice_id: int, body: dict = Body(default={
                 "notes": body.get("notes") if body.get("notes") is not None else invoice.get("notes"),
                 "lines": lines,
             }
-            return create_credit_note(int(invoice["client_db_id"]), payload, _user)
+            return create_credit_note(int(invoice["client_db_id"]), payload, _user, request=request)
     except HTTPException:
         raise
     except Exception as e:
@@ -674,7 +680,7 @@ def create_credit_note_from_invoice(invoice_id: int, body: dict = Body(default={
 
 
 @router.patch("/credit-notes/{credit_note_id}")
-def update_credit_note(credit_note_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+def update_credit_note(credit_note_id: int, body: dict = Body(...), _user: dict = Depends(_current_user), request: Request = None):
     try:
         with get_conn() as con:
             _ensure_credit_note_tables(con)
@@ -686,6 +692,7 @@ def update_credit_note(credit_note_id: int, body: dict = Body(...), _user: dict 
             if not exists:
                 raise HTTPException(status_code=404, detail="Credit note not found")
             xero_credit_note_id = str(exists[1] or "").strip() if len(exists) > 1 else ""
+            before = _serialize_credit_note(con, int(credit_note_id), org_id=org_id)
 
             updates = []
             params: list[Any] = []
@@ -734,7 +741,14 @@ def update_credit_note(credit_note_id: int, body: dict = Body(...), _user: dict 
             params.append(int(credit_note_id))
             params.append(org_id)
             con.execute(f"UPDATE credit_notes SET {', '.join(updates)} WHERE credit_note_id = %s AND org_id = %s", params)
-            return _serialize_credit_note(con, int(credit_note_id), org_id=org_id)
+            result = _serialize_credit_note(con, int(credit_note_id), org_id=org_id)
+            record_audit_event(
+                con, request=request, actor=_user, action="credit_note_updated",
+                entity_type="credit_note", entity_id=int(credit_note_id),
+                client_id=_safe_int(result.get("client_db_id"), None), job_id=_safe_int(result.get("job_id"), None),
+                before=before, after=result,
+            )
+            return result
     except HTTPException:
         raise
     except Exception as e:
@@ -742,7 +756,7 @@ def update_credit_note(credit_note_id: int, body: dict = Body(...), _user: dict 
 
 
 @router.delete("/credit-notes/{credit_note_id}")
-def delete_credit_note(credit_note_id: int, _user: dict = Depends(_current_user)):
+def delete_credit_note(credit_note_id: int, _user: dict = Depends(_current_user), request: Request = None):
     try:
         with get_conn() as con:
             _ensure_credit_note_tables(con)
@@ -753,9 +767,16 @@ def delete_credit_note(credit_note_id: int, _user: dict = Depends(_current_user)
             ).fetchone()
             if not exists:
                 raise HTTPException(status_code=404, detail="Credit note not found")
+            before = _serialize_credit_note(con, int(credit_note_id), org_id=org_id)
             _write_credit_note_lines(con, int(credit_note_id), [], org_id=org_id)
             con.execute("DELETE FROM xero_credit_note_links WHERE credit_note_id = %s", [int(credit_note_id)])
             con.execute("DELETE FROM credit_notes WHERE credit_note_id = %s AND org_id = %s", [int(credit_note_id), org_id])
+            record_audit_event(
+                con, request=request, actor=_user, action="credit_note_deleted",
+                entity_type="credit_note", entity_id=int(credit_note_id),
+                client_id=_safe_int(before.get("client_db_id"), None), job_id=_safe_int(before.get("job_id"), None),
+                before=before,
+            )
         return {"ok": True, "credit_note_id": int(credit_note_id)}
     except HTTPException:
         raise
@@ -774,6 +795,25 @@ def get_credit_note(credit_note_id: int, _user: dict = Depends(_current_user)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load credit note: {e}")
+
+
+@router.get("/credit-notes/{credit_note_id}/history")
+def credit_note_history(
+    credit_note_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    _user: dict = Depends(_current_user),
+):
+    with get_conn() as con:
+        _ensure_credit_note_tables(con)
+        org_id = _quote_org_id(_user)
+        exists = con.execute(
+            "SELECT credit_note_id FROM credit_notes WHERE credit_note_id = %s AND org_id = %s",
+            [int(credit_note_id), org_id],
+        ).fetchone()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Credit note not found")
+        return fetch_entity_history(con, entity_type="credit_note", entity_id=int(credit_note_id), org_id=org_id, limit=limit, offset=offset)
 
 
 @router.get("/credit-notes/{credit_note_id}/pdf")
@@ -802,7 +842,7 @@ def get_credit_note_pdf(credit_note_id: int, _user: dict = Depends(_current_user
 
 
 @router.post("/credit-notes/{credit_note_id}/email-pdf")
-def email_credit_note_pdf(credit_note_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+def email_credit_note_pdf(credit_note_id: int, body: dict = Body(...), _user: dict = Depends(_current_user), request: Request = None):
     try:
         to_email = str(body.get("to") or "").strip()
         if not to_email:
@@ -869,6 +909,12 @@ def email_credit_note_pdf(credit_note_id: int, body: dict = Body(...), _user: di
                 )
             if str(send_res.get("status") or "") != "sent":
                 raise HTTPException(status_code=500, detail=f"Failed to send email: {send_res.get('error') or 'Unknown error'}")
+            record_audit_event(
+                con, request=request, actor=_user, action="credit_note_sent",
+                entity_type="credit_note", entity_id=int(credit_note_id),
+                client_id=_safe_int(credit_note.get("client_db_id"), None), job_id=_safe_int(credit_note.get("job_id"), None),
+                metadata={"sent_to": to_email, "cc": cc_emails, "subject": rendered["subject"], "kind": "credit_note_pdf"},
+            )
         return {"ok": True, "credit_note_id": int(credit_note_id), "sent_to": to_email, "email_id": int(send_res.get('email_id') or 0)}
     except HTTPException:
         raise
