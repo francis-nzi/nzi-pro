@@ -86,7 +86,7 @@ export default function JobWorkspaceHeader({
               <span>{job.jobTitle}</span>
             </div>
             <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
-              {benchmarkPeriodLabel ? <span>{`Benchmark Period: ${benchmarkPeriodLabel}`}</span> : null}
+              {benchmarkPeriodLabel ? <span>{`Baseline Period: ${benchmarkPeriodLabel}`}</span> : null}
               {benchmarkPeriodLabel ? <span>•</span> : null}
               <span>{job.reportingPeriodLabel}</span>
             </div>

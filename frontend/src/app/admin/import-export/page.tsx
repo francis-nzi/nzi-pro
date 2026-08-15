@@ -245,7 +245,7 @@ const DEFAULT_MAPPING_SUMMARY: { job: Record<string, string[]>; client: Record<s
     report_from: ["Report From", "Reporting Period From"],
     report_to: ["Report To", "Reporting Period To"],
     crm_name: ["Report Writer", "Job Manager", "Assigned Consultant"],
-    is_benchmark: ["Is Benchmark?", "Benchmark?", "Benchmark"],
+    is_benchmark: ["Is Benchmark?", "Benchmark?", "Benchmark", "Is Baseline?", "Baseline?", "Baseline"],
     is_renewal: ["Is renewal?", "Is Renewal?", "Renewal?"],
     data_collection_due: ["Data Completion Date", "Data Collection Due Date"],
     first_draft_due: ["Draft Report Due Date", "First Draft Due Date"],
@@ -264,8 +264,8 @@ const DEFAULT_MAPPING_SUMMARY: { job: Record<string, string[]>; client: Record<s
     sic_code: ["Industry Code (SIC)", "Industry Code", "SIC Code", "SIC", "SIC Number"],
     company_reg: ["Company Number", "Company Registration", "Company Registration Number"],
     year_end_month: ["Financial Year End", "Year End Date"],
-    benchmark_period_start: ["Benchmark Date From", "Benchmark Period Start"],
-    benchmark_period_end: ["Benchmark Date To", "Benchmark Period End"],
+    benchmark_period_start: ["Benchmark Date From", "Benchmark Period Start", "Baseline Date From", "Baseline Period Start"],
+    benchmark_period_end: ["Benchmark Date To", "Benchmark Period End", "Baseline Date To", "Baseline Period End"],
     currency: ["Currency"],
     description_long: ["Other Client Data", "Client Notes"],
   },
@@ -308,8 +308,8 @@ const CLIENT_BACKFILL_OPTIONS = [
   { value: "industry", label: "Industry" },
   { value: "crm_owner", label: "Client Manager" },
   { value: "year_end_month", label: "Financial Year End Month" },
-  { value: "benchmark_period_start", label: "Benchmark Period Start" },
-  { value: "benchmark_period_end", label: "Benchmark Period End" },
+  { value: "benchmark_period_start", label: "Baseline Period Start" },
+  { value: "benchmark_period_end", label: "Baseline Period End" },
 ] as const;
 
 function formatCount(value: unknown): string {

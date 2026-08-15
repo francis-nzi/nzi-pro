@@ -340,7 +340,7 @@ export default function JobInsights({
     const changePct = (cur: number, bm: number) => (bm > 0 ? Math.round(((cur - bm) / bm) * 1000) / 10 : null);
 
       return {
-        benchmarkLabel: `BM ${benchmarkRow.year}`,
+        benchmarkLabel: `BL ${benchmarkRow.year}`,
         previousLabel: previousRow ? `Previous Year ${previousRow.year}` : "Previous Year",
         currentLabel: `Current Year ${currentRow.year}`,
         showBenchmarkBar: !isBenchmarkReportYear,

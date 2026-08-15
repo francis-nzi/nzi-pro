@@ -617,7 +617,7 @@ function NewJobPageContent() {
         });
         successMsg += ` | Reporting Period: ${start} - ${end}`;
         if (json.is_benchmark) {
-          successMsg += " (Benchmark)";
+          successMsg += " (Baseline)";
         }
       }
 
@@ -1032,7 +1032,7 @@ function NewJobPageContent() {
 
                       {clientBenchmarkPeriod && (
                         <div className="rounded-md border border-blue-200 bg-blue-50 p-4">
-                          <h4 className="font-semibold text-sm mb-2">Client Benchmark Period</h4>
+                          <h4 className="font-semibold text-sm mb-2">Client Baseline Period</h4>
                           <p className="text-sm mb-2">
                             <strong>Period:</strong>{" "}
                             {new Date(clientBenchmarkPeriod.start).toLocaleDateString("en-GB", {
@@ -1057,12 +1057,12 @@ function NewJobPageContent() {
                               className="h-4 w-4 rounded border-gray-300"
                             />
                             <Label htmlFor="isBenchmark" className="font-normal cursor-pointer">
-                              This is the benchmark job (reporting period will match benchmark period)
+                              This is the baseline job (reporting period will match baseline period)
                             </Label>
                           </div>
                           {!isBenchmark && (
                             <p className="text-xs text-muted-foreground mt-2">
-                              Subsequent jobs will automatically calculate reporting periods based on the benchmark
+                              Subsequent jobs will automatically calculate reporting periods based on the baseline
                               period + incremental years
                             </p>
                           )}
@@ -1072,9 +1072,9 @@ function NewJobPageContent() {
                       {clientBenchmarkLoaded && !clientBenchmarkPeriod && clientId && (
                         <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
                           <p className="text-sm text-amber-800">
-                            This client does not have a benchmark period defined. The reporting period will be
+                            This client does not have a baseline period defined. The reporting period will be
                             calculated from the reporting year and financial year end. Consider updating the client
-                            profile to include benchmark period dates for better period management.
+                            profile to include baseline period dates for better period management.
                           </p>
                         </div>
                       )}

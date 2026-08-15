@@ -791,7 +791,7 @@ export default function JobAdvancedReports({
     const changePct = (cur: number, bm: number) => (bm > 0 ? Math.round(((cur - bm) / bm) * 1000) / 10 : null);
 
     return {
-      benchmarkLabel: `BM ${benchmarkRow.year}`,
+      benchmarkLabel: `BL ${benchmarkRow.year}`,
       previousLabel: previousRow ? `Previous Year ${previousRow.year}` : "Previous Year",
       currentLabel: `Current Year ${currentRow.year}`,
       showBenchmarkBar: !isBenchmarkReportYear,
@@ -1831,9 +1831,9 @@ export default function JobAdvancedReports({
             {/* Benchmark Year */}
             {(data.job_data.benchmark_period_start || data.job_data.benchmark_period_end) && (
               <div>
-                <p className="text-sm font-semibold text-gray-700 mb-1">Benchmark Year</p>
+                <p className="text-sm font-semibold text-gray-700 mb-1">Baseline Year</p>
                 <p className="text-sm text-gray-700 leading-relaxed">
-                  The organisation&apos;s benchmark year is from {formatDate(data.job_data.benchmark_period_start ?? "")} to {formatDate(data.job_data.benchmark_period_end ?? "")}.
+                  The organisation&apos;s baseline year is from {formatDate(data.job_data.benchmark_period_start ?? "")} to {formatDate(data.job_data.benchmark_period_end ?? "")}.
                 </p>
               </div>
             )}
@@ -1939,11 +1939,11 @@ export default function JobAdvancedReports({
           const benchmarkPeriodLabel = (() => {
             const s = data.job_data.benchmark_period_start;
             const e = data.job_data.benchmark_period_end;
-            if (!s && !e) return "Benchmark Year";
+            if (!s && !e) return "Baseline Year";
             const sYear = s ? new Date(s).getFullYear() : null;
             const eYear = e ? new Date(e).getFullYear() : null;
             if (sYear && eYear && sYear !== eYear) return `${sYear}-${eYear}`;
-            return String(sYear ?? eYear ?? "Benchmark Year");
+            return String(sYear ?? eYear ?? "Baseline Year");
           })();
 
           const benchmarkTotal = toNum(benchmark_totals?.Total) ||
@@ -2042,7 +2042,7 @@ export default function JobAdvancedReports({
                       <span /><span />
                       {!hideIntensityBenchmark && (
                         <div className="text-right">
-                          <p className="text-xs font-semibold text-gray-600">Benchmark</p>
+                          <p className="text-xs font-semibold text-gray-600">Baseline</p>
                           <p className="text-xs text-gray-500">{benchmarkPeriodLabel}</p>
                         </div>
                       )}
@@ -2324,7 +2324,7 @@ export default function JobAdvancedReports({
             </span>
           );
 
-          const benchmarkColHeader = colHdr(bmYearLabel ? `BM ${bmYearLabel}` : "BM");
+          const benchmarkColHeader = colHdr(bmYearLabel ? `BL ${bmYearLabel}` : "BL");
 
           const tableRows: React.ReactElement[] = [];
           let rowIdx = 0;
@@ -2393,7 +2393,7 @@ export default function JobAdvancedReports({
                     {hasBenchmark && (
                       <span className="text-xs font-semibold text-white text-right leading-snug" style={{ textTransform: 'none' }}>
                         <span className="block">% vs</span>
-                        <span className="block">BM</span>
+                        <span className="block">BL</span>
                       </span>
                     )}
                   </div>

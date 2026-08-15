@@ -14,7 +14,7 @@ export function ReportYearHeader({ year, className }: ReportYearHeaderProps) {
     <div className={`flex flex-col items-center gap-0.5 leading-tight ${className || ""}`}>
       {year.isBenchmark ? (
         <Badge className="h-4 rounded-full border-amber-400 bg-amber-400 px-1.5 py-0 text-[9px] font-bold leading-none text-white">
-          BM
+          BL
         </Badge>
       ) : null}
       {yearJobLabel ? (

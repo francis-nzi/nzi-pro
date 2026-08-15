@@ -943,7 +943,7 @@
             <p>
                 This report presents the greenhouse gas emissions for <strong>{{ job_data.client_name }}</strong> 
                 for the reporting period {% if job_data.period_start.strftime %}{{ job_data.period_start.strftime('%d %B %Y') }}{% else %}{{ job_data.period_start }}{% endif %} to {% if job_data.period_end.strftime %}{{ job_data.period_end.strftime('%d %B %Y') }}{% else %}{{ job_data.period_end }}{% endif %}. 
-                The total calculated emissions for the period are <strong>{{ '{:,.2f}'.format(scope_totals.Total) }} tCO₂e</strong>{% if is_yoy_template %}, compared to <strong>{{ '{:,.2f}'.format(benchmark_totals.Total) }} tCO₂e</strong> from the benchmark year{% endif %}.
+                The total calculated emissions for the period are <strong>{{ '{:,.2f}'.format(scope_totals.Total) }} tCO₂e</strong>{% if is_yoy_template %}, compared to <strong>{{ '{:,.2f}'.format(benchmark_totals.Total) }} tCO₂e</strong> from the baseline year{% endif %}.
             </p>
 
             <h3>Emissions Summary by Scope</h3>
@@ -952,7 +952,7 @@
                     <tr>
                         <th>Scope</th>
                         <th class="text-right">Current Year (<span class="no-tx">tCO₂e</span>)</th>
-                        <th class="text-right">Benchmark Year (<span class="no-tx">tCO₂e</span>)</th>
+                        <th class="text-right">Baseline Year (<span class="no-tx">tCO₂e</span>)</th>
                         <th class="text-right">Change (%)</th>
                     </tr>
                 </thead>
@@ -1321,10 +1321,10 @@
                 </tbody>
             </table>
 
-            <!-- Benchmark Year -->
-            <h3 style="margin-top: 20px;">Benchmark Year</h3>
+            <!-- Baseline Year -->
+            <h3 style="margin-top: 20px;">Baseline Year</h3>
             <p>
-                The organisation's benchmark year is from 
+                The organisation's baseline year is from
                 {% if job_data.benchmark_period_start and job_data.benchmark_period_end %}
                     {% if job_data.benchmark_period_start.strftime %}{{ job_data.benchmark_period_start.strftime('%d %B %Y') }}{% else %}{{ job_data.benchmark_period_start }}{% endif %} 
                     to 
@@ -1371,7 +1371,7 @@
                         <span style="color: #666; font-size: 10pt; font-weight: 500;">tCO₂e</span>
                     </div>
                     <div style="text-align: center; padding: 6px 10px; border-left: 1px solid #e6e6e6;">
-                        <span style="color: #4B74C3; font-size: 10pt; text-transform: uppercase; letter-spacing: 2px;">Benchmark Emissions</span>
+                        <span style="color: #4B74C3; font-size: 10pt; text-transform: uppercase; letter-spacing: 2px;">Baseline Emissions</span>
                         <div style="color: #2f4f7f; font-size: 26pt; font-weight: 700; line-height: 1.2; margin: 10px 0;">
                             {{ '{:,.2f}'.format(benchmark_totals.Total) }}
                         </div>
@@ -1426,13 +1426,13 @@
             {% endif %}
 
             {% if is_yoy_template and site_overall_comparison and site_overall_comparison|length > 0 %}
-            <h3>Benchmark Comparison by Site</h3>
+            <h3>Baseline Comparison by Site</h3>
             <table class="data-table no-break">
                 <thead>
                     <tr>
                         <th>Site</th>
                         <th class="text-right">Current Year (<span class="no-tx">tCO₂e</span>)</th>
-                        <th class="text-right">Benchmark Year (<span class="no-tx">tCO₂e</span>)</th>
+                        <th class="text-right">Baseline Year (<span class="no-tx">tCO₂e</span>)</th>
                         <th class="text-right">Change (%)</th>
                     </tr>
                 </thead>
@@ -1559,7 +1559,7 @@
                     {% set _legy = _mt + _ph + 52 %}
                     {% set _legx = _ml + _pw / 2 - 110 %}
                     <rect x="{{ _legx }}" y="{{ _legy }}" width="13" height="13" fill="#94a3b8" rx="2"/>
-                    <text x="{{ _legx + 17 }}" y="{{ _legy + 10 }}" font-size="11" fill="#334155">Benchmark Year</text>
+                    <text x="{{ _legx + 17 }}" y="{{ _legy + 10 }}" font-size="11" fill="#334155">Baseline Year</text>
                     <rect x="{{ _legx + 128 }}" y="{{ _legy }}" width="13" height="13" fill="#1c5026" rx="2"/>
                     <text x="{{ _legx + 145 }}" y="{{ _legy + 10 }}" font-size="11" fill="#334155">Current Year</text>
                 </svg>
@@ -1656,13 +1656,13 @@
             {% endif %}
 
             {% if is_yoy_template and scope_comparison and scope_comparison|length > 0 %}
-            <h3>Scope Comparison vs Benchmark</h3>
+            <h3>Scope Comparison vs Baseline</h3>
             <table class="data-table no-break">
                 <thead>
                     <tr>
                         <th>Scope</th>
                         <th class="text-right">Current Year (<span class="no-tx">tCO₂e</span>)</th>
-                        <th class="text-right">Benchmark Year (<span class="no-tx">tCO₂e</span>)</th>
+                        <th class="text-right">Baseline Year (<span class="no-tx">tCO₂e</span>)</th>
                         <th class="text-right">Change (%)</th>
                     </tr>
                 </thead>
@@ -1838,13 +1838,13 @@
             {% endif %}
 
             {% if is_yoy_template and activity_comparison and activity_comparison|length > 0 %}
-            <h3>Activity Group Comparison vs Benchmark</h3>
+            <h3>Activity Group Comparison vs Baseline</h3>
             <table class="data-table no-break">
                 <thead>
                     <tr>
                         <th>Activity Group</th>
                         <th class="text-right">Current Year (<span class="no-tx">tCO₂e</span>)</th>
-                        <th class="text-right">Benchmark Year (<span class="no-tx">tCO₂e</span>)</th>
+                        <th class="text-right">Baseline Year (<span class="no-tx">tCO₂e</span>)</th>
                         <th class="text-right">Change (%)</th>
                     </tr>
                 </thead>

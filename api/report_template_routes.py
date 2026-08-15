@@ -525,7 +525,7 @@ REPORT_METADATA_AUTO_SYNC_FIELDS = {
 
 REPORT_METADATA_LABELS: dict[str, str] = {
     "report_title": "Report Title",
-    "benchmark_period_label": "Benchmark Period",
+    "benchmark_period_label": "Baseline Period",
     "current_reporting_period_label": "Reporting Period",
     "company_number": "Company Number",
     "registered_address": "Registered Address",
@@ -573,7 +573,7 @@ REPORT_METADATA_TEXTAREA_FIELDS = {
 
 REPORT_METADATA_EXTRA_ALIASES: dict[str, list[str]] = {
     "report_title": ["{Report Title}"],
-    "benchmark_period_label": ["{Benchmark Period}"],
+    "benchmark_period_label": ["{Benchmark Period}", "{Baseline Period}"],
     "current_reporting_period_label": ["Current Reporting Period", "{Reporting Period}"],
     "company_number": ["{Company Number}"],
     "registered_address": ["{Registered Address}"],
@@ -2152,7 +2152,7 @@ def _build_default_report_meta(con, job_id: int) -> dict[str, Any]:
     current_period_label = _format_period_label(row[0], row[1])
     benchmark_label = _format_period_label(row[10], row[11])
     if not benchmark_label and row[12] is not None:
-        benchmark_label = f"Benchmark reporting year: {int(row[12])}"
+        benchmark_label = f"Baseline reporting year: {int(row[12])}"
     if not benchmark_label:
         benchmark_label = current_period_label
 
@@ -2536,10 +2536,10 @@ def _ensure_crp_yoy_template(con) -> int | None:
 
     new_description = (
         str(source_description or "").strip()
-        or f"YoY vs benchmark variant cloned from {source_name}"
+        or f"YoY vs baseline variant cloned from {source_name}"
     )
     if "YoY" not in new_description:
-        new_description = f"{new_description} (YoY vs Benchmark)"
+        new_description = f"{new_description} (YoY vs Baseline)"
 
     new_template = con.execute(
         """
@@ -2551,7 +2551,7 @@ def _ensure_crp_yoy_template(con) -> int | None:
         """,
         [
             "crp_yoy_benchmark",
-            "Carbon Reduction Plan - YoY vs Benchmark",
+            "Carbon Reduction Plan - YoY vs Baseline",
             template_type,
             report_type,
             new_description,

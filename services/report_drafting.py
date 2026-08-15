@@ -655,11 +655,11 @@ def _build_context_lines(context: dict[str, Any]) -> list[str]:
         f"Section: {_get_section_config(str(context.get('section_key') or '')).get('title')}",
         f"Job: {_text(job_data.get('job_number') or context.get('job_id'))} | {_text(job_data.get('client_name') or 'Client')} | Reporting year {_text(job_data.get('reporting_year') or 'N/A')}",
         f"Client: {_text(job_data.get('industry') or 'Unknown industry')} | {_text(job_data.get('country') or 'Unknown country')}",
-        f"Company context: Net Zero target year {_text(job_data.get('net_zero_year') or 'N/A')} | Interim year {_text(job_data.get('interim_year') or 'N/A')} | Benchmark year {_text(job_data.get('benchmark_year') or 'N/A')}",
+        f"Company context: Net Zero target year {_text(job_data.get('net_zero_year') or 'N/A')} | Interim year {_text(job_data.get('interim_year') or 'N/A')} | Baseline year {_text(job_data.get('benchmark_year') or 'N/A')}",
         f"Operational context: {_text(job_data.get('description') or 'No company description provided.')}",
         f"Workforce context: Headcount {_text(job_data.get('no_of_staff') or 'N/A')} | Premises owned {_text(job_data.get('no_premises_owned') or 'N/A')} | Premises leased {_text(job_data.get('no_premises_leased') or 'N/A')} | Vehicles owned {_text(job_data.get('no_vehicles_owned') or 'N/A')} | Vehicles leased {_text(job_data.get('no_vehicles_leased') or 'N/A')}",
         f"Current totals: {_scope_total_text(scope_totals)}",
-        f"Benchmark totals: {_scope_total_text(benchmark_totals)}",
+        f"Baseline totals: {_scope_total_text(benchmark_totals)}",
     ]
 
     current_total = _as_float(scope_totals.get("Total"))
@@ -739,7 +739,7 @@ def _build_executive_summary_context_lines(context: dict[str, Any]) -> list[str]
         f"Operational context: {_text(job_data.get('description') or 'No company description provided.')}",
         f"Workforce context: Headcount {_text(job_data.get('no_of_staff') or 'N/A')} | Premises owned {_text(job_data.get('no_premises_owned') or 'N/A')} | Premises leased {_text(job_data.get('no_premises_leased') or 'N/A')} | Vehicles owned {_text(job_data.get('no_vehicles_owned') or 'N/A')} | Vehicles leased {_text(job_data.get('no_vehicles_leased') or 'N/A')}",
         f"Current totals: {_scope_total_text(scope_totals)}",
-        f"Benchmark totals: {_scope_total_text(benchmark_totals)}",
+        f"Baseline totals: {_scope_total_text(benchmark_totals)}",
     ]
 
     current_total = _as_float(scope_totals.get("Total"))

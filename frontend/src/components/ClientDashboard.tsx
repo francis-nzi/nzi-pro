@@ -378,7 +378,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
           <CardContent className="pt-5 text-right">
             <div className="space-y-0.5">
               <div className="text-sm text-muted-foreground">
-                Benchmark Emissions{benchmarkPoint?.year ? ` (${benchmarkPoint.year})` : ""}
+                Baseline Emissions{benchmarkPoint?.year ? ` (${benchmarkPoint.year})` : ""}
               </div>
               <div className="text-3xl font-semibold leading-none tabular-nums">
                 {benchmarkPoint ? formatEmissions(benchmarkPoint.total) : "-"}

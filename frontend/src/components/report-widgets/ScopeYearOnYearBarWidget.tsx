@@ -149,7 +149,7 @@ export function ScopeYearOnYearBarWidget({
           </div>
           {showComparisonPct && pct != null ? (
             <div className="pt-1 text-xs font-semibold" style={{ color: pct < 0 ? "#16a34a" : "#dc2626" }}>
-              {`${formatPct(pct)} vs benchmark`}
+              {`${formatPct(pct)} vs baseline`}
             </div>
           ) : null}
         </div>

@@ -947,16 +947,16 @@ function ClientDetailPageContent() {
               <div><span className="font-medium">Scope 2 Target:</span> <span className="text-muted-foreground">{client?.interim_s2_pct != null ? `${client.interim_s2_pct}%` : "Not set"}</span></div>
               <div><span className="font-medium">Scope 3 Target:</span> <span className="text-muted-foreground">{client?.interim_s3_pct != null ? `${client.interim_s3_pct}%` : "Not set"}</span></div>
             </div>
-            <div><span className="font-medium">Benchmark Year:</span> <span className="text-muted-foreground">{client?.benchmark_year ?? "Not set"}</span></div>
-            <div><span className="font-medium">Benchmark Start:</span> <span className="text-muted-foreground">{client?.benchmark_period_start ? new Date(client.benchmark_period_start).toLocaleDateString("en-GB") : "Not set"}</span></div>
-            <div><span className="font-medium">Benchmark End:</span> <span className="text-muted-foreground">{client?.benchmark_period_end ? new Date(client.benchmark_period_end).toLocaleDateString("en-GB") : "Not set"}</span></div>
+            <div><span className="font-medium">Baseline Year:</span> <span className="text-muted-foreground">{client?.benchmark_year ?? "Not set"}</span></div>
+            <div><span className="font-medium">Baseline Start:</span> <span className="text-muted-foreground">{client?.benchmark_period_start ? new Date(client.benchmark_period_start).toLocaleDateString("en-GB") : "Not set"}</span></div>
+            <div><span className="font-medium">Baseline End:</span> <span className="text-muted-foreground">{client?.benchmark_period_end ? new Date(client.benchmark_period_end).toLocaleDateString("en-GB") : "Not set"}</span></div>
             <div><span className="font-medium">Currency:</span> <span className="text-muted-foreground">{client?.currency ?? "Not set"}</span></div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Historical Benchmark Emissions</CardTitle>
+            <CardTitle>Historical Baseline Emissions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <div className="grid gap-2 md:grid-cols-2">

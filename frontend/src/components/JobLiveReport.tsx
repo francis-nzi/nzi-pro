@@ -348,7 +348,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
           : reportYear
             ? `Reporting year ${reportYear}`
             : "Current live totals",
-        note: benchmarkTotal > 0 ? `Benchmark: ${formatNumber(benchmarkTotal)} tCO₂e` : undefined,
+        note: benchmarkTotal > 0 ? `Baseline: ${formatNumber(benchmarkTotal)} tCO₂e` : undefined,
       }
     : null;
   const htmlReportUrl = `${baseUrl}/jobs/${jobId}/generate-html-report`;
@@ -509,7 +509,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
                   <span className="text-2xl font-semibold tabular-nums">{formatNumber(currentTotal)}</span>
                 </div>
                 <div className="flex items-center justify-between gap-4">
-                  <span className="text-slate-300">Benchmark</span>
+                  <span className="text-slate-300">Baseline</span>
                   <span className="text-xl font-semibold tabular-nums">{formatNumber(benchmarkTotal)}</span>
                 </div>
                 <div className="flex items-center justify-between gap-4">
@@ -574,7 +574,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
                       <tr className="border-b text-left text-slate-500">
                         <th className="py-2 pr-3">Scope</th>
                         <th className="py-2 pr-3 text-right">Current</th>
-                        <th className="py-2 pr-3 text-right">Benchmark</th>
+                        <th className="py-2 pr-3 text-right">Baseline</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -662,7 +662,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
                     <div className="text-xs text-slate-500">tCO₂e for the reporting year</div>
                   </div>
                   <div className="rounded-2xl border bg-slate-50 p-4">
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Benchmark</div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Baseline</div>
                     <div className="mt-2 text-3xl font-semibold tabular-nums">{formatNumber(benchmarkTotal)}</div>
                     <div className="text-xs text-slate-500">tCO₂e benchmark comparison</div>
                   </div>

@@ -627,7 +627,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
           <Link href={`/jobs/${yearJob.job_id}`} className="flex flex-col items-center gap-0.5" aria-label={`Open ${yearJobLabel}`}>
             {year === benchmarkYear ? (
               <Badge className="h-4 rounded-full border-amber-400 bg-amber-400 px-1.5 py-0 text-[9px] font-bold leading-none text-white">
-                BM
+                BL
               </Badge>
             ) : null}
             <span className="text-xs font-medium text-slate-700">{yearJobLabel}</span>
@@ -637,7 +637,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
           <div className="flex flex-col items-center gap-0.5">
             {year === benchmarkYear ? (
               <Badge className="h-4 rounded-full border-amber-400 bg-amber-400 px-1.5 py-0 text-[9px] font-bold leading-none text-white">
-                BM
+                BL
               </Badge>
             ) : null}
             <span className="text-sm font-normal">{year}</span>
@@ -866,7 +866,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
     const unit = tab === "emissions" ? "tCO₂e" : "Volume";
     const yearHeaders = comparisonYears.map((yr) => {
       const yj = yearJobsByYear.get(yr);
-      const bm = yr === benchmarkYear ? " (BM)" : "";
+      const bm = yr === benchmarkYear ? " (BL)" : "";
       return `${yr}${yj?.job_number ? ` ${yj.job_number}` : ""}${bm} ${unit}`;
     });
 

@@ -253,7 +253,7 @@ export default function PortalReporting() {
             {yr}{yr === benchmarkYear && showBenchmarkNote ? " ★" : ""}
           </th>
         ))}
-        <th className="text-right p-2 border text-xs font-medium text-gray-600">Change vs Benchmark</th>
+        <th className="text-right p-2 border text-xs font-medium text-gray-600">Change vs Baseline</th>
       </>
     );
   }
@@ -273,7 +273,7 @@ export default function PortalReporting() {
       <div className="grid gap-4 sm:grid-cols-3">
         <KpiCard label={`Total Emissions (${latestYear})`} value={fmt(getVal(by_scope, latestYear, "total"))} unit="tCO2e" />
         <KpiCard
-          label={`Change vs Benchmark (${benchmarkYear})`}
+          label={`Change vs Baseline (${benchmarkYear})`}
           value={(() => {
             if (!hasComparison) return "—";
             const pct = yoyPct(getVal(by_scope, latestYear, "total"), getVal(by_scope, benchmarkYear, "total"));
@@ -503,7 +503,7 @@ export default function PortalReporting() {
                     {sortedYears.map(({ year }) => (
                       <th key={year} className="text-right p-2 border text-xs font-medium text-gray-600">{year}</th>
                     ))}
-                    <th className="text-right p-2 border text-xs font-medium text-gray-600">Change vs Benchmark</th>
+                    <th className="text-right p-2 border text-xs font-medium text-gray-600">Change vs Baseline</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -722,7 +722,7 @@ export default function PortalReporting() {
         </div>
 
         {showBenchmarkNote && ["by-scope", "by-activity", "by-site"].includes(activeTab) && (
-          <p className="px-4 pb-3 text-xs text-muted-foreground">★ Benchmark year</p>
+          <p className="px-4 pb-3 text-xs text-muted-foreground">★ Baseline year</p>
         )}
       </Card>
 
@@ -775,7 +775,7 @@ export default function PortalReporting() {
                         {yr}{yr === benchmarkYear && showBenchmarkNote ? " ★" : ""}
                       </th>
                     ))}
-                    <th className="text-right p-2 border text-xs font-medium text-gray-600">Change vs Benchmark</th>
+                    <th className="text-right p-2 border text-xs font-medium text-gray-600">Change vs Baseline</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -859,7 +859,7 @@ export default function PortalReporting() {
                 </tbody>
               </table>
             </div>
-            {showBenchmarkNote && <p className="px-4 pb-3 text-xs text-muted-foreground">★ Benchmark year</p>}
+            {showBenchmarkNote && <p className="px-4 pb-3 text-xs text-muted-foreground">★ Baseline year</p>}
           </Card>
         );
       })()}

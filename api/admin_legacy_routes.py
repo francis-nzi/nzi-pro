@@ -1485,19 +1485,19 @@ def _build_wfm_client_field_backfill_preview(con, *, target_field: str, overwrit
             "transform": "month_from_date",
         },
         "benchmark_period_start": {
-            "label": "Benchmark Period Start",
+            "label": "Baseline Period Start",
             "target_column": "benchmark_period_start",
             "required_files": ["clients.csv", "custom_fields.csv", "client_custom_field_values.csv"],
             "default_candidates": WFM_CLIENT_FIELD_CANDIDATES.get("benchmark_period_start")
-            or ["Benchmark Date From", "Benchmark Period Start"],
+            or ["Benchmark Date From", "Benchmark Period Start", "Baseline Date From", "Baseline Period Start"],
             "transform": "date",
         },
         "benchmark_period_end": {
-            "label": "Benchmark Period End",
+            "label": "Baseline Period End",
             "target_column": "benchmark_period_end",
             "required_files": ["clients.csv", "custom_fields.csv", "client_custom_field_values.csv"],
             "default_candidates": WFM_CLIENT_FIELD_CANDIDATES.get("benchmark_period_end")
-            or ["Benchmark Date To", "Benchmark Period End"],
+            or ["Benchmark Date To", "Benchmark Period End", "Baseline Date To", "Baseline Period End"],
             "transform": "date",
         },
     }

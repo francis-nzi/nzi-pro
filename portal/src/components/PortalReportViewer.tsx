@@ -729,7 +729,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
     const changePct = (cur: number, bm: number) => (bm > 0 ? Math.round(((cur - bm) / bm) * 1000) / 10 : null);
 
     return {
-      benchmarkLabel: `BM ${benchmarkRow.year}`,
+      benchmarkLabel: `BL ${benchmarkRow.year}`,
       previousLabel: previousRow ? `Previous Year ${previousRow.year}` : "Previous Year",
       currentLabel: `Current Year ${currentRow.year}`,
       showBenchmarkBar: !isBenchmarkReportYear,
@@ -1073,7 +1073,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
           </div>
           {(data.job_data.benchmark_period_start || data.job_data.benchmark_period_end) && (
             <div>
-              <p className="text-sm font-semibold text-gray-700 mb-1">Benchmark Year</p>
+              <p className="text-sm font-semibold text-gray-700 mb-1">Baseline Year</p>
               <p className="text-sm text-gray-700 leading-relaxed">
                 The organisation&apos;s benchmark year is from {formatDate(data.job_data.benchmark_period_start ?? "")} to {formatDate(data.job_data.benchmark_period_end ?? "")}.
               </p>
@@ -1155,11 +1155,11 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
         const benchmarkPeriodLabel = (() => {
           const s = data.job_data.benchmark_period_start;
           const e = data.job_data.benchmark_period_end;
-          if (!s && !e) return "Benchmark Year";
+          if (!s && !e) return "Baseline Year";
           const sYear = s ? new Date(s).getFullYear() : null;
           const eYear = e ? new Date(e).getFullYear() : null;
           if (sYear && eYear && sYear !== eYear) return `${sYear}–${eYear}`;
-          return String(sYear ?? eYear ?? "Benchmark Year");
+          return String(sYear ?? eYear ?? "Baseline Year");
         })();
 
         const benchmarkTotal = toNum(benchmark_totals?.Total) ||
@@ -1232,7 +1232,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <div className="grid grid-cols-[56px_1fr_110px_110px_90px] border-b border-gray-200 bg-gray-50 px-3 py-1.5">
                     <span /><span />
                     <div className="text-right">
-                      <p className="text-xs font-semibold text-gray-600">Benchmark</p>
+                      <p className="text-xs font-semibold text-gray-600">Baseline</p>
                       <p className="text-xs text-gray-500">{benchmarkPeriodLabel}</p>
                     </div>
                     <div className="text-right">
@@ -1580,10 +1580,10 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <span className="text-xs font-semibold uppercase tracking-wide text-white">Scope</span>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white">Category</span>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">
-                    {hasBenchmark ? `${data.job_data.benchmark_period_start ? formatDate(data.job_data.benchmark_period_start) : "Benchmark"} tCO₂e` : "Benchmark tCO₂e"}
+                    {hasBenchmark ? `${data.job_data.benchmark_period_start ? formatDate(data.job_data.benchmark_period_start) : "Baseline"} tCO₂e` : "Baseline tCO₂e"}
                   </span>
                   <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Current Year tCO₂e</span>
-                  <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">% vs BM</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">% vs BL</span>
                 </div>
                 {tableRows}
                 <div className="grid grid-cols-[80px_1fr_120px_120px_70px] border-t-2 border-gray-300 px-3 py-2 bg-gray-50">

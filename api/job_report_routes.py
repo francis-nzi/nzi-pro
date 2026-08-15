@@ -131,7 +131,7 @@ _report_drafts_schema_seeded: bool = False
 
 DEFAULT_GLOSSARY_ENTRIES: list[dict[str, str]] = [
     {"term": "Absolute Emissions", "definition": "The total amount of greenhouse gasses calculated, measured in tonnes of CO2e."},
-    {"term": "Benchmark Data", "definition": "The chosen 12-month period that sets the calculated emissions that need to be mitigated and/or offset."},
+    {"term": "Baseline Data", "definition": "The chosen 12-month period that sets the calculated emissions that need to be mitigated and/or offset."},
     {"term": "Carbon Reduction", "definition": "Reduction in measured CO2e emissions."},
     {"term": "Carbon Emissions (Gross)", "definition": "CO2e emissions from Company activities."},
     {"term": "Carbon Reduction Plan", "definition": "Plan to reduce CO2e emissions over a period of time, updated annually."},

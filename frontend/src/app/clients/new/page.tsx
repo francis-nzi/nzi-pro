@@ -1107,17 +1107,17 @@ export default function NewClientPage() {
                 <div className="rounded-lg border border-orange-200 bg-orange-50 p-4 space-y-4">
                   <div>
                     <h4 className="font-semibold text-sm mb-1">
-                      Benchmark Period (Financial Year)
+                      Baseline Period (Financial Year)
                     </h4>
                     <p className="text-xs text-muted-foreground">
-                      Define the benchmark reporting period. This should align with
+                      Define the baseline reporting period. This should align with
                       the client&apos;s financial year. All subsequent annual jobs will
                       automatically follow this period structure.
                     </p>
                   </div>
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="benchmarkPeriodStart">Benchmark Period Start</Label>
+                      <Label htmlFor="benchmarkPeriodStart">Baseline Period Start</Label>
                       <Input
                         id="benchmarkPeriodStart"
                         type="date"
@@ -1128,7 +1128,7 @@ export default function NewClientPage() {
                       <p className="text-xs text-muted-foreground">e.g., 01/08/2022</p>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="benchmarkPeriodEnd">Benchmark Period End</Label>
+                      <Label htmlFor="benchmarkPeriodEnd">Baseline Period End</Label>
                       <Input
                         id="benchmarkPeriodEnd"
                         type="date"
@@ -1143,16 +1143,16 @@ export default function NewClientPage() {
 
                 <div className="rounded-lg border bg-slate-50 p-4 space-y-4">
                   <div>
-                    <h4 className="font-semibold text-sm mb-1">Historical Benchmark Emissions</h4>
+                    <h4 className="font-semibold text-sm mb-1">Historical Baseline Emissions</h4>
                     <p className="text-xs text-muted-foreground">
-                      Capture the third-party benchmark as provided. We recommend
+                      Capture the third-party baseline as provided. We recommend
                       filling the scope values and the total so report comparisons
                       can use the client baseline directly.
                     </p>
                   </div>
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="benchmarkScope1">Benchmark Scope 1</Label>
+                      <Label htmlFor="benchmarkScope1">Baseline Scope 1</Label>
                       <Input
                         id="benchmarkScope1"
                         type="number"
@@ -1164,7 +1164,7 @@ export default function NewClientPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="benchmarkScope2">Benchmark Scope 2</Label>
+                      <Label htmlFor="benchmarkScope2">Baseline Scope 2</Label>
                       <Input
                         id="benchmarkScope2"
                         type="number"
@@ -1176,7 +1176,7 @@ export default function NewClientPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="benchmarkScope3">Benchmark Scope 3</Label>
+                      <Label htmlFor="benchmarkScope3">Baseline Scope 3</Label>
                       <Input
                         id="benchmarkScope3"
                         type="number"
@@ -1188,7 +1188,7 @@ export default function NewClientPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="benchmarkTotal">Benchmark Total</Label>
+                      <Label htmlFor="benchmarkTotal">Baseline Total</Label>
                       <Input
                         id="benchmarkTotal"
                         type="number"

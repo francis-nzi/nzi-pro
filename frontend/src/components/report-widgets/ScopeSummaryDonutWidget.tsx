@@ -80,7 +80,7 @@ export function ScopeSummaryDonutWidget({
       if (pct != null) {
         const direction = pct <= 0 ? "down" : "up";
         const absPct = Math.abs(pct);
-        const label = `${direction === "down" ? "▼" : "▲"} ${absPct.toFixed(1)}% vs benchmark (${formatNumber(Number(benchmarkTotal || 0), 1)} tCO₂e)`;
+        const label = `${direction === "down" ? "▼" : "▲"} ${absPct.toFixed(1)}% vs baseline (${formatNumber(Number(benchmarkTotal || 0), 1)} tCO₂e)`;
         return {
           label,
           tone: direction,
@@ -94,7 +94,7 @@ export function ScopeSummaryDonutWidget({
       }
     }
 
-    const label = `vs benchmark ${benchmarkYear}`;
+    const label = `vs baseline ${benchmarkYear}`;
     return {
       label,
       tone: "neutral",

@@ -52,7 +52,7 @@ const PLACEHOLDER_REFERENCE: PlaceholderGroup[] = [
     title: "Core report details",
     items: [
       { token: "{Report Title}", meaning: "Report title" },
-      { token: "{Benchmark Period}", meaning: "Benchmark reporting period" },
+      { token: "{Baseline Period}", meaning: "Baseline reporting period" },
       { token: "{Reporting Period}", meaning: "Current reporting period" },
       { token: "{Company Number}", meaning: "Company registration number" },
       { token: "{Registered Address}", meaning: "Registered address" },

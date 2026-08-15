@@ -217,7 +217,7 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
                   ) : null}
                   {year === benchmarkYear ? (
                     <Badge className="h-4 rounded-full border-amber-400 bg-amber-400 px-1.5 py-0 text-[9px] font-bold leading-none text-white">
-                      BM
+                      BL
                     </Badge>
                   ) : null}
                   <span className="text-sm font-normal">
@@ -304,7 +304,7 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
                       <span>{yearJobLabel}</span>
                       {year === benchmarkYear ? (
                         <Badge className="h-4 rounded-full border-amber-400 bg-amber-400 px-1.5 py-0 text-[9px] font-bold leading-none text-white">
-                          BM
+                          BL
                         </Badge>
                       ) : null}
                       <span className="text-muted-foreground">({year})</span>
@@ -425,7 +425,7 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
                 </table>
               </div>
               {showBenchmarkNote && (
-                <p className="mt-2 text-xs text-muted-foreground">★ Benchmark year</p>
+                <p className="mt-2 text-xs text-muted-foreground">★ Baseline year</p>
               )}
             </CardContent>
           </Card>
@@ -515,7 +515,7 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
                 </table>
               </div>
               {showBenchmarkNote && (
-                <p className="mt-2 text-xs text-muted-foreground">★ Benchmark year</p>
+                <p className="mt-2 text-xs text-muted-foreground">★ Baseline year</p>
               )}
             </CardContent>
           </Card>
@@ -594,7 +594,7 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
                 </table>
               </div>
               {showBenchmarkNote && (
-                <p className="mt-2 text-xs text-muted-foreground">★ Benchmark year</p>
+                <p className="mt-2 text-xs text-muted-foreground">★ Baseline year</p>
               )}
             </CardContent>
           </Card>

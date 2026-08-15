@@ -143,7 +143,7 @@ export default function ChartGalleryPage() {
       <GallerySlot id="scope_year_on_year_bar">
         <ScopeYearOnYearBarWidget
           title="Scope Comparison Year on Year"
-          subtitle="Benchmark vs previous vs current"
+          subtitle="Baseline vs previous vs current"
           clientName={FIXTURE_CLIENT_NAME}
           data={FIXTURE_YOY_BARS}
           benchmarkLabel="2022 (benchmark)"

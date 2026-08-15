@@ -340,7 +340,7 @@ function DashboardPageInner() {
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <KpiCard
-                label={`Benchmark Emissions${metrics?.benchmark_metrics?.benchmark_year ? ` (${metrics.benchmark_metrics.benchmark_year})` : ""}`}
+                label={`Baseline Emissions${metrics?.benchmark_metrics?.benchmark_year ? ` (${metrics.benchmark_metrics.benchmark_year})` : ""}`}
                 value={metrics?.benchmark_metrics?.total != null ? formatEmissions(metrics.benchmark_metrics.total) : "—"}
                 unit="tCO2e"
               />

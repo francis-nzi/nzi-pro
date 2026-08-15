@@ -572,7 +572,7 @@ export default function CallPrepPanel({
                       )}
                       {engagement.benchmark_year && (
                         <div>
-                          <div className="text-xs uppercase tracking-[0.15em] text-muted-foreground">Benchmark Year</div>
+                          <div className="text-xs uppercase tracking-[0.15em] text-muted-foreground">Baseline Year</div>
                           <div>{engagement.benchmark_year}</div>
                         </div>
                       )}
