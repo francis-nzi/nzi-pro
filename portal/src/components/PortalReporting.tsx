@@ -485,6 +485,15 @@ export default function PortalReporting() {
               );
             }
 
+            // Compare against the most recent year that actually has data --
+            // an in-progress/not-yet-started latest year would otherwise
+            // compare against 0 and show a misleading -100% change.
+            const yearsWithData = sortedYears.filter(y => y.byKey.size > 0);
+            const intensityBenchmarkYear = yearsWithData[0]?.year ?? null;
+            const intensityLatestYear = yearsWithData[yearsWithData.length - 1]?.year ?? null;
+            const hasIntensityComparison =
+              intensityBenchmarkYear !== null && intensityLatestYear !== null && intensityBenchmarkYear !== intensityLatestYear;
+
             return (
               <table className="w-full text-sm border-collapse">
                 <thead>
@@ -494,32 +503,33 @@ export default function PortalReporting() {
                     {sortedYears.map(({ year }) => (
                       <th key={year} className="text-right p-2 border text-xs font-medium text-gray-600">{year}</th>
                     ))}
+                    <th className="text-right p-2 border text-xs font-medium text-gray-600">Change vs Benchmark</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {metricKeys.map(({ key, label, divider }) => (
-                    <tr key={key} className="hover:bg-gray-50">
-                      <td className="p-2 border text-xs font-medium">{label}</td>
-                      <td className="p-2 border text-xs text-gray-500">tCO₂e per {fmt0(divider)} units</td>
-                      {sortedYears.map(({ year, byKey }, idx) => {
-                        const metric = byKey.get(key);
-                        const intensity = metric ? Number(metric.intensity || 0) : null;
-                        const prevYear = sortedYears[idx - 1];
-                        const prevIntensity = prevYear?.byKey.get(key) ? Number(prevYear.byKey.get(key)!.intensity || 0) : null;
-                        const pct = intensity != null && prevIntensity != null ? yoyPct(intensity, prevIntensity) : null;
-                        return (
-                          <td key={year} className="text-right p-2 border text-xs tabular-nums">
-                            {intensity != null ? (
-                              <div>
-                                <div>{fmt2(intensity)}</div>
-                                {pct !== null && <TrendChip value={pct} />}
-                              </div>
-                            ) : "—"}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
+                  {metricKeys.map(({ key, label, divider }) => {
+                    const benchmarkIntensity = intensityBenchmarkYear !== null ? yearsWithData[0]?.byKey.get(key)?.intensity ?? 0 : 0;
+                    const latestIntensity =
+                      intensityLatestYear !== null ? yearsWithData[yearsWithData.length - 1]?.byKey.get(key)?.intensity ?? 0 : 0;
+                    return (
+                      <tr key={key} className="hover:bg-gray-50">
+                        <td className="p-2 border text-xs font-medium">{label}</td>
+                        <td className="p-2 border text-xs text-gray-500">tCO₂e per {fmt0(divider)} units</td>
+                        {sortedYears.map(({ year, byKey }) => {
+                          const metric = byKey.get(key);
+                          const intensity = metric ? Number(metric.intensity || 0) : null;
+                          return (
+                            <td key={year} className="text-right p-2 border text-xs tabular-nums">
+                              {intensity != null ? fmt2(intensity) : "—"}
+                            </td>
+                          );
+                        })}
+                        <td className="text-right p-2 border text-xs">
+                          {hasIntensityComparison ? <ChangeCell cur={Number(latestIntensity)} prev={Number(benchmarkIntensity)} /> : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {metricKeys.map(({ key, label }) => (
                     <tr key={`basis-${key}`} className="bg-gray-50 text-gray-500">
                       <td className="p-2 border pl-4 text-xs italic">{label} – basis</td>
@@ -532,6 +542,7 @@ export default function PortalReporting() {
                           </td>
                         );
                       })}
+                      <td className="p-2 border text-xs" />
                     </tr>
                   ))}
                 </tbody>
