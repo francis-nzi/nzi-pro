@@ -917,10 +917,55 @@ def _save_invoice_link(
     }
 
 
-def _line_items(con, invoice_id: int) -> list[dict[str, Any]]:
+_xero_tax_rates_cache: list[dict[str, Any]] | None = None
+
+
+def _fetch_xero_tax_rates(connection: Mapping[str, Any]) -> list[dict[str, Any]]:
+    global _xero_tax_rates_cache
+    if _xero_tax_rates_cache is not None:
+        return _xero_tax_rates_cache
+    response = _json_request("GET", f"{XERO_API_BASE.rstrip('/')}/TaxRates", headers=_xero_headers(connection))
+    _xero_tax_rates_cache = list(response.get("TaxRates") or [])
+    return _xero_tax_rates_cache
+
+
+def _resolve_xero_tax_type(vat_rate_pct: Any, connection: Mapping[str, Any] | None) -> str:
+    """Map a VAT percentage (e.g. 20.0) to this Xero organisation's own
+    configured sales TaxType code, instead of assuming a fixed code --
+    different orgs can rename/customise their tax rates. Every invoice/
+    credit note line was previously sent with a single hardcoded TaxType
+    regardless of what VAT the CRM had actually calculated, so a 20%-VAT
+    line would silently show as "No VAT" once it reached Xero."""
+    default = _env("XERO_DEFAULT_TAX_TYPE", XERO_DEFAULT_TAX_TYPE) or XERO_DEFAULT_TAX_TYPE
+    try:
+        target = round(float(vat_rate_pct), 2)
+    except Exception:
+        return default
+    if target <= 0 or connection is None:
+        return default
+    try:
+        rates = _fetch_xero_tax_rates(connection)
+    except Exception:
+        logger.warning("Failed to fetch Xero tax rates; falling back to default TaxType", exc_info=True)
+        return default
+    for rate in rates:
+        if str(rate.get("Status") or "").upper() != "ACTIVE":
+            continue
+        if not rate.get("CanApplyToRevenue"):
+            continue
+        try:
+            display_rate = round(float(rate.get("DisplayTaxRate") or rate.get("EffectiveRate") or 0), 2)
+        except Exception:
+            continue
+        if abs(display_rate - target) < 0.01:
+            return str(rate.get("TaxType") or default)
+    return default
+
+
+def _line_items(con, invoice_id: int, connection: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     account_code = _env("XERO_DEFAULT_ACCOUNT_CODE", XERO_DEFAULT_ACCOUNT_CODE) or XERO_DEFAULT_ACCOUNT_CODE
-    tax_type = _env("XERO_DEFAULT_TAX_TYPE", XERO_DEFAULT_TAX_TYPE) or XERO_DEFAULT_TAX_TYPE
+    tax_type_cache: dict[float, str] = {}
     for line in _invoice_lines(con, int(invoice_id)):
         qty = _safe_float(line.get("qty"), 1.0) or 1.0
         amount = _safe_float(line.get("amount_ex_vat"), 0.0)
@@ -943,6 +988,9 @@ def _line_items(con, invoice_id: int) -> list[dict[str, Any]]:
             ]
             if part
         ) or f"Invoice line {int(line.get('invoice_line_id') or 0)}"
+        vat_rate_pct = _safe_float(line.get("vat_rate_pct"), 0.0)
+        if vat_rate_pct not in tax_type_cache:
+            tax_type_cache[vat_rate_pct] = _resolve_xero_tax_type(vat_rate_pct, connection)
         # Note: no ItemCode is set here. Xero's ItemCode must reference an
         # actual entry in that organisation's own Inventory Items catalog --
         # our "unit" field (hour/day/each) is a free-text unit of measure
@@ -954,7 +1002,7 @@ def _line_items(con, invoice_id: int) -> list[dict[str, Any]]:
             "UnitAmount": round(unit_amount, 2),
             "LineAmount": round(amount or (qty * unit_amount), 2),
             "AccountCode": account_code,
-            "TaxType": tax_type,
+            "TaxType": tax_type_cache[vat_rate_pct],
         }
         items.append(item)
     return items
@@ -975,7 +1023,9 @@ def _xero_invoice_status(local_status: str | None) -> str:
     return "AUTHORISED"
 
 
-def build_xero_invoice_payload(con, invoice_id: int, *, contact_id: str | None = None, include_invoice_number: bool = False) -> dict[str, Any]:
+def build_xero_invoice_payload(
+    con, invoice_id: int, *, contact_id: str | None = None, include_invoice_number: bool = False, connection: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
     invoice = _invoice_row(con, int(invoice_id))
     client = _client_row(con, int(invoice.get("client_db_id") or 0))
     if not contact_id:
@@ -998,7 +1048,7 @@ def build_xero_invoice_payload(con, invoice_id: int, *, contact_id: str | None =
     if not due_date:
         due_date = (date.fromisoformat(invoice_date) + timedelta(days=7)).isoformat()
 
-    line_items = _line_items(con, int(invoice_id))
+    line_items = _line_items(con, int(invoice_id), connection=connection)
     if job_reference:
         # Reference already carries the job number, but it isn't always
         # prominent in Xero's UI/printed invoice -- add it as its own
@@ -1187,7 +1237,7 @@ def create_xero_invoice(invoice_id: int, *, con=None, connection: Mapping[str, A
         invoice = _invoice_row(con, int(invoice_id))
         connection = _refresh_token(connection or get_xero_connection(con) or {})
         contact = upsert_xero_contact(int(invoice.get("client_db_id") or 0), con=con, connection=connection)
-        payload = build_xero_invoice_payload(con, int(invoice_id), contact_id=contact.get("xero_contact_id"), include_invoice_number=False)
+        payload = build_xero_invoice_payload(con, int(invoice_id), contact_id=contact.get("xero_contact_id"), include_invoice_number=False, connection=connection)
 
         existing = _find_unclaimed_xero_invoice_by_reference(
             con,
@@ -1244,7 +1294,7 @@ def update_xero_invoice(invoice_id: int, *, con=None, connection: Mapping[str, A
             return create_xero_invoice(int(invoice_id), con=con, connection=connection)
         connection = _refresh_token(connection or get_xero_connection(con) or {})
         contact = upsert_xero_contact(int(invoice.get("client_db_id") or 0), con=con, connection=connection)
-        payload = build_xero_invoice_payload(con, int(invoice_id), contact_id=contact.get("xero_contact_id"), include_invoice_number=True)
+        payload = build_xero_invoice_payload(con, int(invoice_id), contact_id=contact.get("xero_contact_id"), include_invoice_number=True, connection=connection)
         payload["InvoiceID"] = str(invoice.get("xero_invoice_id") or "").strip()
         response = _json_request("PUT", f"{XERO_API_BASE.rstrip('/')}/Invoices", headers=_xero_headers(connection), payload={"Invoices": [payload]})
         xero_invoice = (response.get("Invoices") or [{}])[0]
@@ -1525,10 +1575,10 @@ def _save_credit_note_link(
     }
 
 
-def _credit_note_line_items(con, credit_note_id: int) -> list[dict[str, Any]]:
+def _credit_note_line_items(con, credit_note_id: int, connection: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     account_code = _env("XERO_DEFAULT_ACCOUNT_CODE", XERO_DEFAULT_ACCOUNT_CODE) or XERO_DEFAULT_ACCOUNT_CODE
-    tax_type = _env("XERO_DEFAULT_TAX_TYPE", XERO_DEFAULT_TAX_TYPE) or XERO_DEFAULT_TAX_TYPE
+    tax_type_cache: dict[float, str] = {}
     for line in _credit_note_lines(con, int(credit_note_id)):
         qty = _safe_float(line.get("qty"), 1.0) or 1.0
         amount = _safe_float(line.get("amount_ex_vat"), 0.0)
@@ -1548,19 +1598,24 @@ def _credit_note_line_items(con, credit_note_id: int) -> list[dict[str, Any]]:
             ]
             if part
         ) or f"Credit note line {int(line.get('credit_note_line_id') or 0)}"
+        vat_rate_pct = _safe_float(line.get("vat_rate_pct"), 0.0)
+        if vat_rate_pct not in tax_type_cache:
+            tax_type_cache[vat_rate_pct] = _resolve_xero_tax_type(vat_rate_pct, connection)
         item = {
             "Description": description,
             "Quantity": round(qty, 4),
             "UnitAmount": round(unit_amount, 2),
             "LineAmount": round(amount or (qty * unit_amount), 2),
             "AccountCode": account_code,
-            "TaxType": tax_type,
+            "TaxType": tax_type_cache[vat_rate_pct],
         }
         items.append(item)
     return items
 
 
-def build_xero_credit_note_payload(con, credit_note_id: int, *, contact_id: str | None = None, include_credit_note_number: bool = False) -> dict[str, Any]:
+def build_xero_credit_note_payload(
+    con, credit_note_id: int, *, contact_id: str | None = None, include_credit_note_number: bool = False, connection: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
     credit_note = _credit_note_row(con, int(credit_note_id))
     client = _client_row(con, int(credit_note.get("client_db_id") or 0))
     if not contact_id:
@@ -1580,7 +1635,7 @@ def build_xero_credit_note_payload(con, credit_note_id: int, *, contact_id: str 
 
     credit_note_date = _safe_date(credit_note.get("credit_note_date"), _today()) or _today().isoformat()
 
-    line_items = _credit_note_line_items(con, int(credit_note_id))
+    line_items = _credit_note_line_items(con, int(credit_note_id), connection=connection)
     if job_reference:
         line_items.append(
             {
@@ -1639,7 +1694,7 @@ def create_xero_credit_note(credit_note_id: int, *, con=None, connection: Mappin
         credit_note = _credit_note_row(con, int(credit_note_id))
         connection = _refresh_token(connection or get_xero_connection(con) or {})
         contact = upsert_xero_contact(int(credit_note.get("client_db_id") or 0), con=con, connection=connection)
-        payload = build_xero_credit_note_payload(con, int(credit_note_id), contact_id=contact.get("xero_contact_id"), include_credit_note_number=False)
+        payload = build_xero_credit_note_payload(con, int(credit_note_id), contact_id=contact.get("xero_contact_id"), include_credit_note_number=False, connection=connection)
         response = _json_request("PUT", f"{XERO_API_BASE.rstrip('/')}/CreditNotes", headers=_xero_headers(connection), payload={"CreditNotes": [payload]})
         xero_credit_note = (response.get("CreditNotes") or [{}])[0]
         if not isinstance(xero_credit_note, Mapping) or not str(xero_credit_note.get("CreditNoteID") or "").strip():
@@ -1680,7 +1735,7 @@ def update_xero_credit_note(credit_note_id: int, *, con=None, connection: Mappin
             return create_xero_credit_note(int(credit_note_id), con=con, connection=connection)
         connection = _refresh_token(connection or get_xero_connection(con) or {})
         contact = upsert_xero_contact(int(credit_note.get("client_db_id") or 0), con=con, connection=connection)
-        payload = build_xero_credit_note_payload(con, int(credit_note_id), contact_id=contact.get("xero_contact_id"), include_credit_note_number=True)
+        payload = build_xero_credit_note_payload(con, int(credit_note_id), contact_id=contact.get("xero_contact_id"), include_credit_note_number=True, connection=connection)
         payload["CreditNoteID"] = str(credit_note.get("xero_credit_note_id") or "").strip()
         response = _json_request("PUT", f"{XERO_API_BASE.rstrip('/')}/CreditNotes", headers=_xero_headers(connection), payload={"CreditNotes": [payload]})
         xero_credit_note = (response.get("CreditNotes") or [{}])[0]
