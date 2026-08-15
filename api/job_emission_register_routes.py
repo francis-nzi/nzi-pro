@@ -18,6 +18,8 @@ from services.virus_scan import VirusScanError, scan_bytes
 
 router = APIRouter()
 
+_schema_ensured = False
+
 
 class _PreviewRollback(Exception):
     """Raised inside a transaction to force a rollback while still carrying
@@ -30,6 +32,14 @@ class _PreviewRollback(Exception):
 
 
 def _ensure_schema(con) -> None:
+    global _schema_ensured
+    if _schema_ensured:
+        return
+    _ensure_schema_uncached(con)
+    _schema_ensured = True
+
+
+def _ensure_schema_uncached(con) -> None:
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS job_emission_groups (
