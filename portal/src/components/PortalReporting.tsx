@@ -50,6 +50,9 @@ type CompletenessData = {
   cells: CompletenessCell[];
 };
 
+type IntensityMetric = { key: string; label: string; value: number; divider: number; intensity: number };
+type YearlyIntensity = { year: number; metrics: IntensityMetric[] };
+
 type IngestionItem = {
   row_id: number;
   activity: string;
@@ -114,6 +117,14 @@ function fmt(n: number): string {
   return n.toLocaleString("en-GB", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 }
 
+function fmt2(n: number): string {
+  return n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmt0(n: number): string {
+  return n.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
 function getVal(arr: Array<{ [k: string]: number | string }>, year: number, key: string): number {
   const row = arr.find(r => r.year === year);
   if (!row) return 0;
@@ -132,7 +143,7 @@ function ChangeCell({ cur, prev }: { cur: number; prev: number }) {
   return <TrendChip value={pct} />;
 }
 
-type TabKey = "by-scope" | "by-activity" | "by-site" | "completeness" | "ingestion";
+type TabKey = "by-scope" | "by-activity" | "by-site" | "intensity" | "completeness" | "ingestion";
 
 export default function PortalReporting() {
   const [data, setData] = useState<ReportingData | null>(null);
@@ -149,6 +160,10 @@ export default function PortalReporting() {
   const [ingestionLoading, setIngestionLoading] = useState(false);
   const [ingestionError, setIngestionError] = useState("");
   const [ingestionSearch, setIngestionSearch] = useState("");
+
+  const [yearlyIntensity, setYearlyIntensity] = useState<YearlyIntensity[] | null>(null);
+  const [intensityLoading, setIntensityLoading] = useState(false);
+  const [intensityError, setIntensityError] = useState("");
 
   useEffect(() => {
     apiFetch("/portal/reporting-data")
@@ -176,7 +191,15 @@ export default function PortalReporting() {
         .catch(e => setIngestionError((e as Error).message))
         .finally(() => setIngestionLoading(false));
     }
-  }, [activeTab, completeness, completenessLoading, ingestion, ingestionLoading]);
+    if (activeTab === "intensity" && yearlyIntensity === null && !intensityLoading) {
+      setIntensityLoading(true);
+      apiFetch("/portal/metrics")
+        .then(r => r.json() as Promise<{ yearly_intensity_metrics?: YearlyIntensity[] }>)
+        .then(d => setYearlyIntensity(d.yearly_intensity_metrics ?? []))
+        .catch(e => setIntensityError((e as Error).message))
+        .finally(() => setIntensityLoading(false));
+    }
+  }, [activeTab, completeness, completenessLoading, ingestion, ingestionLoading, yearlyIntensity, intensityLoading]);
 
   if (loading) return <SkeletonLoader rows={4} />;
   if (error) return <ErrorPanel description={`Failed to load reporting data: ${error}`} />;
@@ -239,6 +262,7 @@ export default function PortalReporting() {
     { key: "by-scope", label: "By Scope" },
     { key: "by-activity", label: "By Activity" },
     { key: "by-site", label: "By Site" },
+    { key: "intensity", label: "Intensity" },
     { key: "completeness", label: "Completeness" },
     { key: "ingestion", label: "Ingestion Feed" },
   ];
@@ -428,6 +452,88 @@ export default function PortalReporting() {
                       {hasComparison ? <ChangeCell cur={getVal(by_site, latestYear, "total")} prev={getVal(by_site, benchmarkYear, "total")} /> : "—"}
                     </td>
                   </tr>
+                </tbody>
+              </table>
+            );
+          })()}
+
+          {activeTab === "intensity" && (() => {
+            if (intensityLoading) return <div className="p-4"><SkeletonLoader rows={4} /></div>;
+            if (intensityError) return <div className="p-4"><ErrorPanel description={`Failed to load intensity metrics: ${intensityError}`} /></div>;
+
+            const sortedYears = (yearlyIntensity ?? [])
+              .filter(r => r.year !== null)
+              .sort((a, b) => a.year - b.year)
+              .map(r => ({ year: r.year, byKey: new Map(r.metrics.map(m => [m.key, m])) }));
+
+            const seen = new Map<string, { label: string; divider: number }>();
+            for (const row of sortedYears) {
+              row.byKey.forEach((m, key) => {
+                if (!seen.has(key)) seen.set(key, { label: m.label || key, divider: m.divider || 1 });
+              });
+            }
+            const metricKeys = Array.from(seen.entries()).map(([key, meta]) => ({ key, ...meta }));
+
+            if (metricKeys.length === 0) {
+              return (
+                <div className="p-4">
+                  <EmptyStatePanel
+                    title="No intensity metrics available yet"
+                    description="This appears once turnover, headcount, or other intensity basis figures have been added to a reporting year."
+                  />
+                </div>
+              );
+            }
+
+            return (
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="text-left p-2 border text-xs font-medium text-gray-600">Metric</th>
+                    <th className="text-left p-2 border text-xs font-medium text-gray-600">Unit</th>
+                    {sortedYears.map(({ year }) => (
+                      <th key={year} className="text-right p-2 border text-xs font-medium text-gray-600">{year}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {metricKeys.map(({ key, label, divider }) => (
+                    <tr key={key} className="hover:bg-gray-50">
+                      <td className="p-2 border text-xs font-medium">{label}</td>
+                      <td className="p-2 border text-xs text-gray-500">tCO₂e per {fmt0(divider)} units</td>
+                      {sortedYears.map(({ year, byKey }, idx) => {
+                        const metric = byKey.get(key);
+                        const intensity = metric ? Number(metric.intensity || 0) : null;
+                        const prevYear = sortedYears[idx - 1];
+                        const prevIntensity = prevYear?.byKey.get(key) ? Number(prevYear.byKey.get(key)!.intensity || 0) : null;
+                        const pct = intensity != null && prevIntensity != null ? yoyPct(intensity, prevIntensity) : null;
+                        return (
+                          <td key={year} className="text-right p-2 border text-xs tabular-nums">
+                            {intensity != null ? (
+                              <div>
+                                <div>{fmt2(intensity)}</div>
+                                {pct !== null && <TrendChip value={pct} />}
+                              </div>
+                            ) : "—"}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                  {metricKeys.map(({ key, label }) => (
+                    <tr key={`basis-${key}`} className="bg-gray-50 text-gray-500">
+                      <td className="p-2 border pl-4 text-xs italic">{label} – basis</td>
+                      <td className="p-2 border text-xs">units</td>
+                      {sortedYears.map(({ year, byKey }) => {
+                        const metric = byKey.get(key);
+                        return (
+                          <td key={year} className="text-right p-2 border text-xs tabular-nums">
+                            {metric ? fmt0(metric.value || 0) : "—"}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             );
