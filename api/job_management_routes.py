@@ -433,6 +433,43 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                 import sys
                 print(f"[warn] auto-populate job_line_items for job {job_id}: {_tpl_err}", file=sys.stderr)
 
+            # Carry forward intensity-metric CATEGORIES (labels/dividers, e.g.
+            # Turnover, Employee) from the client's most recent prior job, so
+            # a new job doesn't start with only the hardcoded Employee row --
+            # previously the CRM had to remember to re-add e.g. Turnover on
+            # every new job. Values reset to 0 since they're year-specific;
+            # only the metric definitions carry over.
+            if client_db_id is not None:
+                try:
+                    import json as _json
+                    prior_row = con.execute(
+                        """
+                        SELECT intensity_metrics
+                        FROM jobs
+                        WHERE client_db_id = ? AND job_id != ? AND intensity_metrics IS NOT NULL
+                        ORDER BY reporting_period_end DESC NULLS LAST, reporting_year DESC NULLS LAST
+                        LIMIT 1
+                        """,
+                        [int(client_db_id), job_id],
+                    ).fetchone()
+                    prior_metrics = prior_row[0] if prior_row else None
+                    if isinstance(prior_metrics, str):
+                        prior_metrics = _json.loads(prior_metrics)
+                    if isinstance(prior_metrics, dict) and prior_metrics:
+                        carried = {
+                            key: {**meta, "value": 0}
+                            for key, meta in prior_metrics.items()
+                            if isinstance(meta, dict)
+                        }
+                        if carried:
+                            con.execute(
+                                "UPDATE jobs SET intensity_metrics = CAST(? AS JSONB) WHERE job_id = ?",
+                                [_json.dumps(carried), job_id],
+                            )
+                except Exception as _intensity_err:
+                    import sys
+                    print(f"[warn] carry forward intensity metrics for job {job_id}: {_intensity_err}", file=sys.stderr)
+
             return {
                 "ok": True,
                 "job_id": job_id,
