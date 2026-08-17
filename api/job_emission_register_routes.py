@@ -612,6 +612,17 @@ def _list_register(con, job_id: int, source_type: str | None, include_disabled: 
         source_params,
     ).df()
 
+    # Pandas represents nullable numeric/object values as NaN/NaT in result
+    # frames.  Returning one of those values directly makes Starlette's JSON
+    # renderer raise "Out of range float values are not JSON compliant", which
+    # surfaced as a generic 500 for emission registers containing optional
+    # fields (notably Employee Commuting rows).  Cast to object first so None is
+    # retained instead of immediately being coerced back to NaN.
+    if groups_df is not None and not groups_df.empty:
+        groups_df = groups_df.astype(object).where(groups_df.notna(), None)
+    if sources_df is not None and not sources_df.empty:
+        sources_df = sources_df.astype(object).where(sources_df.notna(), None)
+
     groups: list[dict[str, Any]] = []
     group_map: dict[int, list[dict[str, Any]]] = {}
     source_rows = [] if sources_df is None or sources_df.empty else sources_df.to_dict("records")
