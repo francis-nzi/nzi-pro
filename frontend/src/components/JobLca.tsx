@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import SearchableStringSelect from "@/components/SearchableStringSelect";
+import LocationAutocompleteInput from "@/components/LocationAutocompleteInput";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -3650,15 +3651,18 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                       />
                       <div className="space-y-1">
                         <div className="flex gap-1">
-                          <Input
-                            value={newLegOrigin}
-                            onChange={(e) => {
-                              setNewLegOrigin(e.target.value);
-                              setNewLegOriginSupplierLocationId(null); // typed manually -- no longer matches a picked library row
-                            }}
-                            placeholder="Origin, e.g. Changsha, Hunan, China"
-                            className="h-8"
-                          />
+                          <div className="flex-1">
+                            <LocationAutocompleteInput
+                              baseUrl={baseUrl}
+                              value={newLegOrigin}
+                              onChange={(text) => {
+                                setNewLegOrigin(text);
+                                setNewLegOriginSupplierLocationId(null); // typed manually -- no longer matches a picked library row
+                              }}
+                              placeholder="Origin, e.g. Changsha, Hunan, China"
+                              className="h-8"
+                            />
+                          </div>
                           <Button
                             type="button"
                             size="sm"
@@ -3714,10 +3718,11 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                         )}
                       </div>
                       <div className="space-y-1">
-                        <Input
+                        <LocationAutocompleteInput
+                          baseUrl={baseUrl}
                           value={newLegDestination}
-                          onChange={(e) => {
-                            setNewLegDestination(e.target.value);
+                          onChange={(text) => {
+                            setNewLegDestination(text);
                             setNewLegDestinationClientSiteId(null);
                           }}
                           onFocus={() => void loadClientSitesForLegs()}

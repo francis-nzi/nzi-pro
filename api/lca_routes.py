@@ -21,7 +21,7 @@ from services.lca_engine import (
     safe_float,
     summarize_assessment,
 )
-from services.geocoding import geocode_location
+from services.geocoding import geocode_location, search_locations
 from services.lca_transport import (
     DETOUR_FACTORS,
     FREIGHT_DEFAULT_FACTORS,
@@ -1609,6 +1609,22 @@ def _destination_geo_from_client_site(con, site_id: int) -> dict[str, Any] | Non
     if not row or row[0] is None or row[1] is None:
         return None
     return {"latitude": safe_float(row[0]), "longitude": safe_float(row[1]), "precision": row[2] or "address"}
+
+
+@router.get("/jobs/geocoding/search")
+def search_locations_endpoint(
+    q: str = Query("", min_length=3),
+    limit: int = Query(5, ge=1, le=10),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Live autocomplete backing the transport-leg origin/destination
+    fields -- lets a user pick a real, Nominatim-confirmed place instead of
+    typing one blind and only finding out it didn't geocode at save time.
+    Safe to call from a per-keystroke UI path: every Nominatim request in
+    services/geocoding.py (this one included) goes through a shared,
+    process-wide throttle enforcing Nominatim's >=1 request/second usage
+    policy across every caller, not just this endpoint."""
+    return {"items": search_locations(q, limit=limit)}
 
 
 def _resolve_leg_geo_and_distance(
