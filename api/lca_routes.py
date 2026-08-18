@@ -1462,6 +1462,11 @@ def update_line_item(job_id: int, line_item_id: int, body: dict = Body(...), _us
         with get_conn(autocommit=False) as con:
             assessment_id = _line_item_assessment(con, int(job_id), int(line_item_id))
             valid_modules = _valid_module_codes(con)
+            current_module_row = con.execute(
+                "SELECT module_code FROM lca_line_items WHERE line_item_id = %s", [int(line_item_id)]
+            ).fetchone()
+            current_module_code = str(current_module_row[0] or "") if current_module_row else ""
+            module_changed = False
             edits: list[str] = []
             params: list[Any] = []
             numeric_fields = {"quantity", "distance_km", "energy_kwh", "factor_value"}
@@ -1479,6 +1484,8 @@ def update_line_item(job_id: int, line_item_id: int, body: dict = Body(...), _us
                     val = str(body.get(field) or "").strip().upper()
                     if val not in valid_modules:
                         raise HTTPException(status_code=400, detail=f"Invalid module_code: {val}")
+                    if val != current_module_code:
+                        module_changed = True
                     edits.append("module_code = %s")
                     params.append(val)
                 elif field in numeric_fields:
@@ -1513,6 +1520,17 @@ def update_line_item(job_id: int, line_item_id: int, body: dict = Body(...), _us
                 if legs_cleared:
                     con.execute("DELETE FROM lca_transport_legs WHERE line_item_id = %s", [int(line_item_id)])
                     edits.append("transport_emissions_tco2e = NULL")
+            # Changing module_code away from (or between) transport stages
+            # orphans any legs and the cached transport_emissions_tco2e they
+            # produced -- resolve_line_emissions_tco2e still prefers that
+            # cached value over factor_value/quantity whenever it's non-NULL,
+            # so a leftover 0.0 from a since-abandoned transport experiment
+            # silently zeroes the line forever. Clear both whenever the
+            # module actually changes, mirroring the factor_value branch
+            # above (skip if it already ran, to not double up the edit).
+            if module_changed and not legs_cleared:
+                con.execute("DELETE FROM lca_transport_legs WHERE line_item_id = %s", [int(line_item_id)])
+                edits.append("transport_emissions_tco2e = NULL")
             edits.extend(["updated_at = NOW()", "updated_by = %s"])
             params.append(_actor(_user))
             params.append(int(line_item_id))

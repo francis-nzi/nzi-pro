@@ -1243,6 +1243,17 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
 
   async function saveInventoryDetail() {
     if (!detailItem) return;
+    // Changing the module away from (or between) transport stages deletes
+    // this line's transport legs server-side (a stale cached
+    // transport_emissions_tco2e otherwise permanently masks its real
+    // factor_value/quantity total -- see api/lca_routes.py update_line_item).
+    // Only worth confirming when there's actually something to lose.
+    if (detailModule !== detailItem.module_code && transportLegs.length > 0) {
+      const ok = window.confirm(
+        "Changing the module will delete this item's transport legs and clear its calculated distance emissions. Continue?"
+      );
+      if (!ok) return;
+    }
     setSavingDetail(true);
     setStatus("Saving item...");
     try {
@@ -2513,7 +2524,11 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                           </thead>
                           <tbody>
                             {pagedInventoryItems.map((row) => {
-                                const resolved = row.is_placeholder || Boolean(row.mapped_factor_source) || row.is_gap_filled;
+                                // A transport-module row with no legs (or legs summing to
+                                // exactly 0) computes to a real 0 total but isn't actually
+                                // "Mapped" -- it still needs a journey/factor added.
+                                const needsLegs = TRANSPORT_MODULE_CODES.includes(row.module_code) && !row.transport_emissions_tco2e;
+                                const resolved = !needsLegs && (row.is_placeholder || Boolean(row.mapped_factor_source) || row.is_gap_filled);
                                 const kgco2e = (row.emissions_tco2e || 0) * 1000;
                                 return (
                                   <tr
