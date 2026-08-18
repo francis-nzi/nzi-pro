@@ -1654,16 +1654,24 @@ def _resolve_leg_geo_and_distance(
 def _recompute_line_transport_emissions(con, line_item_id: int) -> None:
     """Sums every leg's emissions_tco2e into the parent line's
     transport_emissions_tco2e -- the cached value resolve_line_emissions_tco2e
-    (services/lca_engine.py) reads instead of quantity x factor_value."""
+    (services/lca_engine.py) reads instead of quantity x factor_value.
+
+    Always writes a concrete number, never NULL: this function is only ever
+    called right after a leg create/update/delete for this line_item_id, so
+    by definition the line is transport-leg-managed. Writing NULL for "zero
+    legs remaining" (e.g. the last leg just got deleted) made
+    resolve_line_emissions_tco2e treat it as "not transport-managed" and
+    silently fall back to the line's own factor_value/mapped_factor_id --
+    often stale leftovers from before the line switched to using legs,
+    reviving a number that should have gone to zero."""
     row = con.execute(
         "SELECT COUNT(*), COALESCE(SUM(emissions_tco2e), 0) FROM lca_transport_legs WHERE line_item_id = %s",
         [int(line_item_id)],
     ).fetchone()
-    leg_count = int(row[0]) if row else 0
     total = float(row[1]) if row else 0.0
     con.execute(
         "UPDATE lca_line_items SET transport_emissions_tco2e = %s WHERE line_item_id = %s",
-        [total if leg_count > 0 else None, int(line_item_id)],
+        [total, int(line_item_id)],
     )
 
 
