@@ -1851,7 +1851,10 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   // becomes its own single-row group keyed by its label, so nothing that's
   // visible in the flat list silently disappears from this view.
   const inventoryBreakdown = useMemo(() => {
-    const rows = new Map<string, { key: string; label: string; moduleTotals: Record<string, number>; rowTotal: number }>();
+    const rows = new Map<
+      string,
+      { key: string; label: string; moduleTotals: Record<string, number>; rowTotal: number; lineItems: LineItem[] }
+    >();
     const moduleCodesPresent = new Set<string>();
     for (const item of filteredInventoryItems) {
       const key = item.component_id != null ? `c-${item.component_id}` : `l-${item.line_label}`;
@@ -1860,12 +1863,13 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
         const componentMatch = item.component_id != null
           ? assessmentComponents.find((c) => c.component_id === item.component_id)
           : null;
-        row = { key, label: componentMatch?.label || item.line_label, moduleTotals: {}, rowTotal: 0 };
+        row = { key, label: componentMatch?.label || item.line_label, moduleTotals: {}, rowTotal: 0, lineItems: [] };
         rows.set(key, row);
       }
       const emissions = item.emissions_tco2e || 0;
       row.moduleTotals[item.module_code] = (row.moduleTotals[item.module_code] || 0) + emissions;
       row.rowTotal += emissions;
+      row.lineItems.push(item);
       moduleCodesPresent.add(item.module_code);
     }
     // modules is already sort_order-ordered by the backend (api/lca_routes.py
@@ -2365,7 +2369,16 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                     </thead>
                     <tbody>
                       {inventoryBreakdown.rows.map((row) => (
-                        <tr key={row.key} className="hover:bg-muted/30">
+                        <tr
+                          key={row.key}
+                          className="cursor-pointer hover:bg-muted/30"
+                          onClick={() => row.lineItems[0] && openInventoryDetail(row.lineItems[0])}
+                          title={
+                            row.lineItems.length > 1
+                              ? `Opens the ${moduleLabel(row.lineItems[0].module_code)} line -- this component has ${row.lineItems.length} module lines`
+                              : undefined
+                          }
+                        >
                           <td className="p-2 border font-medium text-foreground">{row.label}</td>
                           {inventoryBreakdown.moduleCodes.map((code) => (
                             <td key={code} className="p-2 border text-right text-muted-foreground">
@@ -2438,12 +2451,10 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                         onPrev={() => setInventoryPage((p) => Math.max(0, p - 1))}
                         onNext={() => setInventoryPage((p) => Math.min(inventoryPageCount - 1, p + 1))}
                       />
-                      <div className="grid grid-cols-[1fr_100px_120px_110px_130px_100px_90px] gap-2 border-b px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                      <div className="grid grid-cols-[1fr_110px_80px_100px_90px] gap-2 border-b px-2 py-1.5 text-xs font-medium text-muted-foreground">
                         <span>Item</span>
-                        <span>Module</span>
-                        <span>Category</span>
                         <span className="text-right">Qty</span>
-                        <span className="text-right">Factor</span>
+                        <span>Module</span>
                         <span className="text-right">tCO2e</span>
                         <span>Status</span>
                       </div>
@@ -2456,18 +2467,14 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                               key={row.line_item_id}
                               type="button"
                               onClick={() => openInventoryDetail(row)}
-                              className="grid w-full grid-cols-[1fr_100px_120px_110px_130px_100px_90px] items-center gap-2 rounded-md border-b px-2 py-2 text-left text-xs last:border-0 hover:bg-muted/50"
+                              className="grid w-full grid-cols-[1fr_110px_80px_100px_90px] items-center gap-2 rounded-md border-b px-2 py-2 text-left text-xs last:border-0 hover:bg-muted/50"
                             >
                               <span className="truncate font-medium text-foreground">{row.line_label}</span>
-                              <span className="text-muted-foreground">{moduleLabel(row.module_code)}</span>
-                              <span className="truncate text-muted-foreground">
-                                {row.material_category_id ? categoryName(row.material_category_id) : "Uncategorized"}
-                              </span>
                               <span className="text-right text-muted-foreground">
                                 {Number(row.quantity || 0).toLocaleString()} {row.unit || ""}
                               </span>
-                              <span className="text-right text-muted-foreground">
-                                {Number(row.factor_value || 0).toLocaleString()} {row.factor_unit || ""}
+                              <span className="text-muted-foreground" title={moduleLabel(row.module_code)}>
+                                {row.module_code}
                               </span>
                               <span className="text-right text-muted-foreground">
                                 {Number(row.emissions_tco2e || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
