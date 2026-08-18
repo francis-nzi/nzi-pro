@@ -9,6 +9,7 @@ import JobCustomFactors from "@/components/JobCustomFactors";
 import JobDataEntry from "@/components/JobDataEntry";
 import JobNotesSummary from "@/components/JobNotesSummary";
 import JobSourceRegister from "@/components/JobSourceRegister";
+import PendingPortalSourceSubmissions from "@/components/PendingPortalSourceSubmissions";
 import SpendDataCollection from "@/components/SpendDataCollection";
 import JobSectionShell from "@/components/job-workspace/JobSectionShell";
 
@@ -73,29 +74,45 @@ export default function JobDataSectionPage() {
             );
           case "asset-register":
             return (
-              <JobSourceRegister
-                jobId={jobId}
-                baseUrl={baseUrl}
-                sourceType="asset"
-                title="Asset Register"
-                description="Capture individual vehicles, equipment, and other Scope 1 sources, then group them for roll-up and reporting."
-                jobNumber={job.job_number}
-                clientName={job.client_name}
-                reportingYear={job.reporting_year}
-              />
+              <div className="space-y-4">
+                <PendingPortalSourceSubmissions
+                  jobId={jobId}
+                  baseUrl={baseUrl}
+                  sourceType="asset"
+                  title="Pending Portal Submissions"
+                />
+                <JobSourceRegister
+                  jobId={jobId}
+                  baseUrl={baseUrl}
+                  sourceType="asset"
+                  title="Asset Register"
+                  description="Capture individual vehicles, equipment, and other Scope 1 sources, then group them for roll-up and reporting."
+                  jobNumber={job.job_number}
+                  clientName={job.client_name}
+                  reportingYear={job.reporting_year}
+                />
+              </div>
             );
           case "business-travel":
             return (
-              <JobSourceRegister
-                jobId={jobId}
-                baseUrl={baseUrl}
-                sourceType="business_travel"
-                title="Business Travel Data Upload"
-                description="Download the business travel workbook, compare prior-year factors, and import completed rows into Data Entry."
-                jobNumber={job.job_number}
-                clientName={job.client_name}
-                reportingYear={job.reporting_year}
-              />
+              <div className="space-y-4">
+                <PendingPortalSourceSubmissions
+                  jobId={jobId}
+                  baseUrl={baseUrl}
+                  sourceType="business_travel"
+                  title="Pending Portal Submissions"
+                />
+                <JobSourceRegister
+                  jobId={jobId}
+                  baseUrl={baseUrl}
+                  sourceType="business_travel"
+                  title="Business Travel Data Upload"
+                  description="Download the business travel workbook, compare prior-year factors, and import completed rows into Data Entry."
+                  jobNumber={job.job_number}
+                  clientName={job.client_name}
+                  reportingYear={job.reporting_year}
+                />
+              </div>
             );
           case "custom-dataset":
             return <JobCustomDataset jobId={jobId} baseUrl={baseUrl} />;

@@ -394,6 +394,7 @@ export default function PortalDataEntry() {
           qty: useMonthly ? monthlySum : Number(qty),
           site_id: Number(selectedSiteId),
           notes: notes.trim() || null,
+          ...(isVehicleBucket && regNumber.trim() ? { vehicle_registration: regNumber.trim() } : {}),
           ...(useMonthly ? monthFieldsFromValues(monthlyValues) : {}),
         }),
       });

@@ -831,6 +831,208 @@ def get_emission_registers(
         raise HTTPException(status_code=500, detail=f"Failed to load emission register: {e}")
 
 
+_PORTAL_REGISTER_SOURCE_TYPES = {"asset", "business_travel"}
+
+
+def _assert_portal_register_source_type(source_type: str) -> None:
+    if source_type not in _PORTAL_REGISTER_SOURCE_TYPES:
+        raise HTTPException(status_code=400, detail="source_type must be 'asset' or 'business_travel'")
+
+
+@router.get("/jobs/{job_id}/emission-registers/{source_type}/pending-review")
+def list_pending_review_register_rows(
+    job_id: int,
+    source_type: str,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Client-portal-submitted Asset Register / Business Travel Register rows
+    awaiting CRM approval -- same shape as
+    api/employee_commuting_routes.py's list_pending_review_commuting_rows,
+    generalized over source_type since these two registers don't need the
+    extra job_scope_rows consolidation step commuting does (see
+    api/portal_data_entry_routes.py for why)."""
+    _assert_portal_register_source_type(source_type)
+    with get_conn() as con:
+        _ensure_schema(con)
+        df = con.execute(
+            """
+            SELECT source_id, site_id, source_name, asset_identifier, qty, uom,
+                   factor, calc_tco2e, notes, review_status, review_note, created_at
+            FROM job_emission_sources
+            WHERE job_id = %s AND source_type = %s
+              AND submitted_by_portal = TRUE AND review_status IN ('pending_review', 'rejected')
+            ORDER BY created_at DESC
+            """,
+            [int(job_id), source_type],
+        ).df()
+        if df is None or df.empty:
+            return {"job_id": int(job_id), "rows": []}
+        df = df.astype(object).where(df.notna(), None)
+        rows = []
+        for _, r in df.iterrows():
+            row = {k: r.get(k) for k in r.index}
+            if row.get("created_at") is not None:
+                row["created_at"] = str(row["created_at"])
+            rows.append(row)
+        return {"job_id": int(job_id), "rows": rows}
+
+
+@router.patch("/jobs/{job_id}/emission-registers/{source_type}/{source_id}/review")
+def review_register_row(
+    job_id: int,
+    source_type: str,
+    source_id: int,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Approve or reject a client-portal-submitted Asset Register / Business
+    Travel Register row. Approving is the only thing that flips enabled to
+    TRUE -- the row is then picked up directly by every total-emissions
+    query that reads job_emission_sources (they only exclude
+    source_type='employee_commuting'), so unlike commuting no consolidation
+    call is needed here."""
+    _assert_portal_register_source_type(source_type)
+    decision = str(body.get("decision") or "").strip().lower()
+    if decision not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
+    note = body.get("note")
+    reviewer = str(_user.get("email") or _user.get("full_name") or "crm")
+
+    with get_conn() as con:
+        _ensure_schema(con)
+        row = con.execute(
+            """
+            SELECT submitted_by_portal, review_status
+            FROM job_emission_sources
+            WHERE source_id = %s AND job_id = %s AND source_type = %s
+            """,
+            [int(source_id), int(job_id), source_type],
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Row not found")
+        if not row[0]:
+            raise HTTPException(status_code=400, detail="This row wasn't submitted via the client portal")
+        if row[1] == "approved":
+            raise HTTPException(status_code=409, detail="Already approved")
+
+        if decision == "approve":
+            con.execute(
+                """
+                UPDATE job_emission_sources
+                SET enabled = TRUE, review_status = 'approved', review_note = %s,
+                    reviewed_by = %s, reviewed_at = NOW()
+                WHERE source_id = %s
+                """,
+                [note, reviewer, int(source_id)],
+            )
+        else:
+            con.execute(
+                """
+                UPDATE job_emission_sources
+                SET review_status = 'rejected', review_note = %s, reviewed_by = %s, reviewed_at = NOW()
+                WHERE source_id = %s
+                """,
+                [note, reviewer, int(source_id)],
+            )
+
+        record_audit_event(
+            con,
+            request=None,
+            actor=_user,
+            action=f"register_row_{decision}",
+            entity_type="job_emission_source",
+            entity_id=int(source_id),
+            job_id=int(job_id),
+            metadata={"decision": decision, "note": note, "source_type": source_type},
+        )
+
+    return {"ok": True, "source_id": int(source_id), "review_status": "approved" if decision == "approve" else "rejected"}
+
+
+@router.patch("/jobs/{job_id}/emission-registers/{source_type}/bulk-review")
+def bulk_review_register_rows(
+    job_id: int,
+    source_type: str,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Approve or reject several portal-submitted register rows in one call --
+    same rules as review_register_row per row, just batched so one bad row
+    doesn't block the rest. Mirrors bulk_review_commuting_rows in
+    api/employee_commuting_routes.py."""
+    _assert_portal_register_source_type(source_type)
+    decision = str(body.get("decision") or "").strip().lower()
+    if decision not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
+    raw_ids = body.get("source_ids")
+    if not isinstance(raw_ids, list) or not raw_ids:
+        raise HTTPException(status_code=400, detail="source_ids must be a non-empty list")
+    try:
+        source_ids = [int(x) for x in raw_ids]
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="source_ids must all be integers")
+    note = body.get("note")
+    reviewer = str(_user.get("email") or _user.get("full_name") or "crm")
+
+    reviewed: list[int] = []
+    failed: list[dict[str, Any]] = []
+
+    with get_conn() as con:
+        _ensure_schema(con)
+        for source_id in source_ids:
+            row = con.execute(
+                """
+                SELECT submitted_by_portal, review_status
+                FROM job_emission_sources
+                WHERE source_id = %s AND job_id = %s AND source_type = %s
+                """,
+                [source_id, int(job_id), source_type],
+            ).fetchone()
+            if not row:
+                failed.append({"source_id": source_id, "reason": "Row not found"})
+                continue
+            if not row[0]:
+                failed.append({"source_id": source_id, "reason": "Not a portal submission"})
+                continue
+            if row[1] == "approved":
+                failed.append({"source_id": source_id, "reason": "Already approved"})
+                continue
+
+            if decision == "approve":
+                con.execute(
+                    """
+                    UPDATE job_emission_sources
+                    SET enabled = TRUE, review_status = 'approved', review_note = %s,
+                        reviewed_by = %s, reviewed_at = NOW()
+                    WHERE source_id = %s
+                    """,
+                    [note, reviewer, source_id],
+                )
+            else:
+                con.execute(
+                    """
+                    UPDATE job_emission_sources
+                    SET review_status = 'rejected', review_note = %s, reviewed_by = %s, reviewed_at = NOW()
+                    WHERE source_id = %s
+                    """,
+                    [note, reviewer, source_id],
+                )
+
+            reviewed.append(source_id)
+            record_audit_event(
+                con,
+                request=None,
+                actor=_user,
+                action=f"register_row_{decision}",
+                entity_type="job_emission_source",
+                entity_id=source_id,
+                job_id=int(job_id),
+                metadata={"decision": decision, "note": note, "source_type": source_type, "bulk": True},
+            )
+
+    return {"ok": True, "reviewed": reviewed, "failed": failed}
+
+
 @router.post("/jobs/{job_id}/emission-registers/groups")
 def create_emission_group(
     job_id: int,

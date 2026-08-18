@@ -2303,6 +2303,98 @@ def review_scope_data_row(
         raise HTTPException(status_code=500, detail=f"Failed to review scope data row: {e}")
 
 
+@router.patch("/jobs/{job_id}/scope-data/bulk-review")
+def bulk_review_scope_data_rows(
+    request: Request,
+    job_id: int,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Approve or reject several portal-submitted scope-data rows in one call
+    -- same rules as review_scope_data_row per row, just batched so one bad
+    row (already approved, still grouped with duplicates awaiting
+    consolidation) doesn't block the rest. Mirrors bulk_review_commuting_rows
+    in api/employee_commuting_routes.py."""
+    decision = str(body.get("decision") or "").strip().lower()
+    if decision not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
+    raw_ids = body.get("row_ids")
+    if not isinstance(raw_ids, list) or not raw_ids:
+        raise HTTPException(status_code=400, detail="row_ids must be a non-empty list")
+    try:
+        row_ids = [int(x) for x in raw_ids]
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="row_ids must all be integers")
+    note = body.get("note")
+    reviewer = str(_user.get("email") or _user.get("full_name") or _user.get("user_id") or "crm")
+
+    reviewed: list[int] = []
+    failed: list[dict[str, Any]] = []
+
+    with get_conn() as con:
+        _ensure_job_scope_rows_schema(con)
+        for row_id in row_ids:
+            row = con.execute(
+                "SELECT review_status, submitted_by_portal FROM job_scope_rows WHERE row_id=%s AND job_id=%s",
+                [row_id, int(job_id)],
+            ).fetchone()
+            if not row:
+                failed.append({"row_id": row_id, "reason": "Row not found"})
+                continue
+            if not row[1]:
+                failed.append({"row_id": row_id, "reason": "Not a portal submission"})
+                continue
+            if row[0] == "approved":
+                failed.append({"row_id": row_id, "reason": "Already approved"})
+                continue
+
+            if decision == "approve":
+                try:
+                    con.execute(
+                        """
+                        UPDATE job_scope_rows
+                        SET enabled = TRUE, review_status = 'approved', review_note = %s,
+                            reviewed_by = %s, reviewed_at = NOW()
+                        WHERE row_id = %s
+                        """,
+                        [note, reviewer, row_id],
+                    )
+                except Exception as approve_error:
+                    if "job_scope_rows_job_site_scope_active_uidx" in str(approve_error):
+                        failed.append({
+                            "row_id": row_id,
+                            "reason": "An active row already exists for this site/scope/factor — merge or disable it first",
+                        })
+                        continue
+                    raise
+            else:
+                con.execute(
+                    """
+                    UPDATE job_scope_rows
+                    SET review_status = 'rejected', review_note = %s,
+                        reviewed_by = %s, reviewed_at = NOW()
+                    WHERE row_id = %s
+                    """,
+                    [note, reviewer, row_id],
+                )
+
+            reviewed.append(row_id)
+            after = _job_scope_row_snapshot(con, int(job_id), row_id)
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action=f"scope_row_{decision}",
+                entity_type="job_scope_row",
+                entity_id=row_id,
+                job_id=int(job_id),
+                after=after,
+                metadata={"decision": decision, "note": note, "bulk": True},
+            )
+
+    return {"ok": True, "reviewed": reviewed, "failed": failed}
+
+
 @router.get("/jobs/{job_id}/scope-data/pending-review")
 def list_pending_review_rows(
     job_id: int,

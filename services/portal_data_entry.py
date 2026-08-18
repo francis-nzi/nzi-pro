@@ -352,6 +352,106 @@ def get_previous_bucket_rows(
     return out
 
 
+def get_previous_register_bucket_rows(
+    con, client_db_id: int, exclude_job_id: int, source_type: str, limit: int = 15,
+) -> list[dict[str, Any]]:
+    """Same idea as get_previous_bucket_rows, but for the two buckets backed
+    by job_emission_sources instead of job_scope_rows -- Company Vehicles
+    ('asset') and Business Travel ('business_travel'). See
+    api/portal_data_entry_routes.py _BUCKET_REGISTER_SOURCE_TYPE."""
+    df = con.execute(
+        """
+        SELECT s.job_id, j.reporting_year, s.scope, s.category,
+               s.source_name AS report_label, s.original_id, s.uom, s.qty
+        FROM job_emission_sources s
+        JOIN jobs j ON j.job_id = s.job_id
+        WHERE j.client_db_id = %s AND s.job_id <> %s AND s.source_type = %s
+          AND COALESCE(s.enabled, TRUE) = TRUE
+          AND COALESCE(s.original_id, '') <> ''
+        ORDER BY s.job_id DESC, s.source_id DESC
+        """,
+        [int(client_db_id), int(exclude_job_id), source_type],
+    ).df()
+    if df is None or df.empty:
+        return []
+    df = df.astype(object).where(df.notna(), None)
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for _, r in df.iterrows():
+        original_id = r.get("original_id")
+        if not original_id or original_id in seen:
+            continue
+        seen.add(str(original_id))
+        out.append(
+            {
+                "scope": r.get("scope"),
+                "category": r.get("category"),
+                "report_label": r.get("report_label"),
+                "original_id": original_id,
+                "uom": r.get("uom"),
+                "last_qty": r.get("qty"),
+                "last_job_id": int(r.get("job_id")),
+                "last_reporting_year": r.get("reporting_year"),
+            }
+        )
+        if len(out) >= limit:
+            break
+    return out
+
+
+def get_top_register_bucket_factors(
+    con, client_db_id: int, source_type: str, limit: int = 8,
+) -> list[dict[str, Any]]:
+    """Same ranking idea as get_top_factors_for_categories, but ranking
+    job_emission_sources rows for a register-backed bucket instead of
+    job_scope_rows rows for a category set."""
+
+    def _rank(client_filter: bool) -> list[dict[str, Any]]:
+        where = ["s.source_type = %s", "COALESCE(s.enabled, TRUE) = TRUE", "COALESCE(s.original_id, '') <> ''"]
+        params: list[Any] = [source_type]
+        if client_filter:
+            where.append("j.client_db_id = %s")
+            params.append(int(client_db_id))
+        df = con.execute(
+            f"""
+            SELECT s.scope, s.category, s.source_name AS report_label, s.original_id, s.uom, COUNT(*) AS use_count
+            FROM job_emission_sources s
+            JOIN jobs j ON j.job_id = s.job_id
+            WHERE {" AND ".join(where)}
+            GROUP BY s.scope, s.category, s.source_name, s.original_id, s.uom
+            ORDER BY use_count DESC
+            LIMIT %s
+            """,
+            params + [int(limit)],
+        ).df()
+        if df is None or df.empty:
+            return []
+        return [
+            {
+                "scope": r.get("scope"),
+                "category": r.get("category"),
+                "report_label": r.get("report_label"),
+                "original_id": r.get("original_id"),
+                "uom": r.get("uom"),
+                "use_count": int(r.get("use_count")),
+            }
+            for _, r in df.iterrows()
+        ]
+
+    personal = _rank(client_filter=True) if client_db_id is not None else []
+    if len(personal) >= limit:
+        return personal
+    seen = {item["original_id"] for item in personal}
+    for item in _rank(client_filter=False):
+        if item["original_id"] in seen:
+            continue
+        personal.append(item)
+        seen.add(item["original_id"])
+        if len(personal) >= limit:
+            break
+    return personal
+
+
 def get_top_factors_for_categories(
     con, client_db_id: int | None, categories: list[str], limit: int = 8,
 ) -> list[dict[str, Any]]:
