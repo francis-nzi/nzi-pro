@@ -857,6 +857,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
         body: JSON.stringify({ factor_db_id: factorDbId, factor_source_table: sourceTable }),
       });
       if (!res.ok) throw new Error(`Failed to apply factor (${res.status})`);
+      const json = await res.json().catch(() => ({}));
       setReviewCandidates((prev) => {
         const next = { ...prev };
         delete next[lineItemId];
@@ -871,7 +872,12 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
       await loadItems(selectedAssessmentId);
       await loadAssessments();
       await loadAssessmentDetail(selectedAssessmentId);
-      setStatus("Selected factor applied.");
+      if (json?.legs_cleared) {
+        if (detailItem?.line_item_id === lineItemId) setTransportLegs([]);
+        setStatus("Selected factor applied -- this item's transport legs were removed.");
+      } else {
+        setStatus("Selected factor applied.");
+      }
     } catch (e) {
       setError((e as Error).message);
       setStatus("");
@@ -1239,6 +1245,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     setSavingDetail(true);
     setStatus("Saving item...");
     try {
+      const isTransportItem = TRANSPORT_MODULE_CODES.includes(detailModule);
       const res = await apiFetch(`/jobs/${jobId}/lca/line-items/${detailItem.line_item_id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -1249,8 +1256,15 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
           quantity: Number(detailQty || 0),
           unit: detailUnit.trim() || "kg",
           origin_country: detailCountry.trim(),
-          factor_value: Number(detailFactor || 0),
-          factor_unit: detailFactorUnit.trim() || "kgCO2e/kg",
+          // Transport-module items don't expose a direct factor_value input
+          // here (Transport Legs / Change Factor Source drive their
+          // emissions instead) -- omit it so an unrelated save (e.g. Notes)
+          // never accidentally triggers the legs-cleared-on-factor-change
+          // behaviour in the backend.
+          ...(isTransportItem ? {} : {
+            factor_value: Number(detailFactor || 0),
+            factor_unit: detailFactorUnit.trim() || "kgCO2e/kg",
+          }),
           data_quality: detailDataQuality,
           is_placeholder: detailPlaceholder,
           notes: detailNotes.trim(),
@@ -3414,77 +3428,105 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
               </div>
               <div className="space-y-2"><Label>Notes</Label><Textarea value={detailNotes} onChange={(e) => setDetailNotes(e.target.value)} rows={2} /></div>
 
-              {!TRANSPORT_MODULE_CODES.includes(detailModule) ? (
-                <>
-                  <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-                    {detailItem.mapped_factor_source ? (
-                      <>
-                        Factor source: <span className="font-medium text-foreground">{detailItem.mapped_factor_source}</span>
-                        {typeof detailItem.factor_match_confidence === "number" ? ` (${Math.round(detailItem.factor_match_confidence * 100)}% confidence)` : ""}
-                        {detailItem.is_gap_filled ? " -- gap-filled estimate" : ""}
-                        {detailItem.mapped_factor_dataset_name ? (
-                          <>
-                            <br />
-                            Dataset: <span className="font-medium text-foreground">{detailItem.mapped_factor_dataset_name}</span>
-                            {detailItem.mapped_factor_dataset_year ? ` (${detailItem.mapped_factor_dataset_year})` : ""}
-                            {detailItem.mapped_factor_original_id ? ` -- row ID: ${detailItem.mapped_factor_original_id}` : ""}
-                          </>
-                        ) : null}
-                      </>
-                    ) : (
-                      "No factor mapped yet -- use Auto Map Factor, Search Factor, or set Factor Value directly above."
-                    )}
-                  </div>
+              {(() => {
+                const isTransport = TRANSPORT_MODULE_CODES.includes(detailModule);
+                const hasLegs = transportLegs.length > 0;
+                return (
                   <div className="space-y-2">
-                    <Label>Change Factor Source</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        value={factorSearchQuery[detailItem.line_item_id] || ""}
-                        onChange={(e) => setFactorSearchQuery((prev) => ({ ...prev, [detailItem.line_item_id]: e.target.value }))}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") void runFactorSearch(detailItem.line_item_id);
-                        }}
-                        placeholder="e.g. plastic, metal, aramid fiber..."
-                        className="h-8"
-                      />
-                      <Select
-                        value={factorSearchKind[detailItem.line_item_id] || "all"}
-                        onValueChange={(v) => setFactorSearchKind((prev) => ({ ...prev, [detailItem.line_item_id]: v as "all" | "activity" | "spend" }))}
-                      >
-                        <SelectTrigger className="h-8 w-[110px]"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All types</SelectItem>
-                          <SelectItem value="activity">Activity</SelectItem>
-                          <SelectItem value="spend">Spend</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Button size="sm" onClick={() => void runFactorSearch(detailItem.line_item_id)} disabled={factorSearchLoading[detailItem.line_item_id]}>
-                        {factorSearchLoading[detailItem.line_item_id] ? "Searching..." : "Search"}
-                      </Button>
-                    </div>
-                    {(factorSearchResults[detailItem.line_item_id] || []).length > 0 ? (
-                      <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border bg-muted/30 p-2">
-                        {(factorSearchResults[detailItem.line_item_id] || []).map((c) => (
-                          <div key={`${c.source_table || "factor_lookup"}-${c.db_id}`} className="flex items-center justify-between gap-2 text-xs">
-                            <span>
-                              {c.source_table === "job_custom_factor" ? <Badge variant="outline" className="mr-1">Client Factor</Badge> : null}
-                              {c.source_table === "admin_custom_factor" ? <Badge variant="outline" className="mr-1">Admin Factor</Badge> : null}
-                              {c.label} ({c.factor} {c.uom})
-                            </span>
-                            <Button size="sm" variant="outline" onClick={() => void applyCandidate(detailItem.line_item_id, c.db_id, c.source_table)}>
-                              Use this
-                            </Button>
-                          </div>
-                        ))}
+                    {isTransport ? (
+                      <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+                        {hasLegs
+                          ? "This item's emissions currently come from the transport legs above. Picking a factor below will delete those legs and switch to a single direct factor instead."
+                          : "No legs and no direct factor set yet. Add a journey below, or pick a factor here for a single direct figure instead of building out legs."}
                       </div>
                     ) : (
-                      <div className="text-xs text-muted-foreground">
-                        {factorSearchLoading[detailItem.line_item_id] ? "" : "Search to replace this item's factor with a different dataset row, client factor, or admin factor."}
+                      <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+                        {detailItem.mapped_factor_source ? (
+                          <>
+                            Factor source: <span className="font-medium text-foreground">{detailItem.mapped_factor_source}</span>
+                            {typeof detailItem.factor_match_confidence === "number" ? ` (${Math.round(detailItem.factor_match_confidence * 100)}% confidence)` : ""}
+                            {detailItem.is_gap_filled ? " -- gap-filled estimate" : ""}
+                            {detailItem.mapped_factor_dataset_name ? (
+                              <>
+                                <br />
+                                Dataset: <span className="font-medium text-foreground">{detailItem.mapped_factor_dataset_name}</span>
+                                {detailItem.mapped_factor_dataset_year ? ` (${detailItem.mapped_factor_dataset_year})` : ""}
+                                {detailItem.mapped_factor_original_id ? ` -- row ID: ${detailItem.mapped_factor_original_id}` : ""}
+                              </>
+                            ) : null}
+                          </>
+                        ) : (
+                          "No factor mapped yet -- use Auto Map Factor, Search Factor, or set Factor Value directly above."
+                        )}
                       </div>
                     )}
+                    <div className="space-y-2">
+                      <Label>Change Factor Source</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          value={factorSearchQuery[detailItem.line_item_id] || ""}
+                          onChange={(e) => setFactorSearchQuery((prev) => ({ ...prev, [detailItem.line_item_id]: e.target.value }))}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void runFactorSearch(detailItem.line_item_id);
+                          }}
+                          placeholder="e.g. plastic, metal, aramid fiber..."
+                          className="h-8"
+                        />
+                        <Select
+                          value={factorSearchKind[detailItem.line_item_id] || "all"}
+                          onValueChange={(v) => setFactorSearchKind((prev) => ({ ...prev, [detailItem.line_item_id]: v as "all" | "activity" | "spend" }))}
+                        >
+                          <SelectTrigger className="h-8 w-[110px]"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All types</SelectItem>
+                            <SelectItem value="activity">Activity</SelectItem>
+                            <SelectItem value="spend">Spend</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button size="sm" onClick={() => void runFactorSearch(detailItem.line_item_id)} disabled={factorSearchLoading[detailItem.line_item_id]}>
+                          {factorSearchLoading[detailItem.line_item_id] ? "Searching..." : "Search"}
+                        </Button>
+                      </div>
+                      {(factorSearchResults[detailItem.line_item_id] || []).length > 0 ? (
+                        <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border bg-muted/30 p-2">
+                          {(factorSearchResults[detailItem.line_item_id] || []).map((c) => (
+                            <div key={`${c.source_table || "factor_lookup"}-${c.db_id}`} className="flex items-center justify-between gap-2 text-xs">
+                              <span>
+                                {c.source_table === "job_custom_factor" ? <Badge variant="outline" className="mr-1">Client Factor</Badge> : null}
+                                {c.source_table === "admin_custom_factor" ? <Badge variant="outline" className="mr-1">Admin Factor</Badge> : null}
+                                {c.label} ({c.factor} {c.uom})
+                              </span>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  if (
+                                    hasLegs &&
+                                    !window.confirm(
+                                      `This item currently has ${transportLegs.length} transport leg${transportLegs.length === 1 ? "" : "s"}. Applying this factor will delete ${transportLegs.length === 1 ? "it" : "them"} and use this factor directly instead. Continue?`
+                                    )
+                                  ) {
+                                    return;
+                                  }
+                                  void applyCandidate(detailItem.line_item_id, c.db_id, c.source_table);
+                                }}
+                              >
+                                Use this
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-muted-foreground">
+                          {factorSearchLoading[detailItem.line_item_id] ? "" : "Search to replace this item's factor with a different dataset row, client factor, or admin factor."}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </>
-              ) : (
+                );
+              })()}
+
+              {TRANSPORT_MODULE_CODES.includes(detailModule) ? (
                 <div className="space-y-3 rounded-md border bg-muted/30 p-3">
                   <div className="flex items-center justify-between">
                     <Label>Transport Legs</Label>
@@ -3772,7 +3814,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                     </div>
                   </div>
                 </div>
-              )}
+              ) : null}
             </div>
           ) : null}
           <DialogFooter className="flex items-center justify-between sm:justify-between">

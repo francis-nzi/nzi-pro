@@ -1498,12 +1498,27 @@ def update_line_item(job_id: int, line_item_id: int, body: dict = Body(...), _us
                     params.append(text or None)
             if not edits:
                 return {"ok": True}
+            # Manually setting factor_value is the same "switch to a direct
+            # factor" action as picking one via Change Factor Source (see
+            # _switch_line_to_direct_factor) -- without this, a transport-
+            # module line with existing legs would silently keep using its
+            # (higher-priority) leg total instead of the value just typed in.
+            legs_cleared = False
+            if "factor_value" in body:
+                legs_cleared = bool(
+                    con.execute(
+                        "SELECT 1 FROM lca_transport_legs WHERE line_item_id = %s LIMIT 1", [int(line_item_id)]
+                    ).fetchone()
+                )
+                if legs_cleared:
+                    con.execute("DELETE FROM lca_transport_legs WHERE line_item_id = %s", [int(line_item_id)])
+                    edits.append("transport_emissions_tco2e = NULL")
             edits.extend(["updated_at = NOW()", "updated_by = %s"])
             params.append(_actor(_user))
             params.append(int(line_item_id))
             con.execute(f"UPDATE lca_line_items SET {', '.join(edits)} WHERE line_item_id = %s", params)
             summary = _recalculate_assessment(con, assessment_id, _user)
-            return {"ok": True, "summary": summary}
+            return {"ok": True, "summary": summary, "legs_cleared": legs_cleared}
     except HTTPException:
         raise
     except Exception as e:
@@ -2217,6 +2232,22 @@ def list_transport_leg_default_factors(
     return {"mode": mode_key, "items": items}
 
 
+def _switch_line_to_direct_factor(con, line_item_id: int) -> None:
+    """Deletes any transport legs on this line and clears
+    transport_emissions_tco2e back to NULL so a just-applied factor_value
+    takes over (resolve_line_emissions_tco2e prioritizes
+    transport_emissions_tco2e whenever it's non-NULL). Used when a user
+    explicitly picks a factor for a line via "Change Factor Source" --
+    previously that UI was hidden entirely for transport-module (A2/A4/C2)
+    lines with no way to switch a leg-tracked line back to a single direct
+    factor without deleting and recreating the line."""
+    con.execute("DELETE FROM lca_transport_legs WHERE line_item_id = %s", [int(line_item_id)])
+    con.execute(
+        "UPDATE lca_line_items SET transport_emissions_tco2e = NULL WHERE line_item_id = %s",
+        [int(line_item_id)],
+    )
+
+
 def _apply_chosen_factor(con, line_item_id: int, chosen: dict[str, Any], confidence: Any, user: dict[str, str]) -> None:
     source_table = str(chosen.get("source_table") or "factor_lookup")
     con.execute(
@@ -2266,6 +2297,7 @@ def map_line_item_factor(job_id: int, line_item_id: int, body: dict = Body(defau
             forced_source_table = str(body.get("factor_source_table") or "factor_lookup")
             applied = None
             auto_applied = False
+            legs_cleared = False
             if forced_factor_id:
                 # Explicit user pick -- applies regardless of confidence (the
                 # "human confirms" escape hatch for below-threshold matches).
@@ -2281,6 +2313,13 @@ def map_line_item_factor(job_id: int, line_item_id: int, body: dict = Body(defau
                 )
                 if not chosen:
                     raise HTTPException(status_code=404, detail="Selected factor not found")
+                legs_cleared = bool(
+                    con.execute(
+                        "SELECT 1 FROM lca_transport_legs WHERE line_item_id = %s LIMIT 1", [int(line_item_id)]
+                    ).fetchone()
+                )
+                if legs_cleared:
+                    _switch_line_to_direct_factor(con, int(line_item_id))
                 _apply_chosen_factor(con, int(line_item_id), chosen, chosen.get("confidence"), _user)
                 applied = chosen
             else:
@@ -2302,6 +2341,7 @@ def map_line_item_factor(job_id: int, line_item_id: int, body: dict = Body(defau
             return {
                 "ok": True, "applied": applied, "auto_applied": auto_applied, "candidates": candidates,
                 "confidence_threshold": CONFIDENCE_THRESHOLD, "summary": summary, "dataset_ids_used": dataset_ids,
+                "legs_cleared": legs_cleared,
             }
     except HTTPException:
         raise
