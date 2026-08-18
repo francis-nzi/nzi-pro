@@ -27,6 +27,14 @@ from api.org_admin_helpers import _require_org_plan_active
 
 router = APIRouter()
 
+# Job groups with no reporting-year/benchmark-period concept -- their setup
+# wizards collect their own delivery/commercial dates instead (see
+# frontend's Consultancy setup step), so create_job() must not require a
+# reporting_year for them. Training already had this exemption; Consultancy
+# lacked it, which 400'd every consultancy job for a client with no
+# benchmark period set (i.e. every consultancy-only client).
+NON_REPORTING_PERIOD_JOB_GROUPS = ("training", "consultancy")
+
 
 def _json_null_if_na(value):
     try:
@@ -251,7 +259,7 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
             reporting_period_start = None
             reporting_period_end = None
             
-            if job_group == "training":
+            if job_group in NON_REPORTING_PERIOD_JOB_GROUPS:
                 if reporting_year:
                     reporting_year = int(reporting_year)
                 else:
@@ -296,7 +304,7 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                     reporting_period_end = reporting_period_start + relativedelta(years=1) - timedelta(days=1)
                     reporting_year = reporting_period_end.year
             
-            if job_group != "training" and not reporting_year:
+            if job_group not in NON_REPORTING_PERIOD_JOB_GROUPS and not reporting_year:
                 raise HTTPException(status_code=400, detail="Cannot determine reporting year/period. Please provide reporting_year or ensure client has benchmark period set.")
             
             insert_columns = [

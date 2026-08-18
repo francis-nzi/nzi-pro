@@ -712,7 +712,15 @@ function NewJobPageContent() {
         </div>
 
         {status && (
-          <div className="mb-4 rounded-md bg-muted p-3 text-sm">{status}</div>
+          <div
+            className={`mb-4 rounded-md p-3 text-sm ${
+              status.startsWith("Error:")
+                ? "border border-destructive/50 bg-destructive/10 text-destructive"
+                : "bg-muted"
+            }`}
+          >
+            {status}
+          </div>
         )}
 
         {loading ? (
