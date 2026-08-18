@@ -1895,6 +1895,16 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   }, [items]);
   const componentLabel = (id: number) => assessmentComponents.find((c) => c.component_id === id)?.label || `Component ${id}`;
 
+  // Edit Inventory Item modal's Module picker only -- a cradle-to-gate
+  // assessment has no A4+ life cycle stages, so offering them there would
+  // just let someone file a line item under a module the boundary excludes.
+  const detailModuleOptions = useMemo(() => {
+    if (assessment?.lifecycle_boundary === "cradle_to_gate") {
+      return modules.filter((m) => ["A1", "A2", "A3"].includes(m.module_code));
+    }
+    return modules;
+  }, [modules, assessment?.lifecycle_boundary]);
+
   // Inventory breakdown: component x module pivot of filteredInventoryItems
   // (same filtered/searched set the flat list shows). Grouped by
   // component_id when a line item has one (a real BOM component can
@@ -2011,8 +2021,20 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
             <div className="rounded-md border px-3 py-2 text-sm">
               Total: {assessment ? `${Number(assessment.total_tco2e || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO₂e` : "-"}
             </div>
-            <div className="rounded-md border px-3 py-2 text-sm">
-              Boundary: {assessment?.lifecycle_boundary?.replace(/_/g, " ") || "-"}
+            <div className="space-y-2">
+              <Label>Boundary</Label>
+              <Select
+                value={assessment?.lifecycle_boundary || ""}
+                onValueChange={(v) => saveAssessmentField({ lifecycle_boundary: v })}
+                disabled={!assessment}
+              >
+                <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
+                <SelectContent>
+                  {LIFECYCLE_BOUNDARIES.map((b) => (
+                    <SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           {assessment && typeof assessment.readiness_score === "number" ? (
@@ -3446,7 +3468,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                   <Select value={detailModule} onValueChange={setDetailModule}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {(isService ? serviceModules : modules).map((m) => (
+                      {(isService ? serviceModules : detailModuleOptions).map((m) => (
                         <SelectItem key={m.module_code} value={m.module_code}>{m.module_code} - {m.label}</SelectItem>
                       ))}
                     </SelectContent>
