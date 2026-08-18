@@ -22,7 +22,13 @@ from services.lca_engine import (
     summarize_assessment,
 )
 from services.geocoding import geocode_location
-from services.lca_transport import DETOUR_FACTORS, VALID_MODES, compute_leg_emissions_tco2e, estimate_leg_distance_km
+from services.lca_transport import (
+    DETOUR_FACTORS,
+    FREIGHT_DEFAULT_FACTORS,
+    VALID_MODES,
+    compute_leg_emissions_tco2e,
+    estimate_leg_distance_km,
+)
 from services.lca_material_categories import ensure_material_categories_deduped, resolve_or_create_material_category
 from services.virus_scan import VirusScanError, scan_bytes
 
@@ -279,7 +285,7 @@ def _load_line_items_for_calc(con, assessment_id: int) -> list[dict[str, Any]]:
     df = con.execute(
         """
         SELECT line_item_id, component_id, activity_id, module_code, line_label, material_category_id, quantity, unit,
-               factor_value, factor_unit, is_gap_filled, is_placeholder, data_quality,
+               factor_value, factor_unit, factor_ghg_unit, is_gap_filled, is_placeholder, data_quality,
                mapped_factor_source, factor_match_confidence, transport_emissions_tco2e
         FROM lca_line_items
         WHERE assessment_id = %s
@@ -308,6 +314,7 @@ def _load_line_items_for_calc(con, assessment_id: int) -> list[dict[str, Any]]:
                 # json.dumps downstream (Postgres JSONB rejects the literal NaN token).
                 "factor_value": _float_or_none(r.get("factor_value")) or 0.0,
                 "factor_unit": str(r.get("factor_unit") or "kgCO2e/kg"),
+                "factor_ghg_unit": (str(r.get("factor_ghg_unit")) if not _is_missing(r.get("factor_ghg_unit")) else None),
                 "is_gap_filled": bool(r.get("is_gap_filled") or False),
                 "is_placeholder": bool(r.get("is_placeholder") or False),
                 "data_quality": str(r.get("data_quality") or "secondary"),
@@ -433,7 +440,7 @@ def _find_admin_custom_factor_candidates(con, client_db_id: int | None, line_lab
         f"""
         SELECT * FROM (
             SELECT
-              cf.factor_id, cf.report_label, cf.description, cf.uom, cf.source,
+              cf.factor_id, cf.report_label, cf.description, cf.uom, cf.ghg_unit, cf.source,
               {_CUSTOM_FACTOR_RESOLVED_VALUE_SQL} AS factor,
               LEAST(1.0,
                 0.75 * GREATEST(
@@ -463,6 +470,7 @@ def _find_admin_custom_factor_candidates(con, client_db_id: int | None, line_lab
                 "db_id": int(r.get("factor_id")),
                 "label": str(r.get("report_label") or r.get("description") or f"Admin Factor {r.get('factor_id')}"),
                 "uom": r.get("uom"),
+                "ghg_unit": r.get("ghg_unit"),
                 "factor": safe_float(r.get("factor")),
                 "source": r.get("source") or "Admin Custom Factor",
                 "region": None,
@@ -500,7 +508,7 @@ def _find_client_factor_candidates(con, client_db_id: int | None, line_label: st
         f"""
         SELECT * FROM (
             SELECT
-              jcf.factor_id, jcf.report_label, jcf.description, jcf.uom, jcf.factor, jcf.source,
+              jcf.factor_id, jcf.report_label, jcf.description, jcf.uom, jcf.ghg_unit, jcf.factor, jcf.source,
               LEAST(1.0,
                 0.75 * GREATEST(
                   word_similarity(%s, COALESCE(jcf.report_label, '')),
@@ -530,6 +538,7 @@ def _find_client_factor_candidates(con, client_db_id: int | None, line_label: st
                 "db_id": int(r.get("factor_id")),
                 "label": str(r.get("report_label") or r.get("description") or f"Client Factor {r.get('factor_id')}"),
                 "uom": r.get("uom"),
+                "ghg_unit": r.get("ghg_unit"),
                 "factor": safe_float(r.get("factor")),
                 "source": r.get("source") or "Client Factor",
                 "region": None,
@@ -591,7 +600,7 @@ def _find_factor_candidates(
         f"""
         WITH candidates AS (
             SELECT
-              fl.db_id, fl.report_label, fl.column_text, fl.uom, fl.factor, fl.source, fl.region, fl.year,
+              fl.db_id, fl.report_label, fl.column_text, fl.uom, fl.ghg_unit, fl.factor, fl.source, fl.region, fl.year,
               LEAST(1.0,
                 0.75 * GREATEST(
                   word_similarity(%s, COALESCE(fl.report_label, '')),
@@ -633,6 +642,7 @@ def _find_factor_candidates(
                 "db_id": int(r.get("db_id")),
                 "label": str(r.get("report_label") or r.get("column_text") or f"Factor {r.get('db_id')}"),
                 "uom": r.get("uom"),
+                "ghg_unit": r.get("ghg_unit"),
                 "factor": safe_float(r.get("factor")),
                 "source": r.get("source"),
                 "region": r.get("region"),
@@ -656,7 +666,7 @@ def _lookup_client_factor_by_id(con, client_db_id: int | None, factor_id: int) -
         return None
     row = con.execute(
         """
-        SELECT factor_id, report_label, description, uom, factor, source
+        SELECT factor_id, report_label, description, uom, factor, source, ghg_unit
         FROM job_custom_factors
         WHERE factor_id = %s AND client_db_id = %s AND (archived = FALSE OR archived IS NULL)
         """,
@@ -668,6 +678,7 @@ def _lookup_client_factor_by_id(con, client_db_id: int | None, factor_id: int) -
         "db_id": int(row[0]),
         "label": str(row[1] or row[2] or f"Client Factor {row[0]}"),
         "uom": row[3],
+        "ghg_unit": row[6],
         "factor": safe_float(row[4]),
         "source": row[5] or "Client Factor",
         "region": None,
@@ -683,7 +694,7 @@ def _lookup_admin_custom_factor_by_id(con, client_db_id: int | None, factor_id: 
     row = con.execute(
         f"""
         SELECT cf.factor_id, cf.report_label, cf.description, cf.uom, cf.source,
-               {_CUSTOM_FACTOR_RESOLVED_VALUE_SQL} AS resolved_factor
+               {_CUSTOM_FACTOR_RESOLVED_VALUE_SQL} AS resolved_factor, cf.ghg_unit
         FROM custom_factors cf
         WHERE cf.factor_id = %s AND {client_clause} AND (cf.archived = FALSE OR cf.archived IS NULL)
         """,
@@ -695,6 +706,7 @@ def _lookup_admin_custom_factor_by_id(con, client_db_id: int | None, factor_id: 
         "db_id": int(row[0]),
         "label": str(row[1] or row[2] or f"Admin Factor {row[0]}"),
         "uom": row[3],
+        "ghg_unit": row[6],
         "factor": safe_float(row[5]),
         "source": row[4] or "Admin Custom Factor",
         "region": None,
@@ -704,7 +716,7 @@ def _lookup_admin_custom_factor_by_id(con, client_db_id: int | None, factor_id: 
 
 def _lookup_factor_by_id(con, factor_db_id: int) -> dict[str, Any] | None:
     row = con.execute(
-        "SELECT db_id, report_label, column_text, uom, factor, source, region FROM v_factor_lookup WHERE db_id = %s",
+        "SELECT db_id, report_label, column_text, uom, factor, source, region, ghg_unit FROM v_factor_lookup WHERE db_id = %s",
         [int(factor_db_id)],
     ).fetchone()
     if not row:
@@ -713,6 +725,7 @@ def _lookup_factor_by_id(con, factor_db_id: int) -> dict[str, Any] | None:
         "db_id": int(row[0]),
         "label": str(row[1] or row[2] or f"Factor {row[0]}"),
         "uom": row[3],
+        "ghg_unit": row[7],
         "factor": safe_float(row[4]),
         "source": row[5],
         "region": row[6],
@@ -1754,9 +1767,10 @@ def create_transport_leg(job_id: int, line_item_id: int, body: dict = Body(...),
 
             factor_value = safe_float(body.get("factor_value")) if body.get("factor_value") not in (None, "") else None
             factor_unit = str(body.get("factor_unit") or "").strip() or None
+            factor_ghg_unit = str(body.get("factor_ghg_unit") or "").strip() or None
             mass_kg = quantity if unit.strip().lower() in ("kg", "kilogram", "kilograms") else 0.0
             leg_emissions = (
-                compute_leg_emissions_tco2e(mass_kg, geo["distance_km"], factor_value, factor_unit)
+                compute_leg_emissions_tco2e(mass_kg, geo["distance_km"], factor_value, factor_unit, factor_ghg_unit)
                 if factor_value is not None else 0.0
             )
 
@@ -1771,11 +1785,11 @@ def create_transport_leg(job_id: int, line_item_id: int, body: dict = Body(...),
                   line_item_id, leg_order, mode, origin_label, origin_latitude, origin_longitude,
                   origin_geocode_precision, destination_label, destination_latitude, destination_longitude,
                   destination_geocode_precision, straight_line_km, detour_factor, distance_km, distance_source,
-                  mapped_factor_id, factor_value, factor_unit, factor_source_label, emissions_tco2e, notes,
+                  mapped_factor_id, factor_value, factor_unit, factor_ghg_unit, factor_source_label, emissions_tco2e, notes,
                   origin_supplier_location_id, destination_client_site_id,
                   created_by, updated_by
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING leg_id
                 """,
                 [
@@ -1785,7 +1799,7 @@ def create_transport_leg(job_id: int, line_item_id: int, body: dict = Body(...),
                     geo["destination_geocode_precision"], geo["straight_line_km"], geo["detour_factor"],
                     geo["distance_km"], geo["distance_source"],
                     int(body.get("mapped_factor_id")) if str(body.get("mapped_factor_id") or "").strip().isdigit() else None,
-                    factor_value, factor_unit,
+                    factor_value, factor_unit, factor_ghg_unit,
                     str(body.get("factor_source_label") or "").strip() or None,
                     leg_emissions,
                     str(body.get("notes") or "").strip() or None,
@@ -1815,7 +1829,7 @@ def update_transport_leg(job_id: int, leg_id: int, body: dict = Body(...), _user
             existing = con.execute(
                 """
                 SELECT mode, origin_label, destination_label, factor_value, factor_unit,
-                       origin_supplier_location_id, destination_client_site_id
+                       origin_supplier_location_id, destination_client_site_id, factor_ghg_unit
                 FROM lca_transport_legs WHERE leg_id = %s
                 """,
                 [int(leg_id)],
@@ -1881,6 +1895,7 @@ def update_transport_leg(job_id: int, leg_id: int, body: dict = Body(...), _user
                 else (existing[3] if "factor_value" not in body else None)
             )
             factor_unit = str(body.get("factor_unit") or existing[4] or "").strip() or None
+            factor_ghg_unit = str(body.get("factor_ghg_unit") or existing[7] or "").strip() or None
 
             if geo_changed:
                 geo = _resolve_leg_geo_and_distance(
@@ -1888,7 +1903,7 @@ def update_transport_leg(job_id: int, leg_id: int, body: dict = Body(...), _user
                     origin_geo_override=origin_geo_override, destination_geo_override=destination_geo_override,
                 )
                 leg_emissions = (
-                    compute_leg_emissions_tco2e(mass_kg, geo["distance_km"], factor_value, factor_unit)
+                    compute_leg_emissions_tco2e(mass_kg, geo["distance_km"], factor_value, factor_unit, factor_ghg_unit)
                     if factor_value is not None else 0.0
                 )
                 con.execute(
@@ -1898,7 +1913,7 @@ def update_transport_leg(job_id: int, leg_id: int, body: dict = Body(...), _user
                       origin_geocode_precision = %s, destination_label = %s, destination_latitude = %s,
                       destination_longitude = %s, destination_geocode_precision = %s, straight_line_km = %s,
                       detour_factor = %s, distance_km = %s, distance_source = %s,
-                      factor_value = %s, factor_unit = %s, emissions_tco2e = %s,
+                      factor_value = %s, factor_unit = %s, factor_ghg_unit = %s, emissions_tco2e = %s,
                       origin_supplier_location_id = %s, destination_client_site_id = %s,
                       updated_at = NOW(), updated_by = %s
                     WHERE leg_id = %s
@@ -1907,7 +1922,7 @@ def update_transport_leg(job_id: int, leg_id: int, body: dict = Body(...), _user
                         mode, origin_label, geo["origin_latitude"], geo["origin_longitude"], geo["origin_geocode_precision"],
                         destination_label, geo["destination_latitude"], geo["destination_longitude"],
                         geo["destination_geocode_precision"], geo["straight_line_km"], geo["detour_factor"],
-                        geo["distance_km"], geo["distance_source"], factor_value, factor_unit, leg_emissions,
+                        geo["distance_km"], geo["distance_source"], factor_value, factor_unit, factor_ghg_unit, leg_emissions,
                         origin_supplier_location_id, destination_client_site_id,
                         _actor(_user), int(leg_id),
                     ],
@@ -1916,12 +1931,12 @@ def update_transport_leg(job_id: int, leg_id: int, body: dict = Body(...), _user
                 # Only the factor and/or notes changed -- distance/geocoding untouched.
                 current_distance = con.execute("SELECT distance_km FROM lca_transport_legs WHERE leg_id = %s", [int(leg_id)]).fetchone()[0]
                 leg_emissions = (
-                    compute_leg_emissions_tco2e(mass_kg, safe_float(current_distance), factor_value, factor_unit)
+                    compute_leg_emissions_tco2e(mass_kg, safe_float(current_distance), factor_value, factor_unit, factor_ghg_unit)
                     if factor_value is not None else 0.0
                 )
                 con.execute(
-                    "UPDATE lca_transport_legs SET factor_value = %s, factor_unit = %s, emissions_tco2e = %s, updated_at = NOW(), updated_by = %s WHERE leg_id = %s",
-                    [factor_value, factor_unit, leg_emissions, _actor(_user), int(leg_id)],
+                    "UPDATE lca_transport_legs SET factor_value = %s, factor_unit = %s, factor_ghg_unit = %s, emissions_tco2e = %s, updated_at = NOW(), updated_by = %s WHERE leg_id = %s",
+                    [factor_value, factor_unit, factor_ghg_unit, leg_emissions, _actor(_user), int(leg_id)],
                 )
 
             if "mapped_factor_id" in body:
@@ -2022,7 +2037,7 @@ def search_lca_line_item_factors(
         df = con.execute(
             f"""
             SELECT DISTINCT ON (COALESCE(fl.report_label, fl.column_text))
-                   fl.db_id, fl.report_label, fl.column_text, fl.uom, fl.factor, fl.source, fl.region, fl.dataset_id
+                   fl.db_id, fl.report_label, fl.column_text, fl.uom, fl.ghg_unit, fl.factor, fl.source, fl.region, fl.dataset_id
             FROM v_factor_lookup fl
             WHERE {' AND '.join(where)}
             ORDER BY COALESCE(fl.report_label, fl.column_text), fl.dataset_id DESC
@@ -2040,6 +2055,7 @@ def search_lca_line_item_factors(
                         "db_id": int(r.get("db_id")),
                         "label": str(r.get("report_label") or r.get("column_text") or f"Factor {r.get('db_id')}"),
                         "uom": r.get("uom"),
+                        "ghg_unit": r.get("ghg_unit"),
                         "factor": safe_float(r.get("factor")),
                         "source": r.get("source"),
                         "region": r.get("region"),
@@ -2059,7 +2075,7 @@ def search_lca_line_item_factors(
                 jcf_params.extend([pat, pat, pat])
             jcf_df = con.execute(
                 f"""
-                SELECT jcf.factor_id, jcf.report_label, jcf.description, jcf.uom, jcf.factor, jcf.source
+                SELECT jcf.factor_id, jcf.report_label, jcf.description, jcf.uom, jcf.ghg_unit, jcf.factor, jcf.source
                 FROM job_custom_factors jcf
                 WHERE {' AND '.join(jcf_where)}
                 ORDER BY jcf.report_label, jcf.factor_id DESC
@@ -2075,6 +2091,7 @@ def search_lca_line_item_factors(
                             "db_id": int(r.get("factor_id")),
                             "label": str(r.get("report_label") or r.get("description") or f"Client Factor {r.get('factor_id')}"),
                             "uom": r.get("uom"),
+                            "ghg_unit": r.get("ghg_unit"),
                             "factor": safe_float(r.get("factor")),
                             "source": r.get("source") or "Client Factor",
                             "region": None,
@@ -2097,7 +2114,7 @@ def search_lca_line_item_factors(
         cf_df = con.execute(
             f"""
             SELECT * FROM (
-                SELECT cf.factor_id, cf.report_label, cf.description, cf.uom, cf.source,
+                SELECT cf.factor_id, cf.report_label, cf.description, cf.uom, cf.ghg_unit, cf.source,
                        {_CUSTOM_FACTOR_RESOLVED_VALUE_SQL} AS factor
                 FROM custom_factors cf
                 WHERE {' AND '.join(cf_where)}
@@ -2116,6 +2133,7 @@ def search_lca_line_item_factors(
                         "db_id": int(r.get("factor_id")),
                         "label": str(r.get("report_label") or r.get("description") or f"Admin Factor {r.get('factor_id')}"),
                         "uom": r.get("uom"),
+                        "ghg_unit": r.get("ghg_unit"),
                         "factor": safe_float(r.get("factor")),
                         "source": r.get("source") or "Admin Custom Factor",
                         "region": None,
@@ -2129,18 +2147,81 @@ def search_lca_line_item_factors(
     return {"items": items, "dataset_ids_used": dataset_ids}
 
 
+@router.get("/jobs/{job_id}/lca/line-items/{line_item_id}/transport-legs/default-factors")
+def list_transport_leg_default_factors(
+    job_id: int,
+    line_item_id: int,
+    mode: str = Query(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Curated per-mode default freight factors (see FREIGHT_DEFAULT_FACTORS,
+    services/lca_transport.py) for the transport-leg quick-pick -- a small
+    fixed shortlist instead of the full 700+ freight factor search, resolved
+    against this job's actual active dataset(s) the same way factor-search
+    is (never a hardcoded dataset/year)."""
+    assert_permission(_user, "jobs.view")
+    assert_job_access(_user, int(job_id))
+    mode_key = mode.strip().lower()
+    defaults = FREIGHT_DEFAULT_FACTORS.get(mode_key)
+    if not defaults:
+        raise HTTPException(status_code=400, detail=f"mode must be one of {', '.join(FREIGHT_DEFAULT_FACTORS.keys())}")
+
+    with get_conn() as con:
+        assessment_id = _line_item_assessment(con, int(job_id), int(line_item_id))
+        dataset_ids = _resolve_dataset_ids(con, int(job_id), assessment_id)
+        original_ids = [d["original_id"] for d in defaults]
+        ph = ",".join(["%s"] * len(original_ids))
+        if dataset_ids:
+            order_clause = "ORDER BY original_id, (dataset_id = ANY(%s)) DESC, dataset_id DESC"
+            params = [*original_ids, dataset_ids]
+        else:
+            order_clause = "ORDER BY original_id, dataset_id DESC"
+            params = [*original_ids]
+        df = con.execute(
+            f"""
+            SELECT DISTINCT ON (original_id) original_id, db_id, report_label, uom, ghg_unit, factor
+            FROM v_factor_lookup
+            WHERE original_id IN ({ph})
+            {order_clause}
+            """,
+            params,
+        ).df()
+        by_original_id = {} if df is None or df.empty else {
+            str(r["original_id"]): r for _, r in df.astype(object).where(df.notna(), None).iterrows()
+        }
+
+    items = []
+    for d in defaults:
+        row = by_original_id.get(d["original_id"])
+        if row is None:
+            continue
+        items.append(
+            {
+                "sub_label": d["sub_label"],
+                "db_id": int(row["db_id"]),
+                "label": str(row["report_label"] or d["sub_label"]),
+                "uom": row["uom"],
+                "ghg_unit": row["ghg_unit"],
+                "factor": safe_float(row["factor"]),
+                "source_table": "factor_lookup",
+            }
+        )
+    return {"mode": mode_key, "items": items}
+
+
 def _apply_chosen_factor(con, line_item_id: int, chosen: dict[str, Any], confidence: Any, user: dict[str, str]) -> None:
     source_table = str(chosen.get("source_table") or "factor_lookup")
     con.execute(
         """
         UPDATE lca_line_items
         SET mapped_factor_source = %s, mapped_factor_id = %s, factor_value = %s,
-            factor_unit = %s, factor_source_label = %s, factor_source_url = NULL,
+            factor_unit = %s, factor_ghg_unit = %s, factor_source_label = %s, factor_source_url = NULL,
             factor_match_confidence = %s, is_gap_filled = FALSE, gap_fill_method = NULL,
             updated_at = NOW(), updated_by = %s
         WHERE line_item_id = %s
         """,
         [source_table, int(chosen["db_id"]), safe_float(chosen["factor"]), str(chosen.get("uom") or "kgCO2e/kg"),
+         str(chosen.get("ghg_unit") or "") or None,
          str(chosen.get("source") or source_table), confidence, _actor(user), int(line_item_id)],
     )
 

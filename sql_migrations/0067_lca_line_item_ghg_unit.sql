@@ -1,0 +1,24 @@
+-- 0067_lca_line_item_ghg_unit.sql
+--
+-- Same fix as 0066_lca_transport_leg_ghg_unit.sql, applied to regular
+-- (non-transport-leg) LCA line items. Factor mapping (auto-map, manual
+-- pick, and BOM-upload auto-mapping -- see _apply_chosen_factor in
+-- api/lca_routes.py) copies a candidate factor's bare `uom` column
+-- straight into `factor_unit`, e.g. "tonnes" for a bulk-material factor,
+-- with no numerator. compute_line_emissions_tco2e (services/lca_engine.py)
+-- was written assuming factor_unit is always a combined "kgCO2e/kg"-style
+-- string (the convention manual free-text entry actually uses) -- for a
+-- bare "tonnes" string it misreads the substring "tonne" as tonne-scale
+-- *emissions* (x1.0 instead of x0.001), the same bug fixed for transport
+-- legs. No currently-mapped line item is actually affected (verified: all
+-- are kg-denominated today), but the factor library already contains
+-- tonne-denominated material factors ready to trigger this the moment one
+-- gets mapped to a line.
+--
+-- This column gives the numerator (emissions unit) its own field, separate
+-- from factor_unit, matching the uom/ghg_unit split used everywhere else
+-- in this schema. Policy: lca_line_items.quantity is always entered in kg,
+-- so the accompanying code fix only needs to handle a kg<->tonne quantity
+-- basis conversion, not general unit conversion.
+
+ALTER TABLE lca_line_items ADD COLUMN IF NOT EXISTS factor_ghg_unit VARCHAR;

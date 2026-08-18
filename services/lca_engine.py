@@ -55,9 +55,38 @@ def factor_unit_to_tonnes_multiplier(factor_unit: str | None) -> float:
     return 0.001
 
 
-def compute_line_emissions_tco2e(quantity: float, factor_value: float, factor_unit: str | None) -> float:
-    raw = max(quantity, 0.0) * max(factor_value, 0.0)
-    return raw * factor_unit_to_tonnes_multiplier(factor_unit)
+def _material_quantity_basis_multiplier(factor_unit: str | None) -> float:
+    """lca_line_items.quantity is always entered in kg (policy) -- this
+    converts it to whatever activity-unit basis the factor itself is
+    denominated in, before multiplying by factor_value. Handles both the
+    legacy combined "numerator/denominator" convention (manual free-text
+    entry, e.g. "kgCO2e/tonne") and the bare denominator-only convention
+    (auto-mapped from a candidate's uom, e.g. "tonnes") -- the denominator
+    is whatever's after the first "/", or the whole string if there isn't
+    one. A tonne-denominated factor (e.g. a bulk-material factor priced per
+    tonne) needs quantity/1000; anything else (including the overwhelmingly
+    common kg case) is left unscaled. A non-kg, non-tonne uom (e.g. a
+    volume- or count-based factor) isn't a pure unit-scale question -- left
+    at 1.0, unchanged from today's behaviour, since fixing that requires an
+    actual conversion factor (e.g. a density) this system doesn't have."""
+    unit = str(factor_unit or "").strip().lower()
+    denominator = unit.split("/", 1)[1] if "/" in unit else unit
+    if "tonne" in denominator:
+        return 0.001
+    return 1.0
+
+
+def compute_line_emissions_tco2e(
+    quantity: float, factor_value: float, factor_unit: str | None, ghg_unit: str | None = None,
+) -> float:
+    raw = max(quantity, 0.0) * max(factor_value, 0.0) * _material_quantity_basis_multiplier(factor_unit)
+    # ghg_unit is the factor's own separately-stored emissions unit (e.g.
+    # "kg CO2e", "tCO2e"), populated for factors mapped via the candidate-
+    # search/auto-map path (see _apply_chosen_factor, api/lca_routes.py).
+    # A manually free-typed factor_unit never has one -- it's expected to
+    # already be a combined "kgCO2e/kg"-style string, which
+    # factor_unit_to_tonnes_multiplier parses correctly on its own.
+    return raw * factor_unit_to_tonnes_multiplier(ghg_unit or factor_unit)
 
 
 def resolve_line_emissions_tco2e(row: dict[str, Any]) -> float:
@@ -74,7 +103,8 @@ def resolve_line_emissions_tco2e(row: dict[str, Any]) -> float:
     if transport_emissions is not None:
         return safe_float(transport_emissions)
     return compute_line_emissions_tco2e(
-        safe_float(row.get("quantity")), safe_float(row.get("factor_value")), row.get("factor_unit"),
+        safe_float(row.get("quantity")), safe_float(row.get("factor_value")),
+        row.get("factor_unit"), row.get("factor_ghg_unit"),
     )
 
 

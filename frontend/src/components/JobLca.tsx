@@ -82,6 +82,8 @@ type FactorSearchResult = {
   db_id: number;
   label: string;
   uom?: string | null;
+  ghg_unit?: string | null;
+  sub_label?: string;
   factor: number;
   source?: string | null;
   region?: string | null;
@@ -354,6 +356,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [inventoryPage, setInventoryPage] = useState(0);
   const [inventoryPageSize, setInventoryPageSize] = useState(20);
   const [inventoryQuery, setInventoryQuery] = useState("");
+  const [inventoryViewMode, setInventoryViewMode] = useState<"flat" | "breakdown">("flat");
   const [detailItem, setDetailItem] = useState<LineItem | null>(null);
   const [detailModule, setDetailModule] = useState("");
   const [detailLabel, setDetailLabel] = useState("");
@@ -392,6 +395,11 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [legFactorSearchQuery, setLegFactorSearchQuery] = useState("");
   const [legFactorSearchResults, setLegFactorSearchResults] = useState<FactorSearchResult[]>([]);
   const [legFactorSearchLoading, setLegFactorSearchLoading] = useState(false);
+  // Curated per-mode quick-pick (services/lca_transport.py FREIGHT_DEFAULT_FACTORS)
+  // -- shares its state across the "Add a leg" and "Change" flows the same
+  // way legFactorSearch* does (only one of the two is ever shown at once).
+  const [legDefaultFactorOptions, setLegDefaultFactorOptions] = useState<FactorSearchResult[]>([]);
+  const [legDefaultFactorsLoading, setLegDefaultFactorsLoading] = useState(false);
   const [savingLeg, setSavingLeg] = useState(false);
   // Which existing leg (by leg_id) has its factor-search box open, if any --
   // shares legFactorSearchQuery/Results/Loading with the "Add a leg" form
@@ -1017,6 +1025,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     setEditingLegFactorId(null);
     setLegFactorSearchQuery("");
     setLegFactorSearchResults([]);
+    setLegDefaultFactorOptions([]);
   }
 
   function startEditLegFactor(legId: number) {
@@ -1024,7 +1033,45 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     setNewLegFactor(null);
     setLegFactorSearchQuery("");
     setLegFactorSearchResults([]);
+    setLegDefaultFactorOptions([]);
   }
+
+  // Mode to fetch curated default factors for -- the leg being edited's own
+  // mode when the "Change" flow is open, otherwise the mode picked in the
+  // "Add a leg" form. Mirrors legFactorSearch*'s single-shared-state pattern
+  // (only one of the two flows is ever open at once).
+  const activeLegModeForDefaults =
+    editingLegFactorId !== null
+      ? transportLegs.find((l) => l.leg_id === editingLegFactorId)?.mode ?? newLegMode
+      : newLegMode;
+
+  useEffect(() => {
+    if (!detailItem) return;
+    let cancelled = false;
+    setLegDefaultFactorsLoading(true);
+    (async () => {
+      try {
+        const res = await apiFetch(
+          `/jobs/${jobId}/lca/line-items/${detailItem.line_item_id}/transport-legs/default-factors?mode=${activeLegModeForDefaults}`
+        );
+        if (cancelled) return;
+        if (res.ok) {
+          const data = await res.json();
+          setLegDefaultFactorOptions(data.items || []);
+        } else {
+          setLegDefaultFactorOptions([]);
+        }
+      } catch {
+        if (!cancelled) setLegDefaultFactorOptions([]);
+      } finally {
+        if (!cancelled) setLegDefaultFactorsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLegModeForDefaults, detailItem?.line_item_id]);
 
   async function loadTransportLegs(lineItemId: number) {
     setTransportLegsLoading(true);
@@ -1110,6 +1157,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
           mapped_factor_id: newLegFactor?.db_id ?? null,
           factor_value: newLegFactor?.factor ?? null,
           factor_unit: newLegFactor?.uom ?? null,
+          factor_ghg_unit: newLegFactor?.ghg_unit ?? null,
           factor_source_label: newLegFactor?.label ?? null,
           origin_supplier_location_id: newLegOriginSupplierLocationId,
           destination_client_site_id: newLegDestinationClientSiteId,
@@ -1161,6 +1209,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
           mapped_factor_id: candidate.db_id,
           factor_value: candidate.factor,
           factor_unit: candidate.uom,
+          factor_ghg_unit: candidate.ghg_unit,
           factor_source_label: candidate.label,
         }),
       });
@@ -1792,6 +1841,45 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     return Array.from(seen.entries()).map(([component_id, label]) => ({ component_id, label }));
   }, [items]);
   const componentLabel = (id: number) => assessmentComponents.find((c) => c.component_id === id)?.label || `Component ${id}`;
+
+  // Inventory breakdown: component x module pivot of filteredInventoryItems
+  // (same filtered/searched set the flat list shows). Grouped by
+  // component_id when a line item has one (a real BOM component can
+  // legitimately have several rows -- one per module, e.g. A1 + A2); a line
+  // item with no component_id (added ad hoc, not via a BOM component code)
+  // becomes its own single-row group keyed by its label, so nothing that's
+  // visible in the flat list silently disappears from this view.
+  const inventoryBreakdown = useMemo(() => {
+    const rows = new Map<string, { key: string; label: string; moduleTotals: Record<string, number>; rowTotal: number }>();
+    const moduleCodesPresent = new Set<string>();
+    for (const item of filteredInventoryItems) {
+      const key = item.component_id != null ? `c-${item.component_id}` : `l-${item.line_label}`;
+      let row = rows.get(key);
+      if (!row) {
+        const componentMatch = item.component_id != null
+          ? assessmentComponents.find((c) => c.component_id === item.component_id)
+          : null;
+        row = { key, label: componentMatch?.label || item.line_label, moduleTotals: {}, rowTotal: 0 };
+        rows.set(key, row);
+      }
+      const emissions = item.emissions_tco2e || 0;
+      row.moduleTotals[item.module_code] = (row.moduleTotals[item.module_code] || 0) + emissions;
+      row.rowTotal += emissions;
+      moduleCodesPresent.add(item.module_code);
+    }
+    // modules is already sort_order-ordered by the backend (api/lca_routes.py
+    // list_lca_modules) -- filter to codes actually in use rather than
+    // showing every EN 15804 module as a mostly-empty column. Any code on a
+    // line item but missing from the modules lookup (shouldn't happen) is
+    // still appended rather than silently dropped.
+    const orderedModuleCodes = modules.map((m) => m.module_code).filter((c) => moduleCodesPresent.has(c));
+    for (const code of moduleCodesPresent) {
+      if (!orderedModuleCodes.includes(code)) orderedModuleCodes.push(code);
+    }
+    const sortedRows = Array.from(rows.values()).sort((a, b) => a.label.localeCompare(b.label));
+    const grandTotal = sortedRows.reduce((sum, r) => sum + r.rowTotal, 0);
+    return { moduleCodes: orderedModuleCodes, rows: sortedRows, grandTotal };
+  }, [filteredInventoryItems, modules, assessmentComponents]);
   const assessmentActivities = useMemo(() => {
     const seen = new Map<number, string>();
     for (const row of items) {
@@ -2201,14 +2289,79 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                 Inventory Items ({filteredInventoryItems.length}
                 {filteredInventoryItems.length !== items.length ? ` of ${items.length}` : ""})
               </CardTitle>
-              <div className="text-sm font-medium text-foreground">
-                Total: {inventoryTotalTco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO2e
+              <div className="flex items-center gap-3">
+                <div className="flex rounded-md border p-0.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setInventoryViewMode("flat")}
+                    className={`rounded px-2 py-1 ${inventoryViewMode === "flat" ? "bg-muted font-medium text-foreground" : "text-muted-foreground"}`}
+                  >
+                    List
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInventoryViewMode("breakdown")}
+                    className={`rounded px-2 py-1 ${inventoryViewMode === "breakdown" ? "bg-muted font-medium text-foreground" : "text-muted-foreground"}`}
+                  >
+                    Breakdown
+                  </button>
+                </div>
+                <div className="text-sm font-medium text-foreground">
+                  Total: {inventoryTotalTco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO2e
+                </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-2">
               {items.length === 0 ? (
                 <div className="text-sm text-muted-foreground">
                   No line items yet -- import a BOM, add from the library, or add one manually below.
+                </div>
+              ) : inventoryViewMode === "breakdown" ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm border-collapse">
+                    <thead>
+                      <tr className="bg-muted">
+                        <th className="text-left p-2 border">Component</th>
+                        {inventoryBreakdown.moduleCodes.map((code) => (
+                          <th key={code} className="p-2 border text-right whitespace-nowrap" title={moduleLabel(code)}>
+                            {code}
+                          </th>
+                        ))}
+                        <th className="p-2 border text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inventoryBreakdown.rows.map((row) => (
+                        <tr key={row.key} className="hover:bg-muted/30">
+                          <td className="p-2 border font-medium text-foreground">{row.label}</td>
+                          {inventoryBreakdown.moduleCodes.map((code) => (
+                            <td key={code} className="p-2 border text-right text-muted-foreground">
+                              {row.moduleTotals[code] != null
+                                ? row.moduleTotals[code].toLocaleString(undefined, { maximumFractionDigits: 4 })
+                                : "-"}
+                            </td>
+                          ))}
+                          <td className="p-2 border text-right font-medium text-foreground">
+                            {row.rowTotal.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="bg-muted font-bold">
+                        <td className="p-2 border">Grand Total</td>
+                        {inventoryBreakdown.moduleCodes.map((code) => {
+                          const columnTotal = inventoryBreakdown.rows.reduce((sum, r) => sum + (r.moduleTotals[code] || 0), 0);
+                          return (
+                            <td key={code} className="p-2 border text-right">
+                              {columnTotal.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                            </td>
+                          );
+                        })}
+                        <td className="p-2 border text-right">
+                          {inventoryBreakdown.grandTotal.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               ) : (
                 <>
@@ -3323,6 +3476,26 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                               ) : null}
                               {editingLegFactorId === leg.leg_id ? (
                                 <div className="mt-2 space-y-1 rounded-md border bg-muted/30 p-2">
+                                  {legDefaultFactorOptions.length > 0 ? (
+                                    <Select
+                                      value=""
+                                      onValueChange={(v) => {
+                                        const picked = legDefaultFactorOptions.find((o) => String(o.db_id) === v);
+                                        if (picked) void applyLegFactor(leg.leg_id, picked);
+                                      }}
+                                    >
+                                      <SelectTrigger className="h-8"><SelectValue placeholder={`Default ${leg.mode} factors...`} /></SelectTrigger>
+                                      <SelectContent>
+                                        {legDefaultFactorOptions.map((o) => (
+                                          <SelectItem key={o.db_id} value={String(o.db_id)}>
+                                            {o.sub_label} ({o.factor} {o.uom})
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  ) : legDefaultFactorsLoading ? (
+                                    <div className="text-xs text-muted-foreground">Loading default factors...</div>
+                                  ) : null}
                                   <div className="flex gap-2">
                                     <Input
                                       value={legFactorSearchQuery}
@@ -3489,6 +3662,26 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                       </div>
                       {!newLegFactor && editingLegFactorId === null ? (
                         <>
+                          {legDefaultFactorOptions.length > 0 ? (
+                            <Select
+                              value=""
+                              onValueChange={(v) => {
+                                const picked = legDefaultFactorOptions.find((o) => String(o.db_id) === v);
+                                if (picked) setNewLegFactor(picked);
+                              }}
+                            >
+                              <SelectTrigger className="h-8"><SelectValue placeholder={`Default ${newLegMode} factors...`} /></SelectTrigger>
+                              <SelectContent>
+                                {legDefaultFactorOptions.map((o) => (
+                                  <SelectItem key={o.db_id} value={String(o.db_id)}>
+                                    {o.sub_label} ({o.factor} {o.uom})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : legDefaultFactorsLoading ? (
+                            <div className="text-xs text-muted-foreground">Loading default factors...</div>
+                          ) : null}
                           <div className="flex gap-2">
                             <Input
                               value={legFactorSearchQuery}
