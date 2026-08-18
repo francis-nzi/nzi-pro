@@ -2451,46 +2451,62 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                         onPrev={() => setInventoryPage((p) => Math.max(0, p - 1))}
                         onNext={() => setInventoryPage((p) => Math.min(inventoryPageCount - 1, p + 1))}
                       />
-                      <div className="grid grid-cols-[1fr_110px_80px_100px_90px] gap-2 border-b px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                        <span>Item</span>
-                        <span className="text-right">Qty</span>
-                        <span>Module</span>
-                        <span className="text-right">tCO2e</span>
-                        <span>Status</span>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm border-collapse">
+                          <thead>
+                            <tr className="bg-muted">
+                              <th className="text-left p-2 border">Item</th>
+                              <th className="p-2 border text-right whitespace-nowrap">Qty</th>
+                              {inventoryBreakdown.moduleCodes.map((code) => (
+                                <th key={code} className="p-2 border text-right whitespace-nowrap" title={moduleLabel(code)}>
+                                  {code}
+                                </th>
+                              ))}
+                              <th className="p-2 border text-right whitespace-nowrap">Total (kgCO2e)</th>
+                              <th className="text-left p-2 border">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredInventoryItems
+                              .slice(inventoryPageClamped * inventoryPageSize, (inventoryPageClamped + 1) * inventoryPageSize)
+                              .map((row) => {
+                                const resolved = row.is_placeholder || Boolean(row.mapped_factor_source) || row.is_gap_filled;
+                                const kgco2e = (row.emissions_tco2e || 0) * 1000;
+                                return (
+                                  <tr
+                                    key={row.line_item_id}
+                                    className="cursor-pointer hover:bg-muted/30"
+                                    onClick={() => openInventoryDetail(row)}
+                                  >
+                                    <td className="p-2 border font-medium text-foreground">{row.line_label}</td>
+                                    <td className="p-2 border text-right text-muted-foreground whitespace-nowrap">
+                                      {Number(row.quantity || 0).toLocaleString()} {row.unit || ""}
+                                    </td>
+                                    {inventoryBreakdown.moduleCodes.map((code) => (
+                                      <td key={code} className="p-2 border text-right text-muted-foreground">
+                                        {code === row.module_code
+                                          ? kgco2e.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })
+                                          : "-"}
+                                      </td>
+                                    ))}
+                                    <td className="p-2 border text-right font-medium text-foreground">
+                                      {kgco2e.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                                    </td>
+                                    <td className="p-2 border">
+                                      {row.is_placeholder ? (
+                                        <Badge variant="secondary">Placeholder</Badge>
+                                      ) : resolved ? (
+                                        <Badge variant="outline">Mapped</Badge>
+                                      ) : (
+                                        <Badge variant="destructive">Needs review</Badge>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                          </tbody>
+                        </table>
                       </div>
-                      {filteredInventoryItems
-                        .slice(inventoryPageClamped * inventoryPageSize, (inventoryPageClamped + 1) * inventoryPageSize)
-                        .map((row) => {
-                          const resolved = row.is_placeholder || Boolean(row.mapped_factor_source) || row.is_gap_filled;
-                          return (
-                            <button
-                              key={row.line_item_id}
-                              type="button"
-                              onClick={() => openInventoryDetail(row)}
-                              className="grid w-full grid-cols-[1fr_110px_80px_100px_90px] items-center gap-2 rounded-md border-b px-2 py-2 text-left text-xs last:border-0 hover:bg-muted/50"
-                            >
-                              <span className="truncate font-medium text-foreground">{row.line_label}</span>
-                              <span className="text-right text-muted-foreground">
-                                {Number(row.quantity || 0).toLocaleString()} {row.unit || ""}
-                              </span>
-                              <span className="text-muted-foreground" title={moduleLabel(row.module_code)}>
-                                {row.module_code}
-                              </span>
-                              <span className="text-right text-muted-foreground">
-                                {Number(row.emissions_tco2e || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                              </span>
-                              <span>
-                                {row.is_placeholder ? (
-                                  <Badge variant="secondary">Placeholder</Badge>
-                                ) : resolved ? (
-                                  <Badge variant="outline">Mapped</Badge>
-                                ) : (
-                                  <Badge variant="destructive">Needs review</Badge>
-                                )}
-                              </span>
-                            </button>
-                          );
-                        })}
                       <InventoryPager
                         page={inventoryPageClamped}
                         pageSize={inventoryPageSize}
