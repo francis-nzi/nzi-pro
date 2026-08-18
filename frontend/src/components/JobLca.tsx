@@ -1814,6 +1814,32 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   );
   const inventoryPageCount = Math.max(1, Math.ceil(filteredInventoryItems.length / inventoryPageSize));
   const inventoryPageClamped = Math.min(inventoryPage, inventoryPageCount - 1);
+  const pagedInventoryItems = useMemo(
+    () => filteredInventoryItems.slice(inventoryPageClamped * inventoryPageSize, (inventoryPageClamped + 1) * inventoryPageSize),
+    [filteredInventoryItems, inventoryPageClamped, inventoryPageSize]
+  );
+  // Qty is only summable when every row in the set shares one unit --
+  // mixing e.g. kg and each/unit rows into one number would be meaningless.
+  function computeListTotals(rows: LineItem[]) {
+    const moduleTotals: Record<string, number> = {};
+    let totalKgco2e = 0;
+    let qtySum = 0;
+    const qtyUnits = new Set<string>();
+    for (const row of rows) {
+      const kgco2e = (row.emissions_tco2e || 0) * 1000;
+      totalKgco2e += kgco2e;
+      moduleTotals[row.module_code] = (moduleTotals[row.module_code] || 0) + kgco2e;
+      qtySum += Number(row.quantity || 0);
+      qtyUnits.add(row.unit || "");
+    }
+    return {
+      moduleTotals,
+      totalKgco2e,
+      qtyLabel: qtyUnits.size === 1 ? `${qtySum.toLocaleString()} ${Array.from(qtyUnits)[0] || ""}`.trim() : "--",
+    };
+  }
+  const pagedListTotals = useMemo(() => computeListTotals(pagedInventoryItems), [pagedInventoryItems]);
+  const filteredListTotals = useMemo(() => computeListTotals(filteredInventoryItems), [filteredInventoryItems]);
 
   const datasetCountryOptions = useMemo(
     () => Array.from(new Set(lcaDatasets.map((d) => d.country).filter((c): c is string => Boolean(c)))).sort(),
@@ -2482,9 +2508,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                             </tr>
                           </thead>
                           <tbody>
-                            {filteredInventoryItems
-                              .slice(inventoryPageClamped * inventoryPageSize, (inventoryPageClamped + 1) * inventoryPageSize)
-                              .map((row) => {
+                            {pagedInventoryItems.map((row) => {
                                 const resolved = row.is_placeholder || Boolean(row.mapped_factor_source) || row.is_gap_filled;
                                 const kgco2e = (row.emissions_tco2e || 0) * 1000;
                                 return (
@@ -2520,6 +2544,36 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                                 );
                               })}
                           </tbody>
+                          <tfoot>
+                            <tr className="bg-muted font-medium">
+                              <td className="p-2 border">Visible Total ({pagedInventoryItems.length})</td>
+                              <td className="p-2 border text-right text-muted-foreground whitespace-nowrap">{pagedListTotals.qtyLabel}</td>
+                              {inventoryBreakdown.moduleCodes.map((code) => (
+                                <td key={code} className="p-2 border text-right">
+                                  {(pagedListTotals.moduleTotals[code] || 0).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                                </td>
+                              ))}
+                              <td className="p-2 border text-right">
+                                {pagedListTotals.totalKgco2e.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                              </td>
+                              <td className="p-2 border" />
+                            </tr>
+                            {filteredInventoryItems.length !== pagedInventoryItems.length ? (
+                              <tr className="bg-muted font-bold">
+                                <td className="p-2 border">Grand Total ({filteredInventoryItems.length})</td>
+                                <td className="p-2 border text-right whitespace-nowrap">{filteredListTotals.qtyLabel}</td>
+                                {inventoryBreakdown.moduleCodes.map((code) => (
+                                  <td key={code} className="p-2 border text-right">
+                                    {(filteredListTotals.moduleTotals[code] || 0).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                                  </td>
+                                ))}
+                                <td className="p-2 border text-right">
+                                  {filteredListTotals.totalKgco2e.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                                </td>
+                                <td className="p-2 border" />
+                              </tr>
+                            ) : null}
+                          </tfoot>
                         </table>
                       </div>
                       <InventoryPager
