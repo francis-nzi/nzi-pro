@@ -592,6 +592,7 @@ function NewJobPageContent() {
           legacy_job_no: legacyJobNo || null,
           start_date: startDate,
           due_date: dueDate,
+          quote_id: fromQuoteId ? Number(fromQuoteId) : null,
         }),
       });
 

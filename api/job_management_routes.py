@@ -346,6 +346,14 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                 if crm_name_value:
                     insert_columns.append("crm_name")
                     insert_values.append(str(crm_name_value))
+            quote_id: int | None
+            try:
+                quote_id = int(body.get("quote_id")) if body.get("quote_id") not in (None, "") else None
+            except (TypeError, ValueError):
+                quote_id = None
+            if quote_id is not None and _col_exists(con, "jobs", "quote_id"):
+                insert_columns.append("quote_id")
+                insert_values.append(quote_id)
             row = con.execute(
                 f"""
                 INSERT INTO jobs ({', '.join(insert_columns)})
@@ -382,24 +390,53 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                 },
             )
 
-            # Auto-populate job_line_items from job type template
+            # Auto-populate job_line_items -- from the accepted quote's own
+            # lines when this job was created via "Accept & Create Job"
+            # (quote_id present), so the actually-agreed scope/price carries
+            # through instead of being silently replaced by the generic
+            # job-type template. Falls back to the template for every other
+            # job-creation path, unchanged.
             try:
                 from api.job_line_items_routes import _ensure_table as _ensure_line_items_table, _safe_float, _safe_int
                 _ensure_line_items_table(con)
-                tpl_df = con.execute(
-                    """
-                    SELECT jti.item_id, jti.quantity, jti.sort_order,
-                           ji.item_name, ji.item_code, ji.description, ji.category, ji.unit,
-                           ji.estimated_hours, ji.sell_amount, ji.sell_currency,
-                           ji.vat_rate, ji.vat_rate_id
-                    FROM job_type_items jti
-                    JOIN job_items ji ON ji.item_id = jti.item_id
-                    WHERE jti.job_type_id = %s
-                    ORDER BY jti.sort_order, ji.item_name
-                    """,
-                    [job_type_id],
-                ).df()
                 actor_email = str(_user.get("email") or _user.get("user_id") or "system")
+
+                if quote_id is not None:
+                    tpl_df = con.execute(
+                        """
+                        SELECT ql.item_id, ql.qty AS quantity, ql.sort_order,
+                               COALESCE(ji.item_name, ql.description) AS item_name,
+                               ji.item_code,
+                               ql.description,
+                               COALESCE(ql.category, ji.category) AS category,
+                               COALESCE(ql.unit, ji.unit) AS unit,
+                               ji.estimated_hours,
+                               ql.unit_price_ex_vat AS sell_amount,
+                               ji.sell_currency,
+                               ql.vat_rate_pct AS vat_rate,
+                               ql.vat_rate_id,
+                               ql.notes
+                        FROM quote_lines ql
+                        LEFT JOIN job_items ji ON ji.item_id = ql.item_id
+                        WHERE ql.quote_id = %s AND ql.is_selected IS NOT FALSE
+                        ORDER BY ql.sort_order, ql.line_id
+                        """,
+                        [quote_id],
+                    ).df()
+                else:
+                    tpl_df = con.execute(
+                        """
+                        SELECT jti.item_id, jti.quantity, jti.sort_order,
+                               ji.item_name, ji.item_code, ji.description, ji.category, ji.unit,
+                               ji.estimated_hours, ji.sell_amount, ji.sell_currency,
+                               ji.vat_rate, ji.vat_rate_id, NULL AS notes
+                        FROM job_type_items jti
+                        JOIN job_items ji ON ji.item_id = jti.item_id
+                        WHERE jti.job_type_id = %s
+                        ORDER BY jti.sort_order, ji.item_name
+                        """,
+                        [job_type_id],
+                    ).df()
                 if tpl_df is not None and not tpl_df.empty:
                     for _, trow in tpl_df.iterrows():
                         con.execute(
@@ -407,9 +444,9 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                             INSERT INTO job_line_items (
                               job_id, item_id, item_name, item_code, description, category,
                               quantity, estimated_hours, unit, unit_sell, sell_currency,
-                              vat_rate, vat_rate_id, sort_order, created_by, created_at, updated_at
+                              vat_rate, vat_rate_id, notes, sort_order, created_by, created_at, updated_at
                             )
-                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
                             """,
                             [
                                 job_id,
@@ -425,6 +462,7 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                                 str(trow.get("sell_currency") or "GBP"),
                                 _safe_float(trow.get("vat_rate"), 20.0),
                                 _safe_int(trow.get("vat_rate_id")),
+                                str(trow.get("notes") or "").strip() or None,
                                 _safe_int(trow.get("sort_order")) or 0,
                                 actor_email,
                             ],
