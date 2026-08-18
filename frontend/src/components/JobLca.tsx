@@ -357,6 +357,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [inventoryPageSize, setInventoryPageSize] = useState(20);
   const [inventoryQuery, setInventoryQuery] = useState("");
   const [inventoryViewMode, setInventoryViewMode] = useState<"flat" | "breakdown">("flat");
+  const [breakdownUnit, setBreakdownUnit] = useState<"tco2e" | "kgco2e">("tco2e");
   const [detailItem, setDetailItem] = useState<LineItem | null>(null);
   const [detailModule, setDetailModule] = useState("");
   const [detailLabel, setDetailLabel] = useState("");
@@ -1880,6 +1881,17 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     const grandTotal = sortedRows.reduce((sum, r) => sum + r.rowTotal, 0);
     return { moduleCodes: orderedModuleCodes, rows: sortedRows, grandTotal };
   }, [filteredInventoryItems, modules, assessmentComponents]);
+
+  // Breakdown values are stored in tCO2e (same as everywhere else in this
+  // component) but at this component's scale most figures round to ~0 at
+  // 4dp in tonnes -- toggling to kg (x1000) keeps them readable. Always
+  // fixed to exactly 4 decimal places (min AND max) so the toggle doesn't
+  // also reintroduce inconsistent trailing-zero trimming.
+  function formatBreakdownValue(valueTco2e: number): string {
+    const scaled = breakdownUnit === "kgco2e" ? valueTco2e * 1000 : valueTco2e;
+    return scaled.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  }
+  const breakdownUnitLabel = breakdownUnit === "kgco2e" ? "kgCO2e" : "tCO2e";
   const assessmentActivities = useMemo(() => {
     const seen = new Map<number, string>();
     for (const row of items) {
@@ -2306,8 +2318,29 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                     Breakdown
                   </button>
                 </div>
+                {inventoryViewMode === "breakdown" ? (
+                  <div className="flex rounded-md border p-0.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setBreakdownUnit("tco2e")}
+                      className={`rounded px-2 py-1 ${breakdownUnit === "tco2e" ? "bg-muted font-medium text-foreground" : "text-muted-foreground"}`}
+                    >
+                      tCO2e
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBreakdownUnit("kgco2e")}
+                      className={`rounded px-2 py-1 ${breakdownUnit === "kgco2e" ? "bg-muted font-medium text-foreground" : "text-muted-foreground"}`}
+                    >
+                      kgCO2e
+                    </button>
+                  </div>
+                ) : null}
                 <div className="text-sm font-medium text-foreground">
-                  Total: {inventoryTotalTco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO2e
+                  Total: {inventoryViewMode === "breakdown"
+                    ? formatBreakdownValue(inventoryTotalTco2e)
+                    : inventoryTotalTco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })}{" "}
+                  {inventoryViewMode === "breakdown" ? breakdownUnitLabel : "tCO2e"}
                 </div>
               </div>
             </CardHeader>
@@ -2327,7 +2360,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                             {code}
                           </th>
                         ))}
-                        <th className="p-2 border text-right">Total</th>
+                        <th className="p-2 border text-right whitespace-nowrap">Total ({breakdownUnitLabel})</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2336,13 +2369,11 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                           <td className="p-2 border font-medium text-foreground">{row.label}</td>
                           {inventoryBreakdown.moduleCodes.map((code) => (
                             <td key={code} className="p-2 border text-right text-muted-foreground">
-                              {row.moduleTotals[code] != null
-                                ? row.moduleTotals[code].toLocaleString(undefined, { maximumFractionDigits: 4 })
-                                : "-"}
+                              {row.moduleTotals[code] != null ? formatBreakdownValue(row.moduleTotals[code]) : "-"}
                             </td>
                           ))}
                           <td className="p-2 border text-right font-medium text-foreground">
-                            {row.rowTotal.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                            {formatBreakdownValue(row.rowTotal)}
                           </td>
                         </tr>
                       ))}
@@ -2352,12 +2383,12 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                           const columnTotal = inventoryBreakdown.rows.reduce((sum, r) => sum + (r.moduleTotals[code] || 0), 0);
                           return (
                             <td key={code} className="p-2 border text-right">
-                              {columnTotal.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                              {formatBreakdownValue(columnTotal)}
                             </td>
                           );
                         })}
                         <td className="p-2 border text-right">
-                          {inventoryBreakdown.grandTotal.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                          {formatBreakdownValue(inventoryBreakdown.grandTotal)}
                         </td>
                       </tr>
                     </tbody>
