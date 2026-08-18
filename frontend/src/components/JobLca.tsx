@@ -2500,10 +2500,14 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                               <th className="p-2 border text-right whitespace-nowrap">Qty</th>
                               {inventoryBreakdown.moduleCodes.map((code) => (
                                 <th key={code} className="p-2 border text-right whitespace-nowrap" title={moduleLabel(code)}>
-                                  {code}
+                                  <div>{code}</div>
+                                  <div className="text-[10px] font-normal text-muted-foreground">kgCO2e</div>
                                 </th>
                               ))}
-                              <th className="p-2 border text-right whitespace-nowrap">Total (kgCO2e)</th>
+                              <th className="p-2 border text-right whitespace-nowrap">
+                                <div>Total</div>
+                                <div className="text-[10px] font-normal text-muted-foreground">kgCO2e</div>
+                              </th>
                               <th className="text-left p-2 border">Status</th>
                             </tr>
                           </thead>
