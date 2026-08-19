@@ -98,7 +98,7 @@ def geocode_location_detailed(location: str) -> tuple[dict[str, object] | None, 
         # both between these fallback queries and against any other caller
         # in the process (e.g. a concurrent autocomplete request).
         try:
-            resp = _throttled_get({"q": query, "format": "jsonv2", "addressdetails": 1, "limit": 1})
+            resp = _throttled_get({"q": query, "format": "jsonv2", "addressdetails": 1, "limit": 1, "accept-language": "en"})
             resp.raise_for_status()
             results = resp.json()
         except (requests.RequestException, ValueError) as exc:
@@ -151,7 +151,7 @@ def search_locations(query: str, limit: int = 5) -> list[dict[str, object]]:
     if len(text) < 3:
         return []
     try:
-        resp = _throttled_get({"q": text, "format": "jsonv2", "addressdetails": 1, "limit": max(1, min(limit, 10))})
+        resp = _throttled_get({"q": text, "format": "jsonv2", "addressdetails": 1, "limit": max(1, min(limit, 10)), "accept-language": "en"})
         resp.raise_for_status()
         results = resp.json()
     except (requests.RequestException, ValueError) as exc:
