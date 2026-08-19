@@ -13,6 +13,7 @@ from api.auth import _current_user
 from api.permissions import assert_job_access, assert_permission
 from core.database import get_conn
 from services.lca_bom_template import generate_lca_bom_template
+from services.lca_inventory_export import generate_inventory_breakdown_export
 from services.lca_component_tree import ensure_lca_hierarchy_schema, resolve_effective_lines, snapshot_to_lines
 from services.lca_engine import (
     apply_scenario_multipliers,
@@ -2613,6 +2614,28 @@ def download_bom_template(
 ):
     assert_job_access(_user, int(job_id))
     result = generate_lca_bom_template(int(job_id), int(assessment_id))
+    if result is None:
+        raise HTTPException(status_code=404, detail="LCA assessment not found")
+    content, file_name = result
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{file_name}"',
+            "X-Filename": file_name,
+        },
+    )
+
+
+@router.get("/jobs/{job_id}/lca/assessments/{assessment_id}/inventory-breakdown-export")
+def download_inventory_breakdown_export(
+    job_id: int,
+    assessment_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    assert_permission(_user, "jobs.view")
+    assert_job_access(_user, int(job_id))
+    result = generate_inventory_breakdown_export(int(job_id), int(assessment_id))
     if result is None:
         raise HTTPException(status_code=404, detail="LCA assessment not found")
     content, file_name = result

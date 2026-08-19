@@ -1449,6 +1449,34 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     }
   }
 
+  async function downloadInventoryExport() {
+    if (!selectedAssessmentId) {
+      setStatus("Select an assessment first.");
+      return;
+    }
+    setError("");
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/lca/assessments/${selectedAssessmentId}/inventory-breakdown-export`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`Export download failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const xFilename = res.headers.get("x-filename");
+      const disposition = res.headers.get("content-disposition") || "";
+      const cdMatch = disposition.match(/filename="?([^"]+)"?/i);
+      link.download = xFilename || cdMatch?.[1] || `lca-inventory-breakdown-${selectedAssessmentId}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   async function importBom() {
     if (!selectedAssessmentId) {
       setBomImportResult({ kind: "error", message: "Select an assessment first." });
@@ -2428,6 +2456,9 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                 <div className="text-sm font-medium text-foreground">
                   Total: {formatBreakdownValue(inventoryTotalTco2e)} {breakdownUnitLabel}
                 </div>
+                <Button variant="outline" size="sm" onClick={() => void downloadInventoryExport()}>
+                  Download Excel
+                </Button>
               </div>
             </CardHeader>
             <CardContent className="space-y-2">
