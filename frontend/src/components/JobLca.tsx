@@ -140,6 +140,7 @@ type LineItem = {
   factor_value: number;
   factor_unit?: string | null;
   mapped_factor_source?: string | null;
+  mapped_factor_label?: string | null;
   mapped_factor_dataset_name?: string | null;
   mapped_factor_dataset_year?: number | null;
   mapped_factor_original_id?: string | null;
@@ -986,6 +987,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
         ? {
             ...prev,
             mapped_factor_source: updated.mapped_factor_source,
+            mapped_factor_label: updated.mapped_factor_label,
             mapped_factor_dataset_name: updated.mapped_factor_dataset_name,
             mapped_factor_dataset_year: updated.mapped_factor_dataset_year,
             mapped_factor_original_id: updated.mapped_factor_original_id,
@@ -1907,6 +1909,23 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     return row.mapped_factor_source || row.is_gap_filled ? "mapped" : "needs_review";
   }
 
+  // One line per module explaining exactly what "Needs review"/"Mapped"
+  // means for that specific line -- the Breakdown table's Status badge is
+  // an aggregate across a component's several module lines, so on its own
+  // it can't say what needs doing or what a mapped line is mapped to.
+  function lineItemStatusDetail(row: LineItem): string {
+    const status = lineItemStatus(row);
+    if (status === "placeholder") return `${row.module_code}: placeholder, no weight yet`;
+    if (status === "needs_review") {
+      return TRANSPORT_MODULE_CODES.includes(row.module_code)
+        ? `${row.module_code}: needs transport legs`
+        : `${row.module_code}: no factor mapped yet`;
+    }
+    if (TRANSPORT_MODULE_CODES.includes(row.module_code)) return `${row.module_code}: mapped via transport legs`;
+    const label = row.mapped_factor_label ? ` (${row.mapped_factor_label})` : "";
+    return `${row.module_code}: mapped via ${row.mapped_factor_source || "manual"}${label}`;
+  }
+
   // Edit Inventory Item modal's Module picker only -- a cradle-to-gate
   // assessment has no A4+ life cycle stages, so offering them there would
   // just let someone file a line item under a module the boundary excludes.
@@ -1968,7 +1987,13 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
           : statuses.includes("placeholder")
             ? "placeholder"
             : "mapped";
-        return { ...row, quantity: qtyLine?.quantity ?? 0, unit: qtyLine?.unit || "", status };
+        // The badge only ever says one word for a row that can span several
+        // module lines -- this spells out, per module, what that word means.
+        const statusDetail = row.lineItems.map(lineItemStatusDetail).join(" | ");
+        // Clicking the row should land on the module that actually needs
+        // attention, not just whichever module line happened to be first.
+        const primaryLineItem = row.lineItems.find((li) => lineItemStatus(li) === "needs_review") || row.lineItems[0];
+        return { ...row, quantity: qtyLine?.quantity ?? 0, unit: qtyLine?.unit || "", status, statusDetail, primaryLineItem };
       })
       .sort((a, b) => a.label.localeCompare(b.label));
     const grandTotal = sortedRows.reduce((sum, r) => sum + r.rowTotal, 0);
@@ -2534,10 +2559,10 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                               <tr
                                 key={row.key}
                                 className="cursor-pointer hover:bg-muted/30"
-                                onClick={() => row.lineItems[0] && openInventoryDetail(row.lineItems[0])}
+                                onClick={() => row.primaryLineItem && openInventoryDetail(row.primaryLineItem)}
                                 title={
                                   row.lineItems.length > 1
-                                    ? `Opens the ${moduleLabel(row.lineItems[0].module_code)} line -- this component has ${row.lineItems.length} module lines`
+                                    ? `Opens the ${moduleLabel(row.primaryLineItem.module_code)} line -- this component has ${row.lineItems.length} module lines`
                                     : undefined
                                 }
                               >
@@ -2553,7 +2578,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                                 <td className="p-2 border text-right font-medium text-foreground">
                                   {formatBreakdownValue(row.rowTotal)}
                                 </td>
-                                <td className="p-2 border">
+                                <td className="p-2 border" title={row.statusDetail}>
                                   {row.status === "placeholder" ? (
                                     <Badge variant="secondary">Placeholder</Badge>
                                   ) : row.status === "mapped" ? (
@@ -3543,15 +3568,25 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                   <div className="space-y-2">
                     {isTransport ? (
                       <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+                        <div className={`mb-1 font-medium ${hasLegs ? "text-foreground" : "text-destructive"}`}>
+                          {hasLegs ? "Mapped -- via transport legs" : "Needs review -- no transport legs added yet"}
+                        </div>
                         {hasLegs
                           ? "This item's emissions come from the transport legs above."
-                          : "No legs added yet -- add a journey below. A transport-module item is always leg-managed; to give it a direct factor instead, change its module above."}
+                          : "Add a journey below to resolve this. A transport-module item is always leg-managed; to give it a direct factor instead, change its module above."}
                       </div>
                     ) : (
                       <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
                         {detailItem.mapped_factor_source ? (
                           <>
-                            Factor source: <span className="font-medium text-foreground">{detailItem.mapped_factor_source}</span>
+                            <div className="mb-1 font-medium text-foreground">Mapped</div>
+                            {detailItem.mapped_factor_label ? (
+                              <>
+                                Factor: <span className="font-medium text-foreground">{detailItem.mapped_factor_label}</span>
+                                <br />
+                              </>
+                            ) : null}
+                            Source: <span className="font-medium text-foreground">{detailItem.mapped_factor_source}</span>
                             {typeof detailItem.factor_match_confidence === "number" ? ` (${Math.round(detailItem.factor_match_confidence * 100)}% confidence)` : ""}
                             {detailItem.is_gap_filled ? " -- gap-filled estimate" : ""}
                             {detailItem.mapped_factor_dataset_name ? (
@@ -3564,7 +3599,10 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                             ) : null}
                           </>
                         ) : (
-                          "No factor mapped yet -- use Auto Map Factor, Search Factor, or set Factor Value directly above."
+                          <>
+                            <div className="mb-1 font-medium text-destructive">Needs review -- no factor mapped yet</div>
+                            Use Auto Map Factor, Search Factor, or set Factor Value directly above to resolve this.
+                          </>
                         )}
                       </div>
                     )}

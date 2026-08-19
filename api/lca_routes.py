@@ -1176,10 +1176,15 @@ def _repair_bom_nan_artifacts(con) -> None:
 
 
 def _attach_factor_source_audit_info(con, items: list[dict[str, Any]]) -> None:
-    """Adds mapped_factor_dataset_name / _dataset_year / _original_id to each
-    line item in place, so the Inventory item modal can show exactly which
-    dataset row a mapped factor came from -- needed to cross-check against
-    the source spreadsheet (e.g. CEDA's sector code, ICE's row id)."""
+    """Adds mapped_factor_dataset_name / _dataset_year / _original_id /
+    _label to each line item in place, so the Inventory item modal can show
+    exactly which dataset row a mapped factor came from -- needed to
+    cross-check against the source spreadsheet (e.g. CEDA's sector code,
+    ICE's row id) -- and what that row actually describes (report_label was
+    previously fetched nowhere; factor_source_label on the line item itself
+    only ever holds the source name, e.g. "RICS / BRE ICE Database V4.1",
+    which duplicates mapped_factor_dataset_name rather than naming the
+    specific factor row)."""
     by_source: dict[str, list[int]] = {"factor_lookup": [], "job_custom_factor": [], "admin_custom_factor": []}
     for it in items:
         src = it.get("mapped_factor_source")
@@ -1187,40 +1192,56 @@ def _attach_factor_source_audit_info(con, items: list[dict[str, Any]]) -> None:
         if src in by_source and fid is not None:
             by_source[src].append(int(fid))
 
+    def _combine_label(category: Any, report_label: Any) -> str | None:
+        category = str(category or "").strip()
+        report_label = str(report_label or "").strip()
+        if category and report_label and category != report_label:
+            return f"{category} - {report_label}"
+        return report_label or category or None
+
     fl_info: dict[int, dict[str, Any]] = {}
     if by_source["factor_lookup"]:
         ph = ",".join(["%s"] * len(by_source["factor_lookup"]))
         rows = con.execute(
             f"""
-            SELECT fl.db_id, fl.original_id, d.name, d.year
+            SELECT fl.db_id, fl.original_id, d.name, d.year, fl.report_label, fl.category
             FROM factor_lookup fl
             LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
             WHERE fl.db_id IN ({ph})
             """,
             by_source["factor_lookup"],
         ).fetchall()
-        for db_id, original_id, dataset_name, dataset_year in rows:
-            fl_info[int(db_id)] = {"dataset_name": dataset_name, "dataset_year": dataset_year, "original_id": original_id}
+        for db_id, original_id, dataset_name, dataset_year, report_label, category in rows:
+            fl_info[int(db_id)] = {
+                "dataset_name": dataset_name, "dataset_year": dataset_year, "original_id": original_id,
+                "label": _combine_label(category, report_label),
+            }
 
     jcf_info: dict[int, dict[str, Any]] = {}
     if by_source["job_custom_factor"]:
         ph = ",".join(["%s"] * len(by_source["job_custom_factor"]))
         rows = con.execute(
-            f"SELECT factor_id, factor_year FROM job_custom_factors WHERE factor_id IN ({ph})",
+            f"SELECT factor_id, factor_year, report_label, description FROM job_custom_factors WHERE factor_id IN ({ph})",
             by_source["job_custom_factor"],
         ).fetchall()
-        for factor_id, factor_year in rows:
-            jcf_info[int(factor_id)] = {"dataset_name": "Client Factor", "dataset_year": factor_year, "original_id": factor_id}
+        for factor_id, factor_year, report_label, description in rows:
+            jcf_info[int(factor_id)] = {
+                "dataset_name": "Client Factor", "dataset_year": factor_year, "original_id": factor_id,
+                "label": str(report_label or description or "").strip() or None,
+            }
 
     cf_info: dict[int, dict[str, Any]] = {}
     if by_source["admin_custom_factor"]:
         ph = ",".join(["%s"] * len(by_source["admin_custom_factor"]))
         rows = con.execute(
-            f"SELECT factor_id FROM custom_factors WHERE factor_id IN ({ph})",
+            f"SELECT factor_id, report_label, description FROM custom_factors WHERE factor_id IN ({ph})",
             by_source["admin_custom_factor"],
         ).fetchall()
-        for (factor_id,) in rows:
-            cf_info[int(factor_id)] = {"dataset_name": "Admin Custom Factor", "dataset_year": None, "original_id": factor_id}
+        for factor_id, report_label, description in rows:
+            cf_info[int(factor_id)] = {
+                "dataset_name": "Admin Custom Factor", "dataset_year": None, "original_id": factor_id,
+                "label": str(report_label or description or "").strip() or None,
+            }
 
     lookups = {"factor_lookup": fl_info, "job_custom_factor": jcf_info, "admin_custom_factor": cf_info}
     for it in items:
@@ -1230,6 +1251,7 @@ def _attach_factor_source_audit_info(con, items: list[dict[str, Any]]) -> None:
         it["mapped_factor_dataset_name"] = info["dataset_name"] if info else None
         it["mapped_factor_dataset_year"] = info["dataset_year"] if info else None
         it["mapped_factor_original_id"] = info["original_id"] if info else None
+        it["mapped_factor_label"] = info["label"] if info else None
 
 
 @router.get("/jobs/{job_id}/lca/assessments/{assessment_id}/line-items")
