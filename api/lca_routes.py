@@ -25,6 +25,7 @@ from services.geocoding import geocode_location, search_locations
 from services.lca_transport import (
     DETOUR_FACTORS,
     FREIGHT_DEFAULT_FACTORS,
+    TRANSPORT_MODULE_CODES,
     VALID_MODES,
     compute_leg_emissions_tco2e,
     estimate_leg_distance_km,
@@ -1466,6 +1467,7 @@ def update_line_item(job_id: int, line_item_id: int, body: dict = Body(...), _us
                 "SELECT module_code FROM lca_line_items WHERE line_item_id = %s", [int(line_item_id)]
             ).fetchone()
             current_module_code = str(current_module_row[0] or "") if current_module_row else ""
+            effective_module_code = current_module_code
             module_changed = False
             edits: list[str] = []
             params: list[Any] = []
@@ -1486,6 +1488,7 @@ def update_line_item(job_id: int, line_item_id: int, body: dict = Body(...), _us
                         raise HTTPException(status_code=400, detail=f"Invalid module_code: {val}")
                     if val != current_module_code:
                         module_changed = True
+                    effective_module_code = val
                     edits.append("module_code = %s")
                     params.append(val)
                 elif field in numeric_fields:
@@ -1505,6 +1508,17 @@ def update_line_item(job_id: int, line_item_id: int, body: dict = Body(...), _us
                     params.append(text or None)
             if not edits:
                 return {"ok": True}
+            # A2/A4/C2 lines are transport-managed and don't take a direct
+            # factor_value -- unless this same request is also moving the
+            # line off a transport module (effective_module_code reflects
+            # that), in which case this is the legitimate "switch off
+            # transport" path and the module_changed branch below handles
+            # clearing the legs.
+            if "factor_value" in body and effective_module_code in TRANSPORT_MODULE_CODES:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This item's module is transport-managed (A2/A4/C2) -- use Transport Legs, or change its module first if you want a direct factor.",
+                )
             # Manually setting factor_value is the same "switch to a direct
             # factor" action as picking one via Change Factor Source (see
             # _switch_line_to_direct_factor) -- without this, a transport-
@@ -2317,6 +2331,20 @@ def map_line_item_factor(job_id: int, line_item_id: int, body: dict = Body(defau
             ).fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="LCA line item not found")
+            # A2/A4/C2 lines are transport-managed -- their emissions come
+            # from Transport Legs, never a direct factor. Letting a direct
+            # factor be applied here used to be possible (see
+            # _switch_line_to_direct_factor's docstring) but silently
+            # deleted real legs whenever someone picked a factor from the
+            # wrong screen. Enforced here rather than only in the UI so
+            # every caller (Change Factor Source, Stage 3 Auto Map/Search)
+            # is covered -- move the line to a non-transport module first
+            # if a direct factor is genuinely what's wanted for it.
+            if str(row[2] or "") in TRANSPORT_MODULE_CODES:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This item's module is transport-managed (A2/A4/C2) -- use Transport Legs, or change its module first if you want a direct factor.",
+                )
             assessment_id = int(row[0])
             dataset_ids = _resolve_dataset_ids(con, int(job_id), assessment_id)
             client_db_id = _job_client_id(con, int(job_id))
@@ -2401,6 +2429,11 @@ def gap_fill_line_item(job_id: int, line_item_id: int, body: dict = Body(default
             ).fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="LCA line item not found")
+            if str(row[1] or "") in TRANSPORT_MODULE_CODES:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This item's module is transport-managed (A2/A4/C2) -- use Transport Legs, or change its module first if you want a gap-filled direct factor.",
+                )
             assessment_id = int(row[0])
             dataset_ids = _resolve_dataset_ids(con, int(job_id), assessment_id)
             estimate, method = _estimate_gap_factor(con, str(row[1] or "A1"), str(row[2] or ""), dataset_ids=dataset_ids)

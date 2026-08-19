@@ -28,6 +28,11 @@ DETOUR_FACTORS: dict[str, float] = {
 
 VALID_MODES = tuple(DETOUR_FACTORS.keys())
 
+# The three EN 15804 modules that get a Transport Legs section in the UI
+# instead of a single line-level factor_value -- kept alongside VALID_MODES
+# since both describe the same "this line is transport-managed" concept.
+TRANSPORT_MODULE_CODES = ("A2", "A4", "C2")
+
 # Curated, per-mode default freight factors -- DESNZ's full freight factor
 # set (154 per-vehicle "Delivery Vehicles" factors x several laden states,
 # 570 tonne.km "Freighting Goods" factors x vessel/vehicle subtypes) is too
