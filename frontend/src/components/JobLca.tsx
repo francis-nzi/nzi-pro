@@ -1899,13 +1899,16 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   }, [items]);
   const componentLabel = (id: number) => assessmentComponents.find((c) => c.component_id === id)?.label || `Component ${id}`;
 
-  // Shared with the (now single) Inventory Breakdown view: a transport-module
-  // row with no legs (or legs summing to exactly 0) computes to a real 0
-  // total but isn't actually "Mapped" -- it still needs a journey added.
+  // Shared with the (now single) Inventory Breakdown view. A transport-module
+  // line never sets mapped_factor_source (it's leg-managed, not
+  // factor-managed), so it needs its own branch entirely -- falling through
+  // to the mapped_factor_source check below flagged every transport line as
+  // "needs review" even once it had real, correctly leg-driven emissions.
   function lineItemStatus(row: LineItem): "placeholder" | "mapped" | "needs_review" {
     if (row.is_placeholder) return "placeholder";
-    const needsLegs = TRANSPORT_MODULE_CODES.includes(row.module_code) && !row.transport_emissions_tco2e;
-    if (needsLegs) return "needs_review";
+    if (TRANSPORT_MODULE_CODES.includes(row.module_code)) {
+      return row.transport_emissions_tco2e ? "mapped" : "needs_review";
+    }
     return row.mapped_factor_source || row.is_gap_filled ? "mapped" : "needs_review";
   }
 
@@ -3564,6 +3567,16 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
               {(() => {
                 const isTransport = TRANSPORT_MODULE_CODES.includes(detailModule);
                 const hasLegs = transportLegs.length > 0;
+                // The Module dropdown above is a pending edit -- it only
+                // takes effect once Save Changes is clicked. Change Factor
+                // Source applies immediately against the server's *current*
+                // module, so switching the dropdown away from a transport
+                // module here doesn't yet let a direct factor be applied:
+                // the backend still sees this line as transport-managed
+                // and rejects it (map_line_item_factor's TRANSPORT_MODULE_CODES
+                // guard) until the module change is actually saved.
+                const pendingModuleChange =
+                  TRANSPORT_MODULE_CODES.includes(detailItem.module_code) && detailModule !== detailItem.module_code;
                 return (
                   <div className="space-y-2">
                     {isTransport ? (
@@ -3606,7 +3619,14 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                         )}
                       </div>
                     )}
-                    {!isTransport ? (
+                    {!isTransport && pendingModuleChange ? (
+                      <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                        Click Save Changes above first to move this item off Transport Legs -- Change Factor Source
+                        applies immediately and this item is still transport-managed on the server until the module
+                        change is saved.
+                      </div>
+                    ) : null}
+                    {!isTransport && !pendingModuleChange ? (
                       <div className="space-y-2">
                         <Label>Change Factor Source</Label>
                         <div className="flex gap-2">
