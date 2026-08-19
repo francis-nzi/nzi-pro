@@ -357,8 +357,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
   const [inventoryPage, setInventoryPage] = useState(0);
   const [inventoryPageSize, setInventoryPageSize] = useState(20);
   const [inventoryQuery, setInventoryQuery] = useState("");
-  const [inventoryViewMode, setInventoryViewMode] = useState<"flat" | "breakdown">("flat");
-  const [breakdownUnit, setBreakdownUnit] = useState<"tco2e" | "kgco2e">("tco2e");
+  const [breakdownUnit, setBreakdownUnit] = useState<"tco2e" | "kgco2e">("kgco2e");
   const [detailItem, setDetailItem] = useState<LineItem | null>(null);
   const [detailModule, setDetailModule] = useState("");
   const [detailLabel, setDetailLabel] = useState("");
@@ -1826,34 +1825,6 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     () => filteredInventoryItems.reduce((sum, r) => sum + (r.emissions_tco2e || 0), 0),
     [filteredInventoryItems]
   );
-  const inventoryPageCount = Math.max(1, Math.ceil(filteredInventoryItems.length / inventoryPageSize));
-  const inventoryPageClamped = Math.min(inventoryPage, inventoryPageCount - 1);
-  const pagedInventoryItems = useMemo(
-    () => filteredInventoryItems.slice(inventoryPageClamped * inventoryPageSize, (inventoryPageClamped + 1) * inventoryPageSize),
-    [filteredInventoryItems, inventoryPageClamped, inventoryPageSize]
-  );
-  // Qty is only summable when every row in the set shares one unit --
-  // mixing e.g. kg and each/unit rows into one number would be meaningless.
-  function computeListTotals(rows: LineItem[]) {
-    const moduleTotals: Record<string, number> = {};
-    let totalKgco2e = 0;
-    let qtySum = 0;
-    const qtyUnits = new Set<string>();
-    for (const row of rows) {
-      const kgco2e = (row.emissions_tco2e || 0) * 1000;
-      totalKgco2e += kgco2e;
-      moduleTotals[row.module_code] = (moduleTotals[row.module_code] || 0) + kgco2e;
-      qtySum += Number(row.quantity || 0);
-      qtyUnits.add(row.unit || "");
-    }
-    return {
-      moduleTotals,
-      totalKgco2e,
-      qtyLabel: qtyUnits.size === 1 ? `${qtySum.toLocaleString()} ${Array.from(qtyUnits)[0] || ""}`.trim() : "--",
-    };
-  }
-  const pagedListTotals = useMemo(() => computeListTotals(pagedInventoryItems), [pagedInventoryItems]);
-  const filteredListTotals = useMemo(() => computeListTotals(filteredInventoryItems), [filteredInventoryItems]);
 
   const datasetCountryOptions = useMemo(
     () => Array.from(new Set(lcaDatasets.map((d) => d.country).filter((c): c is string => Boolean(c)))).sort(),
@@ -1897,6 +1868,16 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     return Array.from(seen.entries()).map(([component_id, label]) => ({ component_id, label }));
   }, [items]);
   const componentLabel = (id: number) => assessmentComponents.find((c) => c.component_id === id)?.label || `Component ${id}`;
+
+  // Shared with the (now single) Inventory Breakdown view: a transport-module
+  // row with no legs (or legs summing to exactly 0) computes to a real 0
+  // total but isn't actually "Mapped" -- it still needs a journey added.
+  function lineItemStatus(row: LineItem): "placeholder" | "mapped" | "needs_review" {
+    if (row.is_placeholder) return "placeholder";
+    const needsLegs = TRANSPORT_MODULE_CODES.includes(row.module_code) && !row.transport_emissions_tco2e;
+    if (needsLegs) return "needs_review";
+    return row.mapped_factor_source || row.is_gap_filled ? "mapped" : "needs_review";
+  }
 
   // Edit Inventory Item modal's Module picker only -- a cradle-to-gate
   // assessment has no A4+ life cycle stages, so offering them there would
@@ -1946,9 +1927,25 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     for (const code of moduleCodesPresent) {
       if (!orderedModuleCodes.includes(code)) orderedModuleCodes.push(code);
     }
-    const sortedRows = Array.from(rows.values()).sort((a, b) => a.label.localeCompare(b.label));
+    const sortedRows = Array.from(rows.values())
+      .map((row) => {
+        // Prefer a non-transport (material) line's quantity/unit as the
+        // row's representative Qty -- that's the "product weight" basis;
+        // a transport-module sibling for the same component currently
+        // always carries an identical quantity anyway.
+        const qtyLine = row.lineItems.find((li) => !TRANSPORT_MODULE_CODES.includes(li.module_code)) || row.lineItems[0];
+        const statuses = row.lineItems.map(lineItemStatus);
+        const status: "placeholder" | "mapped" | "needs_review" = statuses.includes("needs_review")
+          ? "needs_review"
+          : statuses.includes("placeholder")
+            ? "placeholder"
+            : "mapped";
+        return { ...row, quantity: qtyLine?.quantity ?? 0, unit: qtyLine?.unit || "", status };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label));
     const grandTotal = sortedRows.reduce((sum, r) => sum + r.rowTotal, 0);
     return { moduleCodes: orderedModuleCodes, rows: sortedRows, grandTotal };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredInventoryItems, modules, assessmentComponents]);
 
   // Breakdown values are stored in tCO2e (same as everywhere else in this
@@ -1961,6 +1958,36 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
     return scaled.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
   }
   const breakdownUnitLabel = breakdownUnit === "kgco2e" ? "kgCO2e" : "tCO2e";
+  type BreakdownRow = (typeof inventoryBreakdown)["rows"][number];
+  const inventoryPageCount = Math.max(1, Math.ceil(inventoryBreakdown.rows.length / inventoryPageSize));
+  const inventoryPageClamped = Math.min(inventoryPage, inventoryPageCount - 1);
+  const pagedBreakdownRows = useMemo(
+    () => inventoryBreakdown.rows.slice(inventoryPageClamped * inventoryPageSize, (inventoryPageClamped + 1) * inventoryPageSize),
+    [inventoryBreakdown.rows, inventoryPageClamped, inventoryPageSize]
+  );
+  // Qty is only summable when every row in the set shares one unit --
+  // mixing e.g. kg and each/unit rows into one number would be meaningless.
+  function computeBreakdownTotals(rows: BreakdownRow[]) {
+    const moduleTotals: Record<string, number> = {};
+    let rowTotal = 0;
+    let qtySum = 0;
+    const qtyUnits = new Set<string>();
+    for (const row of rows) {
+      rowTotal += row.rowTotal;
+      for (const code of Object.keys(row.moduleTotals)) {
+        moduleTotals[code] = (moduleTotals[code] || 0) + row.moduleTotals[code];
+      }
+      qtySum += Number(row.quantity || 0);
+      qtyUnits.add(row.unit || "");
+    }
+    return {
+      moduleTotals,
+      rowTotal,
+      qtyLabel: qtyUnits.size === 1 ? `${qtySum.toLocaleString()} ${Array.from(qtyUnits)[0] || ""}`.trim() : "--",
+    };
+  }
+  const pagedBreakdownTotals = useMemo(() => computeBreakdownTotals(pagedBreakdownRows), [pagedBreakdownRows]);
+  const filteredBreakdownTotals = useMemo(() => computeBreakdownTotals(inventoryBreakdown.rows), [inventoryBreakdown.rows]);
   const assessmentActivities = useMemo(() => {
     const seen = new Map<number, string>();
     for (const row of items) {
@@ -2379,49 +2406,27 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
               <CardTitle>
-                Inventory Items ({filteredInventoryItems.length}
-                {filteredInventoryItems.length !== items.length ? ` of ${items.length}` : ""})
+                Inventory Items ({inventoryBreakdown.rows.length} component{inventoryBreakdown.rows.length === 1 ? "" : "s"}, {items.length} line item{items.length === 1 ? "" : "s"})
               </CardTitle>
               <div className="flex items-center gap-3">
                 <div className="flex rounded-md border p-0.5 text-xs">
                   <button
                     type="button"
-                    onClick={() => setInventoryViewMode("flat")}
-                    className={`rounded px-2 py-1 ${inventoryViewMode === "flat" ? "bg-muted font-medium text-foreground" : "text-muted-foreground"}`}
+                    onClick={() => setBreakdownUnit("tco2e")}
+                    className={`rounded px-2 py-1 ${breakdownUnit === "tco2e" ? "bg-muted font-medium text-foreground" : "text-muted-foreground"}`}
                   >
-                    List
+                    tCO2e
                   </button>
                   <button
                     type="button"
-                    onClick={() => setInventoryViewMode("breakdown")}
-                    className={`rounded px-2 py-1 ${inventoryViewMode === "breakdown" ? "bg-muted font-medium text-foreground" : "text-muted-foreground"}`}
+                    onClick={() => setBreakdownUnit("kgco2e")}
+                    className={`rounded px-2 py-1 ${breakdownUnit === "kgco2e" ? "bg-muted font-medium text-foreground" : "text-muted-foreground"}`}
                   >
-                    Breakdown
+                    kgCO2e
                   </button>
                 </div>
-                {inventoryViewMode === "breakdown" ? (
-                  <div className="flex rounded-md border p-0.5 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => setBreakdownUnit("tco2e")}
-                      className={`rounded px-2 py-1 ${breakdownUnit === "tco2e" ? "bg-muted font-medium text-foreground" : "text-muted-foreground"}`}
-                    >
-                      tCO2e
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBreakdownUnit("kgco2e")}
-                      className={`rounded px-2 py-1 ${breakdownUnit === "kgco2e" ? "bg-muted font-medium text-foreground" : "text-muted-foreground"}`}
-                    >
-                      kgCO2e
-                    </button>
-                  </div>
-                ) : null}
                 <div className="text-sm font-medium text-foreground">
-                  Total: {inventoryViewMode === "breakdown"
-                    ? formatBreakdownValue(inventoryTotalTco2e)
-                    : inventoryTotalTco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })}{" "}
-                  {inventoryViewMode === "breakdown" ? breakdownUnitLabel : "tCO2e"}
+                  Total: {formatBreakdownValue(inventoryTotalTco2e)} {breakdownUnitLabel}
                 </div>
               </div>
             </CardHeader>
@@ -2429,60 +2434,6 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
               {items.length === 0 ? (
                 <div className="text-sm text-muted-foreground">
                   No line items yet -- import a BOM, add from the library, or add one manually below.
-                </div>
-              ) : inventoryViewMode === "breakdown" ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm border-collapse">
-                    <thead>
-                      <tr className="bg-muted">
-                        <th className="text-left p-2 border">Component</th>
-                        {inventoryBreakdown.moduleCodes.map((code) => (
-                          <th key={code} className="p-2 border text-right whitespace-nowrap" title={moduleLabel(code)}>
-                            {code}
-                          </th>
-                        ))}
-                        <th className="p-2 border text-right whitespace-nowrap">Total ({breakdownUnitLabel})</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {inventoryBreakdown.rows.map((row) => (
-                        <tr
-                          key={row.key}
-                          className="cursor-pointer hover:bg-muted/30"
-                          onClick={() => row.lineItems[0] && openInventoryDetail(row.lineItems[0])}
-                          title={
-                            row.lineItems.length > 1
-                              ? `Opens the ${moduleLabel(row.lineItems[0].module_code)} line -- this component has ${row.lineItems.length} module lines`
-                              : undefined
-                          }
-                        >
-                          <td className="p-2 border font-medium text-foreground">{row.label}</td>
-                          {inventoryBreakdown.moduleCodes.map((code) => (
-                            <td key={code} className="p-2 border text-right text-muted-foreground">
-                              {row.moduleTotals[code] != null ? formatBreakdownValue(row.moduleTotals[code]) : "-"}
-                            </td>
-                          ))}
-                          <td className="p-2 border text-right font-medium text-foreground">
-                            {formatBreakdownValue(row.rowTotal)}
-                          </td>
-                        </tr>
-                      ))}
-                      <tr className="bg-muted font-bold">
-                        <td className="p-2 border">Grand Total</td>
-                        {inventoryBreakdown.moduleCodes.map((code) => {
-                          const columnTotal = inventoryBreakdown.rows.reduce((sum, r) => sum + (r.moduleTotals[code] || 0), 0);
-                          return (
-                            <td key={code} className="p-2 border text-right">
-                              {formatBreakdownValue(columnTotal)}
-                            </td>
-                          );
-                        })}
-                        <td className="p-2 border text-right">
-                          {formatBreakdownValue(inventoryBreakdown.grandTotal)}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
                 </div>
               ) : (
                 <>
@@ -2517,14 +2468,14 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                       </Select>
                     </div>
                   </div>
-                  {filteredInventoryItems.length === 0 ? (
+                  {inventoryBreakdown.rows.length === 0 ? (
                     <div className="text-sm text-muted-foreground">No items match that search.</div>
                   ) : (
                     <>
                       <InventoryPager
                         page={inventoryPageClamped}
                         pageSize={inventoryPageSize}
-                        total={filteredInventoryItems.length}
+                        total={inventoryBreakdown.rows.length}
                         onPrev={() => setInventoryPage((p) => Math.max(0, p - 1))}
                         onNext={() => setInventoryPage((p) => Math.min(inventoryPageCount - 1, p + 1))}
                       />
@@ -2532,87 +2483,82 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                         <table className="w-full text-sm border-collapse">
                           <thead>
                             <tr className="bg-muted">
-                              <th className="text-left p-2 border">Item</th>
+                              <th className="text-left p-2 border">Component</th>
                               <th className="p-2 border text-right whitespace-nowrap">Qty</th>
                               {inventoryBreakdown.moduleCodes.map((code) => (
                                 <th key={code} className="p-2 border text-right whitespace-nowrap" title={moduleLabel(code)}>
                                   <div>{code}</div>
-                                  <div className="text-[10px] font-normal text-muted-foreground">kgCO2e</div>
+                                  <div className="text-[10px] font-normal text-muted-foreground">{breakdownUnitLabel}</div>
                                 </th>
                               ))}
                               <th className="p-2 border text-right whitespace-nowrap">
                                 <div>Total</div>
-                                <div className="text-[10px] font-normal text-muted-foreground">kgCO2e</div>
+                                <div className="text-[10px] font-normal text-muted-foreground">{breakdownUnitLabel}</div>
                               </th>
                               <th className="text-left p-2 border">Status</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {pagedInventoryItems.map((row) => {
-                                // A transport-module row with no legs (or legs summing to
-                                // exactly 0) computes to a real 0 total but isn't actually
-                                // "Mapped" -- it still needs a journey/factor added.
-                                const needsLegs = TRANSPORT_MODULE_CODES.includes(row.module_code) && !row.transport_emissions_tco2e;
-                                const resolved = !needsLegs && (row.is_placeholder || Boolean(row.mapped_factor_source) || row.is_gap_filled);
-                                const kgco2e = (row.emissions_tco2e || 0) * 1000;
-                                return (
-                                  <tr
-                                    key={row.line_item_id}
-                                    className="cursor-pointer hover:bg-muted/30"
-                                    onClick={() => openInventoryDetail(row)}
-                                  >
-                                    <td className="p-2 border font-medium text-foreground">{row.line_label}</td>
-                                    <td className="p-2 border text-right text-muted-foreground whitespace-nowrap">
-                                      {Number(row.quantity || 0).toLocaleString()} {row.unit || ""}
-                                    </td>
-                                    {inventoryBreakdown.moduleCodes.map((code) => (
-                                      <td key={code} className="p-2 border text-right text-muted-foreground">
-                                        {code === row.module_code
-                                          ? kgco2e.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })
-                                          : "-"}
-                                      </td>
-                                    ))}
-                                    <td className="p-2 border text-right font-medium text-foreground">
-                                      {kgco2e.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
-                                    </td>
-                                    <td className="p-2 border">
-                                      {row.is_placeholder ? (
-                                        <Badge variant="secondary">Placeholder</Badge>
-                                      ) : resolved ? (
-                                        <Badge variant="outline">Mapped</Badge>
-                                      ) : (
-                                        <Badge variant="destructive">Needs review</Badge>
-                                      )}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
+                            {pagedBreakdownRows.map((row) => (
+                              <tr
+                                key={row.key}
+                                className="cursor-pointer hover:bg-muted/30"
+                                onClick={() => row.lineItems[0] && openInventoryDetail(row.lineItems[0])}
+                                title={
+                                  row.lineItems.length > 1
+                                    ? `Opens the ${moduleLabel(row.lineItems[0].module_code)} line -- this component has ${row.lineItems.length} module lines`
+                                    : undefined
+                                }
+                              >
+                                <td className="p-2 border font-medium text-foreground">{row.label}</td>
+                                <td className="p-2 border text-right text-muted-foreground whitespace-nowrap">
+                                  {Number(row.quantity || 0).toLocaleString()} {row.unit || ""}
+                                </td>
+                                {inventoryBreakdown.moduleCodes.map((code) => (
+                                  <td key={code} className="p-2 border text-right text-muted-foreground">
+                                    {row.moduleTotals[code] != null ? formatBreakdownValue(row.moduleTotals[code]) : "-"}
+                                  </td>
+                                ))}
+                                <td className="p-2 border text-right font-medium text-foreground">
+                                  {formatBreakdownValue(row.rowTotal)}
+                                </td>
+                                <td className="p-2 border">
+                                  {row.status === "placeholder" ? (
+                                    <Badge variant="secondary">Placeholder</Badge>
+                                  ) : row.status === "mapped" ? (
+                                    <Badge variant="outline">Mapped</Badge>
+                                  ) : (
+                                    <Badge variant="destructive">Needs review</Badge>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
                           </tbody>
                           <tfoot>
                             <tr className="bg-muted font-medium">
-                              <td className="p-2 border">Visible Total ({pagedInventoryItems.length})</td>
-                              <td className="p-2 border text-right text-muted-foreground whitespace-nowrap">{pagedListTotals.qtyLabel}</td>
+                              <td className="p-2 border">Visible Total ({pagedBreakdownRows.length})</td>
+                              <td className="p-2 border text-right text-muted-foreground whitespace-nowrap">{pagedBreakdownTotals.qtyLabel}</td>
                               {inventoryBreakdown.moduleCodes.map((code) => (
                                 <td key={code} className="p-2 border text-right">
-                                  {(pagedListTotals.moduleTotals[code] || 0).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                                  {formatBreakdownValue(pagedBreakdownTotals.moduleTotals[code] || 0)}
                                 </td>
                               ))}
                               <td className="p-2 border text-right">
-                                {pagedListTotals.totalKgco2e.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                                {formatBreakdownValue(pagedBreakdownTotals.rowTotal)}
                               </td>
                               <td className="p-2 border" />
                             </tr>
-                            {filteredInventoryItems.length !== pagedInventoryItems.length ? (
+                            {inventoryBreakdown.rows.length !== pagedBreakdownRows.length ? (
                               <tr className="bg-muted font-bold">
-                                <td className="p-2 border">Grand Total ({filteredInventoryItems.length})</td>
-                                <td className="p-2 border text-right whitespace-nowrap">{filteredListTotals.qtyLabel}</td>
+                                <td className="p-2 border">Grand Total ({inventoryBreakdown.rows.length})</td>
+                                <td className="p-2 border text-right whitespace-nowrap">{filteredBreakdownTotals.qtyLabel}</td>
                                 {inventoryBreakdown.moduleCodes.map((code) => (
                                   <td key={code} className="p-2 border text-right">
-                                    {(filteredListTotals.moduleTotals[code] || 0).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                                    {formatBreakdownValue(filteredBreakdownTotals.moduleTotals[code] || 0)}
                                   </td>
                                 ))}
                                 <td className="p-2 border text-right">
-                                  {filteredListTotals.totalKgco2e.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                                  {formatBreakdownValue(inventoryBreakdown.grandTotal)}
                                 </td>
                                 <td className="p-2 border" />
                               </tr>
@@ -2623,7 +2569,7 @@ export default function JobLca({ jobId, baseUrl, jobFamily }: JobLcaProps) {
                       <InventoryPager
                         page={inventoryPageClamped}
                         pageSize={inventoryPageSize}
-                        total={filteredInventoryItems.length}
+                        total={inventoryBreakdown.rows.length}
                         onPrev={() => setInventoryPage((p) => Math.max(0, p - 1))}
                         onNext={() => setInventoryPage((p) => Math.min(inventoryPageCount - 1, p + 1))}
                       />
