@@ -21,6 +21,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import PortalLoginHistoryModal from "@/components/PortalLoginHistoryModal";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -111,6 +112,8 @@ type PortalAccess = {
   payment_reference: string | null;
   nav_config: Record<string, boolean>;
   notes: string | null;
+  portal_trained: boolean;
+  max_users: number | null;
   client_status?: string;
 };
 
@@ -867,6 +870,9 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
   const [editNotes, setEditNotes] = useState("");
   const [editNavConfig, setEditNavConfig] = useState<Record<string, boolean>>({});
   const [navSaving, setNavSaving] = useState(false);
+  const [editPortalTrained, setEditPortalTrained] = useState(false);
+  const [editMaxUsers, setEditMaxUsers] = useState("");
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const expiryValidationError = validatePortalAccessExpiry(editExpiry);
 
   // Add user form
@@ -903,6 +909,8 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
       setEditPaymentRef(a.payment_reference ?? "");
       setEditNotes(a.notes ?? "");
       setEditNavConfig({ ...a.nav_config });
+      setEditPortalTrained(a.portal_trained);
+      setEditMaxUsers(a.max_users != null ? String(a.max_users) : "");
     }
   }, [baseUrl, clientId]);
 
@@ -1131,6 +1139,12 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
       setError(expiryValidationError);
       return;
     }
+    const maxUsersTrimmed = editMaxUsers.trim();
+    const maxUsersValue = maxUsersTrimmed === "" ? null : Number(maxUsersTrimmed);
+    if (maxUsersValue !== null && (!Number.isInteger(maxUsersValue) || maxUsersValue < 1)) {
+      setError("No. of Users must be a whole number of 1 or more, or blank for unlimited.");
+      return;
+    }
 
     setAccessSaving(true);
     try {
@@ -1145,6 +1159,8 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
           payment_reference: editPaymentRef || null,
           nav_config: editNavConfig,
           notes: editNotes || null,
+          portal_trained: editPortalTrained,
+          max_users: maxUsersValue,
         }),
       });
       if (!res.ok) {
@@ -1205,12 +1221,15 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
   // server unconditionally, wiping out any toggle the user hadn't saved yet).
   const navDirty = JSON.stringify(editNavConfig) !== JSON.stringify(portalAccess?.nav_config ?? {});
   const loadedExpiry = toDateTimeLocalValue(portalAccess?.access_expires_at);
+  const loadedMaxUsers = portalAccess?.max_users != null ? String(portalAccess.max_users) : "";
   const accessDirty = Boolean(portalAccess) && (
     editEnabled !== portalAccess!.is_enabled ||
     editExpiry !== loadedExpiry ||
     editPaymentStatus !== portalAccess!.payment_status ||
     editPaymentRef !== (portalAccess!.payment_reference ?? "") ||
-    editNotes !== (portalAccess!.notes ?? "")
+    editNotes !== (portalAccess!.notes ?? "") ||
+    editPortalTrained !== portalAccess!.portal_trained ||
+    editMaxUsers.trim() !== loadedMaxUsers
   );
   const hasUnsavedPortalSettings = navDirty || accessDirty;
 
@@ -1293,14 +1312,19 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
       {/* Access tab */}
       {activeTab === "access" && (
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Power className="h-4 w-4" />
-              Portal Access Control
-            </CardTitle>
-            <CardDescription>
-              Master switch for this client{"'"}s portal access. Payment and expiry tracking.
-            </CardDescription>
+          <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Power className="h-4 w-4" />
+                Portal Access Control
+              </CardTitle>
+              <CardDescription>
+                Master switch for this client{"'"}s portal access. Payment and expiry tracking.
+              </CardDescription>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setHistoryModalOpen(true)}>
+              Login History
+            </Button>
           </CardHeader>
           <CardContent className="space-y-5">
 
@@ -1352,6 +1376,23 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
               </button>
             </div>
 
+            {/* Portal Trained toggle */}
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <div>
+                <div className="text-sm font-medium">Portal trained</div>
+                <div className="text-xs text-muted-foreground">Has the client been walked through using the portal?</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditPortalTrained(v => !v)}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${editPortalTrained ? "bg-green-600" : "bg-gray-200"}`}
+                role="switch"
+                aria-checked={editPortalTrained}
+              >
+                <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${editPortalTrained ? "translate-x-5" : "translate-x-0"}`} />
+              </button>
+            </div>
+
             {/* Expiry */}
             <div className="space-y-1">
               <Label htmlFor="access-expiry">Access Expires At</Label>
@@ -1372,6 +1413,25 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
                   {expiryValidationError}
                 </p>
               )}
+            </div>
+
+            {/* No. of Users */}
+            <div className="space-y-1">
+              <Label htmlFor="max-users">No. of Users</Label>
+              <Input
+                id="max-users"
+                type="number"
+                min={1}
+                step={1}
+                value={editMaxUsers}
+                onChange={e => setEditMaxUsers(e.target.value)}
+                className="max-w-xs"
+                placeholder="Unlimited"
+              />
+              <p className="text-xs text-muted-foreground">
+                Number of non-NZI portal users allowed for this client. Leave blank for unlimited -- this is
+                informational only and does not block inviting more users. Currently {activeCount} active.
+              </p>
             </div>
 
             {/* Payment status */}
@@ -1813,6 +1873,13 @@ export default function ClientPortalManagement({ clientId, baseUrl }: Props) {
       </Card>
 
       )}
+
+      <PortalLoginHistoryModal
+        baseUrl={baseUrl}
+        clientDbId={clientId}
+        open={historyModalOpen}
+        onOpenChange={setHistoryModalOpen}
+      />
     </div>
   );
 }

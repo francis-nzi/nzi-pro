@@ -20,6 +20,8 @@ def _access_record(*, expires_at: str | None = "2030-06-01 12:30:00+00:00") -> d
         "payment_reference": "INV-7",
         "nav_config": {"dashboard": True},
         "notes": "existing",
+        "portal_trained": False,
+        "max_users": None,
     }
 
 

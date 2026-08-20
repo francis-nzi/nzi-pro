@@ -19,6 +19,7 @@ import { apiFetch, clearAllTokens, getBestToken } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import PortalStatusBar from "@/components/PortalStatusBar";
+import PortalInactivityLogout from "@/components/PortalInactivityLogout";
 import { ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
 
 type PortalUser = {
@@ -148,6 +149,14 @@ export default function PortalShell({
   }, [authAttempt, router]);
 
   function handleLogout() {
+    // Fire-and-forget: ends the server-side session record (for the
+    // Dashboard's Portals tab / login history) but the redirect shouldn't
+    // wait on it -- a failed call here shouldn't block someone logging out.
+    void apiFetch("/portal/auth/logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: "manual" }),
+    }).catch(() => { /* non-fatal */ });
     clearAllTokens();
     router.replace("/login");
   }
@@ -299,6 +308,7 @@ export default function PortalShell({
         </div>
 
         {user && <PortalStatusBar />}
+        {user && <PortalInactivityLogout />}
 
         <main className="min-w-0 flex-1 px-6 py-8">
           {authStatus === "error" ? (

@@ -18,6 +18,7 @@ import ClientReviewNotifications from "@/components/ClientReviewNotifications";
 import EmissionsTable from "@/components/EmissionsTable";
 import IntelligenceDashboard from "@/components/IntelligenceDashboard";
 import TaskCalendar from "@/components/TaskCalendar";
+import PortalsTable from "@/components/PortalsTable";
 import StatusBadge from "@/components/StatusBadge";
 import { MCKINSEY_DATA_COLORS } from "@/lib/chart-colors";
 import { formatCurrency, formatDate, formatHours, formatMonth, formatNumber, formatPercent } from "@/lib/format";
@@ -141,13 +142,16 @@ function normalizeSearchText(value: string): string {
   return String(value || "").trim().toLowerCase();
 }
 
-type DashboardTab = "today" | "portfolio" | "financial" | "delivery" | "emissions" | "tasks";
+type DashboardTab = "today" | "portfolio" | "financial" | "delivery" | "emissions" | "tasks" | "portals";
 
 function normalizeDashboardTab(value: string | null | undefined): DashboardTab {
   const raw = String(value || "").trim().toLowerCase();
   if (raw === "overview" || raw === "insights" || raw === "") return "today";
   if (raw === "operations") return "delivery";
-  if (raw === "today" || raw === "portfolio" || raw === "financial" || raw === "delivery" || raw === "emissions" || raw === "tasks") {
+  if (
+    raw === "today" || raw === "portfolio" || raw === "financial" || raw === "delivery" ||
+    raw === "emissions" || raw === "tasks" || raw === "portals"
+  ) {
     return raw as DashboardTab;
   }
   return "today";
@@ -355,6 +359,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
               <TabsTrigger value="delivery">Delivery</TabsTrigger>
               <TabsTrigger value="emissions">Emissions</TabsTrigger>
               <TabsTrigger value="tasks">Tasks</TabsTrigger>
+              <TabsTrigger value="portals">Portals</TabsTrigger>
             </TabsList>
             <div className="flex items-center gap-2 flex-wrap">
               {showFilters && (
@@ -399,6 +404,11 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
           {/* Tasks */}
           <TabsContent value="tasks" className="pt-3">
             <TaskCalendar baseUrl={api} crmOwner={crm} />
+          </TabsContent>
+
+          {/* Portals */}
+          <TabsContent value="portals" className="pt-3">
+            <PortalsTable baseUrl={api} />
           </TabsContent>
         </Tabs>
       )}

@@ -16,7 +16,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from core.database import get_conn
@@ -25,6 +25,7 @@ from services.portal import (
     check_client_portal_access,
     consume_reset_token,
     create_reset_token,
+    end_portal_session,
     ensure_portal_schema,
     get_client_portal_access,
     get_portal_user_auth_data,
@@ -32,6 +33,8 @@ from services.portal import (
     get_portal_user_by_id,
     get_portal_user_site_ids,
     set_portal_user_password,
+    start_portal_session,
+    touch_portal_session,
 )
 from services.outbound_email import send_tracked_email
 import logging
@@ -143,7 +146,9 @@ def _remove_recovery_code(code: str, stored_hashes_json: str) -> str:
 # JWT issuance
 # ---------------------------------------------------------------------------
 
-def _issue_token(kind: str, portal_user_id: int, client_db_id: int, hours: float) -> str | None:
+def _issue_token(
+    kind: str, portal_user_id: int, client_db_id: int, hours: float, *, extra_claims: dict[str, Any] | None = None
+) -> str | None:
     secret = _portal_jwt_secret()
     if not secret or pyjwt is None:
         return None
@@ -154,12 +159,22 @@ def _issue_token(kind: str, portal_user_id: int, client_db_id: int, hours: float
         "client_db_id": int(client_db_id),
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(hours=hours)).timestamp()),
+        **(extra_claims or {}),
     }
     return pyjwt.encode(payload, secret, algorithm="HS256")
 
 
-def _issue_portal_token(portal_user_id: int, client_db_id: int) -> str | None:
-    return _issue_token("portal_session", portal_user_id, client_db_id, _PORTAL_TOKEN_HOURS)
+def _issue_portal_token(
+    portal_user_id: int, client_db_id: int, *, ip_address: str | None = None, user_agent: str | None = None
+) -> str | None:
+    """Issues the full-access token AND starts the client_portal_sessions
+    row that backs "currently on portal" / login history -- every real login
+    completion point (MFA verify, first-time MFA setup) goes through this
+    single function so a session is never missed."""
+    session_id = start_portal_session(portal_user_id, client_db_id, ip_address=ip_address, user_agent=user_agent)
+    return _issue_token(
+        "portal_session", portal_user_id, client_db_id, _PORTAL_TOKEN_HOURS, extra_claims={"session_id": session_id}
+    )
 
 
 def _issue_partial_token(portal_user_id: int, client_db_id: int) -> str | None:
@@ -246,6 +261,16 @@ async def _portal_user(authorization: str = Header(default="")) -> dict[str, Any
     if int(user["client_db_id"]) != client_db_id:
         raise HTTPException(status_code=401, detail="Token mismatch")
     user["is_staff"] = False
+    # session_id is absent from tokens issued before this feature shipped --
+    # those users just won't show as "currently active" until their next
+    # login, rather than erroring.
+    session_id = payload.get("session_id")
+    user["session_id"] = int(session_id) if session_id is not None else None
+    if user["session_id"] is not None:
+        try:
+            touch_portal_session(user["session_id"])
+        except Exception:
+            logger.exception("Failed to touch portal session %s", user["session_id"])
     return user
 
 
@@ -438,6 +463,20 @@ def portal_login(payload: LoginPayload = Body(...)):
     }
 
 
+@router.post("/portal/auth/logout")
+async def portal_logout(payload: dict = Body(default={}), current_user: dict = Depends(_portal_user)):
+    """Ends the caller's client_portal_sessions row (if any -- staff-preview
+    logins never had one). Called by the portal's manual logout action and
+    by its client-side inactivity timer (PortalInactivityLogout) before it
+    clears the local token and redirects to /login -- reason distinguishes
+    the two in login history ('manual' vs 'timeout')."""
+    session_id = current_user.get("session_id")
+    if session_id is not None:
+        reason = str(payload.get("reason") or "manual").strip()
+        end_portal_session(session_id, reason=reason if reason in ("manual", "timeout") else "manual")
+    return {"ok": True}
+
+
 @router.post("/portal/auth/staff-select-client")
 def portal_staff_select_client(payload: StaffClientSelectPayload = Body(...)):
     try:
@@ -466,6 +505,7 @@ def portal_staff_select_client(payload: StaffClientSelectPayload = Body(...)):
 
 @router.post("/portal/auth/mfa-verify")
 def portal_mfa_verify(
+    request: Request,
     payload: MfaVerifyPayload = Body(...),
     auth_data: dict = Depends(_portal_challenge_user),
 ):
@@ -521,7 +561,11 @@ def portal_mfa_verify(
         }
 
     # All good — issue full session token
-    token = _issue_portal_token(portal_user_id, client_db_id)
+    token = _issue_portal_token(
+        portal_user_id, client_db_id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
     return {
         "ok": True,
         "must_accept_tac": False,
@@ -583,6 +627,7 @@ def portal_mfa_setup_start(current_user: dict = Depends(_portal_onboarding_user)
 
 @router.post("/portal/auth/mfa/setup/verify")
 def portal_mfa_setup_verify(
+    request: Request,
     payload: MfaSetupVerifyPayload = Body(...),
     current_user: dict = Depends(_portal_onboarding_user),
 ):
@@ -630,7 +675,11 @@ def portal_mfa_setup_verify(
         )
 
     # Issue full session token now that MFA is set up
-    token = _issue_portal_token(portal_user_id, client_db_id)
+    token = _issue_portal_token(
+        portal_user_id, client_db_id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
     return {
         "ok": True,
         "access_token": token,

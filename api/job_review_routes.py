@@ -31,7 +31,9 @@ from services.portal import (
     create_portal_user,
     ensure_portal_schema,
     get_client_portal_access,
+    get_client_portal_login_history,
     get_or_create_review,
+    get_portal_status_summary,
     list_comments,
     list_portal_users,
     mark_published,
@@ -1011,6 +1013,8 @@ class UpsertPortalAccessPayload(BaseModel):
     payment_reference: str | None = None
     nav_config: dict | None = None
     notes: str | None = None
+    portal_trained: bool | None = None
+    max_users: int | None = None
 
     @field_validator("access_expires_at", mode="before")
     @classmethod
@@ -1054,15 +1058,44 @@ def update_portal_access(
         "payment_reference": payload.payment_reference,
         "nav_config": payload.nav_config,
         "notes": payload.notes,
+        "portal_trained": payload.portal_trained,
     }
     # Pydantic defaults an omitted optional field to None, so use the field-set
     # metadata to preserve the distinction between omitted (leave unchanged)
-    # and explicit JSON null (clear the expiry).
+    # and explicit JSON null (clear the expiry / clear max_users back to unlimited).
     if "access_expires_at" in payload.model_fields_set:
         update_values["access_expires_at"] = payload.access_expires_at
+    if "max_users" in payload.model_fields_set:
+        update_values["max_users"] = payload.max_users
 
     record = upsert_client_portal_access(int(client_db_id), **update_values)
     return {"ok": True, "access": record}
+
+
+@router.get("/dashboard/portal-status")
+def list_portal_status(_user: dict = Depends(_current_user)):
+    """One row per client for the Dashboard's Portals tab: access/trained
+    flags, seat count, expiry, and whether a client user is currently on
+    the portal right now (derived from client_portal_sessions)."""
+    assert_permission(_user, "clients.view")
+    with get_conn() as con:
+        rows = get_portal_status_summary(con=con)
+    return {"ok": True, "clients": rows}
+
+
+@router.get("/clients/{client_db_id}/portal-login-history")
+def get_portal_login_history(
+    client_db_id: int,
+    _user: dict = Depends(_current_user),
+):
+    """Login/session audit for one client -- who logged in, when, for how
+    long, and what data-entry actions (from audit_log) happened during that
+    session. Shared by Client -> Portal's Login History button and the
+    Dashboard Portals tab's per-row History modal."""
+    assert_client_access(_user, int(client_db_id))
+    with get_conn() as con:
+        history = get_client_portal_login_history(int(client_db_id), con=con)
+    return {"ok": True, "history": history}
 
 
 class SetPortalJobVisibilityPayload(BaseModel):
