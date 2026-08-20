@@ -1977,94 +1977,6 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       />
       <ApprovedCommutingSummary jobId={jobId} baseUrl={effectiveBaseUrl} refreshKey={commutingRefreshKey} />
 
-      {/* Template Capture Action */}
-      <Card>
-        <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-1">
-            <div className="font-medium">Add rows from template</div>
-            <div className="text-sm text-muted-foreground">
-              Search the emission factor library and add rows to this job.
-            </div>
-          </div>
-          <Button
-            onClick={async () => {
-              if (!showFactorBrowser) {
-                await loadTemplateFactors();
-              }
-              setShowFactorBrowser(!showFactorBrowser);
-            }}
-            size="lg"
-            className="w-full sm:w-auto"
-            disabled={factorsLoading}
-          >
-            {factorsLoading ? "Loading factors..." : showFactorBrowser ? "Hide factor browser" : "Add Data from Template"}{" "}
-            {((factorsTotal || templateFactors.length) > 0) &&
-              `(${(factorsTotal || templateFactors.length).toLocaleString()} factors available)`}
-          </Button>
-        </CardContent>
-        {showFactorBrowser && (
-          <div className="px-6 pb-6">
-            <label className="mb-3 flex items-center gap-2 text-sm text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={autoAddTd}
-                onChange={(e) => setAutoAddTd(e.target.checked)}
-                className="h-4 w-4"
-              />
-              Add T&D automatically for grid electricity rows
-            </label>
-            {(factorCategoryFilter === "Company Vehicles" || factorCategoryFilter === "Business Travel") && (
-              <div className="mb-3 space-y-2 rounded-md border bg-muted/30 p-3">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Have the vehicle&apos;s registration number? We&apos;ll work out the right category and add it directly.
-                </label>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="e.g. AB12 CDE"
-                    value={regNumber}
-                    onChange={(e) => setRegNumber(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && void lookupVehicleByRegistration()}
-                    className="max-w-xs"
-                  />
-                  <Button disabled={regLookupLoading || !regNumber.trim()} onClick={() => void lookupVehicleByRegistration()}>
-                    {regLookupLoading ? "Looking up..." : "Look up & Add"}
-                  </Button>
-                </div>
-                {regLookupError && <div className="text-xs text-rose-700">{regLookupError}</div>}
-              </div>
-            )}
-            <FactorBrowserCard
-              title="Browse & Add Factors"
-              factorSearchQuery={factorSearchQuery}
-              onFactorSearchQueryChange={setFactorSearchQuery}
-              factorScopeFilter={factorScopeFilter}
-              onFactorScopeFilterChange={setFactorScopeFilter}
-              factorCategoryFilter={factorCategoryFilter}
-              onFactorCategoryFilterChange={setFactorCategoryFilter}
-              factorCategoryOptions={factorCategoryOptions}
-              onSearch={() => loadTemplateFactors(true)}
-              factorsLoading={factorsLoading}
-              methodologyCountry={methodologyCountry}
-              templateFactors={annotatedTemplateFactors}
-              factorsTotal={factorsTotal}
-              factorsHasMore={factorsHasMore}
-              loadingMoreFactors={loadingMoreFactors}
-              onLoadMore={loadMoreFactors}
-              getFactorTitle={factorDisplayTitle}
-              getFactorSubtitle={factorDisplaySubtitle}
-              getActionProps={(factor) => ({
-                label: isFactorAdded(factor.original_id) ? "Add Again" : "Add to Job",
-                variant: isFactorAdded(factor.original_id) ? "outline" : "default",
-                disabled: addingFactorId === factor.original_id,
-              })}
-              onSelectFactor={addFactorToJob}
-              frequentFactors={!factorSearchQuery.trim() ? topFactors : []}
-              emptyMessage="No factors found. Try adjusting your search or filters."
-            />
-          </div>
-        )}
-      </Card>
-
       {/* Filters */}
       <Card>
         <CardContent className="pt-6">
@@ -2682,6 +2594,94 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
             </div>
           )}
         </CardContent>
+      </Card>
+
+      {/* Template Capture Action */}
+      <Card>
+        <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <div className="font-medium">Add rows from template</div>
+            <div className="text-sm text-muted-foreground">
+              Search the emission factor library and add rows to this job.
+            </div>
+          </div>
+          <Button
+            onClick={async () => {
+              if (!showFactorBrowser) {
+                await loadTemplateFactors();
+              }
+              setShowFactorBrowser(!showFactorBrowser);
+            }}
+            size="lg"
+            className="w-full sm:w-auto"
+            disabled={factorsLoading}
+          >
+            {factorsLoading ? "Loading factors..." : showFactorBrowser ? "Hide factor browser" : "Add Data from Template"}{" "}
+            {((factorsTotal || templateFactors.length) > 0) &&
+              `(${(factorsTotal || templateFactors.length).toLocaleString()} factors available)`}
+          </Button>
+        </CardContent>
+        {showFactorBrowser && (
+          <div className="px-6 pb-6">
+            <label className="mb-3 flex items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={autoAddTd}
+                onChange={(e) => setAutoAddTd(e.target.checked)}
+                className="h-4 w-4"
+              />
+              Add T&D automatically for grid electricity rows
+            </label>
+            {(factorCategoryFilter === "Company Vehicles" || factorCategoryFilter === "Business Travel") && (
+              <div className="mb-3 space-y-2 rounded-md border bg-muted/30 p-3">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Have the vehicle&apos;s registration number? We&apos;ll work out the right category and add it directly.
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="e.g. AB12 CDE"
+                    value={regNumber}
+                    onChange={(e) => setRegNumber(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && void lookupVehicleByRegistration()}
+                    className="max-w-xs"
+                  />
+                  <Button disabled={regLookupLoading || !regNumber.trim()} onClick={() => void lookupVehicleByRegistration()}>
+                    {regLookupLoading ? "Looking up..." : "Look up & Add"}
+                  </Button>
+                </div>
+                {regLookupError && <div className="text-xs text-rose-700">{regLookupError}</div>}
+              </div>
+            )}
+            <FactorBrowserCard
+              title="Browse & Add Factors"
+              factorSearchQuery={factorSearchQuery}
+              onFactorSearchQueryChange={setFactorSearchQuery}
+              factorScopeFilter={factorScopeFilter}
+              onFactorScopeFilterChange={setFactorScopeFilter}
+              factorCategoryFilter={factorCategoryFilter}
+              onFactorCategoryFilterChange={setFactorCategoryFilter}
+              factorCategoryOptions={factorCategoryOptions}
+              onSearch={() => loadTemplateFactors(true)}
+              factorsLoading={factorsLoading}
+              methodologyCountry={methodologyCountry}
+              templateFactors={annotatedTemplateFactors}
+              factorsTotal={factorsTotal}
+              factorsHasMore={factorsHasMore}
+              loadingMoreFactors={loadingMoreFactors}
+              onLoadMore={loadMoreFactors}
+              getFactorTitle={factorDisplayTitle}
+              getFactorSubtitle={factorDisplaySubtitle}
+              getActionProps={(factor) => ({
+                label: isFactorAdded(factor.original_id) ? "Add Again" : "Add to Job",
+                variant: isFactorAdded(factor.original_id) ? "outline" : "default",
+                disabled: addingFactorId === factor.original_id,
+              })}
+              onSelectFactor={addFactorToJob}
+              frequentFactors={!factorSearchQuery.trim() ? topFactors : []}
+              emptyMessage="No factors found. Try adjusting your search or filters."
+            />
+          </div>
+        )}
       </Card>
 
       <Card>
