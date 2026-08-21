@@ -521,8 +521,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
               const sitesData = await sitesRes.json();
               const activeSites: Site[] = sitesData.active_sites || [];
               setSites(activeSites);
-              const regOffice = activeSites.find((s) => s.is_registered_office);
-              if (regOffice) setSiteFilter(String(regOffice.site_id));
+              // Working Site defaults to "All Sites" (the useState default) --
+              // defaulting to Registered Office previously hid any row that
+              // hadn't been allocated to a site at all, with no indication
+              // they existed. See the unallocated-rows banner below instead.
             }
           } catch (e) {
             console.error("Error loading sites:", e);
@@ -1668,6 +1670,15 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     return siteNameById.get(String(siteId)) || `Site ${siteId}`;
   }, [siteNameById]);
 
+  // Counted against the full unfiltered set (not filteredData) so this stays
+  // accurate regardless of whatever Working Site/Scope/etc the user currently
+  // has selected -- the whole point is surfacing rows that would otherwise
+  // be invisible under a site-specific filter.
+  const unallocatedCount = useMemo(
+    () => scopeData.filter((row) => row.site_id == null).length,
+    [scopeData]
+  );
+
   const filteredData = useMemo(() => {
     return scopeData.filter((row) => {
       if (selectedScope !== "All" && row.scope !== selectedScope) return false;
@@ -1963,6 +1974,13 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       {error && (
         <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
           {error}
+        </div>
+      )}
+
+      {unallocatedCount > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm font-medium text-amber-800">
+          {unallocatedCount} data row{unallocatedCount === 1 ? "" : "s"} {unallocatedCount === 1 ? "has" : "have"} not been allocated to a site.
+          {siteFilter !== "All" && " Select \"All Sites\" above to see them."}
         </div>
       )}
 
