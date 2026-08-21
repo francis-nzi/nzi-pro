@@ -39,7 +39,7 @@ from services.portal_data_entry import (
     resolve_current_job_for_client,
 )
 from services.vehicle_categorization import categorize_vehicle
-from services.vehicle_lookup import lookup_vehicle_by_registration
+from services.vehicle_lookup import lookup_vehicle_by_registration, normalize_registration
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["portal-commuting"])
@@ -194,7 +194,9 @@ def portal_commuting_create_row_by_vehicle(
     registration lookup instead of the mode/service dropdowns, bypassing
     _resolve_manual_commuting_rows entirely for this branch (an additive
     path, not a change to the existing, already-tested dropdown flow). The
-    registration number is used transiently here and never persisted."""
+    registration is stored on asset_identifier (normalized, same convention
+    as Asset Register) so the same vehicle/person can be matched year on
+    year -- previously discarded after the lookup."""
     _assert_can_manage(current_user)
     client_db_id = int(current_user["client_db_id"])
 
@@ -231,13 +233,14 @@ def portal_commuting_create_row_by_vehicle(
             raise HTTPException(status_code=422, detail=category_error)
 
         calc_tco2e = _calc_commuting_tco2e(annual_quantity, factor.get("factor"), 100, factor.get("ghg_unit"))
+        normalized_registration = normalize_registration(registration)
         ready_row = {
             "scope": "Scope 3",
             "site_id": None,
             "source_type": "employee_commuting",
             "source_subtype": "commuting",
             "source_name": f"{employee_name} - Employee Commuting - {factor.get('report_label')}".strip(" -"),
-            "asset_identifier": None,
+            "asset_identifier": normalized_registration,
             "employee_name": employee_name,
             "dataset_id": factor.get("dataset_id"),
             "factor_db_id": factor.get("factor_db_id"),
@@ -251,8 +254,8 @@ def portal_commuting_create_row_by_vehicle(
             "apply_pct": 100,
             "data_source": DIRECT_COMMUTING_DATA_SOURCE,
             "data_confidence": "M",
-            "notes": f"Employee/Team: {employee_name} — matched via registration lookup to {factor.get('report_label')}",
-            "detail_json": {"entry_type": "commuting", "manual_entry": True, "via": "registration_lookup"},
+            "notes": f"Employee/Team: {employee_name} — matched via registration lookup ({normalized_registration}) to {factor.get('report_label')}",
+            "detail_json": {"entry_type": "commuting", "manual_entry": True, "via": "registration_lookup", "registration_number": normalized_registration},
         }
         if months:
             for i in range(12):

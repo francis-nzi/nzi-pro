@@ -39,7 +39,7 @@ def _api_key() -> str:
     return str(os.environ.get("DVLA_VES_API_KEY") or "").strip()
 
 
-def _normalize_registration(registration: str) -> str:
+def normalize_registration(registration: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", str(registration or "")).upper()
 
 
@@ -52,7 +52,7 @@ def lookup_vehicle_by_registration(registration: str) -> tuple[dict[str, Any] | 
     if not api_key:
         return None, "Vehicle lookup is not configured (DVLA_VES_API_KEY not set)"
 
-    plate = _normalize_registration(registration)
+    plate = normalize_registration(registration)
     if not plate or not (2 <= len(plate) <= 8):
         return None, "That doesn't look like a valid UK registration number"
 

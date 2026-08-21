@@ -37,7 +37,7 @@ from services.dataset_selector import get_applicable_datasets, get_scope_primary
 from services.download_filenames import build_download_filename
 from services.employee_commuting_consolidation import sync_commuting_scope_rows
 from services.vehicle_categorization import categorize_vehicle
-from services.vehicle_lookup import lookup_vehicle_by_registration
+from services.vehicle_lookup import lookup_vehicle_by_registration, normalize_registration
 from services.virus_scan import VirusScanError, scan_bytes
 
 router = APIRouter()
@@ -2007,8 +2007,10 @@ def create_employee_commuting_entry_by_vehicle(
     mode/service dropdowns. Staff-entered, so the row lands enabled=TRUE
     immediately (no portal review gate) -- see
     api/portal_commuting_routes.py's portal_commuting_create_row_by_vehicle
-    for the client-facing equivalent. The registration number is used
-    transiently here and never persisted."""
+    for the client-facing equivalent. The registration is stored on
+    asset_identifier (normalized, same convention as Asset Register) so the
+    same vehicle/person can be matched year on year -- previously discarded
+    after the lookup, which made that matching impossible."""
     employee_name = str(payload.get("employee_name") or "").strip()
     registration = str(payload.get("registration_number") or "").strip()
     if not employee_name:
@@ -2038,13 +2040,14 @@ def create_employee_commuting_entry_by_vehicle(
             raise HTTPException(status_code=422, detail=category_error)
 
         calc_tco2e = _calc_commuting_tco2e(annual_quantity, factor.get("factor"), 100, factor.get("ghg_unit"))
+        normalized_registration = normalize_registration(registration)
         ready_row = {
             "scope": "Scope 3",
             "site_id": validated_site_id,
             "source_type": "employee_commuting",
             "source_subtype": "commuting",
             "source_name": f"{employee_name} - Employee Commuting - {factor.get('report_label')}".strip(" -"),
-            "asset_identifier": None,
+            "asset_identifier": normalized_registration,
             "employee_name": employee_name,
             "dataset_id": factor.get("dataset_id"),
             "factor_db_id": factor.get("factor_db_id"),
@@ -2058,8 +2061,8 @@ def create_employee_commuting_entry_by_vehicle(
             "apply_pct": 100,
             "data_source": DIRECT_COMMUTING_DATA_SOURCE,
             "data_confidence": "M",
-            "notes": f"Employee/Team: {employee_name} — matched via registration lookup to {factor.get('report_label')}",
-            "detail_json": {"entry_type": "commuting", "manual_entry": True, "via": "registration_lookup"},
+            "notes": f"Employee/Team: {employee_name} — matched via registration lookup ({normalized_registration}) to {factor.get('report_label')}",
+            "detail_json": {"entry_type": "commuting", "manual_entry": True, "via": "registration_lookup", "registration_number": normalized_registration},
         }
 
         _inserted, inserted_ids = _insert_manual_commuting_rows(con, int(job_id), [ready_row])
@@ -2192,7 +2195,7 @@ def update_employee_commuting_direct_entry(
         validated_site_id, site_label = _job_site_label(con, int(job_id), site_id)
         existing = con.execute(
             """
-            SELECT source_id
+            SELECT source_id, asset_identifier
             FROM job_emission_sources
             WHERE source_id = %s
               AND job_id = %s
@@ -2205,6 +2208,13 @@ def update_employee_commuting_direct_entry(
             raise HTTPException(status_code=404, detail="Saved direct entry not found")
 
         preview = _resolve_manual_commuting_rows(con, int(job_id), validated_site_id, [entry])
+        # The mode/service dropdown edit form has no registration field, so
+        # _resolve_manual_commuting_rows never sets asset_identifier -- carry
+        # the existing value forward rather than letting a routine edit
+        # silently wipe a registration recorded via the "I drive my own car"
+        # lookup path.
+        if preview["ready_rows"]:
+            preview["ready_rows"][0]["asset_identifier"] = existing[1]
 
         if preview["unresolved_count"] > 0:
             raise HTTPException(

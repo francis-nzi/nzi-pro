@@ -365,7 +365,12 @@ export default function PortalDataEntry() {
       if (res.ok && d.factor) {
         setSelectedFactor(d.factor);
         setRegLookupVehicle({ make: d.make, fuel_type: d.fuel_type });
-        setRegNumber("");
+        // regNumber is deliberately kept (not cleared here) -- submitRow()
+        // still needs it to record which vehicle this row belongs to.
+        // Clearing it immediately after the lookup meant the registration
+        // was never actually saved even though the backend already
+        // supported it (asset_identifier), since submitRow's own check
+        // ran against an already-emptied value.
       } else {
         setRegLookupError(d?.detail || "Couldn't look up that registration.");
       }
@@ -411,6 +416,7 @@ export default function PortalDataEntry() {
         setSearch("");
         setFactorOptions([]);
         setRegLookupVehicle(null);
+        setRegNumber("");
         setJustAdded(true);
         if (justAddedTimerRef.current) clearTimeout(justAddedTimerRef.current);
         justAddedTimerRef.current = setTimeout(() => setJustAdded(false), 4000);

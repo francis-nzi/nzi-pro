@@ -106,6 +106,7 @@ type DirectEntryRow = {
   calc_tco2e: number;
   site_id: number | null;
   site_name: string | null;
+  asset_identifier: string | null;
   notes: string | null;
   detail_json: Record<string, unknown> | null;
   enabled: boolean;
@@ -476,6 +477,7 @@ export default function EmployeeCommutingData({
           calc_tco2e: Number(row.calc_tco2e ?? 0),
           site_id: row.site_id === null || row.site_id === undefined ? null : Number(row.site_id),
           site_name: row.site_name ? String(row.site_name) : null,
+          asset_identifier: row.asset_identifier ? String(row.asset_identifier) : null,
           notes: row.notes ? String(row.notes) : null,
           detail_json: row.detail_json && typeof row.detail_json === "object" ? (row.detail_json as Record<string, unknown>) : null,
           enabled: Boolean(row.enabled),
@@ -1696,6 +1698,7 @@ export default function EmployeeCommutingData({
                           <th className="px-3 py-2">Employee / Team</th>
                           <th className="px-3 py-2">Site</th>
                           <th className="px-3 py-2">Source</th>
+                          <th className="px-3 py-2">Registration</th>
                           <th className="px-3 py-2">Factor ID</th>
                           <th className="px-3 py-2 text-right">Qty</th>
                           <th className="px-3 py-2">Unit</th>
@@ -1711,6 +1714,9 @@ export default function EmployeeCommutingData({
                             <td className="px-3 py-2">
                               <div className="font-medium">{row.source_subtype || "direct"}</div>
                               <div className="text-xs text-muted-foreground">{row.source_name}</div>
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="font-mono text-xs">{row.asset_identifier || "-"}</div>
                             </td>
                             <td className="px-3 py-2">
                               <div className="font-mono text-xs">{row.original_id || "-"}</div>
