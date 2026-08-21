@@ -202,6 +202,10 @@ export default function JobSourceRegister({
   const [groupNotes, setGroupNotes] = useState("");
   const [groupSiteId, setGroupSiteId] = useState<string>("__none__");
   const [downloadSiteId, setDownloadSiteId] = useState<string>("__all__");
+  const [regNumber, setRegNumber] = useState("");
+  const [regLookupLoading, setRegLookupLoading] = useState(false);
+  const [regLookupError, setRegLookupError] = useState("");
+  const [regLookupVehicle, setRegLookupVehicle] = useState<{ make: string | null; fuel_type: string | null } | null>(null);
 
   const [factorSearch, setFactorSearch] = useState("");
   const [factorScopeFilter, setFactorScopeFilter] = useState<string>(blankScope(sourceType));
@@ -451,6 +455,61 @@ export default function JobSourceRegister({
     setSelectedFactor(factor);
     setGroupScope(factor.scope || blankScope(sourceType));
     setGroupCategory(factor.category || "");
+  }
+
+  // Individual assets/travel entries don't carry their own factor here --
+  // they inherit one from a Group (the rollup bucket). A registration
+  // lookup resolves to one specific factor, so this either reuses an
+  // existing group that already carries that exact factor, or pre-fills
+  // the "Create group" form so the user only has to confirm + create it
+  // once; every future vehicle of the same size/fuel then matches it
+  // automatically. Asset Identifier is always filled in either way, since
+  // recording the registration itself (not just the category it resolves
+  // to) is the actual point -- see api/employee_commuting_routes.py's
+  // equivalent fix for the "why" here.
+  async function lookupByRegistration() {
+    if (!regNumber.trim()) return;
+    setRegLookupLoading(true);
+    setRegLookupError("");
+    setRegLookupVehicle(null);
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/vehicle-lookup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registration_number: regNumber }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.factor) {
+        const factor = d.factor as FactorOption;
+        const normalizedReg = regNumber.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+        setRegLookupVehicle({ make: d.make ?? null, fuel_type: d.fuel_type ?? null });
+        setAssetIdentifier(normalizedReg);
+        if (!sourceName.trim()) {
+          setSourceName(`${d.make || "Vehicle"} - ${normalizedReg}`.trim());
+        }
+        const existingGroup = groups.find(
+          (g) => g.group_type === sourceType && g.original_id && g.original_id === factor.original_id
+        );
+        if (existingGroup) {
+          setSelectedGroupId(String(existingGroup.group_id));
+          setStatus(`Matched "${normalizedReg}" to the existing group "${existingGroup.group_name}".`);
+        } else {
+          chooseFactor(factor);
+          setFactorSearch(factor.report_label || "");
+          setGroupName(factor.report_label || "");
+          setSelectedGroupId("__none__");
+          setStatus(
+            `No existing group uses "${factor.report_label}" yet -- review and click "Create group" below, then add this ${recordLabel.toLowerCase()}.`
+          );
+        }
+      } else {
+        setRegLookupError(d?.detail || "Couldn't look up that registration.");
+      }
+    } catch (e) {
+      setRegLookupError((e as Error).message);
+    } finally {
+      setRegLookupLoading(false);
+    }
   }
 
   function safeFilenamePart(value: string | number | null | undefined): string {
@@ -1218,6 +1277,33 @@ export default function JobSourceRegister({
                     <CardTitle>{`Add ${recordLabel}`}</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                    <div className="space-y-2 rounded-md border bg-muted/10 p-3">
+                      <Label>Look up by vehicle registration</Label>
+                      <div className="text-xs text-muted-foreground">
+                        Enter a UK registration and we&apos;ll work out the category, fill in{" "}
+                        {recordIdentityLabel.toLowerCase()}, and match or set up the group -- bypasses the fields
+                        below.
+                      </div>
+                      <div className="flex gap-2">
+                        <Input
+                          value={regNumber}
+                          onChange={(e) => setRegNumber(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && void lookupByRegistration()}
+                          placeholder="e.g. AB12 CDE"
+                          className="max-w-xs"
+                        />
+                        <Button disabled={regLookupLoading || !regNumber.trim()} onClick={() => void lookupByRegistration()}>
+                          {regLookupLoading ? "Looking up..." : "Look up"}
+                        </Button>
+                      </div>
+                      {regLookupError && <div className="text-xs text-rose-700">{regLookupError}</div>}
+                      {regLookupVehicle && (
+                        <div className="text-xs text-emerald-700">
+                          Matched: {regLookupVehicle.make || "Unknown make"}
+                          {regLookupVehicle.fuel_type ? ` · ${regLookupVehicle.fuel_type}` : ""}
+                        </div>
+                      )}
+                    </div>
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="space-y-2">
                         <Label>{`${recordLabel} name`}</Label>
