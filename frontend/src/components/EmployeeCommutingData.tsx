@@ -19,6 +19,12 @@ import UploadProgressBar from "@/components/UploadProgressBar";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 import { dispatchJobScopeRefresh } from "@/lib/job-scope-refresh";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { formatDate, formatNumber } from "@/lib/format";
 import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
 
@@ -105,7 +111,25 @@ type DirectEntryRow = {
   enabled: boolean;
   data_source: string | null;
   updated_at: string | null;
+  month_1: number | null;
+  month_2: number | null;
+  month_3: number | null;
+  month_4: number | null;
+  month_5: number | null;
+  month_6: number | null;
+  month_7: number | null;
+  month_8: number | null;
+  month_9: number | null;
+  month_10: number | null;
+  month_11: number | null;
+  month_12: number | null;
 };
+
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_FIELD_KEYS = [
+  "month_1", "month_2", "month_3", "month_4", "month_5", "month_6",
+  "month_7", "month_8", "month_9", "month_10", "month_11", "month_12",
+] as const;
 
 type ImportedScopeRow = {
   row_id: number;
@@ -177,6 +201,10 @@ export default function EmployeeCommutingData({
   const [regLookupError, setRegLookupError] = useState("");
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currentStep, setCurrentStep] = useState<number>(1);
+  const [monthlyModalRow, setMonthlyModalRow] = useState<DirectEntryRow | null>(null);
+  const [monthlyValues, setMonthlyValues] = useState<string[]>(Array(12).fill(""));
+  const [savingMonthly, setSavingMonthly] = useState(false);
+  const [monthlyError, setMonthlyError] = useState("");
   const initialStepSet = useRef(false);
 
   useUnsavedChangesGuard(hasUnsavedChanges);
@@ -333,6 +361,66 @@ export default function EmployeeCommutingData({
     setHasUnsavedChanges(false);
   }
 
+  function openMonthlyModal(row: DirectEntryRow) {
+    setMonthlyModalRow(row);
+    setMonthlyValues(MONTH_FIELD_KEYS.map((key) => (row[key] == null ? "" : String(row[key]))));
+    setMonthlyError("");
+  }
+
+  function closeMonthlyModal() {
+    setMonthlyModalRow(null);
+    setMonthlyValues(Array(12).fill(""));
+    setMonthlyError("");
+  }
+
+  function updateMonthlyValue(index: number, value: string) {
+    setMonthlyValues((prev) => prev.map((v, i) => (i === index ? value : v)));
+  }
+
+  function getMonthlySum(): number {
+    return monthlyValues.reduce((sum, v) => {
+      const n = parseFloat(v);
+      return sum + (Number.isFinite(n) ? n : 0);
+    }, 0);
+  }
+
+  async function saveMonthlyData() {
+    if (!monthlyModalRow) return;
+    setSavingMonthly(true);
+    setMonthlyError("");
+    try {
+      const body: Record<string, number | null> = {};
+      MONTH_FIELD_KEYS.forEach((key, i) => {
+        const raw = monthlyValues[i].trim();
+        body[key] = raw === "" ? null : Number(raw);
+      });
+      const res = await fetch(
+        `${baseUrl}/jobs/${jobId}/employee-commuting/direct-entry/${monthlyModalRow.source_id}/monthly`,
+        {
+          method: "PATCH",
+          headers: withAuditHeaders(
+            { "Content-Type": "application/json" },
+            { page: "Jobs", section: "Employee Commuting", container: "Monthly Breakdown" }
+          ),
+          body: JSON.stringify(body),
+        }
+      );
+      if (!res.ok) {
+        const apiError = await readError(res);
+        throw new Error(apiError.message);
+      }
+      setStatus("Monthly breakdown saved.");
+      closeMonthlyModal();
+      await loadSummary();
+      await loadDirectEntries();
+      dispatchJobScopeRefresh("employee-commuting");
+    } catch (e: unknown) {
+      setMonthlyError(e instanceof Error ? e.message : "Failed to save monthly breakdown");
+    } finally {
+      setSavingMonthly(false);
+    }
+  }
+
   useEffect(() => {
     void loadSummary();
     void loadSites();
@@ -393,6 +481,18 @@ export default function EmployeeCommutingData({
           enabled: Boolean(row.enabled),
           data_source: row.data_source ? String(row.data_source) : null,
           updated_at: row.updated_at ? String(row.updated_at) : null,
+          month_1: row.month_1 === null || row.month_1 === undefined ? null : Number(row.month_1),
+          month_2: row.month_2 === null || row.month_2 === undefined ? null : Number(row.month_2),
+          month_3: row.month_3 === null || row.month_3 === undefined ? null : Number(row.month_3),
+          month_4: row.month_4 === null || row.month_4 === undefined ? null : Number(row.month_4),
+          month_5: row.month_5 === null || row.month_5 === undefined ? null : Number(row.month_5),
+          month_6: row.month_6 === null || row.month_6 === undefined ? null : Number(row.month_6),
+          month_7: row.month_7 === null || row.month_7 === undefined ? null : Number(row.month_7),
+          month_8: row.month_8 === null || row.month_8 === undefined ? null : Number(row.month_8),
+          month_9: row.month_9 === null || row.month_9 === undefined ? null : Number(row.month_9),
+          month_10: row.month_10 === null || row.month_10 === undefined ? null : Number(row.month_10),
+          month_11: row.month_11 === null || row.month_11 === undefined ? null : Number(row.month_11),
+          month_12: row.month_12 === null || row.month_12 === undefined ? null : Number(row.month_12),
         }))
       );
     } catch {
@@ -835,6 +935,60 @@ export default function EmployeeCommutingData({
         destructive
         onConfirm={() => void doRemoveDirectEntry()}
       />
+
+      <Dialog open={monthlyModalRow !== null} onOpenChange={(open) => { if (!open) closeMonthlyModal(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Monthly Breakdown</DialogTitle>
+            {monthlyModalRow && (
+              <div className="mt-1 text-sm text-muted-foreground">
+                {monthlyModalRow.employee_name || monthlyModalRow.source_name}
+              </div>
+            )}
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="text-xs text-muted-foreground">
+              Optional -- breaks the annual figure down by month (e.g. a travel pattern that changed mid-year, or a
+              starter/leaver). Leave blank to keep this entry as a single annual figure. Saving updates the annual
+              quantity to match the sum of the months entered here.
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              {MONTH_LABELS.map((label, i) => (
+                <div key={label}>
+                  <Label htmlFor={`ec-month-${i}`} className="text-xs">{label}</Label>
+                  <Input
+                    id={`ec-month-${i}`}
+                    type="text"
+                    inputMode="decimal"
+                    value={monthlyValues[i] ?? ""}
+                    onChange={(e) => updateMonthlyValue(i, e.target.value)}
+                    className="h-8 text-sm font-mono text-right"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between border-t pt-3">
+              <span className="text-sm font-semibold">
+                Monthly Total: {getMonthlySum().toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                {monthlyModalRow?.uom ? ` ${monthlyModalRow.uom}` : ""}
+              </span>
+              {monthlyModalRow?.qty != null && Math.abs(getMonthlySum() - monthlyModalRow.qty) > 0.01 && (
+                <span className="text-xs text-amber-700">
+                  Differs from current annual qty ({formatNumber(monthlyModalRow.qty, 2)}) -- will be updated on save.
+                </span>
+              )}
+            </div>
+            {monthlyError && <div className="text-sm text-rose-700">{monthlyError}</div>}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={closeMonthlyModal} disabled={savingMonthly}>Cancel</Button>
+              <Button onClick={() => void saveMonthlyData()} disabled={savingMonthly}>
+                {savingMonthly ? "Saving..." : "Save Monthly Breakdown"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Prototype shells can hide this duplicate summary so the header stays compact. */}
       {showEmissionsSummary ? <EmissionsSummary jobId={jobId} baseUrl={baseUrl} /> : null}
 
@@ -1170,6 +1324,30 @@ export default function EmployeeCommutingData({
                   Saved entries flow into reporting alongside the workbook import.
                 </div>
 
+                <div className="space-y-2 md:max-w-sm">
+                  <Label htmlFor="manual-entry-site">Site</Label>
+                  <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
+                    <SelectTrigger id="manual-entry-site">
+                      <SelectValue placeholder="Organisation-wide / no site" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Organisation-wide / No site</SelectItem>
+                      {sites
+                        .filter((site) => site.site_id != null && (site.site_name ?? "").trim().length > 0)
+                        .map((site) => (
+                          <SelectItem key={site.site_id ?? ""} value={String(site.site_id)}>
+                            {site.site_name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="text-xs text-muted-foreground">
+                    {editingDirectSourceId !== null
+                      ? "Change and save to reallocate this entry to a different site."
+                      : "Applied to draft rows added below and to entries saved directly."}
+                  </div>
+                </div>
+
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-2">
                     <Label htmlFor="manual-row-type">Row type</Label>
@@ -1207,6 +1385,7 @@ export default function EmployeeCommutingData({
                           <SelectItem value="Car - Diesel">Car - Diesel</SelectItem>
                           <SelectItem value="Car - Hybrid">Car - Hybrid</SelectItem>
                           <SelectItem value="Car - Electric">Car - Electric</SelectItem>
+                          <SelectItem value="Car - Unknown">Car - Unknown</SelectItem>
                           <SelectItem value="Motorbike">Motorbike</SelectItem>
                           <SelectItem value="Taxi">Taxi</SelectItem>
                           <SelectItem value="Bus">Bus</SelectItem>
@@ -1543,6 +1722,9 @@ export default function EmployeeCommutingData({
                               <div className="flex justify-end gap-2">
                                 <Button variant="outline" size="sm" onClick={() => startEditDirectEntry(row)}>
                                   Edit
+                                </Button>
+                                <Button variant="outline" size="sm" onClick={() => openMonthlyModal(row)}>
+                                  Monthly
                                 </Button>
                                 <Button variant="ghost" size="sm" onClick={() => removeDirectEntry(row.source_id, row.employee_name || row.source_name)}>
                                   Delete

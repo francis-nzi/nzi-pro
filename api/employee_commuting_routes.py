@@ -80,6 +80,7 @@ COMMUTE_MODE_OPTIONS = [
     "Car - Diesel",
     "Car - Hybrid",
     "Car - Electric",
+    "Car - Unknown",
     "Motorbike",
     "Taxi",
     "Bus",
@@ -121,6 +122,11 @@ MODE_ALIASES = {
     "car electric": "car - electric",
     "car - electric": "car - electric",
     "electric car": "car - electric",
+    "car unknown": "car - unknown",
+    "car - unknown": "car - unknown",
+    "unknown car": "car - unknown",
+    "unknown fuel car": "car - unknown",
+    "car average unknown": "car - unknown",
     "motorbike": "motorbike",
     "motor bike": "motorbike",
     "motorcycle": "motorbike",
@@ -2251,6 +2257,81 @@ def update_employee_commuting_direct_entry(
         "site_label": site_label,
         "total_tco2e": float(preview["total_tco2e"]),
         "data_source": DIRECT_COMMUTING_DATA_SOURCE,
+    }
+
+
+MONTH_FIELDS = [f"month_{n}" for n in range(1, 13)]
+
+
+@router.patch("/jobs/{job_id}/employee-commuting/direct-entry/{source_id}/monthly")
+def update_employee_commuting_direct_entry_monthly(
+    request: Request,
+    job_id: int,
+    source_id: int,
+    payload: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Sets month_1..month_12 on a saved direct entry -- an optional,
+    additive breakdown of the annual figure (e.g. a varying travel pattern,
+    or a starter/leaver mid-year), same convention job_scope_rows already
+    uses. Unlike update_employee_commuting_direct_entry above, this never
+    re-resolves mode/service/factor -- it only recomputes qty (the sum of
+    the months) and calc_tco2e from the row's existing factor, mirroring
+    JobDataEntry.tsx's saveMonthlyData for job_scope_rows."""
+    with get_conn() as con:
+        _ensure_job_scope_rows_schema(con)
+        _ensure_emission_register_schema(con)
+        meta = _job_meta(con, int(job_id))
+        row = con.execute(
+            """
+            SELECT factor, ghg_unit, apply_pct
+            FROM job_emission_sources
+            WHERE source_id = %s AND job_id = %s AND source_type = %s
+              AND COALESCE(enabled, TRUE) = TRUE
+            """,
+            [int(source_id), int(job_id), "employee_commuting"],
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Saved direct entry not found")
+        factor, ghg_unit, apply_pct = row
+
+        months: dict[str, float | None] = {}
+        for field in MONTH_FIELDS:
+            raw = payload.get(field)
+            months[field] = _safe_float(raw) if raw not in (None, "") else None
+        qty = sum(v for v in months.values() if v is not None)
+        calc_tco2e = _calc_commuting_tco2e(qty, factor, apply_pct, ghg_unit)
+
+        set_clause = ", ".join(f"{field} = %s" for field in MONTH_FIELDS)
+        con.execute(
+            f"""
+            UPDATE job_emission_sources
+            SET {set_clause}, qty = %s, calc_tco2e = %s, updated_at = NOW()
+            WHERE source_id = %s AND job_id = %s AND source_type = %s
+            """,
+            [*[months[field] for field in MONTH_FIELDS], qty, calc_tco2e, int(source_id), int(job_id), "employee_commuting"],
+        )
+        sync_commuting_scope_rows(con, int(job_id))
+
+        record_audit_event(
+            con,
+            request=request,
+            actor=_user,
+            action="update_monthly",
+            entity_type="employee_commuting_direct_entry",
+            entity_id=f"{int(job_id)}:{int(source_id)}",
+            client_id=meta.get("client_db_id"),
+            job_id=int(job_id),
+            metadata={"source_id": int(source_id), "qty": qty, "calc_tco2e": calc_tco2e, **months},
+        )
+
+    return {
+        "ok": True,
+        "job_id": int(job_id),
+        "source_id": int(source_id),
+        "qty": float(qty),
+        "calc_tco2e": float(calc_tco2e),
+        **months,
     }
 
 

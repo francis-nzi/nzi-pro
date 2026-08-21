@@ -602,7 +602,9 @@ def _list_register(con, job_id: int, source_type: str | None, include_disabled: 
           js.qty, COALESCE(g.uom, js.uom) AS uom, COALESCE(g.factor, js.factor) AS factor,
           COALESCE(g.ghg_unit, js.ghg_unit) AS ghg_unit,
           js.apply_pct, js.data_source, js.data_confidence, js.notes, js.detail_json, js.calc_tco2e,
-          js.enabled, js.created_at, js.updated_at
+          js.enabled, js.created_at, js.updated_at,
+          js.month_1, js.month_2, js.month_3, js.month_4, js.month_5, js.month_6,
+          js.month_7, js.month_8, js.month_9, js.month_10, js.month_11, js.month_12
         FROM job_emission_sources js
         LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
         LEFT JOIN client_sites cs ON cs.site_id = js.site_id
@@ -721,6 +723,18 @@ def _list_register(con, job_id: int, source_type: str | None, include_disabled: 
                     "enabled": bool(row.get("enabled")) if row.get("enabled") is not None else True,
                     "created_at": row.get("created_at"),
                     "updated_at": row.get("updated_at"),
+                    "month_1": _safe_float(row.get("month_1")),
+                    "month_2": _safe_float(row.get("month_2")),
+                    "month_3": _safe_float(row.get("month_3")),
+                    "month_4": _safe_float(row.get("month_4")),
+                    "month_5": _safe_float(row.get("month_5")),
+                    "month_6": _safe_float(row.get("month_6")),
+                    "month_7": _safe_float(row.get("month_7")),
+                    "month_8": _safe_float(row.get("month_8")),
+                    "month_9": _safe_float(row.get("month_9")),
+                    "month_10": _safe_float(row.get("month_10")),
+                    "month_11": _safe_float(row.get("month_11")),
+                    "month_12": _safe_float(row.get("month_12")),
                 }
             )
 
