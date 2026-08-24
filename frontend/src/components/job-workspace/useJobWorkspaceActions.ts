@@ -655,6 +655,44 @@ export default function useJobWorkspaceActions(deps: ActionDeps) {
     }
   }
 
+  async function updateMilestoneDueDate(kind: string, dueDate: string) {
+    const res = await fetch(`${baseUrl}/jobs/${jobId}/milestones/${kind}/due-date`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ due_date: dueDate }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Failed to update milestone due date: ${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+    }
+
+    const updatedJobRes = await fetch(`${baseUrl}/jobs/${jobId}`);
+    if (updatedJobRes.ok) {
+      const updatedJob = (await updatedJobRes.json()) as WorkspaceJob;
+      setJob(updatedJob);
+      primeJobShellData(baseUrl, jobId, {
+        job: {
+          job_id: updatedJob.job_id,
+          job_number: updatedJob.job_number,
+          title: updatedJob.title,
+          reporting_year: updatedJob.reporting_year,
+          reporting_period_start: updatedJob.reporting_period_start,
+          reporting_period_end: updatedJob.reporting_period_end,
+          status: updatedJob.status,
+          job_template_id: updatedJob.job_template_id,
+          milestone_template_id: updatedJob.milestone_template_id,
+          client_db_id: updatedJob.client_db_id ?? 0,
+          client_name: updatedJob.client_name,
+          crm_owner: updatedJob.crm_owner,
+          crm_name: updatedJob.crm_name,
+        },
+        clientOwnerLabel,
+        clientBenchmarkPeriodLabel,
+      });
+    }
+  }
+
   async function toggleAdditionalMilestone(itemId: number, completed: boolean) {
     const res = await fetch(`${baseUrl}/jobs/${jobId}/milestone-template-items/${itemId}/complete`, {
       method: "POST",
@@ -712,6 +750,7 @@ export default function useJobWorkspaceActions(deps: ActionDeps) {
     importValidatedRows,
     downloadTemplate,
     toggleMilestone,
+    updateMilestoneDueDate,
     toggleAdditionalMilestone,
   };
 }

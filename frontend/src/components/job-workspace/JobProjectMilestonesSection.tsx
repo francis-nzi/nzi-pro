@@ -32,6 +32,7 @@ type JobProjectMilestonesSectionProps = {
   currentJobId: number | null;
   onToggleBaseMilestone: (kind: "data_collection" | "first_draft" | "final_report", completed: boolean) => Promise<void>;
   onToggleAdditionalMilestone: (itemId: number, completed: boolean) => Promise<void>;
+  onChangeBaseMilestoneDueDate: (kind: "data_collection" | "first_draft" | "final_report", dueDate: string) => Promise<void>;
 };
 
 export default function JobProjectMilestonesSection({
@@ -44,6 +45,7 @@ export default function JobProjectMilestonesSection({
   currentJobId,
   onToggleBaseMilestone,
   onToggleAdditionalMilestone,
+  onChangeBaseMilestoneDueDate,
 }: JobProjectMilestonesSectionProps) {
   const [milestone1Name, milestone2Name, milestone3Name] = milestoneNames;
   const shouldShow =
@@ -72,6 +74,7 @@ export default function JobProjectMilestonesSection({
                 completedAt={baseMilestones.dataCollection.completedAt}
                 completedBy={baseMilestones.dataCollection.completedBy}
                 onToggle={(completed) => onToggleBaseMilestone("data_collection", completed)}
+                onDateChange={(dueDate) => onChangeBaseMilestoneDueDate("data_collection", dueDate)}
               />
             ) : null}
             {baseMilestones.firstDraft?.dueDate ? (
@@ -82,6 +85,7 @@ export default function JobProjectMilestonesSection({
                 completedAt={baseMilestones.firstDraft.completedAt}
                 completedBy={baseMilestones.firstDraft.completedBy}
                 onToggle={(completed) => onToggleBaseMilestone("first_draft", completed)}
+                onDateChange={(dueDate) => onChangeBaseMilestoneDueDate("first_draft", dueDate)}
               />
             ) : null}
             {baseMilestones.finalReport?.dueDate ? (
@@ -92,6 +96,7 @@ export default function JobProjectMilestonesSection({
                 completedAt={baseMilestones.finalReport.completedAt}
                 completedBy={baseMilestones.finalReport.completedBy}
                 onToggle={(completed) => onToggleBaseMilestone("final_report", completed)}
+                onDateChange={(dueDate) => onChangeBaseMilestoneDueDate("final_report", dueDate)}
               />
             ) : null}
             {additionalMilestoneItems.length > 0 ? (

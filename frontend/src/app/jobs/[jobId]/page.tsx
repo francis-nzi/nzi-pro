@@ -855,6 +855,7 @@ export default function JobDetailPage() {
                 currentJobId={currentJobId}
                 onToggleBaseMilestone={workspaceActions.toggleMilestone}
                 onToggleAdditionalMilestone={workspaceActions.toggleAdditionalMilestone}
+                onChangeBaseMilestoneDueDate={workspaceActions.updateMilestoneDueDate}
               />
 
 

@@ -1409,6 +1409,63 @@ def complete_milestone(
         raise HTTPException(status_code=500, detail=f"Failed to update milestone: {e}")
 
 
+@router.patch("/jobs/{job_id}/milestones/{milestone_type}/due-date")
+def update_milestone_due_date(
+    job_id: int,
+    milestone_type: str,
+    body: dict = Body(...),
+    user: dict[str, str] = Depends(_current_user)
+):
+    """Bespoke per-job override of a base milestone's due date -- template-
+    derived dates (see update_job above) are a useful default, but many jobs
+    need their own. Setting override_dates=TRUE is what stops update_job's
+    automatic template recalculation from silently overwriting this again
+    the next time the job's start/reporting-period date changes. Rejects
+    the edit once the milestone is already marked complete -- enforced
+    here, not just hidden in the UI, since a completed milestone's date is
+    part of the completion record."""
+    try:
+        valid_types = ["data_collection", "first_draft", "final_report"]
+        if milestone_type not in valid_types:
+            raise HTTPException(status_code=400, detail=f"Invalid milestone type. Must be one of: {valid_types}")
+
+        due_date = body.get("due_date")
+        if not due_date:
+            raise HTTPException(status_code=400, detail="due_date is required")
+        try:
+            parsed_due_date = datetime.strptime(str(due_date)[:10], "%Y-%m-%d").date()
+        except Exception:
+            raise HTTPException(status_code=400, detail="due_date must be a valid date (YYYY-MM-DD)")
+
+        with get_conn() as con:
+            row = con.execute(
+                f"SELECT {milestone_type}_completed_at FROM job_plan WHERE job_id = %s",
+                [int(job_id)],
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Job plan not found")
+            if row[0] is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This milestone is already marked complete -- unmark it first to change its date",
+                )
+
+            con.execute(
+                f"""
+                UPDATE job_plan
+                SET {milestone_type}_due = %s, override_dates = TRUE, updated_at = CURRENT_TIMESTAMP
+                WHERE job_id = %s
+                """,
+                [parsed_due_date, int(job_id)],
+            )
+
+        return {"ok": True, "milestone_type": milestone_type, "due_date": str(parsed_due_date)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update milestone due date: {e}")
+
+
 @router.get("/jobs/{job_id}/history")
 def get_job_activity_history(
     job_id: int,

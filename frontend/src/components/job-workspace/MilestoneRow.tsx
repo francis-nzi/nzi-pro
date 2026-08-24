@@ -9,6 +9,7 @@ type MilestoneRowProps = {
   completedAt?: string | null;
   completedBy?: string | null;
   onToggle?: (completed: boolean) => Promise<void>;
+  onDateChange?: (newDueDate: string) => Promise<void>;
   readOnly?: boolean;
   helperText?: string;
 };
@@ -20,11 +21,17 @@ export default function MilestoneRow({
   completedAt,
   completedBy,
   onToggle,
+  onDateChange,
   readOnly = false,
   helperText,
 }: MilestoneRowProps) {
   const [isUpdating, setIsUpdating] = useState(false);
+  const [dateError, setDateError] = useState("");
   const isCompleted = status === "completed";
+  // Editable only once not marked complete -- a completed milestone's date
+  // is part of the completion record, matching the backend's own guard
+  // (PATCH .../due-date rejects the edit server-side too, not just here).
+  const dateEditable = Boolean(onDateChange) && !readOnly && !isCompleted;
 
   const statusColor = milestoneDotClass(status);
 
@@ -38,25 +45,49 @@ export default function MilestoneRow({
     }
   };
 
+  const handleDateChange = async (value: string) => {
+    if (!onDateChange || !value) return;
+    setIsUpdating(true);
+    setDateError("");
+    try {
+      await onDateChange(value);
+    } catch (e) {
+      setDateError(e instanceof Error ? e.message : "Failed to update date");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   return (
     <div className="flex items-center gap-4 rounded-lg border p-3">
       <div className={`h-4 w-4 rounded-full ${statusColor}`} />
       <div className="flex-1">
         <div className="flex items-center gap-2">
           <span className="font-medium">{label}</span>
-          <span className="text-sm text-muted-foreground">
-            {new Date(dueDate).toLocaleDateString("en-GB", {
-              day: "numeric",
-              month: "short",
-              year: "numeric",
-            })}
-          </span>
+          {dateEditable ? (
+            <input
+              type="date"
+              defaultValue={dueDate.slice(0, 10)}
+              onChange={(e) => void handleDateChange(e.target.value)}
+              disabled={isUpdating}
+              className="rounded border border-input bg-background px-2 py-0.5 text-sm text-muted-foreground"
+            />
+          ) : (
+            <span className="text-sm text-muted-foreground">
+              {new Date(dueDate).toLocaleDateString("en-GB", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })}
+            </span>
+          )}
         </div>
         {completedAt && completedBy ? (
           <div className="mt-1 text-xs text-muted-foreground">
             Completed by {completedBy} on {new Date(completedAt).toLocaleDateString("en-GB")}
           </div>
         ) : null}
+        {dateError ? <div className="mt-1 text-xs text-destructive">{dateError}</div> : null}
       </div>
       {readOnly ? (
         <div className="flex items-center gap-2 rounded-full border border-dashed border-muted-foreground/30 px-3 py-1 text-xs text-muted-foreground">
