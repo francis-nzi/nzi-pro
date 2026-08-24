@@ -73,6 +73,24 @@ def _resolve_job_or_404(con, client_db_id: int) -> int:
     return job_id
 
 
+def _default_client_site_id(con, client_db_id: int) -> int | None:
+    """Registered office if one is flagged, else the client's first
+    non-archived site, else None -- same ordering PortalCommutingTab.tsx's
+    renderSiteSelect() already uses to *display* a default, which is what
+    made this look chosen even when nothing was actually being saved (see
+    portal_commuting_create_row / _create_row_by_vehicle below)."""
+    row = con.execute(
+        """
+        SELECT site_id FROM client_sites
+        WHERE client_db_id = %s AND COALESCE(archived, FALSE) = FALSE
+        ORDER BY COALESCE(is_registered_office, FALSE) DESC, site_id ASC
+        LIMIT 1
+        """,
+        [int(client_db_id)],
+    ).fetchone()
+    return int(row[0]) if row else None
+
+
 def _assert_data_entry_open(con, job_id: int) -> None:
     if get_portal_data_entry_status(con, job_id)["portal_data_entry_expired"]:
         raise HTTPException(status_code=403, detail=PORTAL_DATA_ENTRY_EXPIRED_MESSAGE)
@@ -161,7 +179,8 @@ def portal_commuting_create_row(
         job_id = _resolve_job_or_404(con, client_db_id)
         _assert_data_entry_open(con, job_id)
 
-        preview = _resolve_manual_commuting_rows(con, job_id, None, [payload])
+        default_site_id = _default_client_site_id(con, client_db_id)
+        preview = _resolve_manual_commuting_rows(con, job_id, default_site_id, [payload])
         if preview["unresolved_count"] > 0:
             raise HTTPException(
                 status_code=400,
@@ -236,7 +255,7 @@ def portal_commuting_create_row_by_vehicle(
         normalized_registration = normalize_registration(registration)
         ready_row = {
             "scope": "Scope 3",
-            "site_id": None,
+            "site_id": _default_client_site_id(con, client_db_id),
             "source_type": "employee_commuting",
             "source_subtype": "commuting",
             "source_name": f"{employee_name} - Employee Commuting - {factor.get('report_label')}".strip(" -"),

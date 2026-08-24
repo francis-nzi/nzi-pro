@@ -1336,6 +1336,14 @@ def _manual_entry_to_parsed_row(entry: dict[str, Any]) -> dict[str, Any] | None:
         months = _parse_months(entry)
         annual_quantity = _safe_float(entry.get("annual_quantity"))
         if annual_quantity is None:
+            # "Annual Distance" is the frontend's explicit override field
+            # (EmployeeCommutingData.tsx buildManualEntryPayload) -- it was
+            # never actually read here, so entries relying on it alone (no
+            # one-way/office/weeks breakdown, e.g. anything created via the
+            # vehicle-registration lookup) always failed as "unresolved" on
+            # edit even though the row already had a valid saved quantity.
+            annual_quantity = _safe_float(entry.get("annual_distance"))
+        if annual_quantity is None:
             annual_quantity = _months_sum(months)
         if annual_quantity is None and None not in (one_way_distance, office_days, weeks_per_year):
             annual_quantity = float(one_way_distance) * 2.0 * float(office_days) * float(weeks_per_year)

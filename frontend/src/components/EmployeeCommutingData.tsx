@@ -22,6 +22,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -352,7 +353,6 @@ export default function EmployeeCommutingData({
     setError("");
     setStatus(`Editing saved entry for ${row.employee_name || row.source_name}.`);
     setHasUnsavedChanges(true);
-    setCurrentStep(2);
   }
 
   function cancelEditDirectEntry() {
@@ -725,19 +725,22 @@ export default function EmployeeCommutingData({
     setRegLookupError("");
     setError("");
     try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/employee-commuting/direct-entry-by-vehicle`, {
-        method: "POST",
-        headers: withAuditHeaders(
-          { "Content-Type": "application/json" },
-          { page: "Jobs", section: "Employee Commuting", container: "Direct Entry" }
-        ),
-        credentials: "include",
-        body: JSON.stringify({
-          employee_name: employeeName,
-          registration_number: regNumber.trim(),
-          annual_quantity: Number(regAnnualMiles),
-        }),
-      });
+      const res = await fetch(
+        `${baseUrl}/jobs/${jobId}/employee-commuting/direct-entry-by-vehicle${selectedSiteId === "__none__" ? "" : `?site_id=${encodeURIComponent(selectedSiteId)}`}`,
+        {
+          method: "POST",
+          headers: withAuditHeaders(
+            { "Content-Type": "application/json" },
+            { page: "Jobs", section: "Employee Commuting", container: "Direct Entry" }
+          ),
+          credentials: "include",
+          body: JSON.stringify({
+            employee_name: employeeName,
+            registration_number: regNumber.trim(),
+            annual_quantity: Number(regAnnualMiles),
+          }),
+        }
+      );
       if (!res.ok) {
         const apiError = await readError(res);
         throw new Error(apiError.message);
@@ -988,6 +991,206 @@ export default function EmployeeCommutingData({
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editingDirectSourceId !== null} onOpenChange={(open) => { if (!open) cancelEditDirectEntry(); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Direct Entry #{editingDirectSourceId}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-entry-site">Site</Label>
+              <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
+                <SelectTrigger id="edit-entry-site">
+                  <SelectValue placeholder="Organisation-wide / no site" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Organisation-wide / No site</SelectItem>
+                  {sites
+                    .filter((site) => site.site_id != null && (site.site_name ?? "").trim().length > 0)
+                    .map((site) => (
+                      <SelectItem key={site.site_id ?? ""} value={String(site.site_id)}>
+                        {site.site_name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="edit-entry-row-type">Row type</Label>
+                <Select value={manualRowType} onValueChange={(value) => setManualRowType(value as "commuting" | "wfh")}>
+                  <SelectTrigger id="edit-entry-row-type">
+                    <SelectValue placeholder="Choose row type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="commuting">Commuting</SelectItem>
+                    <SelectItem value="wfh">Working from home</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-entry-employee">Initials or Staff Number</Label>
+                <Input
+                  id="edit-entry-employee"
+                  value={manualEmployeeName}
+                  onChange={(e) => setManualEmployeeName(e.target.value)}
+                  placeholder="e.g. JD or EMP-4471 — avoid full names"
+                />
+              </div>
+            </div>
+
+            {manualRowType === "commuting" ? (
+              <>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-entry-mode">Commute Mode</Label>
+                    <Select value={manualModeValue} onValueChange={setManualModeValue}>
+                      <SelectTrigger id="edit-entry-mode">
+                        <SelectValue placeholder="Select mode" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Car - Petrol">Car - Petrol</SelectItem>
+                        <SelectItem value="Car - Diesel">Car - Diesel</SelectItem>
+                        <SelectItem value="Car - Hybrid">Car - Hybrid</SelectItem>
+                        <SelectItem value="Car - Electric">Car - Electric</SelectItem>
+                        <SelectItem value="Car - Unknown">Car - Unknown</SelectItem>
+                        <SelectItem value="Motorbike">Motorbike</SelectItem>
+                        <SelectItem value="Taxi">Taxi</SelectItem>
+                        <SelectItem value="Bus">Bus</SelectItem>
+                        <SelectItem value="Rail">Rail</SelectItem>
+                        <SelectItem value="Ferry">Ferry</SelectItem>
+                        <SelectItem value="Walking">Walking</SelectItem>
+                        <SelectItem value="Cycling">Cycling</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-entry-service">Vehicle / Service Type</Label>
+                    <Input
+                      id="edit-entry-service"
+                      value={manualServiceValue}
+                      onChange={(e) => setManualServiceValue(e.target.value)}
+                      placeholder="Average, Small, Regular, etc"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-entry-unit">Distance Unit</Label>
+                    <Select value={manualUnitValue} onValueChange={setManualUnitValue}>
+                      <SelectTrigger id="edit-entry-unit">
+                        <SelectValue placeholder="Select unit" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="miles">miles</SelectItem>
+                        <SelectItem value="km">km</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-entry-one-way">One-Way Distance</Label>
+                    <Input
+                      id="edit-entry-one-way"
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={manualOneWayDistance}
+                      onChange={(e) => setManualOneWayDistance(e.target.value)}
+                      placeholder="e.g. 18"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-entry-office-days">Office Days / Week</Label>
+                    <Input
+                      id="edit-entry-office-days"
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={manualOfficeDays}
+                      onChange={(e) => setManualOfficeDays(e.target.value)}
+                      placeholder="e.g. 3"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-entry-weeks">Weeks / Year</Label>
+                    <Input
+                      id="edit-entry-weeks"
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={manualWeeksPerYear}
+                      onChange={(e) => setManualWeeksPerYear(e.target.value)}
+                      placeholder="e.g. 46"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-entry-annual-distance">Annual Distance</Label>
+                    <Input
+                      id="edit-entry-annual-distance"
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={manualAnnualDistance}
+                      onChange={(e) => setManualAnnualDistance(e.target.value)}
+                      placeholder="Optional override"
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-entry-annual-days">Annual WFH Days</Label>
+                  <Input
+                    id="edit-entry-annual-days"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={manualAnnualDays}
+                    onChange={(e) => setManualAnnualDays(e.target.value)}
+                    placeholder="e.g. 120"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-entry-hours-per-day">Hours Per Day</Label>
+                  <Input
+                    id="edit-entry-hours-per-day"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={manualHoursPerDay}
+                    onChange={(e) => setManualHoursPerDay(e.target.value)}
+                    placeholder="e.g. 7.5"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-entry-notes">Notes</Label>
+              <Input
+                id="edit-entry-notes"
+                value={manualNotes}
+                onChange={(e) => setManualNotes(e.target.value)}
+                placeholder="Optional context for the audit trail"
+              />
+            </div>
+
+            {error && <div className="text-sm text-rose-700">{error}</div>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={cancelEditDirectEntry} disabled={loading}>
+              Cancel
+            </Button>
+            <Button onClick={() => void saveEditedDirectEntry()} disabled={loading}>
+              {loading ? "Saving..." : "Update Saved Entry"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
