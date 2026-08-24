@@ -116,6 +116,107 @@ def portal_commuting_history(current_user: dict = Depends(portal_user_dep)):
     return {"items": items}
 
 
+def _dedupe_by_original_id(rows: list[tuple], limit: int) -> list[dict]:
+    seen: set[str] = set()
+    out: list[dict] = []
+    for job_id, reporting_year, scope, original_id, uom, report_label, category in rows:
+        if not original_id or original_id in seen:
+            continue
+        seen.add(original_id)
+        out.append(
+            {
+                "scope": scope,
+                "category": category,
+                "report_label": report_label or original_id,
+                "original_id": original_id,
+                "uom": uom,
+                "last_job_id": int(job_id),
+                "last_reporting_year": reporting_year,
+            }
+        )
+        if len(out) >= limit:
+            break
+    return out
+
+
+@router.get("/portal/commuting/previous-rows")
+def portal_commuting_previous_rows(current_user: dict = Depends(portal_user_dep)):
+    """Distinct commute factors this client has used before, most-recent
+    first -- the commuting equivalent of the generic buckets' quick-pick
+    "Previously used" list (api/portal_data_entry_routes.py). Joins
+    v_factor_lookup for report_label rather than reusing source_name, since
+    a commuting row's source_name bakes in the employee's own name (e.g.
+    "Ally - Employee Commuting - Car - Diesel - Average") -- fine for the
+    saved-entries list, wrong for a pill a *different* employee might click."""
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        _ensure_emission_register_schema(con)
+        job_id = _resolve_job_or_404(con, client_db_id)
+        rows = con.execute(
+            """
+            SELECT s.job_id, j.reporting_year, s.scope, s.original_id, s.uom,
+                   fl.report_label, fl.category
+            FROM job_emission_sources s
+            JOIN jobs j ON j.job_id = s.job_id
+            LEFT JOIN v_factor_lookup fl ON fl.db_id = s.factor_db_id
+            WHERE j.client_db_id = %s AND s.job_id <> %s AND s.source_type = 'employee_commuting'
+              AND COALESCE(s.enabled, TRUE) = TRUE AND COALESCE(s.original_id, '') <> ''
+            ORDER BY s.job_id DESC, s.source_id DESC
+            """,
+            [client_db_id, job_id],
+        ).fetchall()
+        items = _dedupe_by_original_id(rows, limit=15)
+    return {"job_id": job_id, "items": items}
+
+
+@router.get("/portal/commuting/top-factors")
+def portal_commuting_top_factors(current_user: dict = Depends(portal_user_dep)):
+    """Most-used commute factors -- this client's own usage first, falling
+    back to the most-used across all clients so a brand-new client still
+    gets a useful quick pick (same fallback shape as
+    services/portal_data_entry.py get_top_register_bucket_factors)."""
+    client_db_id = int(current_user["client_db_id"])
+
+    def _rank(con, client_filter: bool) -> list[dict]:
+        where = ["s.source_type = 'employee_commuting'", "COALESCE(s.enabled, TRUE) = TRUE", "COALESCE(s.original_id, '') <> ''"]
+        params: list = []
+        if client_filter:
+            where.append("j.client_db_id = %s")
+            params.append(client_db_id)
+        rows = con.execute(
+            f"""
+            SELECT s.scope, fl.category, fl.report_label, s.original_id, s.uom, COUNT(*) AS use_count
+            FROM job_emission_sources s
+            JOIN jobs j ON j.job_id = s.job_id
+            LEFT JOIN v_factor_lookup fl ON fl.db_id = s.factor_db_id
+            WHERE {" AND ".join(where)}
+            GROUP BY s.scope, fl.category, fl.report_label, s.original_id, s.uom
+            ORDER BY use_count DESC
+            LIMIT 8
+            """,
+            params,
+        ).fetchall()
+        return [
+            {
+                "scope": scope,
+                "category": category,
+                "report_label": report_label or original_id,
+                "original_id": original_id,
+                "uom": uom,
+                "use_count": int(use_count),
+            }
+            for scope, category, report_label, original_id, uom, use_count in rows
+        ]
+
+    with get_conn() as con:
+        _ensure_emission_register_schema(con)
+        job_id = _resolve_job_or_404(con, client_db_id)
+        items = _rank(con, client_filter=True)
+        if not items:
+            items = _rank(con, client_filter=False)
+    return {"job_id": job_id, "items": items}
+
+
 @router.get("/portal/commuting/rows")
 def portal_commuting_list_rows(current_user: dict = Depends(portal_user_dep)):
     client_db_id = int(current_user["client_db_id"])

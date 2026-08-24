@@ -187,24 +187,40 @@ def load_client_category_history(con, client_db_id: int, category_filter) -> lis
     if scope_df.empty:
         return []
 
-    # first-non-blank uom per (year, activity) -- quantities aren't
-    # summable across differing units, so the frontend needs to know what
-    # unit each cell's quantity figure is actually in.
-    def _first_uom(values: Any) -> str:
+    # first-non-blank per (year, activity) -- quantities aren't summable
+    # across differing units, so the frontend needs to know what unit each
+    # cell's quantity figure is actually in. original_id/scope/dataset_id/
+    # factor_db_id ride along the same way so a client can select a past
+    # activity and have it recreated as a real (blank) row for this year's
+    # data, rather than just displaying the historical total read-only --
+    # see the checkbox-select "copy to this year" flow on
+    # PortalCategoryHistoryTable.tsx.
+    def _first_nonblank(values: Any) -> Any:
         for value in values:
-            if value:
+            if value is not None and str(value).strip() and str(value).strip().lower() != "nan":
                 return value
-        return ""
+        return None
 
     detail_groups = (
         scope_df.groupby(["dashboard_year", "activity_name"])
-        .agg(emissions=("emissions", "sum"), quantity=("quantity", "sum"), uom=("uom", _first_uom))
+        .agg(
+            emissions=("emissions", "sum"),
+            quantity=("quantity", "sum"),
+            uom=("uom", _first_nonblank),
+            original_id=("original_id", _first_nonblank),
+            scope=("scope", _first_nonblank),
+            dataset_id=("dataset_id", _first_nonblank),
+            factor_db_id=("factor_db_id", _first_nonblank),
+        )
         .reset_index()
     )
     out: list[dict[str, Any]] = []
     for _, row in detail_groups.iterrows():
         if row["dashboard_year"] is None or str(row["dashboard_year"]).strip().lower() in {"", "nan", "none"}:
             continue
+        original_id = row.get("original_id")
+        dataset_id = row.get("dataset_id")
+        factor_db_id = row.get("factor_db_id")
         out.append(
             {
                 "year": int(row["dashboard_year"]),
@@ -212,6 +228,10 @@ def load_client_category_history(con, client_db_id: int, category_filter) -> lis
                 "emissions_tco2e": round(float(row["emissions"]), 2),
                 "quantity": round(float(row["quantity"]), 2),
                 "uom": str(row["uom"] or "").strip() or None,
+                "original_id": str(original_id) if original_id is not None else None,
+                "scope": str(row.get("scope") or "").strip() or None,
+                "dataset_id": int(dataset_id) if dataset_id is not None else None,
+                "factor_db_id": int(factor_db_id) if factor_db_id is not None else None,
             }
         )
     out.sort(key=lambda r: (r["year"], r["activity"]))

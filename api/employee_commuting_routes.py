@@ -1355,6 +1355,11 @@ def _manual_entry_to_parsed_row(entry: dict[str, Any]) -> dict[str, Any] | None:
             "mode_value": _safe_str(entry.get("mode_value")),
             "service_value": _safe_str(entry.get("service_value")),
             "unit_value": _safe_str(entry.get("unit_value")),
+            # Set when the row comes from a quick pick or a "copy previous
+            # years forward" selection -- both already know the exact factor,
+            # so resolution below skips the mode/service/unit lookup
+            # entirely rather than trying to reverse-derive it.
+            "original_id": _safe_str(entry.get("original_id")) or None,
             "annual_quantity": annual_quantity,
             "months": months,
             "notes": notes,
@@ -1430,12 +1435,20 @@ def _resolve_manual_commuting_rows(
             continue
 
         if row_type == "commuting":
-            original_id, mode, variant, error, _matched_unit = _resolve_commuting_original_id(
-                parsed_row.get("mode_value"),
-                parsed_row.get("service_value"),
-                parsed_row.get("unit_value"),
-            )
-            if error or not original_id or not mode:
+            direct_original_id = parsed_row.get("original_id")
+            if direct_original_id:
+                # Quick pick / "copy previous years forward" -- the factor is
+                # already known, so skip the mode/service/unit lookup below
+                # entirely rather than trying to reverse-derive it from strings
+                # that were never entered.
+                original_id, mode, variant, error = direct_original_id, None, None, None
+            else:
+                original_id, mode, variant, error, _matched_unit = _resolve_commuting_original_id(
+                    parsed_row.get("mode_value"),
+                    parsed_row.get("service_value"),
+                    parsed_row.get("unit_value"),
+                )
+            if error or not original_id or (mode is None and not direct_original_id):
                 unresolved_rows.append(
                     {
                         "sheet": "Direct Entry",
@@ -1459,8 +1472,16 @@ def _resolve_manual_commuting_rows(
                 )
                 continue
 
+            if mode is None:
+                mode = _safe_str(factor_record.get("report_label")) or "Commute"
+                variant = ""
+
             resolved_original_id = str(factor_record.get("original_id") or original_id)
-            input_unit = _canonical_unit(parsed_row.get("unit_value")) or (_default_unit_for_mode(mode) or "")
+            input_unit = (
+                _canonical_unit(parsed_row.get("unit_value"))
+                or _safe_str(factor_record.get("uom"))
+                or (_default_unit_for_mode(mode) or "")
+            )
             factor_uom = _safe_str(factor_record.get("uom")) or input_unit
             converted_qty = _convert_quantity(float(quantity), input_unit, factor_uom)
             if converted_qty is None:

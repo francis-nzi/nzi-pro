@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import PortalSpendTab from "@/components/PortalSpendTab";
 import PortalCommutingTab from "@/components/PortalCommutingTab";
-import PortalCategoryHistoryTable from "@/components/PortalCategoryHistoryTable";
+import PortalCategoryHistoryTable, { type HistoryItem } from "@/components/PortalCategoryHistoryTable";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -195,6 +195,12 @@ export default function PortalDataEntry() {
 
   const [previousRows, setPreviousRows] = useState<PreviousRow[]>([]);
   const [topFactors, setTopFactors] = useState<TopFactor[]>([]);
+  // Populated by checking activities in the "Previous Years" table and
+  // hitting "Copy selected to this year" -- shown as its own quick-pick
+  // section so they're one click away from the Add form, same as any other
+  // pill. Nothing is created until the client picks one, enters a real
+  // quantity, and submits.
+  const [copiedFactors, setCopiedFactors] = useState<PreviousRow[]>([]);
 
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
   const [editQty, setEditQty] = useState("");
@@ -268,6 +274,7 @@ export default function PortalDataEntry() {
     setDataEntryExpiry(null);
     setPreviousRows([]);
     setTopFactors([]);
+    setCopiedFactors([]);
     setJustAdded(false);
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     if (justAddedTimerRef.current) clearTimeout(justAddedTimerRef.current);
@@ -333,6 +340,32 @@ export default function PortalDataEntry() {
       dataset_id: null,
       factor_db_id: null,
     });
+  }
+
+  function pickCopiedFactor(item: PreviousRow) {
+    pickQuickFactor(item);
+    setCopiedFactors((prev) => prev.filter((f) => f.original_id !== item.original_id));
+  }
+
+  function handleCopySelectedFromHistory(items: HistoryItem[]) {
+    const asPreviousRows: PreviousRow[] = items
+      .filter((i) => i.original_id)
+      .map((i) => ({
+        scope: i.scope ?? null,
+        category: null,
+        report_label: i.activity,
+        original_id: i.original_id as string,
+        uom: i.uom,
+        last_qty: null,
+        last_job_id: 0,
+        last_reporting_year: i.year,
+      }));
+    setCopiedFactors((prev) => {
+      const existing = new Set(prev.map((f) => f.original_id));
+      return [...prev, ...asPreviousRows.filter((f) => !existing.has(f.original_id))];
+    });
+    setShowAdd(true);
+    if (!previousRows.length && !topFactors.length) void loadQuickPicks(activeBucket);
   }
 
   async function searchFactors(text: string) {
@@ -889,11 +922,27 @@ export default function PortalDataEntry() {
                   the eye through two chip lists before it reaches the search
                   input. Stays visible while searching too, since it's no
                   longer competing with the results list for the same space. */}
-              {!selectedFactor && (previousRows.length > 0 || topFactors.length > 0) && (
+              {!selectedFactor && (previousRows.length > 0 || topFactors.length > 0 || copiedFactors.length > 0) && (
                 <div className="space-y-3 rounded-md border bg-muted/20 p-3 md:self-start">
                   <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Quick picks
                   </div>
+                  {copiedFactors.length > 0 && (
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold text-foreground">Copied from previous years</div>
+                      <div className="space-y-0.5">
+                        {copiedFactors.map((item, idx) => (
+                          <button
+                            key={`copied-${item.original_id}-${idx}`}
+                            className="block w-full rounded-md border border-primary/30 bg-primary/5 px-2 py-1.5 text-left text-xs hover:bg-primary/10"
+                            onClick={() => pickCopiedFactor(item)}
+                          >
+                            {item.report_label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {previousRows.length > 0 && (
                     <div className="space-y-1">
                       <div className="text-sm font-semibold text-foreground">Previously used</div>
@@ -1008,7 +1057,10 @@ export default function PortalDataEntry() {
       )}
 
       {!isComingSoon && !isSpendTab && !isCommutingTab && !noJobMessage && activeBucket && (
-        <PortalCategoryHistoryTable fetchUrl={`/portal/data-entry/${activeBucket}/history`} />
+        <PortalCategoryHistoryTable
+          fetchUrl={`/portal/data-entry/${activeBucket}/history`}
+          onCopySelected={dataEntryExpired ? undefined : handleCopySelectedFromHistory}
+        />
       )}
 
       <Dialog open={monthlyModalRow !== null} onOpenChange={(open) => { if (!open) closeMonthlyModal(); }}>

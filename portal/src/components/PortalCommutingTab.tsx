@@ -13,9 +13,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
-import PortalCategoryHistoryTable from "@/components/PortalCategoryHistoryTable";
+import PortalCategoryHistoryTable, { type HistoryItem } from "@/components/PortalCategoryHistoryTable";
 
 type Options = { mode_options: string[]; service_options: string[]; unit_options: string[] };
+
+type QuickPickFactor = {
+  scope: string | null;
+  category: string | null;
+  report_label: string | null;
+  original_id: string;
+  uom: string | null;
+};
 
 type Site = { site_id: number; site_name: string | null; is_registered_office?: boolean };
 
@@ -111,6 +119,21 @@ export default function PortalCommutingTab() {
   const [modeValue, setModeValue] = useState("");
   const [serviceValue, setServiceValue] = useState("");
   const [unitValue, setUnitValue] = useState("miles");
+  // Set by clicking a "Quick picks" pill or a copied-forward previous-year
+  // activity -- when present, submitRow sends original_id directly and
+  // skips the mode/service/unit dropdowns entirely (see
+  // api/portal_commuting_routes.py portal_commuting_create_row and the
+  // original_id passthrough in _resolve_manual_commuting_rows).
+  const [quickPickOriginalId, setQuickPickOriginalId] = useState<string | null>(null);
+  const [quickPickLabel, setQuickPickLabel] = useState<string | null>(null);
+  const [quickPickUom, setQuickPickUom] = useState<string | null>(null);
+  const [previousFactors, setPreviousFactors] = useState<QuickPickFactor[]>([]);
+  const [topFactors, setTopFactors] = useState<QuickPickFactor[]>([]);
+  // Same "copy previous years forward" queue as PortalDataEntry.tsx --
+  // checking activities in the Previous Years table promotes them here
+  // rather than creating anything, so the client still fills in an
+  // employee name + distance before it becomes a real entry.
+  const [copiedFactors, setCopiedFactors] = useState<QuickPickFactor[]>([]);
   // Shared by both commuting entry paths (dropdown and vehicle-registration) --
   // only one is visible at a time via entryMode, so one array covers both.
   // months[0]=Jan .. months[11]=Dec; a blank month means no commuting that
@@ -198,6 +221,63 @@ export default function PortalCommutingTab() {
     setNotes("");
     setRegNumber("");
     setRegLookupError("");
+    // Quick pick deliberately survives a reset -- entering several
+    // employees against the same commute factor back-to-back is the common
+    // case, so only "Change" or switching mode/entry type clears it.
+  }
+
+  async function loadCommutingQuickPicks() {
+    try {
+      const [prevRes, topRes] = await Promise.all([
+        apiFetch("/portal/commuting/previous-rows"),
+        apiFetch("/portal/commuting/top-factors"),
+      ]);
+      const prevItems: QuickPickFactor[] = prevRes.ok ? (await prevRes.json()).items || [] : [];
+      const topItems: QuickPickFactor[] = topRes.ok ? (await topRes.json()).items || [] : [];
+      setPreviousFactors(prevItems);
+      const seen = new Set(prevItems.map((item) => item.original_id));
+      setTopFactors(topItems.filter((item) => !seen.has(item.original_id)));
+    } catch {
+      setPreviousFactors([]);
+      setTopFactors([]);
+    }
+  }
+
+  function pickQuickCommuteFactor(item: QuickPickFactor) {
+    setQuickPickOriginalId(item.original_id);
+    setQuickPickLabel(item.report_label || item.original_id);
+    setQuickPickUom(item.uom || null);
+  }
+
+  function clearQuickPick() {
+    setQuickPickOriginalId(null);
+    setQuickPickLabel(null);
+    setQuickPickUom(null);
+  }
+
+  function pickCopiedFactor(item: QuickPickFactor) {
+    pickQuickCommuteFactor(item);
+    setCopiedFactors((prev) => prev.filter((f) => f.original_id !== item.original_id));
+  }
+
+  function handleCopySelectedFromHistory(items: HistoryItem[]) {
+    const asFactors: QuickPickFactor[] = items
+      .filter((i) => i.original_id)
+      .map((i) => ({
+        scope: i.scope ?? null,
+        category: null,
+        report_label: i.activity,
+        original_id: i.original_id as string,
+        uom: i.uom,
+      }));
+    setCopiedFactors((prev) => {
+      const existing = new Set(prev.map((f) => f.original_id));
+      return [...prev, ...asFactors.filter((f) => !existing.has(f.original_id))];
+    });
+    setRowType("commuting");
+    setEntryMode("dropdown");
+    setShowAdd(true);
+    if (!previousFactors.length && !topFactors.length) void loadCommutingQuickPicks();
   }
 
   function updateMonth(actualIndex: number, value: string) {
@@ -273,16 +353,19 @@ export default function PortalCommutingTab() {
         notes: notes.trim() || null,
       };
       if (rowType === "commuting") {
-        Object.assign(payload, {
-          mode_value: modeValue,
-          service_value: serviceValue,
-          unit_value: unitValue,
-          // Monthly breakdown instead of a single annual figure -- lets
-          // starters/leavers and irregular travel patterns be entered
-          // accurately. The backend sums these into annual_quantity (see
-          // _manual_entry_to_parsed_row in api/employee_commuting_routes.py).
-          months: monthsPayload(),
-        });
+        Object.assign(
+          payload,
+          quickPickOriginalId
+            ? { original_id: quickPickOriginalId }
+            : { mode_value: modeValue, service_value: serviceValue, unit_value: unitValue },
+          {
+            // Monthly breakdown instead of a single annual figure -- lets
+            // starters/leavers and irregular travel patterns be entered
+            // accurately. The backend sums these into annual_quantity (see
+            // _manual_entry_to_parsed_row in api/employee_commuting_routes.py).
+            months: monthsPayload(),
+          }
+        );
       } else {
         Object.assign(payload, {
           annual_days: Number(annualDays),
@@ -563,7 +646,15 @@ export default function PortalCommutingTab() {
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">{rows.length} entr{rows.length === 1 ? "y" : "ies"} submitted</div>
         {!dataEntryExpired && (
-          <Button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Cancel" : "+ Add Entry"}</Button>
+          <Button
+            onClick={() => {
+              const next = !showAdd;
+              setShowAdd(next);
+              if (next) void loadCommutingQuickPicks();
+            }}
+          >
+            {showAdd ? "Cancel" : "+ Add Entry"}
+          </Button>
         )}
       </div>
       )}
@@ -645,41 +736,110 @@ export default function PortalCommutingTab() {
                 </Button>
               </div>
             ) : rowType === "commuting" ? (
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <label className="text-xs text-muted-foreground">Commute Mode</label>
-                  <Select value={modeValue} onValueChange={setModeValue}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {options.mode_options.map((m) => (
-                        <SelectItem key={m} value={m}>{m}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
+                <div className="space-y-3">
+                  {quickPickOriginalId ? (
+                    <div className="rounded-md border p-3 text-sm">
+                      <div className="font-medium">{quickPickLabel}</div>
+                      <Button size="sm" variant="outline" className="mt-2" onClick={clearQuickPick}>
+                        Change
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div>
+                        <label className="text-xs text-muted-foreground">Commute Mode</label>
+                        <Select value={modeValue} onValueChange={setModeValue}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {options.mode_options.map((m) => (
+                              <SelectItem key={m} value={m}>{m}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground">Vehicle / Service Type</label>
+                        <Select value={serviceValue} onValueChange={setServiceValue}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {options.service_options.map((s) => (
+                              <SelectItem key={s} value={s}>{s}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground">Distance Unit</label>
+                        <Select value={unitValue} onValueChange={setUnitValue}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {options.unit_options.map((u) => (
+                              <SelectItem key={u} value={u}>{u}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+                  {renderMonthlyGrid(quickPickOriginalId ? quickPickUom || "units" : unitValue)}
                 </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">Vehicle / Service Type</label>
-                  <Select value={serviceValue} onValueChange={setServiceValue}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {options.service_options.map((s) => (
-                        <SelectItem key={s} value={s}>{s}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">Distance Unit</label>
-                  <Select value={unitValue} onValueChange={setUnitValue}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {options.unit_options.map((u) => (
-                        <SelectItem key={u} value={u}>{u}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="md:col-span-2">{renderMonthlyGrid(unitValue)}</div>
+
+                {!quickPickOriginalId && (previousFactors.length > 0 || topFactors.length > 0 || copiedFactors.length > 0) && (
+                  <div className="space-y-3 rounded-md border bg-muted/20 p-3 md:self-start">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Quick picks
+                    </div>
+                    {copiedFactors.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-sm font-semibold text-foreground">Copied from previous years</div>
+                        <div className="space-y-0.5">
+                          {copiedFactors.map((item, idx) => (
+                            <button
+                              key={`copied-${item.original_id}-${idx}`}
+                              className="block w-full rounded-md border border-primary/30 bg-primary/5 px-2 py-1.5 text-left text-xs hover:bg-primary/10"
+                              onClick={() => pickCopiedFactor(item)}
+                            >
+                              {item.report_label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {previousFactors.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-sm font-semibold text-foreground">Previously used</div>
+                        <div className="space-y-0.5">
+                          {previousFactors.map((item, idx) => (
+                            <button
+                              key={`prev-${item.original_id}-${idx}`}
+                              className="block w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-background"
+                              onClick={() => pickQuickCommuteFactor(item)}
+                            >
+                              {item.report_label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {topFactors.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-sm font-semibold text-foreground">Frequently used</div>
+                        <div className="space-y-0.5">
+                          {topFactors.map((item, idx) => (
+                            <button
+                              key={`top-${item.original_id}-${idx}`}
+                              className="block w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-background"
+                              onClick={() => pickQuickCommuteFactor(item)}
+                            >
+                              {item.report_label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="grid gap-3 md:grid-cols-2">
@@ -841,7 +1001,12 @@ export default function PortalCommutingTab() {
         </>
       ))}
 
-      {!noJobMessage && <PortalCategoryHistoryTable fetchUrl="/portal/commuting/history" />}
+      {!noJobMessage && (
+        <PortalCategoryHistoryTable
+          fetchUrl="/portal/commuting/history"
+          onCopySelected={dataEntryExpired ? undefined : handleCopySelectedFromHistory}
+        />
+      )}
     </div>
   );
 }
