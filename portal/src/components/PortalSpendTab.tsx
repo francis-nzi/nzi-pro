@@ -722,93 +722,100 @@ export default function PortalSpendTab() {
 
       {!noJobMessage && !dataEntryExpired && showAdd && (
         <Card>
-          <CardContent className="space-y-2 pt-4">
+          <CardContent className="pt-4">
             {justAdded && (
-              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+              <div className="mb-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
                 Spend line added — ready for the next one.
               </div>
             )}
-            {quickPickCategory ? (
-              <div className="flex items-center justify-between rounded-md border bg-muted/20 p-2 text-xs">
-                <span>
-                  Will auto-categorize as <span className="font-medium">{quickPickCategory.report_label}</span>
-                </span>
-                <button type="button" className="text-primary hover:underline" onClick={() => setQuickPickCategory(null)}>
-                  Change
-                </button>
-              </div>
-            ) : (
-              topCategories.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Quick picks — frequently used
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
+              <div className="space-y-2">
+                {quickPickCategory && (
+                  <div className="flex items-center justify-between rounded-md border bg-muted/20 p-2 text-xs">
+                    <span>
+                      Will auto-categorize as <span className="font-medium">{quickPickCategory.report_label}</span>
+                    </span>
+                    <button type="button" className="text-primary hover:underline" onClick={() => setQuickPickCategory(null)}>
+                      Change
+                    </button>
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {topCategories.map((cat) => (
-                      <button
-                        key={cat.db_id}
-                        type="button"
-                        className="rounded-full border bg-background px-3 py-1 text-xs hover:bg-muted"
-                        onClick={() => {
-                          setQuickPickCategory(cat);
-                          if (!description.trim() && cat.report_label) setDescription(cat.report_label);
-                        }}
-                      >
-                        {cat.report_label}
-                      </button>
-                    ))}
+                )}
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="w-28">
+                    <label className="text-xs text-muted-foreground">GL / Nominal Code</label>
+                    <Input
+                      value={refCode}
+                      maxLength={MAX_GL_CODE_LENGTH}
+                      onChange={(e) => setRefCode(e.target.value)}
+                      placeholder="optional"
+                    />
+                  </div>
+                  <div className="min-w-[12rem] flex-1">
+                    <label className="text-xs text-muted-foreground">Description</label>
+                    <Input value={description} onChange={(e) => setDescription(e.target.value)} />
+                  </div>
+                  <div className="w-32">
+                    <label className="text-xs text-muted-foreground">Net Value (excl. VAT)</label>
+                    <Input type="number" min={0} max={MAX_NET_VALUE} value={netValue} onChange={(e) => setNetValue(e.target.value)} />
+                  </div>
+                  <div className="w-20">
+                    <label className="text-xs text-muted-foreground">VAT %</label>
+                    <Input type="number" min={0} max={MAX_VAT_PCT} value={vatPct} onChange={(e) => setVatPct(e.target.value)} />
                   </div>
                 </div>
-              )
-            )}
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="w-28">
-                <label className="text-xs text-muted-foreground">GL / Nominal Code</label>
-                <Input
-                  value={refCode}
-                  maxLength={MAX_GL_CODE_LENGTH}
-                  onChange={(e) => setRefCode(e.target.value)}
-                  placeholder="optional"
-                />
+                {!isValidRefCode(refCode) && (
+                  <div className="text-xs text-rose-700">GL / Nominal Code must be {MAX_GL_CODE_LENGTH} characters or fewer.</div>
+                )}
+                {netValue.trim() !== "" && !isValidNetValue(netValue) && (
+                  <div className="text-xs text-rose-700">Net Value must be between 0 and {MAX_NET_VALUE.toLocaleString()}.</div>
+                )}
+                {vatPct.trim() !== "" && !isValidVatPct(vatPct) && (
+                  <div className="text-xs text-rose-700">VAT % must be between 0 and {MAX_VAT_PCT}.</div>
+                )}
+                <div>
+                  <label className="text-xs text-muted-foreground">Notes (optional)</label>
+                  <textarea
+                    className="flex min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Anything your NZI consultant should know about this entry"
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    disabled={saving || !description.trim() || !isValidNetValue(netValue) || !isValidVatPct(vatPct) || !isValidRefCode(refCode)}
+                    onClick={() => void addRow()}
+                  >
+                    {saving ? "Submitting..." : "Submit Spend Line"}
+                  </Button>
+                </div>
               </div>
-              <div className="min-w-[12rem] flex-1">
-                <label className="text-xs text-muted-foreground">Description</label>
-                <Input value={description} onChange={(e) => setDescription(e.target.value)} />
-              </div>
-              <div className="w-32">
-                <label className="text-xs text-muted-foreground">Net Value (excl. VAT)</label>
-                <Input type="number" min={0} max={MAX_NET_VALUE} value={netValue} onChange={(e) => setNetValue(e.target.value)} />
-              </div>
-              <div className="w-20">
-                <label className="text-xs text-muted-foreground">VAT %</label>
-                <Input type="number" min={0} max={MAX_VAT_PCT} value={vatPct} onChange={(e) => setVatPct(e.target.value)} />
-              </div>
-            </div>
-            {!isValidRefCode(refCode) && (
-              <div className="text-xs text-rose-700">GL / Nominal Code must be {MAX_GL_CODE_LENGTH} characters or fewer.</div>
-            )}
-            {netValue.trim() !== "" && !isValidNetValue(netValue) && (
-              <div className="text-xs text-rose-700">Net Value must be between 0 and {MAX_NET_VALUE.toLocaleString()}.</div>
-            )}
-            {vatPct.trim() !== "" && !isValidVatPct(vatPct) && (
-              <div className="text-xs text-rose-700">VAT % must be between 0 and {MAX_VAT_PCT}.</div>
-            )}
-            <div>
-              <label className="text-xs text-muted-foreground">Notes (optional)</label>
-              <textarea
-                className="flex min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Anything your NZI consultant should know about this entry"
-              />
-            </div>
-            <div className="flex justify-end">
-              <Button
-                disabled={saving || !description.trim() || !isValidNetValue(netValue) || !isValidVatPct(vatPct) || !isValidRefCode(refCode)}
-                onClick={() => void addRow()}
-              >
-                {saving ? "Submitting..." : "Submit Spend Line"}
-              </Button>
+
+              {topCategories.length > 0 && (
+                <div className="space-y-3 rounded-md border bg-muted/20 p-3 md:self-start">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Quick picks
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-sm font-semibold text-foreground">Frequently used</div>
+                    <div className="space-y-0.5">
+                      {topCategories.map((cat) => (
+                        <button
+                          key={cat.db_id}
+                          type="button"
+                          className="block w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-background"
+                          onClick={() => {
+                            setQuickPickCategory(cat);
+                            if (!description.trim() && cat.report_label) setDescription(cat.report_label);
+                          }}
+                        >
+                          {cat.report_label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
