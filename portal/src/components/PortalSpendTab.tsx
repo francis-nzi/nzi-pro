@@ -94,6 +94,11 @@ export default function PortalSpendTab() {
   const [notes, setNotes] = useState("");
   const [vatPct, setVatPct] = useState("20");
   const [saving, setSaving] = useState(false);
+  // Quick pick on the Add form itself, not just the post-add category
+  // picker -- picking one both labels the row and auto-categorizes it on
+  // save, so a recurring spend line is a single click instead of add-then-
+  // categorize every time.
+  const [quickPickCategory, setQuickPickCategory] = useState<TopSpendCategory | null>(null);
   const [justAdded, setJustAdded] = useState(false);
   const justAddedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -200,8 +205,14 @@ export default function PortalSpendTab() {
         }),
       });
       if (res.ok) {
+        const d = await res.json().catch(() => ({}));
+        if (quickPickCategory && d?.entry_id) {
+          await confirmCategory(d.entry_id, quickPickCategory);
+        }
         // Panel stays open (no site to re-pick here) so entering several
         // spend lines back-to-back doesn't require reopening the form each time.
+        // Quick pick deliberately survives -- adding several lines against the
+        // same recurring category is the common case.
         setRefCode("");
         setDescription("");
         setNetValue("");
@@ -613,7 +624,15 @@ export default function PortalSpendTab() {
             >
               {showBulkUpload ? "Cancel" : "Bulk Upload (CSV/XLSX)"}
             </Button>
-            <Button onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Cancel" : "+ Add Spend Line"}</Button>
+            <Button
+              onClick={() => {
+                const next = !showAdd;
+                setShowAdd(next);
+                if (next) void loadTopCategories();
+              }}
+            >
+              {showAdd ? "Cancel" : "+ Add Spend Line"}
+            </Button>
           </div>
         )}
       </div>
@@ -708,6 +727,39 @@ export default function PortalSpendTab() {
               <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
                 Spend line added — ready for the next one.
               </div>
+            )}
+            {quickPickCategory ? (
+              <div className="flex items-center justify-between rounded-md border bg-muted/20 p-2 text-xs">
+                <span>
+                  Will auto-categorize as <span className="font-medium">{quickPickCategory.report_label}</span>
+                </span>
+                <button type="button" className="text-primary hover:underline" onClick={() => setQuickPickCategory(null)}>
+                  Change
+                </button>
+              </div>
+            ) : (
+              topCategories.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Quick picks — frequently used
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {topCategories.map((cat) => (
+                      <button
+                        key={cat.db_id}
+                        type="button"
+                        className="rounded-full border bg-background px-3 py-1 text-xs hover:bg-muted"
+                        onClick={() => {
+                          setQuickPickCategory(cat);
+                          if (!description.trim() && cat.report_label) setDescription(cat.report_label);
+                        }}
+                      >
+                        {cat.report_label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
             )}
             <div className="flex flex-wrap items-end gap-2">
               <div className="w-28">
