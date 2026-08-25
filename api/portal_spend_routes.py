@@ -34,6 +34,7 @@ from core.database import get_conn
 from services.dataset_selector import get_applicable_datasets
 from services.portal import PORTAL_ROLE_CAN_MANAGE_ACTIONS
 from services.portal_data_entry import (
+    PGS_CATEGORIES,
     PORTAL_DATA_ENTRY_EXPIRED_MESSAGE,
     get_job_summary,
     get_portal_data_entry_status,
@@ -47,7 +48,18 @@ from services.spend_line_matching import suggest_spend_lines
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["portal-spend"])
 
-_PGS_CATEGORY = "Purchased Goods and Services"
+
+def _is_prod_coded(original_id: str | None) -> bool:
+    """True for DEFRA/ONS PROD-* factors -- personal/household consumption,
+    not applicable to a commercial GL/ledger line. The only exclusion the
+    CRM's own spend-factor search applies (search_spend_factors in
+    api/spend_data_routes.py); the portal's confirm-category check below
+    mirrors it exactly rather than the old, narrower "category must equal
+    Purchased Goods and Services" rule, which rejected legitimate SIC-coded
+    categories that sit under a different top-level category (e.g. Insurance
+    is filed under "Investments") -- see /portal/spend/categories/search."""
+    return "prod" in str(original_id or "").lower()
+
 
 MAX_GL_CODE_LENGTH = 15
 MAX_VAT_PCT = 100
@@ -87,7 +99,7 @@ def portal_spend_history(current_user: dict = Depends(portal_user_dep)):
     load_client_category_history."""
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
-        items = load_client_category_history(con, client_db_id, lambda cat: cat == _PGS_CATEGORY)
+        items = load_client_category_history(con, client_db_id, lambda cat: cat in PGS_CATEGORIES)
     return {"items": items}
 
 
@@ -330,11 +342,24 @@ def portal_spend_search_categories(
         scope3_dataset_ids = get_applicable_datasets(int(job_id)).get("Scope 3") or []
         dataset_filter_sql = "AND f.dataset_id = ANY(%s)" if scope3_dataset_ids else ""
 
-        params: list[Any] = [_PGS_CATEGORY]
+        # Deliberately NOT restricted to category = "Purchased Goods and
+        # Services" -- several legitimate spend categories a client would
+        # want to search for (e.g. "Insurance, reinsurance and pension
+        # funding services...") sit under a different top-level category
+        # ("Investments" for that one) in the factor taxonomy, same as
+        # Capital Goods, etc. The CRM's own equivalent search
+        # (search_spend_factors in api/spend_data_routes.py) already
+        # searches every category for exactly this reason -- this endpoint
+        # was narrower than the tool it's supposed to be the client-facing
+        # counterpart of, silently hiding valid categories from clients that
+        # CRM staff could still pick. Only PROD-coded factors are excluded:
+        # those are DEFRA/ONS personal/household-consumption factors, not
+        # applicable to a commercial GL/ledger line.
+        params: list[Any] = []
         if scope3_dataset_ids:
             params.append(scope3_dataset_ids)
         params.append("%PROD%")
-        params.extend([q, f"%{q}%", f"%{q}%", f"%{q}%", int(limit)])
+        params.extend([q, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", int(limit)])
 
         df = con.execute(
             f"""
@@ -343,12 +368,12 @@ def portal_spend_search_categories(
             FROM v_factor_lookup f
             LEFT JOIN datasets d ON d.dataset_id = f.dataset_id
             WHERE (d.archived IS NULL OR d.archived = FALSE)
-              AND {category_expr} = %s
               {dataset_filter_sql}
               AND f.original_id NOT ILIKE %s
               AND (
                    %s = ''
                    OR {label_expr} ILIKE %s
+                   OR {category_expr} ILIKE %s
                    OR f.column_text ILIKE %s
                    OR f.original_id ILIKE %s
               )
@@ -407,8 +432,8 @@ def portal_spend_confirm_category(
         factor = _factor_by_id(con, factor_db_id)
         if not factor:
             raise HTTPException(status_code=404, detail="Category not found")
-        if str(factor.get("category") or "") != _PGS_CATEGORY:
-            raise HTTPException(status_code=400, detail="That isn't a Purchased Goods and Services category")
+        if _is_prod_coded(factor.get("original_id")):
+            raise HTTPException(status_code=400, detail="That isn't a valid spend category")
 
         amount = _gross_from_net(_safe_float(row[1], 0.0), _safe_float(row[2], 0.0))
         emissions = amount * _safe_float(factor.get("factor"), 0.0)
@@ -470,7 +495,7 @@ def portal_spend_suggest_categories_bulk(current_user: dict = Depends(portal_use
             suggestions = suggest_spend_lines(con, text)
             factor_db_id = suggestions[0].get("factor_db_id") if suggestions else None
             factor = _factor_by_id(con, int(factor_db_id)) if factor_db_id else None
-            if not factor or str(factor.get("category") or "") != _PGS_CATEGORY:
+            if not factor or _is_prod_coded(factor.get("original_id")):
                 skipped += 1
                 continue
 

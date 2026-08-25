@@ -46,12 +46,25 @@ _SEED_CATEGORY_TO_BUCKET = {
     "Fuels": "fuels",
 }
 
+# Every top-level factor category a Purchased Goods & Services spend line can
+# resolve to. Not just "Purchased Goods and Services" itself -- some
+# legitimate SIC-coded spend categories are filed under a different
+# top-level category in the taxonomy (e.g. "Insurance, reinsurance and
+# pension funding services..." sits under "Investments"), and PG&S's own
+# category search/confirm (api/portal_spend_routes.py) allows any of them,
+# not just an exact "Purchased Goods and Services" match -- see that file's
+# portal_spend_search_categories for why. Exported so
+# api/portal_spend_routes.py's Previous Years history filter recognizes the
+# same set instead of missing rows filed under the other categories here.
+PGS_CATEGORIES = {"Purchased Goods and Services", "Investments"}
+
 # These categories exist in the same taxonomy but are deliberately handled by
 # a different flow, not this generic 5-bucket table -- Employee Commuting has
 # its own bespoke survey system (api/employee_commuting_routes.py) and
-# Purchased Goods and Services is Phase 2 (client_spend_mappings-based, no
-# factor at ingestion). They must never fall into "other" as a catch-all.
-_EXCLUDED_CATEGORIES = {"Employee Commuting", "Purchased Goods and Services"}
+# Purchased Goods and Services (plus its Investments-filed categories, see
+# PGS_CATEGORIES) is Phase 2 (client_spend_mappings-based, no factor at
+# ingestion). They must never fall into "other" as a catch-all.
+_EXCLUDED_CATEGORIES = {"Employee Commuting", *PGS_CATEGORIES}
 
 
 def ensure_portal_data_entry_schema(con) -> None:

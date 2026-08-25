@@ -109,6 +109,15 @@ export default function PortalSpendTab() {
   const [topCategories, setTopCategories] = useState<TopSpendCategory[]>([]);
   const [suggestedSpendLines, setSuggestedSpendLines] = useState<SuggestedSpendLine[]>([]);
   const [suggesting, setSuggesting] = useState(false);
+  const categorySearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Guards against a slower, earlier keystroke's response landing after a
+  // faster, later one and clobbering the results with stale data -- with no
+  // debounce/cancellation, rapid typing fired one request per keystroke and
+  // whichever resolved last won, regardless of which query it was actually
+  // for. That's what made the results list look like it "randomly
+  // disappeared" -- it wasn't disappearing, an older/narrower response was
+  // silently overwriting a newer/correct one.
+  const categorySearchRequestId = useRef(0);
 
   const [jobNumber, setJobNumber] = useState<string | null>(null);
   const [reportingYear, setReportingYear] = useState<number | null>(null);
@@ -138,6 +147,7 @@ export default function PortalSpendTab() {
     void loadRows();
     return () => {
       if (justAddedTimerRef.current) clearTimeout(justAddedTimerRef.current);
+      if (categorySearchTimer.current) clearTimeout(categorySearchTimer.current);
     };
   }, []);
 
@@ -326,16 +336,24 @@ export default function PortalSpendTab() {
   }
 
   async function searchCategories(text: string) {
+    const requestId = ++categorySearchRequestId.current;
     setSearchingCategories(true);
     try {
       const res = await apiFetch(`/portal/spend/categories/search?q=${encodeURIComponent(text)}`);
+      if (requestId !== categorySearchRequestId.current) return; // superseded by a later keystroke
       if (res.ok) {
         const d = await res.json();
         setCategoryOptions(d.items || []);
       }
     } finally {
-      setSearchingCategories(false);
+      if (requestId === categorySearchRequestId.current) setSearchingCategories(false);
     }
+  }
+
+  function onCategorySearchChange(text: string) {
+    setCategorySearch(text);
+    if (categorySearchTimer.current) clearTimeout(categorySearchTimer.current);
+    categorySearchTimer.current = setTimeout(() => void searchCategories(text), 250);
   }
 
   async function confirmCategory(entryId: number, category: { db_id: number }) {
@@ -345,10 +363,7 @@ export default function PortalSpendTab() {
       body: JSON.stringify({ factor_db_id: category.db_id }),
     });
     if (res.ok) {
-      setCategorizingEntryId(null);
-      setCategorySearch("");
-      setCategoryOptions([]);
-      setSuggestedSpendLines([]);
+      closeCategoryPicker();
       void loadRows();
     }
   }
@@ -444,6 +459,7 @@ export default function PortalSpendTab() {
   }
 
   const uncategorizedCount = rows.filter((r) => r.mapping_status !== "mapped").length;
+  const categorizingRow = rows.find((r) => r.entry_id === categorizingEntryId) || null;
 
   // Shared between the table (desktop) and card (mobile) layouts below.
   function renderStatus(row: SpendRow) {
@@ -492,6 +508,19 @@ export default function PortalSpendTab() {
     );
   }
 
+  function closeCategoryPicker() {
+    setCategorizingEntryId(null);
+    setCategorySearch("");
+    setCategoryOptions([]);
+    setSuggestedSpendLines([]);
+    if (categorySearchTimer.current) clearTimeout(categorySearchTimer.current);
+  }
+
+  // Rendered once as a Dialog (see the modal near the bottom of this
+  // component's JSX) rather than expanded inline per-row -- a fixed-size
+  // modal gives the results list stable room to render in regardless of
+  // where the row sits in a long, scrollable table, and keeps its own
+  // click-away/Escape handling instead of pushing table rows around.
   function renderCategoryPicker(row: SpendRow) {
     return (
       <>
@@ -532,18 +561,16 @@ export default function PortalSpendTab() {
           </div>
         )}
         <Input
+          autoFocus
           placeholder="Search spend categories..."
           value={categorySearch}
-          onChange={(e) => {
-            setCategorySearch(e.target.value);
-            void searchCategories(e.target.value);
-          }}
+          onChange={(e) => onCategorySearchChange(e.target.value)}
           className="mb-2"
         />
         {searchingCategories ? (
           <div className="text-sm text-muted-foreground">Searching...</div>
         ) : (
-          <div className="max-h-48 overflow-y-auto rounded-md border bg-background">
+          <div className="max-h-64 overflow-y-auto rounded-md border bg-background">
             {categoryOptions.length === 0 ? (
               <div className="p-2 text-sm text-muted-foreground">No matches.</div>
             ) : (
@@ -559,17 +586,6 @@ export default function PortalSpendTab() {
             )}
           </div>
         )}
-        <Button
-          size="sm"
-          variant="outline"
-          className="mt-2"
-          onClick={() => {
-            setCategorizingEntryId(null);
-            setSuggestedSpendLines([]);
-          }}
-        >
-          Cancel
-        </Button>
       </>
     );
   }
@@ -904,13 +920,6 @@ export default function PortalSpendTab() {
                         <td className="p-2">{renderStatus(row)}</td>
                         <td className="p-2 text-right">{renderActions(row, "end")}</td>
                       </tr>
-                      {categorizingEntryId === row.entry_id && (
-                        <tr>
-                          <td colSpan={7} className="border-b bg-muted/30 p-3">
-                            {renderCategoryPicker(row)}
-                          </td>
-                        </tr>
-                      )}
                     </Fragment>
                   );
                 })}
@@ -981,7 +990,6 @@ export default function PortalSpendTab() {
                     </button>
                   )}
                 </div>
-                {categorizingEntryId === row.entry_id && <div className="mt-2 border-t pt-2">{renderCategoryPicker(row)}</div>}
                 <div className="mt-2 border-t pt-2">{renderActions(row, "start")}</div>
               </div>
             ))}
@@ -990,6 +998,20 @@ export default function PortalSpendTab() {
       ))}
 
       {!noJobMessage && <PortalCategoryHistoryTable fetchUrl="/portal/spend/history" />}
+
+      <Dialog open={categorizingEntryId !== null} onOpenChange={(open) => !open && closeCategoryPicker()}>
+        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Pick a Category</DialogTitle>
+          </DialogHeader>
+          <div className="py-2">{categorizingRow && renderCategoryPicker(categorizingRow)}</div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeCategoryPicker}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={monthlyEntryId !== null} onOpenChange={(open) => !open && setMonthlyEntryId(null)}>
         <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
