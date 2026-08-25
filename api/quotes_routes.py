@@ -1777,6 +1777,76 @@ def accept_quote(quote_id: int, _user: dict = Depends(_current_user), request: R
         raise HTTPException(status_code=500, detail=f"Failed to accept quote: {e}")
 
 
+@router.post("/quotes/{quote_id}/reject")
+def reject_quote(quote_id: int, _user: dict = Depends(_current_user), request: Request = None):
+    try:
+        with get_conn() as con:
+            _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
+            exists = con.execute(
+                "SELECT quote_id FROM quotes WHERE quote_id = %s" + (" AND org_id = %s" if org_id else ""),
+                [int(quote_id)] + ([org_id] if org_id else []),
+            ).fetchone()
+            if not exists:
+                raise HTTPException(status_code=404, detail="Quote not found")
+            con.execute(
+                """
+                UPDATE quotes
+                SET status = 'Rejected',
+                    updated_at = NOW()
+                WHERE quote_id = %s
+                """ + (" AND org_id = %s" if org_id else "") + """
+                """,
+                [int(quote_id)] + ([org_id] if org_id else []),
+            )
+            result = _serialize_quote(con, int(quote_id), org_id=org_id)
+            record_audit_event(
+                con, request=request, actor=_user, action="quote_rejected",
+                entity_type="quote", entity_id=int(quote_id),
+                client_id=_safe_int(result.get("client_db_id"), None), after=result,
+            )
+            return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to reject quote: {e}")
+
+
+@router.post("/quotes/{quote_id}/archive")
+def archive_quote(quote_id: int, _user: dict = Depends(_current_user), request: Request = None):
+    try:
+        with get_conn() as con:
+            _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
+            exists = con.execute(
+                "SELECT quote_id FROM quotes WHERE quote_id = %s" + (" AND org_id = %s" if org_id else ""),
+                [int(quote_id)] + ([org_id] if org_id else []),
+            ).fetchone()
+            if not exists:
+                raise HTTPException(status_code=404, detail="Quote not found")
+            con.execute(
+                """
+                UPDATE quotes
+                SET status = 'Archived',
+                    updated_at = NOW()
+                WHERE quote_id = %s
+                """ + (" AND org_id = %s" if org_id else "") + """
+                """,
+                [int(quote_id)] + ([org_id] if org_id else []),
+            )
+            result = _serialize_quote(con, int(quote_id), org_id=org_id)
+            record_audit_event(
+                con, request=request, actor=_user, action="quote_archived",
+                entity_type="quote", entity_id=int(quote_id),
+                client_id=_safe_int(result.get("client_db_id"), None), after=result,
+            )
+            return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to archive quote: {e}")
+
+
 @router.post("/quotes/{quote_id}/revise")
 def revise_quote(quote_id: int, _user: dict = Depends(_current_user), request: Request = None):
     try:

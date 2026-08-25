@@ -449,6 +449,54 @@ function AddQuotePageContent() {
     }
   }
 
+  async function rejectQuote() {
+    if (!quoteId) {
+      setError("Save draft first before rejecting.");
+      return;
+    }
+    setStatusBusy(true);
+    setError("");
+    setStatus("");
+    try {
+      const res = await fetch(`${baseUrl}/quotes/${quoteId}/reject`, { method: "POST" });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed to reject quote (${res.status})${t ? `: ${t}` : ""}`);
+      }
+      const q = await res.json();
+      setQuoteStatus(q.status || "Rejected");
+      setStatus("Quote rejected.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
+  async function archiveQuote() {
+    if (!quoteId) {
+      setError("Save draft first before archiving.");
+      return;
+    }
+    setStatusBusy(true);
+    setError("");
+    setStatus("");
+    try {
+      const res = await fetch(`${baseUrl}/quotes/${quoteId}/archive`, { method: "POST" });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed to archive quote (${res.status})${t ? `: ${t}` : ""}`);
+      }
+      const q = await res.json();
+      setQuoteStatus(q.status || "Archived");
+      setStatus("Quote archived.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
   async function acceptAndCreateJob() {
     const ok = await acceptQuote();
     if (!ok || !quoteId) return;
@@ -751,6 +799,20 @@ function AddQuotePageContent() {
                 disabled={!quoteId || saving || statusBusy || quoteStatus === "Accepted"}
               >
                 Accept
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={rejectQuote}
+                disabled={!quoteId || saving || statusBusy || quoteStatus === "Rejected"}
+              >
+                Reject
+              </Button>
+              <Button
+                variant="outline"
+                onClick={archiveQuote}
+                disabled={!quoteId || saving || statusBusy || quoteStatus === "Archived"}
+              >
+                Archive
               </Button>
               <Button onClick={acceptAndCreateJob} disabled={!quoteId || saving || statusBusy}>
                 Accept &amp; Create Job
