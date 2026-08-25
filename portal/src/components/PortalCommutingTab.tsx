@@ -15,7 +15,12 @@ import {
 import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
 import PortalCategoryHistoryTable, { type HistoryItem } from "@/components/PortalCategoryHistoryTable";
 
-type Options = { mode_options: string[]; service_options: string[]; unit_options: string[] };
+type Options = {
+  mode_options: string[];
+  service_options: string[];
+  unit_options: string[];
+  mode_service_map: Record<string, string[]>;
+};
 
 type QuickPickFactor = {
   scope: string | null;
@@ -23,6 +28,17 @@ type QuickPickFactor = {
   report_label: string | null;
   original_id: string;
   uom: string | null;
+};
+
+type StagedCopy = {
+  key: string;
+  employeeName: string;
+  original_id: string;
+  report_label: string;
+  uom: string | null;
+  months: string[];
+  saving: boolean;
+  error: string;
 };
 
 type Site = { site_id: number; site_name: string | null; is_registered_office?: boolean };
@@ -129,11 +145,14 @@ export default function PortalCommutingTab() {
   const [quickPickUom, setQuickPickUom] = useState<string | null>(null);
   const [previousFactors, setPreviousFactors] = useState<QuickPickFactor[]>([]);
   const [topFactors, setTopFactors] = useState<QuickPickFactor[]>([]);
-  // Same "copy previous years forward" queue as PortalDataEntry.tsx --
-  // checking activities in the Previous Years table promotes them here
-  // rather than creating anything, so the client still fills in an
-  // employee name + distance before it becomes a real entry.
-  const [copiedFactors, setCopiedFactors] = useState<QuickPickFactor[]>([]);
+  // "Copy selected to this year" from the Previous Years table lands here --
+  // one pre-filled card per selected historical entry (employee ID + factor
+  // already carried over, blank monthly grid ready to fill in), each with
+  // its own Add/Discard so a client doesn't have to re-pick the factor or
+  // re-type the employee ID a second time. Deliberately NOT routed through
+  // the quick-pick pills below -- that required picking again *and*
+  // silently dropped the employee ID, so nothing actually carried forward.
+  const [stagedCopies, setStagedCopies] = useState<StagedCopy[]>([]);
   // Shared by both commuting entry paths (dropdown and vehicle-registration) --
   // only one is visible at a time via entryMode, so one array covers both.
   // months[0]=Jan .. months[11]=Dec; a blank month means no commuting that
@@ -167,8 +186,10 @@ export default function PortalCommutingTab() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d: Options) => {
         setOptions(d);
-        if (d.mode_options?.length) setModeValue(d.mode_options[0]);
-        if (d.service_options?.length) setServiceValue(d.service_options[0]);
+        const firstMode = d.mode_options?.[0] || "";
+        if (firstMode) setModeValue(firstMode);
+        const validServices = d.mode_service_map?.[firstMode] || [];
+        setServiceValue(validServices[0] || "");
       })
       .catch(() => setError("Failed to load commuting options."));
     apiFetch("/portal/data-entry/sites")
@@ -255,29 +276,95 @@ export default function PortalCommutingTab() {
     setQuickPickUom(null);
   }
 
-  function pickCopiedFactor(item: QuickPickFactor) {
-    pickQuickCommuteFactor(item);
-    setCopiedFactors((prev) => prev.filter((f) => f.original_id !== item.original_id));
-  }
-
   function handleCopySelectedFromHistory(items: HistoryItem[]) {
-    const asFactors: QuickPickFactor[] = items
+    const staged: StagedCopy[] = items
       .filter((i) => i.original_id)
-      .map((i) => ({
-        scope: i.scope ?? null,
-        category: null,
-        report_label: i.activity,
+      .map((i, idx) => ({
+        key: `${i.original_id}-${i.identifier || "x"}-${i.year}-${idx}-${Math.random().toString(36).slice(2)}`,
+        employeeName: i.identifier || "",
         original_id: i.original_id as string,
+        report_label: i.activity,
         uom: i.uom,
+        months: Array(12).fill(""),
+        saving: false,
+        error: "",
       }));
-    setCopiedFactors((prev) => {
-      const existing = new Set(prev.map((f) => f.original_id));
-      return [...prev, ...asFactors.filter((f) => !existing.has(f.original_id))];
-    });
+    if (staged.length === 0) return;
+    setStagedCopies((prev) => [...prev, ...staged]);
     setRowType("commuting");
     setEntryMode("dropdown");
     setShowAdd(true);
-    if (!previousFactors.length && !topFactors.length) void loadCommutingQuickPicks();
+  }
+
+  function updateStagedMonth(key: string, actualIndex: number, value: string) {
+    setStagedCopies((prev) =>
+      prev.map((item) => {
+        if (item.key !== key) return item;
+        const nextMonths = [...item.months];
+        nextMonths[actualIndex] = value;
+        return { ...item, months: nextMonths };
+      })
+    );
+  }
+
+  function stagedMonthsSum(item: StagedCopy): number {
+    return item.months.reduce((sum, val) => {
+      const parsed = val.trim() === "" ? 0 : Number(val);
+      return sum + (Number.isFinite(parsed) ? parsed : 0);
+    }, 0);
+  }
+
+  function copyStagedFirstMonthToAll(key: string) {
+    setStagedCopies((prev) =>
+      prev.map((item) => {
+        if (item.key !== key) return item;
+        const firstValue = item.months[getMonthIndex(reportingPeriodStart, 0)] ?? "";
+        return { ...item, months: Array(12).fill(firstValue) };
+      })
+    );
+  }
+
+  function updateStagedEmployeeName(key: string, value: string) {
+    setStagedCopies((prev) => prev.map((item) => (item.key === key ? { ...item, employeeName: value, error: "" } : item)));
+  }
+
+  function discardStagedCopy(key: string) {
+    setStagedCopies((prev) => prev.filter((item) => item.key !== key));
+  }
+
+  async function submitStagedCopy(key: string) {
+    const item = stagedCopies.find((i) => i.key === key);
+    if (!item) return;
+    if (!item.employeeName.trim() || stagedMonthsSum(item) <= 0) return;
+    setStagedCopies((prev) => prev.map((i) => (i.key === key ? { ...i, saving: true, error: "" } : i)));
+    try {
+      const res = await apiFetch("/portal/commuting/rows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          row_type: "commuting",
+          employee_name: item.employeeName.trim(),
+          original_id: item.original_id,
+          months: item.months.map((v) => {
+            const trimmed = v.trim();
+            if (trimmed === "") return null;
+            const parsed = Number(trimmed);
+            return Number.isFinite(parsed) ? parsed : null;
+          }),
+        }),
+      });
+      if (res.ok) {
+        setStagedCopies((prev) => prev.filter((i) => i.key !== key));
+        showJustAdded();
+        void loadRows();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        const message = d?.detail?.message || d?.detail || "Failed to add this entry.";
+        setStagedCopies((prev) => prev.map((i) => (i.key === key ? { ...i, saving: false, error: message } : i)));
+      }
+    } catch {
+      setStagedCopies((prev) => prev.map((i) => (i.key === key ? { ...i, saving: false, error: "Failed to add this entry." } : i)));
+    }
   }
 
   function updateMonth(actualIndex: number, value: string) {
@@ -619,6 +706,11 @@ export default function PortalCommutingTab() {
     return renderMonthlyGridFor(unitLabel, editMonths, updateEditMonth, copyFirstEditMonthToAll, editMonthsSum());
   }
 
+  // Modes like Walking/Cycling/Motorbike have no vehicle/service breakdown
+  // at all -- an empty list here hides that dropdown entirely rather than
+  // offering choices that can never resolve to a factor.
+  const validServiceOptions = options?.mode_service_map?.[modeValue] || [];
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
@@ -657,6 +749,51 @@ export default function PortalCommutingTab() {
           </Button>
         )}
       </div>
+      )}
+
+      {!noJobMessage && !dataEntryExpired && stagedCopies.length > 0 && (
+        <Card>
+          <CardContent className="space-y-3 pt-4">
+            <div className="text-sm font-semibold text-foreground">
+              Copied from previous years — fill in this year&rsquo;s distance for each, then add
+            </div>
+            {stagedCopies.map((item) => (
+              <div key={item.key} className="space-y-2 rounded-md border p-3">
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div className="flex-1 space-y-1">
+                    <label className="text-xs text-muted-foreground">Initials or Staff Number</label>
+                    <Input
+                      value={item.employeeName}
+                      onChange={(e) => updateStagedEmployeeName(item.key, e.target.value)}
+                      className="max-w-xs"
+                    />
+                  </div>
+                  <div className="text-sm font-medium text-foreground">{item.report_label}</div>
+                </div>
+                {renderMonthlyGridFor(
+                  item.uom || "units",
+                  item.months,
+                  (actualIndex, value) => updateStagedMonth(item.key, actualIndex, value),
+                  () => copyStagedFirstMonthToAll(item.key),
+                  stagedMonthsSum(item)
+                )}
+                {item.error && <div className="text-xs text-rose-700">{item.error}</div>}
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    disabled={item.saving || !item.employeeName.trim() || stagedMonthsSum(item) <= 0}
+                    onClick={() => void submitStagedCopy(item.key)}
+                  >
+                    {item.saving ? "Adding..." : "Add Entry"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => discardStagedCopy(item.key)}>
+                    Discard
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
       {!noJobMessage && !dataEntryExpired && showAdd && options && (
@@ -749,7 +886,19 @@ export default function PortalCommutingTab() {
                     <div className="grid gap-3 sm:grid-cols-3">
                       <div>
                         <label className="text-xs text-muted-foreground">Commute Mode</label>
-                        <Select value={modeValue} onValueChange={setModeValue}>
+                        <Select
+                          value={modeValue}
+                          onValueChange={(v) => {
+                            setModeValue(v);
+                            // Vehicle/Service Type options are mode-specific (a car
+                            // size doesn't apply to Rail, etc.) -- reset to the
+                            // first valid option for the new mode instead of
+                            // leaving a stale, invalid combination selected (this
+                            // used to submit and only fail to resolve later).
+                            const valid = options.mode_service_map?.[v] || [];
+                            setServiceValue(valid[0] || "");
+                          }}
+                        >
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
                             {options.mode_options.map((m) => (
@@ -758,17 +907,19 @@ export default function PortalCommutingTab() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div>
-                        <label className="text-xs text-muted-foreground">Vehicle / Service Type</label>
-                        <Select value={serviceValue} onValueChange={setServiceValue}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {options.service_options.map((s) => (
-                              <SelectItem key={s} value={s}>{s}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      {validServiceOptions.length > 0 && (
+                        <div>
+                          <label className="text-xs text-muted-foreground">Vehicle / Service Type</label>
+                          <Select value={serviceValue} onValueChange={setServiceValue}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {validServiceOptions.map((s) => (
+                                <SelectItem key={s} value={s}>{s}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
                       <div>
                         <label className="text-xs text-muted-foreground">Distance Unit</label>
                         <Select value={unitValue} onValueChange={setUnitValue}>
@@ -785,27 +936,11 @@ export default function PortalCommutingTab() {
                   {renderMonthlyGrid(quickPickOriginalId ? quickPickUom || "units" : unitValue)}
                 </div>
 
-                {!quickPickOriginalId && (previousFactors.length > 0 || topFactors.length > 0 || copiedFactors.length > 0) && (
+                {!quickPickOriginalId && (previousFactors.length > 0 || topFactors.length > 0) && (
                   <div className="space-y-3 rounded-md border bg-muted/20 p-3 md:self-start">
                     <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Quick picks
                     </div>
-                    {copiedFactors.length > 0 && (
-                      <div className="space-y-1">
-                        <div className="text-sm font-semibold text-foreground">Copied from previous years</div>
-                        <div className="space-y-0.5">
-                          {copiedFactors.map((item, idx) => (
-                            <button
-                              key={`copied-${item.original_id}-${idx}`}
-                              className="block w-full rounded-md border border-primary/30 bg-primary/5 px-2 py-1.5 text-left text-xs hover:bg-primary/10"
-                              onClick={() => pickCopiedFactor(item)}
-                            >
-                              {item.report_label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                     {previousFactors.length > 0 && (
                       <div className="space-y-1">
                         <div className="text-sm font-semibold text-foreground">Previously used</div>

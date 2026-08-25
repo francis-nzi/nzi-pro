@@ -195,12 +195,12 @@ export default function PortalDataEntry() {
 
   const [previousRows, setPreviousRows] = useState<PreviousRow[]>([]);
   const [topFactors, setTopFactors] = useState<TopFactor[]>([]);
-  // Populated by checking activities in the "Previous Years" table and
-  // hitting "Copy selected to this year" -- shown as its own quick-pick
-  // section so they're one click away from the Add form, same as any other
-  // pill. Nothing is created until the client picks one, enters a real
-  // quantity, and submits.
-  const [copiedFactors, setCopiedFactors] = useState<PreviousRow[]>([]);
+  // "Copy selected to this year" from the Previous Years table creates real
+  // rows immediately (site + factor carried over, qty left blank -- this
+  // bucket's create endpoint doesn't require a quantity up front, unlike
+  // Employee Commuting), so the client edits the quantity in place on each
+  // new row rather than re-picking the factor from a quick-pick pill.
+  const [copyingFromHistory, setCopyingFromHistory] = useState(false);
 
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
   const [editQty, setEditQty] = useState("");
@@ -274,7 +274,6 @@ export default function PortalDataEntry() {
     setDataEntryExpiry(null);
     setPreviousRows([]);
     setTopFactors([]);
-    setCopiedFactors([]);
     setJustAdded(false);
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     if (justAddedTimerRef.current) clearTimeout(justAddedTimerRef.current);
@@ -342,30 +341,60 @@ export default function PortalDataEntry() {
     });
   }
 
-  function pickCopiedFactor(item: PreviousRow) {
-    pickQuickFactor(item);
-    setCopiedFactors((prev) => prev.filter((f) => f.original_id !== item.original_id));
-  }
-
-  function handleCopySelectedFromHistory(items: HistoryItem[]) {
-    const asPreviousRows: PreviousRow[] = items
-      .filter((i) => i.original_id)
-      .map((i) => ({
-        scope: i.scope ?? null,
-        category: null,
-        report_label: i.activity,
-        original_id: i.original_id as string,
-        uom: i.uom,
-        last_qty: null,
-        last_job_id: 0,
-        last_reporting_year: i.year,
-      }));
-    setCopiedFactors((prev) => {
-      const existing = new Set(prev.map((f) => f.original_id));
-      return [...prev, ...asPreviousRows.filter((f) => !existing.has(f.original_id))];
-    });
+  async function handleCopySelectedFromHistory(items: HistoryItem[]) {
+    const candidates = items.filter((i) => i.original_id);
+    if (candidates.length === 0 || copyingFromHistory) return;
     setShowAdd(true);
-    if (!previousRows.length && !topFactors.length) void loadQuickPicks(activeBucket);
+    setError("");
+    setCopyingFromHistory(true);
+    const isVehicleTab = activeBucket === "company_vehicles" || activeBucket === "business_travel";
+    const fallbackSiteId = selectedSiteId ? Number(selectedSiteId) : sites.length === 1 ? sites[0].site_id : null;
+    let succeeded = 0;
+    const failures: string[] = [];
+    try {
+      for (const item of candidates) {
+        const siteId = item.site_id ?? fallbackSiteId;
+        if (!siteId) {
+          failures.push(`${item.activity}: no site on record — add it manually and pick a site.`);
+          continue;
+        }
+        try {
+          const res = await apiFetch(`/portal/data-entry/${activeBucket}/rows`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              scope: item.scope,
+              original_id: item.original_id,
+              category: item.category,
+              report_label: item.activity,
+              uom: item.uom,
+              qty: null,
+              site_id: siteId,
+              ...(isVehicleTab && item.identifier ? { vehicle_registration: item.identifier } : {}),
+            }),
+          });
+          if (res.ok) {
+            succeeded += 1;
+          } else {
+            const d = await res.json().catch(() => ({}));
+            failures.push(`${item.activity}: ${d?.detail || "failed to add"}`);
+          }
+        } catch {
+          failures.push(`${item.activity}: failed to add`);
+        }
+      }
+    } finally {
+      setCopyingFromHistory(false);
+    }
+    if (succeeded > 0) {
+      setJustAdded(true);
+      if (justAddedTimerRef.current) clearTimeout(justAddedTimerRef.current);
+      justAddedTimerRef.current = setTimeout(() => setJustAdded(false), 4000);
+      void loadRows(activeBucket);
+    }
+    if (failures.length > 0) {
+      setError(`Some entries couldn't be copied: ${failures.join("; ")}`);
+    }
   }
 
   async function searchFactors(text: string) {
@@ -701,6 +730,11 @@ export default function PortalDataEntry() {
       {!isComingSoon && !isSpendTab && !isCommutingTab && !noJobMessage && !dataEntryExpired && showAdd && (
         <Card>
           <CardContent className="space-y-3 pt-4">
+            {copyingFromHistory && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                Copying selected entries to this year...
+              </div>
+            )}
             {justAdded && (
               <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
                 Row added — ready for the next one.
@@ -922,27 +956,11 @@ export default function PortalDataEntry() {
                   the eye through two chip lists before it reaches the search
                   input. Stays visible while searching too, since it's no
                   longer competing with the results list for the same space. */}
-              {!selectedFactor && (previousRows.length > 0 || topFactors.length > 0 || copiedFactors.length > 0) && (
+              {!selectedFactor && (previousRows.length > 0 || topFactors.length > 0) && (
                 <div className="space-y-3 rounded-md border bg-muted/20 p-3 md:self-start">
                   <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Quick picks
                   </div>
-                  {copiedFactors.length > 0 && (
-                    <div className="space-y-1">
-                      <div className="text-sm font-semibold text-foreground">Copied from previous years</div>
-                      <div className="space-y-0.5">
-                        {copiedFactors.map((item, idx) => (
-                          <button
-                            key={`copied-${item.original_id}-${idx}`}
-                            className="block w-full rounded-md border border-primary/30 bg-primary/5 px-2 py-1.5 text-left text-xs hover:bg-primary/10"
-                            onClick={() => pickCopiedFactor(item)}
-                          >
-                            {item.report_label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                   {previousRows.length > 0 && (
                     <div className="space-y-1">
                       <div className="text-sm font-semibold text-foreground">Previously used</div>

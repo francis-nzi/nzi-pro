@@ -22,6 +22,10 @@ export type HistoryItem = {
    * Commuting's vehicle-registration-lookup entries populate this. */
   reg_number?: string | null;
   site_name?: string | null;
+  site_id?: number | null;
+  /** The factor's category string -- needed to recreate a row directly
+   * (see PortalDataEntry.tsx's bucket-match check), not shown in the table. */
+  category?: string | null;
 };
 
 /** Prior-year individual entries for one Data Entry category, listed one

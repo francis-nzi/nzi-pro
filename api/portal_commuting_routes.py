@@ -16,11 +16,14 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from api.employee_commuting_routes import (
+    COMMUTE_FACTOR_MAP,
     COMMUTE_MODE_OPTIONS,
     DIRECT_COMMUTING_DATA_SOURCE,
     SERVICE_TYPE_OPTIONS,
     UNIT_OPTIONS,
     _calc_commuting_tco2e,
+    _canonical_mode,
+    _canonical_variant,
     _ensure_emission_register_schema,
     _insert_manual_commuting_rows,
     _months_sum,
@@ -96,13 +99,77 @@ def _assert_data_entry_open(con, job_id: int) -> None:
         raise HTTPException(status_code=403, detail=PORTAL_DATA_ENTRY_EXPIRED_MESSAGE)
 
 
+def _build_mode_service_map() -> dict[str, list[str]]:
+    """{Commute Mode display value: [valid Vehicle/Service Type display
+    values]} -- derived from COMMUTE_FACTOR_MAP's actual (mode, variant,
+    unit) keys rather than hand-maintained, so it can never drift out of
+    sync with the real factor lookup. A mode with no entries here (Walking,
+    Cycling, Motorbike) has no service-type breakdown at all -- see
+    _default_variant_for_mode in employee_commuting_routes.py. Lets the
+    portal filter the Vehicle/Service Type dropdown to only combinations
+    that actually resolve to a factor, instead of the flat cross-product of
+    every mode with every service type (e.g. "Rail" + "Large" was
+    selectable but never resolved to anything, only failing later)."""
+    variants_by_mode: dict[str, set[str]] = {}
+    for mode_key, variant_key, _unit_key in COMMUTE_FACTOR_MAP:
+        variants_by_mode.setdefault(mode_key, set()).add(variant_key)
+
+    result: dict[str, list[str]] = {}
+    for mode_display in COMMUTE_MODE_OPTIONS:
+        canonical_mode = _canonical_mode(mode_display)
+        valid_variants = variants_by_mode.get(canonical_mode, set())
+        result[mode_display] = [
+            service_display
+            for service_display in SERVICE_TYPE_OPTIONS
+            if _canonical_variant(service_display) in valid_variants
+        ]
+    return result
+
+
 @router.get("/portal/commuting/options")
 def portal_commuting_options(current_user: dict = Depends(portal_user_dep)):
     return {
         "mode_options": COMMUTE_MODE_OPTIONS,
         "service_options": SERVICE_TYPE_OPTIONS,
         "unit_options": UNIT_OPTIONS,
+        "mode_service_map": _build_mode_service_map(),
     }
+
+
+def _assert_employee_id_unique(
+    con, job_id: int, employee_name: str, source_subtype: str, exclude_source_id: int | None = None
+) -> None:
+    """Blocks a second live entry for the same employee under the same row
+    type (Commuting vs Working From Home) within one job -- catches
+    accidental double submission (e.g. re-copying the same previous-year
+    entry twice) with a clear message instead of silently creating two rows
+    that then look like a data-quality problem downstream. A commuting row
+    and a WFH row for the same person are still both allowed (a hybrid
+    worker legitimately has both)."""
+    params: list[Any] = [int(job_id), source_subtype, employee_name.strip().lower()]
+    exclude_clause = ""
+    if exclude_source_id is not None:
+        exclude_clause = " AND source_id <> %s"
+        params.append(int(exclude_source_id))
+    row = con.execute(
+        f"""
+        SELECT 1 FROM job_emission_sources
+        WHERE job_id = %s
+          AND source_type = 'employee_commuting'
+          AND source_subtype = %s
+          AND LOWER(TRIM(employee_name)) = %s
+          AND (COALESCE(enabled, TRUE) = TRUE OR review_status = 'pending_review')
+          {exclude_clause}
+        LIMIT 1
+        """,
+        params,
+    ).fetchone()
+    if row:
+        row_type_label = "Working From Home" if source_subtype == "wfh" else "Commuting"
+        raise HTTPException(
+            status_code=400,
+            detail=f"An entry for \"{employee_name.strip()}\" already exists under {row_type_label} for this year — edit that entry instead of adding a new one.",
+        )
 
 
 @router.get("/portal/commuting/history")
@@ -279,6 +346,7 @@ def portal_commuting_create_row(
         _ensure_emission_register_schema(con)
         job_id = _resolve_job_or_404(con, client_db_id)
         _assert_data_entry_open(con, job_id)
+        _assert_employee_id_unique(con, job_id, employee_name, row_type)
 
         default_site_id = _default_client_site_id(con, client_db_id)
         preview = _resolve_manual_commuting_rows(con, job_id, default_site_id, [payload])
@@ -347,6 +415,7 @@ def portal_commuting_create_row_by_vehicle(
         _ensure_emission_register_schema(con)
         job_id = _resolve_job_or_404(con, client_db_id)
         _assert_data_entry_open(con, job_id)
+        _assert_employee_id_unique(con, job_id, employee_name, "commuting")
 
         factor, category_error = categorize_vehicle(con, job_id, vehicle_data)
         if category_error:
@@ -419,7 +488,7 @@ def portal_commuting_update_row(
         _ensure_emission_register_schema(con)
         existing = con.execute(
             """
-            SELECT s.source_id, s.review_status, s.factor, s.ghg_unit, s.apply_pct, s.job_id
+            SELECT s.source_id, s.review_status, s.factor, s.ghg_unit, s.apply_pct, s.job_id, s.source_subtype
             FROM job_emission_sources s JOIN jobs j ON j.job_id = s.job_id
             WHERE s.source_id = %s AND j.client_db_id = %s
               AND s.source_type = 'employee_commuting' AND s.submitted_by_portal = TRUE
@@ -428,6 +497,8 @@ def portal_commuting_update_row(
         ).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Row not found")
+        if employee_name is not None:
+            _assert_employee_id_unique(con, int(existing[5]), employee_name, str(existing[6] or "commuting"), exclude_source_id=int(source_id))
         # Approved rows are still editable -- a client entering commuting data
         # monthly (see the 12-month grid) needs to keep adding to an already-
         # approved row as the year goes on, not lose access to it the moment

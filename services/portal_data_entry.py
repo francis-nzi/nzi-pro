@@ -207,6 +207,7 @@ def load_client_category_history(con, client_db_id: int, category_filter) -> lis
 
     has_identifier_col = "asset_identifier" in scope_df.columns
     has_site_col = "site_name" in scope_df.columns
+    has_site_id_col = "site_id" in scope_df.columns
 
     out: list[dict[str, Any]] = []
     for _, row in scope_df.iterrows():
@@ -216,12 +217,15 @@ def load_client_category_history(con, client_db_id: int, category_filter) -> lis
         original_id = row.get("original_id")
         dataset_id = row.get("dataset_id")
         factor_db_id = row.get("factor_db_id")
+        site_id = row.get("site_id") if has_site_id_col else None
         out.append(
             {
                 "year": int(year),
                 "activity": _clean_label(row.get("activity_name"), "Unknown"),
                 "identifier": _clean_opt(row.get("asset_identifier")) if has_identifier_col else None,
                 "site_name": _clean_opt(row.get("site_name")) if has_site_col else None,
+                "site_id": int(site_id) if site_id is not None and str(site_id).strip().lower() not in {"", "nan", "none"} else None,
+                "category": _clean_opt(row.get("category")),
                 "emissions_tco2e": round(float(row.get("emissions") or 0.0), 2),
                 "quantity": round(float(row.get("quantity") or 0.0), 2),
                 "uom": str(row.get("uom") or "").strip() or None,
