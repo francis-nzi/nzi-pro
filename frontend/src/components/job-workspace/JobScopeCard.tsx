@@ -478,7 +478,7 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName, jobFamily }, ref) {
         setStatus(data?.detail || "Failed to create invoice");
         return;
       }
-      window.location.href = `/invoices/${data.invoice_id}`;
+      window.location.href = `/clients/${data.client_db_id}/invoices/${data.invoice_id}`;
     } catch {
       setStatus("Failed to create invoice");
     } finally {

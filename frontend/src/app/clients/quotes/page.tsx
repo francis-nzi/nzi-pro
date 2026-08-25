@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -34,11 +34,15 @@ export default function QuotesPage() {
   const [items, setItems] = useState<QuoteListItem[]>([]);
   const [clients, setClients] = useState<ClientPickerItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [clientsLoading, setClientsLoading] = useState(true);
+  const [clientsLoading, setClientsLoading] = useState(false);
   const [error, setError] = useState("");
   const [clientsError, setClientsError] = useState("");
   const [q, setQ] = useState("");
   const [selectedClientId, setSelectedClientId] = useState("");
+  const [selectedClientName, setSelectedClientName] = useState("");
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const clientSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,31 +70,37 @@ export default function QuotesPage() {
     };
   }, [baseUrl]);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadClients() {
-      setClientsLoading(true);
-      setClientsError("");
-      try {
-        const res = await fetch(`${baseUrl}/clients?limit=200`, { credentials: "include" });
-        if (!res.ok) {
-          const t = await res.text().catch(() => "");
-          throw new Error(`Failed to load clients (${res.status})${t ? `: ${t}` : ""}`);
-        }
-        const json = await res.json();
-        if (cancelled) return;
-        setClients(Array.isArray(json.items) ? json.items : []);
-      } catch (e) {
-        if (!cancelled) setClientsError((e as Error).message);
-      } finally {
-        if (!cancelled) setClientsLoading(false);
+  async function searchClients(query: string) {
+    setClientsLoading(true);
+    setClientsError("");
+    try {
+      const params = new URLSearchParams({ limit: "20" });
+      if (query.trim()) params.set("q", query.trim());
+      const res = await fetch(`${baseUrl}/clients?${params}`, { credentials: "include" });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed to load clients (${res.status})${t ? `: ${t}` : ""}`);
       }
+      const json = await res.json();
+      setClients(Array.isArray(json.items) ? json.items : []);
+    } catch (e) {
+      setClientsError((e as Error).message);
+    } finally {
+      setClientsLoading(false);
     }
-    loadClients();
-    return () => {
-      cancelled = true;
-    };
+  }
+
+  useEffect(() => {
+    void searchClients("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseUrl]);
+
+  function pickClient(client: ClientPickerItem) {
+    setSelectedClientId(String(client.client_db_id));
+    setSelectedClientName(client.client_name || `Client ${client.client_db_id}`);
+    setClientSearch(client.client_name || `Client ${client.client_db_id}`);
+    setClientPickerOpen(false);
+  }
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -117,19 +127,57 @@ export default function QuotesPage() {
           ]}
           actions={
             <div className="flex flex-wrap items-center gap-2">
-              <select
-                className="h-10 rounded-md border bg-background px-3 text-sm"
-                value={selectedClientId}
-                onChange={(e) => setSelectedClientId(e.target.value)}
-                disabled={clientsLoading}
-              >
-                <option value="">{clientsLoading ? "Loading clients..." : "Select client for new quote..."}</option>
-                {clients.map((client) => (
-                  <option key={client.client_db_id} value={String(client.client_db_id)}>
-                    {client.client_name || `Client ${client.client_db_id}`}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <Input
+                  className="h-10 w-64"
+                  value={clientSearch}
+                  onFocus={() => setClientPickerOpen(true)}
+                  onBlur={() => {
+                    window.setTimeout(() => setClientPickerOpen(false), 150);
+                  }}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setClientSearch(value);
+                    setClientPickerOpen(true);
+                    if (selectedClientId && selectedClientName !== value) {
+                      setSelectedClientId("");
+                      setSelectedClientName("");
+                    }
+                    if (clientSearchTimer.current) clearTimeout(clientSearchTimer.current);
+                    clientSearchTimer.current = setTimeout(() => { void searchClients(value); }, 250);
+                  }}
+                  placeholder="Search clients for new quote..."
+                  autoComplete="off"
+                />
+                {clientPickerOpen && (
+                  <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-md border bg-background shadow-lg">
+                    <div className="max-h-64 overflow-y-auto py-1">
+                      {clientsLoading ? (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">Searching…</div>
+                      ) : clients.length > 0 ? (
+                        clients.map((client) => (
+                          <button
+                            key={client.client_db_id}
+                            type="button"
+                            className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-slate-100 ${
+                              client.client_db_id === Number(selectedClientId) ? "bg-slate-100 font-medium" : ""
+                            }`}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              pickClient(client);
+                            }}
+                          >
+                            <span className="truncate">{client.client_name || `Client ${client.client_db_id}`}</span>
+                            <span className="ml-3 shrink-0 text-xs text-muted-foreground">#{client.client_db_id}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">No matching clients.</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
               {addQuoteHref ? (
                 <Button asChild>
                   <Link href={addQuoteHref}>+ Add Quote</Link>

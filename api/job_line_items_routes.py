@@ -511,6 +511,7 @@ def create_invoice_from_line_items(
             "ok": True,
             "invoice_id": invoice_id,
             "invoice_number": invoice_number,
+            "client_db_id": client_db_id,
             "lines_created": len(items_df),
             "subtotal": round(subtotal, 2),
             "vat": round(total_vat, 2),

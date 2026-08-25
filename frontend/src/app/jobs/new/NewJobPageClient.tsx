@@ -376,19 +376,31 @@ function NewJobPageContent() {
   }, []);
 
   useEffect(() => {
-    if (preselectedClientId && clients.length > 0) {
-      const clientExists = clients.some(
-        (c: Client) => c.client_db_id === Number(preselectedClientId)
-      );
+    if (!preselectedClientId) return;
+    setClientId(preselectedClientId);
+    clearFieldError("clientId");
 
-      if (clientExists) {
-        setClientId(preselectedClientId);
-        const client = clients.find((c) => c.client_db_id === Number(preselectedClientId));
-        setClientSearch(client?.client_name || "");
-        clearFieldError("clientId");
-      }
+    const existing = clients.find((c: Client) => c.client_db_id === Number(preselectedClientId));
+    if (existing) {
+      setClientSearch(existing.client_name || "");
+      return;
     }
-  }, [preselectedClientId, clients]);
+
+    // The preselected client (e.g. from "Accept & Create Job" on a quote)
+    // isn't necessarily among the first page of the default client search
+    // results -- fetch it directly so its name still shows instead of
+    // silently staying blank until the user searches for it themselves.
+    let cancelled = false;
+    fetch(`${baseUrl}/clients/${preselectedClientId}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.client_name) setClientSearch(data.client_name);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [preselectedClientId, clients, baseUrl]);
 
   useEffect(() => {
     if (!preselectedClientId) return;
