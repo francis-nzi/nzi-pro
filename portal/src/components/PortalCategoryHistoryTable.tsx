@@ -14,26 +14,32 @@ export type HistoryItem = {
   scope?: string | null;
   dataset_id?: number | null;
   factor_db_id?: number | null;
+  /** Employee initials/staff number (Employee Commuting) or an asset
+   * register identifier (Company Vehicles/Business Travel) -- whichever
+   * this bucket's entries carry. */
+  identifier?: string | null;
+  /** Vehicle registration, alongside `identifier` -- only Employee
+   * Commuting's vehicle-registration-lookup entries populate this. */
+  reg_number?: string | null;
+  site_name?: string | null;
 };
 
-/** Prior-year totals for one Data Entry category, pivoted year-as-column to
- * match the CRM's own Year-over-Year Detailed Activity Breakdown table --
- * same underlying figures (services/portal_data_entry.py
- * load_client_category_history), just scoped to this one bucket so clients
- * can see what they reported last time while filling in this year's data.
- * Two stacked tables: volume first (a per-activity Unit column instead of a
- * total row, since quantities aren't summable across differing units --
- * e.g. GBP, tonnes, cubic metres can all appear in the same bucket), then
- * emissions (a universal unit, so a Total row is valid there).
+/** Prior-year individual entries for one Data Entry category, listed one
+ * row per original submission (not summed across sites or merged by
+ * activity label) so a client can see exactly what they reported last time
+ * -- see services/portal_data_entry.py load_client_category_history /
+ * load_client_commuting_history_detail. Every row still carries its own
+ * unit, since quantities aren't summable across differing units (GBP,
+ * tonnes, miles, etc. can all appear in the same bucket).
  *
  * `onCopySelected`, when provided, turns on checkboxes (+ select-all) on
- * the Volume rows that carry a resolvable original_id, and a button that
- * hands the selected activities back to the caller so they can be recreated
- * as blank draft rows for the current year -- see PortalDataEntry.tsx /
- * PortalCommutingTab.tsx for what "recreated" means per bucket type. Rows
- * missing original_id (pre-dates this field, or an activity whose factor
- * changed identity) simply can't be selected -- the historical total still
- * displays, it just isn't a copy-forward candidate. */
+ * the most recent year's rows that carry a resolvable original_id, and a
+ * button that hands the selected entries back to the caller so they can be
+ * recreated as blank draft rows for the current year -- see
+ * PortalDataEntry.tsx / PortalCommutingTab.tsx for what "recreated" means
+ * per bucket type. Rows missing original_id (pre-dates this field, or an
+ * activity whose factor changed identity) simply can't be selected -- the
+ * historical entry still displays, it just isn't a copy-forward candidate. */
 export default function PortalCategoryHistoryTable({
   fetchUrl,
   onCopySelected,
@@ -43,7 +49,7 @@ export default function PortalCategoryHistoryTable({
 }) {
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [selectedKeys, setSelectedKeys] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -66,47 +72,53 @@ export default function PortalCategoryHistoryTable({
 
   if (loading || items.length === 0) return null;
 
-  const years = Array.from(new Set(items.map((i) => i.year))).sort((a, b) => a - b);
-  const activities = Array.from(new Set(items.map((i) => i.activity))).sort();
-  const emissionsByKey = new Map(items.map((i) => [`${i.year}|${i.activity}`, i.emissions_tco2e]));
-  const quantityByKey = new Map(items.map((i) => [`${i.year}|${i.activity}`, i.quantity]));
-  const unitByActivity = new Map<string, string>();
+  const showIdentifier = items.some((i) => i.identifier);
+  const showRegNumber = items.some((i) => i.reg_number);
+  const showSite = items.some((i) => i.site_name);
+
+  const mostRecentYear = items.reduce((max, i) => Math.max(max, i.year), items[0].year);
+
+  const sorted = [...items].sort((a, b) => {
+    if (b.year !== a.year) return b.year - a.year;
+    const activityCmp = a.activity.localeCompare(b.activity);
+    if (activityCmp !== 0) return activityCmp;
+    return (a.identifier || "").localeCompare(b.identifier || "");
+  });
+
+  const totalsByYear = new Map<number, number>();
   for (const item of items) {
-    if (item.uom && !unitByActivity.has(item.activity)) unitByActivity.set(item.activity, item.uom);
+    totalsByYear.set(item.year, (totalsByYear.get(item.year) || 0) + item.emissions_tco2e);
   }
-  const emissionsYearTotals = years.map((y) =>
-    items.filter((i) => i.year === y).reduce((sum, i) => sum + i.emissions_tco2e, 0)
+  const yearsDesc = Array.from(totalsByYear.keys()).sort((a, b) => b - a);
+
+  // Copy-forward is limited to the most recent year's rows -- the closest
+  // thing to "still valid" data to bring into this year's entry.
+  const copyableIndices = new Set(
+    sorted
+      .map((item, idx) => ({ item, idx }))
+      .filter(({ item }) => item.year === mostRecentYear && Boolean(item.original_id))
+      .map(({ idx }) => idx)
   );
 
-  // Copy-forward always uses the most recent year's version of an
-  // activity -- the closest thing to "still valid" if a factor was
-  // superseded between years.
-  const latestByActivity = new Map<string, HistoryItem>();
-  for (const item of items) {
-    const current = latestByActivity.get(item.activity);
-    if (!current || item.year > current.year) latestByActivity.set(item.activity, item);
-  }
-  const copyableActivities = activities.filter((a) => Boolean(latestByActivity.get(a)?.original_id));
-
-  function toggleActivity(activity: string) {
+  function toggleRow(idx: number) {
     setSelectedKeys((prev) => {
       const next = new Set(prev);
-      if (next.has(activity)) next.delete(activity);
-      else next.add(activity);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
       return next;
     });
   }
 
   function toggleSelectAll() {
     setSelectedKeys((prev) =>
-      prev.size === copyableActivities.length ? new Set() : new Set(copyableActivities)
+      prev.size === copyableIndices.size ? new Set() : new Set(copyableIndices)
     );
   }
 
   function copySelected() {
     if (!onCopySelected) return;
     const picked = Array.from(selectedKeys)
-      .map((activity) => latestByActivity.get(activity))
+      .map((idx) => sorted[idx])
       .filter((item): item is HistoryItem => Boolean(item));
     if (picked.length === 0) return;
     onCopySelected(picked);
@@ -127,116 +139,81 @@ export default function PortalCategoryHistoryTable({
           </button>
         )}
       </CardHeader>
-      <CardContent className="space-y-6">
-        <div>
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Volume</div>
-          {onCopySelected && copyableActivities.length > 0 && (
-            <div className="mb-2 text-xs text-muted-foreground">
-              Tick any activities below to copy them onto this year&apos;s data entry as blank rows ready to fill in.
-            </div>
-          )}
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  {onCopySelected && (
-                    <th className="p-2 text-left">
-                      {copyableActivities.length > 0 && (
-                        <input
-                          type="checkbox"
-                          aria-label="Select all"
-                          checked={selectedKeys.size > 0 && selectedKeys.size === copyableActivities.length}
-                          onChange={toggleSelectAll}
-                        />
-                      )}
-                    </th>
-                  )}
-                  <th className="p-2 text-left">Activity</th>
-                  <th className="p-2 text-left">Unit</th>
-                  {years.map((y) => (
-                    <th key={y} className="p-2 text-right">
-                      {y}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {activities.map((activity) => {
-                  const canCopy = Boolean(latestByActivity.get(activity)?.original_id);
-                  return (
-                    <tr key={activity} className="border-b last:border-0">
-                      {onCopySelected && (
-                        <td className="p-2">
-                          {canCopy && (
-                            <input
-                              type="checkbox"
-                              aria-label={`Select ${activity}`}
-                              checked={selectedKeys.has(activity)}
-                              onChange={() => toggleActivity(activity)}
-                            />
-                          )}
-                        </td>
-                      )}
-                      <td className="p-2">{activity}</td>
-                      <td className="p-2 text-muted-foreground">{unitByActivity.get(activity) || "-"}</td>
-                      {years.map((y) => {
-                        const value = quantityByKey.get(`${y}|${activity}`);
-                        return (
-                          <td key={y} className="p-2 text-right font-mono">
-                            {value !== undefined ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "-"}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      <CardContent>
+        {onCopySelected && copyableIndices.size > 0 && (
+          <div className="mb-2 text-xs text-muted-foreground">
+            Tick any {mostRecentYear} entries below to copy them onto this year&apos;s data entry as blank rows ready to fill in.
           </div>
-        </div>
-
-        <div>
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Emissions (tCO&#8322;e)
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="p-2 text-left">Activity</th>
-                  {years.map((y) => (
-                    <th key={y} className="p-2 text-right">
-                      {y}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {activities.map((activity) => (
-                  <tr key={activity} className="border-b last:border-0">
-                    <td className="p-2">{activity}</td>
-                    {years.map((y) => {
-                      const value = emissionsByKey.get(`${y}|${activity}`);
-                      return (
-                        <td key={y} className="p-2 text-right font-mono">
-                          {value !== undefined ? value.toFixed(2) : "-"}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-                <tr className="border-t font-medium">
-                  <td className="p-2">Total (tCO&#8322;e)</td>
-                  {emissionsYearTotals.map((total, idx) => (
-                    <td key={years[idx]} className="p-2 text-right font-mono">
-                      {total.toFixed(2)}
+        )}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                {onCopySelected && (
+                  <th className="p-2 text-left">
+                    {copyableIndices.size > 0 && (
+                      <input
+                        type="checkbox"
+                        aria-label="Select all"
+                        checked={selectedKeys.size > 0 && selectedKeys.size === copyableIndices.size}
+                        onChange={toggleSelectAll}
+                      />
+                    )}
+                  </th>
+                )}
+                <th className="p-2 text-right">Year</th>
+                <th className="p-2 text-left">Activity</th>
+                {showIdentifier && <th className="p-2 text-left">ID</th>}
+                {showRegNumber && <th className="p-2 text-left">Reg No.</th>}
+                {showSite && <th className="p-2 text-left">Site</th>}
+                <th className="p-2 text-right">Quantity</th>
+                <th className="p-2 text-left">Unit</th>
+                <th className="p-2 text-right">tCO&#8322;e</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((item, idx) => {
+                const canCopy = copyableIndices.has(idx);
+                return (
+                  <tr key={idx} className="border-b last:border-0">
+                    {onCopySelected && (
+                      <td className="p-2">
+                        {canCopy && (
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${item.activity} (${item.year})`}
+                            checked={selectedKeys.has(idx)}
+                            onChange={() => toggleRow(idx)}
+                          />
+                        )}
+                      </td>
+                    )}
+                    <td className="p-2 text-right font-mono">{item.year}</td>
+                    <td className="p-2">{item.activity}</td>
+                    {showIdentifier && <td className="p-2 text-muted-foreground">{item.identifier || "-"}</td>}
+                    {showRegNumber && <td className="p-2 text-muted-foreground">{item.reg_number || "-"}</td>}
+                    {showSite && <td className="p-2 text-muted-foreground">{item.site_name || "-"}</td>}
+                    <td className="p-2 text-right font-mono">
+                      {item.quantity.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                    <td className="p-2 text-muted-foreground">{item.uom || "-"}</td>
+                    <td className="p-2 text-right font-mono">{item.emissions_tco2e.toFixed(2)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
+        {yearsDesc.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <span className="font-semibold uppercase tracking-wide">Total tCO&#8322;e</span>
+            {yearsDesc.map((year) => (
+              <span key={year}>
+                {year}: <span className="font-mono text-foreground">{(totalsByYear.get(year) || 0).toFixed(2)}</span>
+              </span>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

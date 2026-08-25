@@ -121,19 +121,31 @@ def bucket_for_category(category_map: dict[str, str], category: str | None) -> s
 
 
 def load_client_category_history(con, client_db_id: int, category_filter) -> list[dict[str, Any]]:
-    """Per-year, per-activity emissions + quantity totals for a client's own
-    historical data, restricted to categories where `category_filter(cat)`
-    is True -- powers the "previous years" table on each portal Data Entry
-    tab. Reuses the CRM's own Year-over-Year reporting computation
-    (api/client_reporting_routes.py's by_activity_detail path -- same job
-    resolution, same JobMonthlyEmissionsResolver/combined_row_metrics calc
-    used for the real reported totals, never the frozen job_scope_rows.calc_
-    tco2e column) so the portal's figures always reconcile with the CRM's.
+    """Per-year, per-entry emissions + quantity for a client's own historical
+    data, restricted to categories where `category_filter(cat)` is True --
+    powers the "previous years" table on each portal Data Entry tab. Reuses
+    the CRM's own Year-over-Year reporting computation (api/client_reporting_
+    routes.py's by_activity_detail path -- same job resolution, same
+    JobMonthlyEmissionsResolver/combined_row_metrics calc used for the real
+    reported totals, never the frozen job_scope_rows.calc_tco2e column) so
+    the portal's figures always reconcile with the CRM's.
+
+    Returns one item per underlying job_scope_rows/job_emission_sources
+    record -- deliberately NOT summed across sites or merged by activity
+    label, so a client sees each thing they actually submitted (e.g. two
+    Asset Register vehicles sharing a factor stay two rows, each keeping its
+    own site and registration/identifier) rather than one blended total.
 
     `category_filter` receives the row's resolved category string (the same
     vocabulary bucket_for_category consumes) and returns True to include it
     -- e.g. `lambda cat: bucket_for_category(category_map, cat) == bucket_key`
-    for a generic bucket, or `lambda cat: cat == "Employee Commuting"`."""
+    for a generic bucket. Employee Commuting does NOT go through here --
+    its individual entries are deliberately excluded from
+    load_combined_reporting_rows to avoid double-counting against its
+    consolidated job_scope_rows line (see
+    services/employee_commuting_consolidation.py); use
+    load_client_commuting_history_detail for that tab instead, which reads
+    job_emission_sources directly and keeps the employee_name/reg number."""
     # Local imports: these are CRM-reporting internals (api/client_reporting_
     # routes.py, services/monthly_emissions.py), not portal-layer code --
     # importing at call time avoids a module-load-order dependency between
@@ -187,54 +199,143 @@ def load_client_category_history(con, client_db_id: int, category_filter) -> lis
     if scope_df.empty:
         return []
 
-    # first-non-blank per (year, activity) -- quantities aren't summable
-    # across differing units, so the frontend needs to know what unit each
-    # cell's quantity figure is actually in. original_id/scope/dataset_id/
-    # factor_db_id ride along the same way so a client can select a past
-    # activity and have it recreated as a real (blank) row for this year's
-    # data, rather than just displaying the historical total read-only --
-    # see the checkbox-select "copy to this year" flow on
-    # PortalCategoryHistoryTable.tsx.
-    def _first_nonblank(values: Any) -> Any:
-        for value in values:
-            if value is not None and str(value).strip() and str(value).strip().lower() != "nan":
-                return value
-        return None
+    def _clean_opt(value: Any) -> str | None:
+        text = str(value or "").strip()
+        if not text or text.lower() in {"nan", "none", "null"}:
+            return None
+        return text
 
-    detail_groups = (
-        scope_df.groupby(["dashboard_year", "activity_name"])
-        .agg(
-            emissions=("emissions", "sum"),
-            quantity=("quantity", "sum"),
-            uom=("uom", _first_nonblank),
-            original_id=("original_id", _first_nonblank),
-            scope=("scope", _first_nonblank),
-            dataset_id=("dataset_id", _first_nonblank),
-            factor_db_id=("factor_db_id", _first_nonblank),
-        )
-        .reset_index()
-    )
+    has_identifier_col = "asset_identifier" in scope_df.columns
+    has_site_col = "site_name" in scope_df.columns
+
     out: list[dict[str, Any]] = []
-    for _, row in detail_groups.iterrows():
-        if row["dashboard_year"] is None or str(row["dashboard_year"]).strip().lower() in {"", "nan", "none"}:
+    for _, row in scope_df.iterrows():
+        year = row.get("dashboard_year")
+        if year is None or str(year).strip().lower() in {"", "nan", "none"}:
             continue
         original_id = row.get("original_id")
         dataset_id = row.get("dataset_id")
         factor_db_id = row.get("factor_db_id")
         out.append(
             {
-                "year": int(row["dashboard_year"]),
-                "activity": _clean_label(row["activity_name"], "Unknown"),
-                "emissions_tco2e": round(float(row["emissions"]), 2),
-                "quantity": round(float(row["quantity"]), 2),
-                "uom": str(row["uom"] or "").strip() or None,
+                "year": int(year),
+                "activity": _clean_label(row.get("activity_name"), "Unknown"),
+                "identifier": _clean_opt(row.get("asset_identifier")) if has_identifier_col else None,
+                "site_name": _clean_opt(row.get("site_name")) if has_site_col else None,
+                "emissions_tco2e": round(float(row.get("emissions") or 0.0), 2),
+                "quantity": round(float(row.get("quantity") or 0.0), 2),
+                "uom": str(row.get("uom") or "").strip() or None,
                 "original_id": str(original_id) if original_id is not None else None,
                 "scope": str(row.get("scope") or "").strip() or None,
                 "dataset_id": int(dataset_id) if dataset_id is not None else None,
                 "factor_db_id": int(factor_db_id) if factor_db_id is not None else None,
             }
         )
-    out.sort(key=lambda r: (r["year"], r["activity"]))
+    out.sort(key=lambda r: (r["year"], r["activity"], r.get("site_name") or ""))
+    return out
+
+
+def load_client_commuting_history_detail(con, client_db_id: int) -> list[dict[str, Any]]:
+    """Per-employee/vehicle Employee Commuting history -- one item per
+    approved job_emission_sources entry, read directly rather than via
+    load_client_category_history/load_combined_reporting_rows (which only
+    sees the single consolidated job_scope_rows line synced by
+    services/employee_commuting_consolidation.py, one row per factor with no
+    per-employee detail). Powers the Employee Commuting tab's "previous
+    years" view so it shows the actual original submissions, each with its
+    own employee ID and vehicle registration (asset_identifier), instead of
+    a total blended across everyone who drove the same vehicle type."""
+    from api.client_reporting_routes import _build_year_jobs, _clean_label, _load_client_jobs
+
+    jobs_df = _load_client_jobs(con, int(client_db_id), crp_only=False)
+    if jobs_df is None or jobs_df.empty:
+        return []
+    year_jobs = _build_year_jobs(jobs_df)
+    job_ids = [yj["job_id"] for yj in year_jobs]
+    if not job_ids:
+        return []
+
+    placeholders = ", ".join(["%s"] * len(job_ids))
+    df = con.execute(
+        f"""
+        SELECT
+            COALESCE(
+                EXTRACT(YEAR FROM j.reporting_period_end),
+                EXTRACT(YEAR FROM cjd.reporting_period_to),
+                j.reporting_year
+            ) AS dashboard_year,
+            js.employee_name,
+            js.asset_identifier,
+            js.scope,
+            cs.site_name,
+            js.dataset_id,
+            js.factor_db_id,
+            js.original_id,
+            COALESCE(
+                NULLIF(TRIM(CAST(fl.report_label AS VARCHAR)), ''),
+                NULLIF(TRIM(CAST(js.source_name AS VARCHAR)), ''),
+                NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''),
+                'Employee Commuting'
+            ) AS activity,
+            js.qty,
+            js.uom,
+            js.factor,
+            js.ghg_unit,
+            js.apply_pct,
+            js.calc_tco2e
+        FROM job_emission_sources js
+        JOIN jobs j ON j.job_id = js.job_id
+        LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
+        LEFT JOIN client_sites cs ON cs.site_id = js.site_id
+        LEFT JOIN v_factor_lookup fl ON fl.db_id = js.factor_db_id
+        WHERE js.job_id IN ({placeholders})
+          AND js.source_type = 'employee_commuting'
+          AND COALESCE(js.enabled, TRUE) = TRUE
+        """,
+        job_ids,
+    ).df()
+    if df is None or df.empty:
+        return []
+
+    def _clean_opt(value: Any) -> str | None:
+        text = str(value or "").strip()
+        if not text or text.lower() in {"nan", "none", "null"}:
+            return None
+        return text
+
+    out: list[dict[str, Any]] = []
+    for _, row in df.iterrows():
+        year = row.get("dashboard_year")
+        if year is None or str(year).strip().lower() in {"", "nan", "none"}:
+            continue
+        qty = float(row.get("qty") or 0.0)
+        calc_tco2e = row.get("calc_tco2e")
+        if calc_tco2e is None:
+            factor = float(row.get("factor") or 0.0)
+            apply_pct = float(row.get("apply_pct") if row.get("apply_pct") is not None else 100.0)
+            calc_tco2e = qty * factor * (apply_pct / 100.0)
+            if "kg" in str(row.get("ghg_unit") or "kgco2e").lower():
+                calc_tco2e /= 1000.0
+        dataset_id = row.get("dataset_id")
+        factor_db_id = row.get("factor_db_id")
+        original_id = row.get("original_id")
+        out.append(
+            {
+                "year": int(year),
+                "activity": _clean_label(row.get("activity"), "Employee Commuting"),
+                "identifier": _clean_opt(row.get("employee_name")),
+                "reg_number": _clean_opt(row.get("asset_identifier")),
+                "site_name": _clean_opt(row.get("site_name")),
+                "emissions_tco2e": round(float(calc_tco2e or 0.0), 2),
+                "quantity": round(qty, 2),
+                "uom": str(row.get("uom") or "").strip() or None,
+                "original_id": str(original_id) if original_id is not None else None,
+                "scope": str(row.get("scope") or "").strip() or None,
+                "dataset_id": int(dataset_id) if dataset_id is not None else None,
+                "factor_db_id": int(factor_db_id) if factor_db_id is not None else None,
+            }
+        )
+    out.sort(key=lambda r: (r["year"], r["activity"], r.get("identifier") or ""))
     return out
 
 
