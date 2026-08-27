@@ -254,8 +254,8 @@ def load_client_category_history(
                 "uom": str(row.get("uom") or "").strip() or None,
                 "original_id": str(original_id) if original_id is not None else None,
                 "scope": str(row.get("scope") or "").strip() or None,
-                "dataset_id": int(dataset_id) if dataset_id is not None else None,
-                "factor_db_id": int(factor_db_id) if factor_db_id is not None else None,
+                "dataset_id": int(dataset_id) if dataset_id is not None and str(dataset_id).strip().lower() not in {"", "nan", "none"} else None,
+                "factor_db_id": int(factor_db_id) if factor_db_id is not None and str(factor_db_id).strip().lower() not in {"", "nan", "none"} else None,
             }
         )
     out.sort(key=lambda r: (r["year"], r["activity"], r.get("site_name") or ""))
@@ -455,8 +455,8 @@ def load_client_commuting_history_detail(
                 "uom": str(row.get("uom") or "").strip() or None,
                 "original_id": str(original_id) if original_id is not None else None,
                 "scope": str(row.get("scope") or "").strip() or None,
-                "dataset_id": int(dataset_id) if dataset_id is not None else None,
-                "factor_db_id": int(factor_db_id) if factor_db_id is not None else None,
+                "dataset_id": int(dataset_id) if dataset_id is not None and str(dataset_id).strip().lower() not in {"", "nan", "none"} else None,
+                "factor_db_id": int(factor_db_id) if factor_db_id is not None and str(factor_db_id).strip().lower() not in {"", "nan", "none"} else None,
             }
         )
     out.extend(load_legacy_commuting_rows(con, job_ids))
@@ -828,6 +828,7 @@ def job_scope_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "scope": row.get("scope"),
         "category": row.get("category"),
         "report_label": row.get("report_label"),
+        "identifier": row.get("asset_identifier"),
         "original_id": row.get("original_id"),
         "uom": row.get("uom"),
         "qty": row.get("qty"),

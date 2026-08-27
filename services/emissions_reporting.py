@@ -148,6 +148,15 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
     if not job_ids:
         return con.execute("SELECT NULL::INTEGER AS job_id WHERE FALSE").df()
 
+    # Guards against a fresh worker process reaching this (e.g. via a
+    # Previous Years history call) before any request has hit an endpoint
+    # that already calls this -- job_scope_rows.asset_identifier is a brand
+    # new column, unlike the older ones this query already reads, so unlike
+    # those it can't be assumed to already exist on every worker.
+    from api.job_scope_data_routes import _ensure_job_scope_rows_schema
+
+    _ensure_job_scope_rows_schema(con)
+
     placeholders = ",".join(["%s"] * len(job_ids))
     factor_category_expr = _factor_lookup_category_expr(con)
     df = con.execute(
@@ -203,7 +212,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                 jsr.notes,
                 NULL::text AS source_type,
                 NULL::text AS group_name,
-                NULL::text AS asset_identifier,
+                jsr.asset_identifier,
                 NULL::text AS employee_name,
                 COALESCE(jsr.report_label, jsr.column_text) AS activity_name,
                 jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,

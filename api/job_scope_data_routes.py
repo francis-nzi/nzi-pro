@@ -278,6 +278,15 @@ def _ensure_job_scope_rows_schema(con) -> None:
     except Exception:
         logger.debug("Ignoring job_scope_rows.updated_at compatibility migration failure", exc_info=True)
     try:
+        # Same column name/meaning as job_emission_sources.asset_identifier --
+        # a plain client-entered reference (vehicle reg, employee name, site
+        # tag, whatever), not tied to the DVLA lookup flow. Letting
+        # Energy/Fuels/Other carry an identifier too, same as Company
+        # Vehicles/Business Travel already could via that lookup.
+        con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS asset_identifier VARCHAR")
+    except Exception:
+        logger.debug("Ignoring job_scope_rows.asset_identifier compatibility migration failure", exc_info=True)
+    try:
         con.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS job_scope_rows_job_site_scope_active_uidx

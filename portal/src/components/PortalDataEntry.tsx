@@ -72,6 +72,7 @@ type Row = {
   scope: string | null;
   category: string | null;
   report_label: string | null;
+  identifier: string | null;
   original_id: string | null;
   uom: string | null;
   qty: number | null;
@@ -194,6 +195,11 @@ export default function PortalDataEntry() {
   const [useMonthly, setUseMonthly] = useState(false);
   const [monthlyValues, setMonthlyValues] = useState<string[]>(Array(12).fill(""));
   const [notes, setNotes] = useState("");
+  // Plain, bucket-agnostic reference -- unlike regNumber (DVLA-lookup-driven,
+  // vehicle buckets only), this is a free-text tag any bucket can set (an
+  // employee name for a Business Travel journey, a meter ID for Energy,
+  // whatever). Both end up in the same asset_identifier column server-side.
+  const [identifier, setIdentifier] = useState("");
   const [saving, setSaving] = useState(false);
   const [justAdded, setJustAdded] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -367,7 +373,6 @@ export default function PortalDataEntry() {
     setShowAdd(true);
     setError("");
     setCopyingFromHistory(true);
-    const isVehicleTab = activeBucket === "company_vehicles" || activeBucket === "business_travel";
     const fallbackSiteId = selectedSiteId ? Number(selectedSiteId) : sites.length === 1 ? sites[0].site_id : null;
     let succeeded = 0;
     const failures: string[] = [];
@@ -390,7 +395,7 @@ export default function PortalDataEntry() {
               uom: item.uom,
               qty: null,
               site_id: siteId,
-              ...(isVehicleTab && item.identifier ? { vehicle_registration: item.identifier } : {}),
+              ...(item.identifier ? { identifier: item.identifier } : {}),
             }),
           });
           if (res.ok) {
@@ -482,6 +487,7 @@ export default function PortalDataEntry() {
           site_id: Number(selectedSiteId),
           notes: notes.trim() || null,
           ...(isVehicleBucket && regNumber.trim() ? { vehicle_registration: regNumber.trim() } : {}),
+          ...(identifier.trim() ? { identifier: identifier.trim() } : {}),
           ...(useMonthly ? monthFieldsFromValues(monthlyValues) : {}),
         }),
       });
@@ -499,6 +505,7 @@ export default function PortalDataEntry() {
         setFactorOptions([]);
         setRegLookupVehicle(null);
         setRegNumber("");
+        setIdentifier("");
         setJustAdded(true);
         if (justAddedTimerRef.current) clearTimeout(justAddedTimerRef.current);
         justAddedTimerRef.current = setTimeout(() => setJustAdded(false), 4000);
@@ -947,6 +954,14 @@ export default function PortalDataEntry() {
                       </div>
                     )}
                     <div>
+                      <label className="text-xs text-muted-foreground">ID / Reference (optional)</label>
+                      <Input
+                        value={identifier}
+                        onChange={(e) => setIdentifier(e.target.value)}
+                        placeholder="e.g. a vehicle reg, employee name, or meter ID"
+                      />
+                    </div>
+                    <div>
                       <label className="text-xs text-muted-foreground">Notes (optional)</label>
                       <textarea
                         className="flex min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -1039,6 +1054,7 @@ export default function PortalDataEntry() {
                 <thead>
                   <tr className="border-b bg-muted/50">
                     <th className="p-2 text-left">Report Label</th>
+                    {rows.some((r) => r.identifier) && <th className="p-2 text-left">ID</th>}
                     <th className="p-2 text-right">Qty</th>
                     <th className="p-2 text-left">Unit</th>
                     <th className="p-2 text-left">Status</th>
@@ -1049,6 +1065,9 @@ export default function PortalDataEntry() {
                   {rows.map((row) => (
                     <tr key={row.row_id} className="border-b last:border-0">
                       <td className="p-2">{row.report_label || row.original_id}</td>
+                      {rows.some((r) => r.identifier) && (
+                        <td className="p-2 text-muted-foreground">{row.identifier || "-"}</td>
+                      )}
                       <td className="p-2 text-right font-mono">
                         <div className="flex justify-end">{renderQtyValue(row)}</div>
                       </td>
@@ -1061,7 +1080,7 @@ export default function PortalDataEntry() {
                 <tfoot>
                   {sumByUnit(rows).map(({ uom, total }) => (
                     <tr key={uom} className="border-t bg-muted/30 font-medium">
-                      <td className="p-2 text-right" colSpan={1}>Total</td>
+                      <td className="p-2 text-right" colSpan={rows.some((r) => r.identifier) ? 2 : 1}>Total</td>
                       <td className="p-2 text-right font-mono">{total.toLocaleString()}</td>
                       <td className="p-2">{uom}</td>
                       <td className="p-2" colSpan={2} />
@@ -1075,6 +1094,7 @@ export default function PortalDataEntry() {
               {rows.map((row) => (
                 <div key={row.row_id} className="rounded-md border p-3 text-sm">
                   <div className="font-medium">{row.report_label || row.original_id}</div>
+                  {row.identifier && <div className="text-xs text-muted-foreground">{row.identifier}</div>}
                   <div className="mt-1 flex items-baseline justify-between">
                     <span className="font-mono">
                       {renderQtyValue(row)} <span className="text-xs text-muted-foreground">{row.uom || ""}</span>

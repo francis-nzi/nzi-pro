@@ -70,6 +70,7 @@ def _register_source_to_portal_dict(row: dict) -> dict:
         "scope": row.get("scope"),
         "category": row.get("category"),
         "report_label": row.get("source_name"),
+        "identifier": row.get("asset_identifier"),
         "original_id": row.get("original_id"),
         "uom": row.get("uom"),
         "qty": row.get("qty"),
@@ -334,6 +335,7 @@ def portal_data_entry_list_rows(
 
     with get_conn() as con:
         ensure_portal_data_entry_schema(con)
+        _ensure_job_scope_rows_schema(con)
         job_id = _resolve_job_or_404(con, client_db_id)
         job_summary = get_job_summary(con, job_id)
 
@@ -341,7 +343,7 @@ def portal_data_entry_list_rows(
             _ensure_emission_register_schema(con)
             df = con.execute(
                 """
-                SELECT source_id, site_id, scope, category, source_name, original_id, uom, qty, factor,
+                SELECT source_id, site_id, scope, category, source_name, asset_identifier, original_id, uom, qty, factor,
                        calc_tco2e, month_1, month_2, month_3, month_4, month_5, month_6,
                        month_7, month_8, month_9, month_10, month_11, month_12,
                        review_status, review_note, reviewed_by, reviewed_at, submitted_by_portal, enabled
@@ -373,7 +375,7 @@ def portal_data_entry_list_rows(
         # review_status). Only the first should still show here.
         df = con.execute(
             """
-            SELECT row_id, site_id, scope, category, report_label, original_id, uom, qty, factor,
+            SELECT row_id, site_id, scope, category, report_label, asset_identifier, original_id, uom, qty, factor,
                    calc_tco2e, month_1, month_2, month_3, month_4, month_5, month_6,
                    month_7, month_8, month_9, month_10, month_11, month_12,
                    review_status, review_note, reviewed_by, reviewed_at, submitted_by_portal, enabled
@@ -481,7 +483,8 @@ def portal_data_entry_create_row(
                 """,
                 [
                     int(job_id), scope, submitted_category, source_type, site_id,
-                    payload.get("report_label") or original_id, payload.get("vehicle_registration"),
+                    payload.get("report_label") or original_id,
+                    payload.get("identifier") or payload.get("vehicle_registration"),
                     final_dataset_id, final_factor_db_id, original_id,
                     payload.get("qty"), payload.get("uom"), final_factor, final_ghg_unit,
                     payload.get("apply_pct", 100), "Client Portal", payload.get("data_confidence", "M"),
@@ -513,12 +516,12 @@ def portal_data_entry_create_row(
                 job_id, scope, site_id, dataset_id, factor_db_id, original_id,
                 category, level_1, level_2, level_3, level_4, column_text, report_label,
                 qty, uom, factor, ghg_unit, apply_pct, data_source, data_confidence, notes,
-                is_custom_entry, enabled, review_status, submitted_by_portal,
+                asset_identifier, is_custom_entry, enabled, review_status, submitted_by_portal,
                 month_1, month_2, month_3, month_4, month_5, month_6,
                 month_7, month_8, month_9, month_10, month_11, month_12
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, FALSE, 'pending_review', TRUE,
+                    %s, %s, FALSE, 'pending_review', TRUE,
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING row_id
             """,
@@ -529,7 +532,7 @@ def portal_data_entry_create_row(
                 payload.get("report_label"),
                 payload.get("qty"), payload.get("uom"), final_factor, final_ghg_unit,
                 payload.get("apply_pct", 100), "Client Portal", payload.get("data_confidence", "M"),
-                payload.get("notes"), False,
+                payload.get("notes"), payload.get("identifier"), False,
                 payload.get("month_1"), payload.get("month_2"), payload.get("month_3"),
                 payload.get("month_4"), payload.get("month_5"), payload.get("month_6"),
                 payload.get("month_7"), payload.get("month_8"), payload.get("month_9"),
@@ -600,6 +603,9 @@ def portal_data_entry_update_row(
                 if field in payload:
                     set_clauses.append(f"{field} = %s")
                     params.append(payload.get(field))
+            if "identifier" in payload:
+                set_clauses.append("asset_identifier = %s")
+                params.append(payload.get("identifier"))
             if not set_clauses:
                 return {"ok": True, "row_id": row_id, "review_status": existing[3]}
 
@@ -659,6 +665,9 @@ def portal_data_entry_update_row(
             if field in payload:
                 set_clauses.append(f"{field} = %s")
                 params.append(payload.get(field))
+        if "identifier" in payload:
+            set_clauses.append("asset_identifier = %s")
+            params.append(payload.get("identifier"))
         if not set_clauses:
             return {"ok": True, "row_id": row_id, "review_status": existing[3]}
 
