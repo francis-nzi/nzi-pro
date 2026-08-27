@@ -224,6 +224,7 @@ export default function PortalDataEntry() {
 
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
   const [editQty, setEditQty] = useState("");
+  const [editIdentifier, setEditIdentifier] = useState("");
   const [rowActionSaving, setRowActionSaving] = useState(false);
 
   // Monthly-breakdown edit modal for an existing row (mirrors the CRM's Data
@@ -527,11 +528,12 @@ export default function PortalDataEntry() {
       const res = await apiFetch(`/portal/data-entry/${activeBucket}/rows/${rowId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ qty: Number(editQty) }),
+        body: JSON.stringify({ qty: Number(editQty), identifier: editIdentifier.trim() || null }),
       });
       if (res.ok) {
         setEditingRowId(null);
         setEditQty("");
+        setEditIdentifier("");
         void loadRows(activeBucket);
       } else {
         const d = await res.json().catch(() => ({}));
@@ -621,6 +623,18 @@ export default function PortalDataEntry() {
     );
   }
 
+  function renderIdentifierValue(row: Row) {
+    if (editingRowId !== row.row_id) return row.identifier || "-";
+    return (
+      <Input
+        value={editIdentifier}
+        onChange={(e) => setEditIdentifier(e.target.value)}
+        placeholder="ID / Reference"
+        className="h-7 w-32"
+      />
+    );
+  }
+
   function renderStatus(row: Row) {
     const review = REVIEW_LABEL[row.review_status || "pending_review"];
     return (
@@ -644,7 +658,7 @@ export default function PortalDataEntry() {
           <Button size="sm" variant="outline" disabled={rowActionSaving || !isPositiveQty(editQty)} onClick={() => void saveRowEdit(row.row_id)}>
             Save
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => { setEditingRowId(null); setEditQty(""); }}>
+          <Button size="sm" variant="ghost" onClick={() => { setEditingRowId(null); setEditQty(""); setEditIdentifier(""); }}>
             Cancel
           </Button>
         </div>
@@ -654,7 +668,11 @@ export default function PortalDataEntry() {
       <div className={`flex items-center ${justify} gap-3 text-xs`}>
         <button
           className="text-primary hover:underline"
-          onClick={() => { setEditingRowId(row.row_id); setEditQty(row.qty !== null && row.qty !== undefined ? String(row.qty) : ""); }}
+          onClick={() => {
+            setEditingRowId(row.row_id);
+            setEditQty(row.qty !== null && row.qty !== undefined ? String(row.qty) : "");
+            setEditIdentifier(row.identifier || "");
+          }}
         >
           Edit
         </button>
@@ -1049,67 +1067,80 @@ export default function PortalDataEntry() {
                 sm it switches to a stacked card layout instead (same data,
                 same actions, reusing renderQtyValue/renderStatus/renderActions
                 so the two layouts can't drift out of sync). */}
-            <div className="hidden overflow-x-auto rounded-md border sm:block">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="p-2 text-left">Report Label</th>
-                    {rows.some((r) => r.identifier) && <th className="p-2 text-left">ID</th>}
-                    <th className="p-2 text-right">Qty</th>
-                    <th className="p-2 text-left">Unit</th>
-                    <th className="p-2 text-left">Status</th>
-                    <th className="p-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.row_id} className="border-b last:border-0">
-                      <td className="p-2">{row.report_label || row.original_id}</td>
-                      {rows.some((r) => r.identifier) && (
-                        <td className="p-2 text-muted-foreground">{row.identifier || "-"}</td>
-                      )}
-                      <td className="p-2 text-right font-mono">
-                        <div className="flex justify-end">{renderQtyValue(row)}</div>
-                      </td>
-                      <td className="p-2">{row.uom || "-"}</td>
-                      <td className="p-2">{renderStatus(row)}</td>
-                      <td className="p-2 text-right">{renderActions(row, "end")}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  {sumByUnit(rows).map(({ uom, total }) => (
-                    <tr key={uom} className="border-t bg-muted/30 font-medium">
-                      <td className="p-2 text-right" colSpan={rows.some((r) => r.identifier) ? 2 : 1}>Total</td>
-                      <td className="p-2 text-right font-mono">{total.toLocaleString()}</td>
-                      <td className="p-2">{uom}</td>
-                      <td className="p-2" colSpan={2} />
-                    </tr>
-                  ))}
-                </tfoot>
-              </table>
-            </div>
-
-            <div className="space-y-2 sm:hidden">
-              {rows.map((row) => (
-                <div key={row.row_id} className="rounded-md border p-3 text-sm">
-                  <div className="font-medium">{row.report_label || row.original_id}</div>
-                  {row.identifier && <div className="text-xs text-muted-foreground">{row.identifier}</div>}
-                  <div className="mt-1 flex items-baseline justify-between">
-                    <span className="font-mono">
-                      {renderQtyValue(row)} <span className="text-xs text-muted-foreground">{row.uom || ""}</span>
-                    </span>
-                    <span>{renderStatus(row)}</span>
+            {/* Shown whenever some row already has an ID, or the row currently
+                being edited might be about to get one -- otherwise a bucket
+                with no IDs yet would have nowhere to add its first one via
+                inline edit (only the Add Entry form could set it). */}
+            {(() => {
+              const showIdentifierColumn = rows.some((r) => r.identifier) || editingRowId !== null;
+              return (
+                <>
+                  <div className="hidden overflow-x-auto rounded-md border sm:block">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="p-2 text-left">Report Label</th>
+                          {showIdentifierColumn && <th className="p-2 text-left">ID</th>}
+                          <th className="p-2 text-right">Qty</th>
+                          <th className="p-2 text-left">Unit</th>
+                          <th className="p-2 text-left">Status</th>
+                          <th className="p-2 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row) => (
+                          <tr key={row.row_id} className="border-b last:border-0">
+                            <td className="p-2">{row.report_label || row.original_id}</td>
+                            {showIdentifierColumn && (
+                              <td className="p-2 text-muted-foreground">{renderIdentifierValue(row)}</td>
+                            )}
+                            <td className="p-2 text-right font-mono">
+                              <div className="flex justify-end">{renderQtyValue(row)}</div>
+                            </td>
+                            <td className="p-2">{row.uom || "-"}</td>
+                            <td className="p-2">{renderStatus(row)}</td>
+                            <td className="p-2 text-right">{renderActions(row, "end")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        {sumByUnit(rows).map(({ uom, total }) => (
+                          <tr key={uom} className="border-t bg-muted/30 font-medium">
+                            <td className="p-2 text-right" colSpan={showIdentifierColumn ? 2 : 1}>Total</td>
+                            <td className="p-2 text-right font-mono">{total.toLocaleString()}</td>
+                            <td className="p-2">{uom}</td>
+                            <td className="p-2" colSpan={2} />
+                          </tr>
+                        ))}
+                      </tfoot>
+                    </table>
                   </div>
-                  <div className="mt-2 border-t pt-2">{renderActions(row, "start")}</div>
-                </div>
-              ))}
-              {sumByUnit(rows).map(({ uom, total }) => (
-                <div key={uom} className="rounded-md border bg-muted/30 p-3 text-sm font-medium">
-                  Total: {total.toLocaleString()} {uom}
-                </div>
-              ))}
-            </div>
+
+                  <div className="space-y-2 sm:hidden">
+                    {rows.map((row) => (
+                      <div key={row.row_id} className="rounded-md border p-3 text-sm">
+                        <div className="font-medium">{row.report_label || row.original_id}</div>
+                        {(row.identifier || editingRowId === row.row_id) && (
+                          <div className="text-xs text-muted-foreground">{renderIdentifierValue(row)}</div>
+                        )}
+                        <div className="mt-1 flex items-baseline justify-between">
+                          <span className="font-mono">
+                            {renderQtyValue(row)} <span className="text-xs text-muted-foreground">{row.uom || ""}</span>
+                          </span>
+                          <span>{renderStatus(row)}</span>
+                        </div>
+                        <div className="mt-2 border-t pt-2">{renderActions(row, "start")}</div>
+                      </div>
+                    ))}
+                    {sumByUnit(rows).map(({ uom, total }) => (
+                      <div key={uom} className="rounded-md border bg-muted/30 p-3 text-sm font-medium">
+                        Total: {total.toLocaleString()} {uom}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
           </>
         )
       )}
