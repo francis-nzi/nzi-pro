@@ -208,7 +208,8 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                 COALESCE(jsr.report_label, jsr.column_text) AS activity_name,
                 jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,
                 jsr.month_5, jsr.month_6, jsr.month_7, jsr.month_8,
-                jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
+                jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12,
+                COALESCE(jsr.is_auto_generated, FALSE) AS is_auto_generated
             FROM job_scope_rows jsr
             JOIN job_context jc ON jc.job_id = jsr.job_id
             LEFT JOIN client_sites s ON jsr.site_id = s.site_id
@@ -278,7 +279,8 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                 ) AS activity_name,
                 NULL::numeric AS month_1, NULL::numeric AS month_2, NULL::numeric AS month_3, NULL::numeric AS month_4,
                 NULL::numeric AS month_5, NULL::numeric AS month_6, NULL::numeric AS month_7, NULL::numeric AS month_8,
-                NULL::numeric AS month_9, NULL::numeric AS month_10, NULL::numeric AS month_11, NULL::numeric AS month_12
+                NULL::numeric AS month_9, NULL::numeric AS month_10, NULL::numeric AS month_11, NULL::numeric AS month_12,
+                FALSE AS is_auto_generated
             FROM job_emission_sources js
             JOIN job_context jc ON jc.job_id = js.job_id
             LEFT JOIN job_emission_groups g ON g.group_id = js.group_id

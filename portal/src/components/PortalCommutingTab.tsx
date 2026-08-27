@@ -69,6 +69,20 @@ type Row = {
   month_12: number | null;
 };
 
+// Manual aggregate rows a consultant entered directly into job_scope_rows
+// (category='Employee Commuting', is_auto_generated=FALSE) rather than via
+// the per-employee register above -- see services/portal_data_entry.py's
+// load_legacy_commuting_rows. Read-only: no employee identity to edit
+// against, no review workflow, just pre-existing reported data.
+type LegacyRow = {
+  activity: string;
+  site_name: string | null;
+  quantity: number;
+  uom: string | null;
+  emissions_tco2e: number;
+  scope: string | null;
+};
+
 const MONTH_KEYS = Array.from({ length: 12 }, (_, i) => `month_${i + 1}` as keyof Row);
 
 // Rows created before the monthly-grid feature only have a flat qty, no
@@ -120,6 +134,7 @@ function getMonthIndex(reportingPeriodStart: string | null, displayIndex: number
 export default function PortalCommutingTab() {
   const [options, setOptions] = useState<Options | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
+  const [legacyRows, setLegacyRows] = useState<LegacyRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [noJobMessage, setNoJobMessage] = useState("");
@@ -219,6 +234,7 @@ export default function PortalCommutingTab() {
       if (res.ok) {
         const d = await res.json();
         setRows(d.rows || []);
+        setLegacyRows(d.legacy_rows || []);
         setJobNumber(d.job_number || null);
         setReportingYear(d.reporting_year || null);
         setReportingPeriodStart(d.reporting_period_start || null);
@@ -1021,9 +1037,9 @@ export default function PortalCommutingTab() {
 
       {!noJobMessage && (loading ? (
         <SkeletonLoader />
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 && legacyRows.length === 0 ? (
         <EmptyStatePanel title="No commuting data submitted yet." />
-      ) : (
+      ) : rows.length === 0 ? null : (
         <>
           <div className="hidden overflow-x-auto rounded-md border sm:block">
             <table className="w-full text-sm">
@@ -1135,6 +1151,54 @@ export default function PortalCommutingTab() {
           </div>
         </>
       ))}
+
+      {!noJobMessage && legacyRows.length > 0 && (
+        <Card>
+          <CardContent className="space-y-3 pt-4">
+            <div className="text-sm font-semibold text-foreground">
+              Already on file for this year (entered by your NZI consultant)
+            </div>
+            <div className="hidden overflow-x-auto rounded-md border sm:block">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="p-2 text-left">Activity</th>
+                    <th className="p-2 text-left">Site</th>
+                    <th className="p-2 text-right">Qty</th>
+                    <th className="p-2 text-right">tCO&#8322;e</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {legacyRows.map((row, idx) => (
+                    <tr key={idx} className="border-b last:border-0">
+                      <td className="p-2">{row.activity}</td>
+                      <td className="p-2">{row.site_name || "-"}</td>
+                      <td className="p-2 text-right font-mono">
+                        {row.quantity.toLocaleString()} {row.uom || ""}
+                      </td>
+                      <td className="p-2 text-right font-mono">{row.emissions_tco2e.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="space-y-2 sm:hidden">
+              {legacyRows.map((row, idx) => (
+                <div key={idx} className="rounded-md border p-3 text-sm">
+                  <div className="font-medium">{row.activity}</div>
+                  <div className="text-xs text-muted-foreground">{row.site_name || "-"}</div>
+                  <div className="mt-2 flex items-baseline justify-between font-mono text-sm">
+                    <span>
+                      {row.quantity.toLocaleString()} {row.uom || ""}
+                    </span>
+                    <span>{row.emissions_tco2e.toLocaleString()} tCO&#8322;e</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {!noJobMessage && (
         <PortalCategoryHistoryTable

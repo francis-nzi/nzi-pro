@@ -39,6 +39,7 @@ from services.portal_data_entry import (
     get_job_summary,
     get_portal_data_entry_status,
     load_client_commuting_history_detail,
+    load_legacy_commuting_rows,
     resolve_current_job_for_client,
 )
 from services.vehicle_categorization import categorize_vehicle
@@ -291,6 +292,7 @@ def portal_commuting_list_rows(current_user: dict = Depends(portal_user_dep)):
         _ensure_emission_register_schema(con)
         job_id = _resolve_job_or_404(con, client_db_id)
         job_summary = get_job_summary(con, job_id)
+        legacy_rows = load_legacy_commuting_rows(con, [job_id])
         # enabled=FALSE covers both a brand new pending submission (by design,
         # see services/portal_data_entry.py) and a row the CRM has since
         # deleted (soft-deleted via enabled=FALSE without touching
@@ -312,7 +314,7 @@ def portal_commuting_list_rows(current_user: dict = Depends(portal_user_dep)):
             [int(job_id)],
         ).df()
     if df is None or df.empty:
-        return {"job_id": job_id, "rows": [], **job_summary}
+        return {"job_id": job_id, "rows": [], "legacy_rows": legacy_rows, **job_summary}
     # astype(object) first -- see api/portal_data_entry_routes.py for why the
     # plain df.where(df.notna(), None) is a no-op on float64 columns and
     # breaks JSON serialization for rows with a null qty/calc_tco2e.
@@ -323,7 +325,7 @@ def portal_commuting_list_rows(current_user: dict = Depends(portal_user_dep)):
         if row.get("created_at") is not None:
             row["created_at"] = str(row["created_at"])
         rows.append(row)
-    return {"job_id": job_id, "rows": rows, **job_summary}
+    return {"job_id": job_id, "rows": rows, "legacy_rows": legacy_rows, **job_summary}
 
 
 @router.post("/portal/commuting/rows")

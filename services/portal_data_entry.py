@@ -252,6 +252,93 @@ def load_client_category_history(con, client_db_id: int, category_filter) -> lis
     return out
 
 
+def load_legacy_commuting_rows(con, job_ids: list[int]) -> list[dict[str, Any]]:
+    """Employee Commuting entered as manual aggregate job_scope_rows rows
+    (category='Employee Commuting', is_auto_generated=FALSE) rather than via
+    the per-employee job_emission_sources register -- a long-standing
+    consultant workflow that predates that register (144 jobs / 51 clients
+    as of Aug 2026, including still-open current-year jobs), not a mistake.
+    This is read-only surfacing of that pre-existing data for the portal --
+    it is never migrated/backfilled into job_emission_sources, so don't
+    "fix" it by writing to that table from here.
+
+    Explicitly excludes the auto-generated consolidated job_scope_rows line
+    that services/employee_commuting_consolidation.py regenerates from
+    job_emission_sources on every commuting mutation (is_auto_generated=TRUE)
+    -- that line is a derived rollup of data load_client_commuting_history_detail
+    already shows in full per-employee detail; including it here too would
+    double the displayed total for any job using the modern flow.
+
+    Reused for both "all of this client's jobs" (Previous Years history) and
+    "just the current job" (live tab) callers, by varying job_ids.
+
+    Never trusts the frozen job_scope_rows.calc_tco2e column -- recomputes
+    via the same load_combined_reporting_rows/combined_row_metrics/
+    JobMonthlyEmissionsResolver pipeline load_client_category_history uses,
+    so figures always reconcile with the CRM's reported totals."""
+    from api.client_reporting_routes import _clean_label, _dataset_category_label
+    from services.emissions_reporting import combined_row_metrics, load_combined_reporting_rows
+    from services.monthly_emissions import JobMonthlyEmissionsResolver
+
+    if not job_ids:
+        return []
+
+    scope_df = load_combined_reporting_rows(con, job_ids)
+    if scope_df is None or scope_df.empty:
+        return []
+
+    scope_df = scope_df.copy()
+    scope_df["category"] = scope_df.apply(lambda row: _dataset_category_label(row), axis=1)
+    scope_df = scope_df[
+        (scope_df["category"] == "Employee Commuting")
+        & (~scope_df["is_auto_generated"].astype(bool))
+    ]
+    if scope_df.empty:
+        return []
+
+    resolver_by_job: dict[int, Any] = {}
+    out: list[dict[str, Any]] = []
+    for _, row in scope_df.iterrows():
+        row_type = str(row.get("record_type") or "legacy").strip().lower()
+        if row_type == "source_register":
+            metrics = combined_row_metrics(row)
+        else:
+            row_job_id = int(row.get("job_id"))
+            resolver = resolver_by_job.get(row_job_id)
+            if resolver is None:
+                resolver = JobMonthlyEmissionsResolver(con, row_job_id)
+                resolver_by_job[row_job_id] = resolver
+            metrics = combined_row_metrics(row, resolver)
+
+        year = row.get("dashboard_year")
+        if year is None or str(year).strip().lower() in {"", "nan", "none"}:
+            continue
+        original_id = row.get("original_id")
+        dataset_id = row.get("dataset_id")
+        factor_db_id = row.get("factor_db_id")
+        site_id = row.get("site_id")
+        out.append(
+            {
+                "year": int(year),
+                "activity": _clean_label(row.get("activity_name"), "Employee Commuting"),
+                "identifier": None,
+                "reg_number": None,
+                "site_name": str(row.get("site_name") or "").strip() or None,
+                "site_id": int(site_id) if site_id is not None and str(site_id).strip().lower() not in {"", "nan", "none"} else None,
+                "category": "Employee Commuting",
+                "emissions_tco2e": round(float(metrics.get("calc_tco2e") or 0.0), 2),
+                "quantity": round(float(metrics.get("display_qty") or 0.0), 2),
+                "uom": str(metrics.get("display_uom") or "").strip() or None,
+                "original_id": str(original_id) if original_id is not None else None,
+                "scope": str(row.get("scope") or "").strip() or None,
+                "dataset_id": int(dataset_id) if dataset_id is not None else None,
+                "factor_db_id": int(factor_db_id) if factor_db_id is not None else None,
+                "job_id": int(row.get("job_id")),
+            }
+        )
+    return out
+
+
 def load_client_commuting_history_detail(con, client_db_id: int) -> list[dict[str, Any]]:
     """Per-employee/vehicle Employee Commuting history -- one item per
     approved job_emission_sources entry, read directly rather than via
@@ -261,7 +348,13 @@ def load_client_commuting_history_detail(con, client_db_id: int) -> list[dict[st
     per-employee detail). Powers the Employee Commuting tab's "previous
     years" view so it shows the actual original submissions, each with its
     own employee ID and vehicle registration (asset_identifier), instead of
-    a total blended across everyone who drove the same vehicle type."""
+    a total blended across everyone who drove the same vehicle type.
+
+    Also appends load_legacy_commuting_rows for the same job_ids, so a
+    client's history includes years where the data was entered as manual
+    job_scope_rows aggregates instead of via the per-employee register (see
+    that function's docstring) -- those items carry identifier=None since
+    there's no employee identity behind an aggregate row."""
     from api.client_reporting_routes import _build_year_jobs, _clean_label, _load_client_jobs
 
     jobs_df = _load_client_jobs(con, int(client_db_id), crp_only=False)
@@ -311,8 +404,6 @@ def load_client_commuting_history_detail(con, client_db_id: int) -> list[dict[st
         """,
         job_ids,
     ).df()
-    if df is None or df.empty:
-        return []
 
     def _clean_opt(value: Any) -> str | None:
         text = str(value or "").strip()
@@ -321,7 +412,7 @@ def load_client_commuting_history_detail(con, client_db_id: int) -> list[dict[st
         return text
 
     out: list[dict[str, Any]] = []
-    for _, row in df.iterrows():
+    for _, row in (df.iterrows() if df is not None and not df.empty else []):
         year = row.get("dashboard_year")
         if year is None or str(year).strip().lower() in {"", "nan", "none"}:
             continue
@@ -352,6 +443,7 @@ def load_client_commuting_history_detail(con, client_db_id: int) -> list[dict[st
                 "factor_db_id": int(factor_db_id) if factor_db_id is not None else None,
             }
         )
+    out.extend(load_legacy_commuting_rows(con, job_ids))
     out.sort(key=lambda r: (r["year"], r["activity"], r.get("identifier") or ""))
     return out
 
