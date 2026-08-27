@@ -1081,6 +1081,113 @@ def create_spend_data(job_id: int, body: dict = Body(...), _user: dict = Depends
         )
     return {"ok": True, **saved}
 
+
+@router.patch("/jobs/{job_id}/spend-data/bulk-review")
+def bulk_review_spend_rows(
+    job_id: int,
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    """Approve or reject several portal-submitted spend rows in one call --
+    same rules as review_spend_row per row, just batched so one bad row
+    (unmapped, already approved) doesn't block the rest. Mirrors
+    bulk_review_commuting_rows in api/employee_commuting_routes.py.
+
+    Registered ahead of the bare PATCH .../spend-data/{entry_id} route below
+    -- FastAPI matches routes in registration order, and 'bulk-review' would
+    otherwise be swallowed by {entry_id} and fail int-parsing on the literal
+    string 'bulk-review'."""
+    decision = str(body.get("decision") or "").strip().lower()
+    if decision not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
+    raw_ids = body.get("entry_ids")
+    if not isinstance(raw_ids, list) or not raw_ids:
+        raise HTTPException(status_code=400, detail="entry_ids must be a non-empty list")
+    try:
+        entry_ids = [int(x) for x in raw_ids]
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="entry_ids must all be integers")
+    note = body.get("note")
+    reviewer = str(_user.get("email") or _user.get("full_name") or "crm")
+
+    reviewed: list[int] = []
+    failed: list[dict[str, Any]] = []
+
+    with get_conn() as con:
+        _ensure_spend_tables(con)
+        for entry_id in entry_ids:
+            row = con.execute(
+                """
+                SELECT submitted_by_portal, review_status, reference_code, code_type,
+                       normalized_description, factor_db_id, mapping_confidence
+                FROM job_spend_entries
+                WHERE entry_id = %s AND job_id = %s AND COALESCE(is_deleted, FALSE) = FALSE
+                """,
+                [entry_id, int(job_id)],
+            ).fetchone()
+            if not row:
+                failed.append({"entry_id": entry_id, "reason": "Spend row not found"})
+                continue
+            if not row[0]:
+                failed.append({"entry_id": entry_id, "reason": "Not a portal submission"})
+                continue
+            if row[1] == "approved":
+                failed.append({"entry_id": entry_id, "reason": "Already approved"})
+                continue
+
+            if decision == "approve":
+                factor_db_id = _safe_optional_int(row[5])
+                if not factor_db_id:
+                    failed.append({"entry_id": entry_id, "reason": "No category assigned yet"})
+                    continue
+                factor = _factor_by_id(con, factor_db_id)
+                con.execute(
+                    """
+                    UPDATE job_spend_entries
+                    SET review_status = 'approved', review_note = %s, reviewed_by = %s, reviewed_at = NOW()
+                    WHERE entry_id = %s
+                    """,
+                    [note, reviewer, entry_id],
+                )
+                ref_code = str(row[2] or "").strip()
+                if factor and ref_code:
+                    client_db_id = _job_client_id(con, int(job_id))
+                    _upsert_client_mapping(
+                        con=con,
+                        client_db_id=int(client_db_id),
+                        code_type=str(row[3] or "nominal_code"),
+                        reference_code=ref_code,
+                        normalized_description=str(row[4] or ""),
+                        factor=factor,
+                        actor=reviewer,
+                        confidence=str(row[6] or "High"),
+                        locked=True,
+                    )
+            else:
+                con.execute(
+                    """
+                    UPDATE job_spend_entries
+                    SET review_status = 'rejected', review_note = %s, reviewed_by = %s, reviewed_at = NOW()
+                    WHERE entry_id = %s
+                    """,
+                    [note, reviewer, entry_id],
+                )
+
+            reviewed.append(entry_id)
+            record_audit_event(
+                con,
+                request=None,
+                actor=_user,
+                action=f"spend_row_{decision}",
+                entity_type="job_spend_entry",
+                entity_id=entry_id,
+                job_id=int(job_id),
+                metadata={"decision": decision, "note": note, "bulk": True},
+            )
+
+    return {"ok": True, "reviewed": reviewed, "failed": failed}
+
+
 @router.patch("/jobs/{job_id}/spend-data/{entry_id}")
 def update_spend_data(job_id: int, entry_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
     actor = str(_user.get("email") or "system")
@@ -1438,107 +1545,6 @@ def review_spend_row(
         )
 
     return {"ok": True, "entry_id": int(entry_id), "review_status": "approved" if decision == "approve" else "rejected"}
-
-
-@router.patch("/jobs/{job_id}/spend-data/bulk-review")
-def bulk_review_spend_rows(
-    job_id: int,
-    body: dict = Body(...),
-    _user: dict = Depends(_current_user),
-):
-    """Approve or reject several portal-submitted spend rows in one call --
-    same rules as review_spend_row per row, just batched so one bad row
-    (unmapped, already approved) doesn't block the rest. Mirrors
-    bulk_review_commuting_rows in api/employee_commuting_routes.py."""
-    decision = str(body.get("decision") or "").strip().lower()
-    if decision not in ("approve", "reject"):
-        raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
-    raw_ids = body.get("entry_ids")
-    if not isinstance(raw_ids, list) or not raw_ids:
-        raise HTTPException(status_code=400, detail="entry_ids must be a non-empty list")
-    try:
-        entry_ids = [int(x) for x in raw_ids]
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="entry_ids must all be integers")
-    note = body.get("note")
-    reviewer = str(_user.get("email") or _user.get("full_name") or "crm")
-
-    reviewed: list[int] = []
-    failed: list[dict[str, Any]] = []
-
-    with get_conn() as con:
-        _ensure_spend_tables(con)
-        for entry_id in entry_ids:
-            row = con.execute(
-                """
-                SELECT submitted_by_portal, review_status, reference_code, code_type,
-                       normalized_description, factor_db_id, mapping_confidence
-                FROM job_spend_entries
-                WHERE entry_id = %s AND job_id = %s AND COALESCE(is_deleted, FALSE) = FALSE
-                """,
-                [entry_id, int(job_id)],
-            ).fetchone()
-            if not row:
-                failed.append({"entry_id": entry_id, "reason": "Spend row not found"})
-                continue
-            if not row[0]:
-                failed.append({"entry_id": entry_id, "reason": "Not a portal submission"})
-                continue
-            if row[1] == "approved":
-                failed.append({"entry_id": entry_id, "reason": "Already approved"})
-                continue
-
-            if decision == "approve":
-                factor_db_id = _safe_optional_int(row[5])
-                if not factor_db_id:
-                    failed.append({"entry_id": entry_id, "reason": "No category assigned yet"})
-                    continue
-                factor = _factor_by_id(con, factor_db_id)
-                con.execute(
-                    """
-                    UPDATE job_spend_entries
-                    SET review_status = 'approved', review_note = %s, reviewed_by = %s, reviewed_at = NOW()
-                    WHERE entry_id = %s
-                    """,
-                    [note, reviewer, entry_id],
-                )
-                ref_code = str(row[2] or "").strip()
-                if factor and ref_code:
-                    client_db_id = _job_client_id(con, int(job_id))
-                    _upsert_client_mapping(
-                        con=con,
-                        client_db_id=int(client_db_id),
-                        code_type=str(row[3] or "nominal_code"),
-                        reference_code=ref_code,
-                        normalized_description=str(row[4] or ""),
-                        factor=factor,
-                        actor=reviewer,
-                        confidence=str(row[6] or "High"),
-                        locked=True,
-                    )
-            else:
-                con.execute(
-                    """
-                    UPDATE job_spend_entries
-                    SET review_status = 'rejected', review_note = %s, reviewed_by = %s, reviewed_at = NOW()
-                    WHERE entry_id = %s
-                    """,
-                    [note, reviewer, entry_id],
-                )
-
-            reviewed.append(entry_id)
-            record_audit_event(
-                con,
-                request=None,
-                actor=_user,
-                action=f"spend_row_{decision}",
-                entity_type="job_spend_entry",
-                entity_id=entry_id,
-                job_id=int(job_id),
-                metadata={"decision": decision, "note": note, "bulk": True},
-            )
-
-    return {"ok": True, "reviewed": reviewed, "failed": failed}
 
 
 @router.get("/jobs/{job_id}/spend-data/factors/search")
