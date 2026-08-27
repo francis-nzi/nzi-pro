@@ -2057,6 +2057,26 @@ def create_scope_data_row(
             if not scope or not original_id:
                 raise HTTPException(status_code=400, detail="scope and original_id are required")
 
+            # Employee Commuting rows must go through the dedicated Employee
+            # Commuting tab (job_emission_sources + sync_commuting_scope_rows)
+            # so they're per-employee, editable, and consolidated correctly.
+            # A row created here would look like real data but never appear
+            # in the portal's Employee Commuting tab or its Previous Years
+            # history, and would double-count against any real consolidated
+            # row for the same factor.
+            attempted_category = (
+                payload.get("dataset_category")
+                or payload.get("category")
+                or payload.get("level_1")
+                or payload.get("level_2")
+                or ""
+            )
+            if str(attempted_category).strip().lower() == "employee commuting":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Employee Commuting rows can't be added from the generic Data Entry grid — use the Employee Commuting tab instead.",
+                )
+
             # Extract site_id from payload
             site_id = payload.get("site_id")
             if site_id is not None:

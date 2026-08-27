@@ -53,18 +53,23 @@ export default function PortalCategoryHistoryTable({
 }) {
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchFailed, setFetchFailed] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setFetchFailed(false);
     apiFetch(fetchUrl)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d: { items: HistoryItem[] }) => {
         if (!cancelled) setItems(d.items || []);
       })
       .catch(() => {
-        if (!cancelled) setItems([]);
+        if (!cancelled) {
+          setItems([]);
+          setFetchFailed(true);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -74,7 +79,24 @@ export default function PortalCategoryHistoryTable({
     };
   }, [fetchUrl]);
 
-  if (loading || items.length === 0) return null;
+  if (loading) return null;
+
+  if (items.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Previous Years</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-xs text-muted-foreground">
+            {fetchFailed
+              ? "Couldn't load previous years' data — try refreshing the page."
+              : "No previous years' data on file for this category yet."}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const showIdentifier = items.some((i) => i.identifier);
   const showRegNumber = items.some((i) => i.reg_number);
