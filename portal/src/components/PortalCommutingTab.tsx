@@ -869,7 +869,7 @@ export default function PortalCommutingTab() {
                   disabled={saving || !employeeName.trim() || !regNumber.trim() || monthsSum() <= 0}
                   onClick={() => void submitByVehicle()}
                 >
-                  {saving ? "Looking up & submitting..." : "Submit Entry"}
+                  {saving ? "Looking up & saving..." : "Look up & Save Entry"}
                 </Button>
               </div>
             ) : rowType === "commuting" ? (
