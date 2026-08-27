@@ -36,6 +36,7 @@ type StagedCopy = {
   original_id: string;
   report_label: string;
   uom: string | null;
+  site_name: string | null;
   months: string[];
   saving: boolean;
   error: string;
@@ -178,8 +179,19 @@ export default function PortalCommutingTab() {
   const [notes, setNotes] = useState("");
 
   // "I drive my own car" -- registration lookup instead of mode/service dropdowns.
+  // Two-step, matching Company Vehicles (PortalDataEntry.tsx): "Look Up" first
+  // shows the resolved vehicle so the client can confirm it's right BEFORE
+  // entering mileage, rather than only finding out what was matched after
+  // everything's already saved. regLookupVehicle set = step 2 (confirmed,
+  // ready to enter mileage); null = step 1 (reg number entry only).
   const [regNumber, setRegNumber] = useState("");
   const [regLookupError, setRegLookupError] = useState("");
+  const [regLookupChecking, setRegLookupChecking] = useState(false);
+  const [regLookupVehicle, setRegLookupVehicle] = useState<{
+    make: string | null;
+    fuel_type: string | null;
+    factor: { report_label?: string | null } | null;
+  } | null>(null);
 
   const [jobNumber, setJobNumber] = useState<string | null>(null);
   const [reportingYear, setReportingYear] = useState<number | null>(null);
@@ -258,6 +270,7 @@ export default function PortalCommutingTab() {
     setNotes("");
     setRegNumber("");
     setRegLookupError("");
+    setRegLookupVehicle(null);
     // Quick pick deliberately survives a reset -- entering several
     // employees against the same commute factor back-to-back is the common
     // case, so only "Change" or switching mode/entry type clears it.
@@ -301,6 +314,7 @@ export default function PortalCommutingTab() {
         original_id: i.original_id as string,
         report_label: i.activity,
         uom: i.uom,
+        site_name: i.site_name || null,
         months: Array(12).fill(""),
         saving: false,
         error: "",
@@ -408,6 +422,38 @@ export default function PortalCommutingTab() {
   function copyFirstMonthToAll() {
     const firstValue = months[getMonthIndex(reportingPeriodStart, 0)] ?? "";
     setMonths(Array(12).fill(firstValue));
+  }
+
+  // Step 1: preview only, via the same generic /portal/vehicle-lookup Company
+  // Vehicles uses -- returns the resolved factor without saving anything. The
+  // actual save (submitByVehicle below) still re-resolves the registration
+  // itself server-side, same as Company Vehicles does, so this is purely an
+  // added confirmation step, not a change to what gets persisted.
+  async function lookupVehicle() {
+    if (!regNumber.trim()) return;
+    setRegLookupChecking(true);
+    setRegLookupError("");
+    try {
+      const res = await apiFetch("/portal/vehicle-lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registration_number: regNumber.trim() }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setRegLookupVehicle({ make: d.make ?? null, fuel_type: d.fuel_type ?? null, factor: d.factor ?? null });
+      } else {
+        setRegLookupVehicle(null);
+        setRegLookupError(d?.detail || "Couldn't look up that registration.");
+      }
+    } finally {
+      setRegLookupChecking(false);
+    }
+  }
+
+  function changeRegistration() {
+    setRegLookupVehicle(null);
+    setRegLookupError("");
   }
 
   async function submitByVehicle() {
@@ -784,7 +830,10 @@ export default function PortalCommutingTab() {
                       className="max-w-xs"
                     />
                   </div>
-                  <div className="text-sm font-medium text-foreground">{item.report_label}</div>
+                  <div className="text-right">
+                    <div className="text-sm font-medium text-foreground">{item.report_label}</div>
+                    {item.site_name && <div className="text-xs text-muted-foreground">{item.site_name}</div>}
+                  </div>
                 </div>
                 {renderMonthlyGridFor(
                   item.uom || "units",
@@ -854,7 +903,10 @@ export default function PortalCommutingTab() {
                   type="button"
                   variant={entryMode === "dropdown" ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setEntryMode("dropdown")}
+                  onClick={() => {
+                    setEntryMode("dropdown");
+                    changeRegistration();
+                  }}
                 >
                   Choose mode &amp; distance
                 </Button>
@@ -871,22 +923,46 @@ export default function PortalCommutingTab() {
 
             {rowType === "commuting" && entryMode === "vehicle" ? (
               <div className="space-y-3">
-                <div>
-                  <label className="text-xs text-muted-foreground">Vehicle Registration Number</label>
-                  <Input
-                    placeholder="e.g. AB12 CDE"
-                    value={regNumber}
-                    onChange={(e) => setRegNumber(e.target.value)}
-                  />
-                </div>
-                {renderMonthlyGrid("miles")}
-                {regLookupError && <div className="text-xs text-rose-700">{regLookupError}</div>}
-                <Button
-                  disabled={saving || !employeeName.trim() || !regNumber.trim() || monthsSum() <= 0}
-                  onClick={() => void submitByVehicle()}
-                >
-                  {saving ? "Looking up & saving..." : "Look up & Save Entry"}
-                </Button>
+                {!regLookupVehicle ? (
+                  <>
+                    <div>
+                      <label className="text-xs text-muted-foreground">Vehicle Registration Number</label>
+                      <Input
+                        placeholder="e.g. AB12 CDE"
+                        value={regNumber}
+                        onChange={(e) => setRegNumber(e.target.value)}
+                      />
+                    </div>
+                    {regLookupError && <div className="text-xs text-rose-700">{regLookupError}</div>}
+                    <Button
+                      disabled={regLookupChecking || !regNumber.trim()}
+                      onClick={() => void lookupVehicle()}
+                    >
+                      {regLookupChecking ? "Looking up..." : "Look Up"}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <div className="rounded-md border p-3 text-sm">
+                      <div className="font-medium">
+                        Found: {regLookupVehicle.make || "Vehicle"}
+                        {regLookupVehicle.fuel_type ? ` (${regLookupVehicle.fuel_type})` : ""}
+                        {regLookupVehicle.factor?.report_label ? ` — matched to ${regLookupVehicle.factor.report_label}` : ""}
+                      </div>
+                      <Button size="sm" variant="outline" className="mt-2" onClick={changeRegistration}>
+                        Change registration
+                      </Button>
+                    </div>
+                    {renderMonthlyGrid("miles")}
+                    {regLookupError && <div className="text-xs text-rose-700">{regLookupError}</div>}
+                    <Button
+                      disabled={saving || !employeeName.trim() || monthsSum() <= 0}
+                      onClick={() => void submitByVehicle()}
+                    >
+                      {saving ? "Saving..." : "Add Entry"}
+                    </Button>
+                  </>
+                )}
               </div>
             ) : rowType === "commuting" ? (
               <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">

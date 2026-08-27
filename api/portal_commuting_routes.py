@@ -176,11 +176,13 @@ def _assert_employee_id_unique(
 @router.get("/portal/commuting/history")
 def portal_commuting_history(current_user: dict = Depends(portal_user_dep)):
     """This client's own prior-year Employee Commuting entries across every
-    historical job, one item per employee/vehicle as originally submitted --
-    see services/portal_data_entry.py load_client_commuting_history_detail."""
+    historical job except the currently-active one, one item per
+    employee/vehicle as originally submitted -- see
+    services/portal_data_entry.py load_client_commuting_history_detail."""
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
-        items = load_client_commuting_history_detail(con, client_db_id)
+        current_job_id = resolve_current_job_for_client(con, client_db_id)
+        items = load_client_commuting_history_detail(con, client_db_id, current_job_id=current_job_id)
     return {"items": items}
 
 

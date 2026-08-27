@@ -302,7 +302,7 @@ def portal_data_entry_history(
     current_user: dict = Depends(portal_user_dep),
 ):
     """This client's own prior-year totals for this bucket, across every
-    historical job -- not just the currently-open one -- so clients can see
+    historical job EXCEPT the currently-active one -- so clients can see
     what they reported last time while filling in this year's data. Same
     underlying calc as the CRM's own Year-over-Year breakdown, see
     services/portal_data_entry.py load_client_category_history."""
@@ -310,9 +310,13 @@ def portal_data_entry_history(
     client_db_id = int(current_user["client_db_id"])
 
     with get_conn() as con:
+        current_job_id = resolve_current_job_for_client(con, client_db_id)
         category_map = load_bucket_category_map(con)
         items = load_client_category_history(
-            con, client_db_id, lambda cat: bucket_for_category(category_map, cat) == bucket_key
+            con,
+            client_db_id,
+            lambda cat: bucket_for_category(category_map, cat) == bucket_key,
+            current_job_id=current_job_id,
         )
 
     return {"bucket_key": bucket_key, "items": items}

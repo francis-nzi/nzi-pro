@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -153,8 +154,21 @@ function isPositiveQty(value: string): boolean {
 }
 
 export default function PortalDataEntry() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [buckets, setBuckets] = useState<Bucket[]>([]);
   const [activeBucket, setActiveBucket] = useState<string>("");
+
+  // Keeps the active sub-tab in the URL (?tab=data_entry&bucket=...) instead
+  // of only local state, so a browser refresh restores the tab the client
+  // was on instead of silently resetting to Company Vehicles (the first
+  // bucket returned) every time.
+  function selectBucket(bucketKey: string) {
+    setActiveBucket(bucketKey);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("bucket", bucketKey);
+    router.replace(`/dashboard?${params.toString()}`, { scroll: false });
+  }
   const [rows, setRows] = useState<Row[]>([]);
   const [rowsLoading, setRowsLoading] = useState(false);
   const [jobNumber, setJobNumber] = useState<string | null>(null);
@@ -224,7 +238,13 @@ export default function PortalDataEntry() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d: { buckets: Bucket[] }) => {
         setBuckets(d.buckets || []);
-        if (d.buckets?.length) setActiveBucket(d.buckets[0].bucket_key);
+        const bucketFromUrl = searchParams.get("bucket");
+        const isValidFromUrl = (d.buckets || []).some((b) => b.bucket_key === bucketFromUrl);
+        if (isValidFromUrl && bucketFromUrl) {
+          setActiveBucket(bucketFromUrl);
+        } else if (d.buckets?.length) {
+          setActiveBucket(d.buckets[0].bucket_key);
+        }
       })
       .catch(() => setError("Failed to load data entry categories."));
 
@@ -670,7 +690,7 @@ export default function PortalDataEntry() {
         {allTabs.map((b) => (
           <button
             key={b.bucket_key}
-            onClick={() => setActiveBucket(b.bucket_key)}
+            onClick={() => selectBucket(b.bucket_key)}
             title={b.has_data ? "Data submitted" : undefined}
             className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium ${
               activeBucket === b.bucket_key ? "bg-primary text-primary-foreground" : "hover:bg-muted"

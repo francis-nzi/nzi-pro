@@ -95,11 +95,14 @@ def _assert_data_entry_open(con, job_id: int) -> None:
 @router.get("/portal/spend/history")
 def portal_spend_history(current_user: dict = Depends(portal_user_dep)):
     """This client's own prior-year Purchased Goods & Services totals across
-    every historical job -- see services/portal_data_entry.py
-    load_client_category_history."""
+    every historical job except the currently-active one -- see
+    services/portal_data_entry.py load_client_category_history."""
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
-        items = load_client_category_history(con, client_db_id, lambda cat: cat in PGS_CATEGORIES)
+        current_job_id = resolve_current_job_for_client(con, client_db_id)
+        items = load_client_category_history(
+            con, client_db_id, lambda cat: cat in PGS_CATEGORIES, current_job_id=current_job_id
+        )
     return {"items": items}
 
 

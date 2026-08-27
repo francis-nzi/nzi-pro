@@ -133,7 +133,9 @@ def bucket_for_category(category_map: dict[str, str], category: str | None) -> s
     return category_map.get(text, "other")
 
 
-def load_client_category_history(con, client_db_id: int, category_filter) -> list[dict[str, Any]]:
+def load_client_category_history(
+    con, client_db_id: int, category_filter, current_job_id: int | None = None
+) -> list[dict[str, Any]]:
     """Per-year, per-entry emissions + quantity for a client's own historical
     data, restricted to categories where `category_filter(cat)` is True --
     powers the "previous years" table on each portal Data Entry tab. Reuses
@@ -158,7 +160,15 @@ def load_client_category_history(con, client_db_id: int, category_filter) -> lis
     consolidated job_scope_rows line (see
     services/employee_commuting_consolidation.py); use
     load_client_commuting_history_detail for that tab instead, which reads
-    job_emission_sources directly and keeps the employee_name/reg number."""
+    job_emission_sources directly and keeps the employee_name/reg number.
+
+    `current_job_id`, when given, is excluded from the result -- "previous
+    years" means years before the one a client is actively filling in, and
+    without this a client who has already submitted (or has legacy/
+    consultant-entered data for) the current job sees it appear as its own
+    "most recent year", making copy-forward offer to copy this year's data
+    onto itself. See portal_data_entry_history's caller for how this is
+    resolved (resolve_current_job_for_client)."""
     # Local imports: these are CRM-reporting internals (api/client_reporting_
     # routes.py, services/monthly_emissions.py), not portal-layer code --
     # importing at call time avoids a module-load-order dependency between
@@ -171,7 +181,7 @@ def load_client_category_history(con, client_db_id: int, category_filter) -> lis
     if jobs_df is None or jobs_df.empty:
         return []
     year_jobs = _build_year_jobs(jobs_df)
-    job_ids = [yj["job_id"] for yj in year_jobs]
+    job_ids = [yj["job_id"] for yj in year_jobs if yj["job_id"] != current_job_id]
     if not job_ids:
         return []
 
@@ -339,7 +349,9 @@ def load_legacy_commuting_rows(con, job_ids: list[int]) -> list[dict[str, Any]]:
     return out
 
 
-def load_client_commuting_history_detail(con, client_db_id: int) -> list[dict[str, Any]]:
+def load_client_commuting_history_detail(
+    con, client_db_id: int, current_job_id: int | None = None
+) -> list[dict[str, Any]]:
     """Per-employee/vehicle Employee Commuting history -- one item per
     approved job_emission_sources entry, read directly rather than via
     load_client_category_history/load_combined_reporting_rows (which only
@@ -354,14 +366,18 @@ def load_client_commuting_history_detail(con, client_db_id: int) -> list[dict[st
     client's history includes years where the data was entered as manual
     job_scope_rows aggregates instead of via the per-employee register (see
     that function's docstring) -- those items carry identifier=None since
-    there's no employee identity behind an aggregate row."""
+    there's no employee identity behind an aggregate row.
+
+    `current_job_id`, when given, is excluded -- see
+    load_client_category_history's docstring for why "previous years" must
+    never include the currently active job."""
     from api.client_reporting_routes import _build_year_jobs, _clean_label, _load_client_jobs
 
     jobs_df = _load_client_jobs(con, int(client_db_id), crp_only=False)
     if jobs_df is None or jobs_df.empty:
         return []
     year_jobs = _build_year_jobs(jobs_df)
-    job_ids = [yj["job_id"] for yj in year_jobs]
+    job_ids = [yj["job_id"] for yj in year_jobs if yj["job_id"] != current_job_id]
     if not job_ids:
         return []
 

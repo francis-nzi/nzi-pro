@@ -133,6 +133,32 @@ const MONTH_FIELD_KEYS = [
   "month_7", "month_8", "month_9", "month_10", "month_11", "month_12",
 ] as const;
 
+// The Monthly Breakdown modal displays labels starting from the job's own
+// reporting period (matching the CRM's Data Entry Monthly editor in
+// JobDataEntry.tsx and the portal's PortalCommutingTab.tsx), but monthlyValues
+// / MONTH_FIELD_KEYS stay calendar-indexed (index 0 = Jan = month_1)
+// regardless of display order -- only the label/input POSITION shown to the
+// user changes, not what's stored.
+function getOrderedMonths(reportingPeriodStart: string | null | undefined): string[] {
+  if (!reportingPeriodStart) return MONTH_LABELS;
+  try {
+    const startIdx = new Date(reportingPeriodStart).getMonth();
+    return [...MONTH_LABELS.slice(startIdx), ...MONTH_LABELS.slice(0, startIdx)];
+  } catch {
+    return MONTH_LABELS;
+  }
+}
+
+function getMonthIndex(reportingPeriodStart: string | null | undefined, displayIndex: number): number {
+  if (!reportingPeriodStart) return displayIndex;
+  try {
+    const startIdx = new Date(reportingPeriodStart).getMonth();
+    return (startIdx + displayIndex) % 12;
+  } catch {
+    return displayIndex;
+  }
+}
+
 type ImportedScopeRow = {
   row_id: number;
   site_id: number | null;
@@ -958,19 +984,22 @@ export default function EmployeeCommutingData({
               quantity to match the sum of the months entered here.
             </div>
             <div className="grid grid-cols-3 gap-3">
-              {MONTH_LABELS.map((label, i) => (
-                <div key={label}>
-                  <Label htmlFor={`ec-month-${i}`} className="text-xs">{label}</Label>
-                  <Input
-                    id={`ec-month-${i}`}
-                    type="text"
-                    inputMode="decimal"
-                    value={monthlyValues[i] ?? ""}
-                    onChange={(e) => updateMonthlyValue(i, e.target.value)}
-                    className="h-8 text-sm font-mono text-right"
-                  />
-                </div>
-              ))}
+              {getOrderedMonths(reportingPeriodStart).map((label, displayIdx) => {
+                const actualIndex = getMonthIndex(reportingPeriodStart, displayIdx);
+                return (
+                  <div key={label}>
+                    <Label htmlFor={`ec-month-${actualIndex}`} className="text-xs">{label}</Label>
+                    <Input
+                      id={`ec-month-${actualIndex}`}
+                      type="text"
+                      inputMode="decimal"
+                      value={monthlyValues[actualIndex] ?? ""}
+                      onChange={(e) => updateMonthlyValue(actualIndex, e.target.value)}
+                      className="h-8 text-sm font-mono text-right"
+                    />
+                  </div>
+                );
+              })}
             </div>
             <div className="flex items-center justify-between border-t pt-3">
               <span className="text-sm font-semibold">
