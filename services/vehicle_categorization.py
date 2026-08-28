@@ -9,8 +9,13 @@ diesel van (revenue weight 3270kg) correctly resolved to Vans - Class III
 car, HGV bands, motorbikes) remain unexercised by a real lookup.
 
 DVLA type approval codes used to branch: M1 = car, N1 = light goods (van),
-N2/N3 = heavier goods vehicles. Anything else (motorcycles, unrecognised)
-falls back to a best-effort motorbike match or None.
+N2/N3 = heavier goods vehicles. Anything else (motorcycles, or a goods
+vehicle DVLA left type_approval blank for -- common for HGVs on the free
+VES API) falls back to revenue_weight-based van/HGV banding when a
+revenue_weight is present (real motorbikes never have one), then a
+best-effort motorbike match by engine size, else None. Fixed 2026-08 after
+a real Scania HGV with no type_approval and a ~13,000cc diesel engine was
+wrongly matched to "Motorbike Large" purely by engine size.
 """
 from __future__ import annotations
 
@@ -192,12 +197,49 @@ def categorize_vehicle(con, job_id: int, vehicle_data: dict[str, Any]) -> tuple[
             return None, "Couldn't match this HGV to a known category — please search manually"
         return row, None
 
-    # Anything else (motorcycles, unrecognised type approval): best-effort
-    # motorbike match by engine size, else give up cleanly.
-    size = _band(vehicle_data.get("engine_capacity"), _MOTORBIKE_CC_BANDS)
-    if size:
-        row = _find_factor_row(con, dataset_ids, "Passenger vehicles", "Motorbike", size, None)
+    # Anything else (motorcycles, unrecognised type approval): DVLA VES
+    # often leaves type_approval blank for HGVs, which would otherwise land
+    # here and get matched to Motorbike purely by engine size -- a Scania
+    # truck's ~13,000cc diesel trivially clears the "Large motorbike"
+    # >500cc threshold. revenue_weight is a goods-vehicle plating figure
+    # that a real motorbike never has, so its presence is a far more
+    # reliable signal this is actually a van/HGV than a missing type
+    # approval code -- route it through the same weight-banded logic used
+    # for N1/N2/N3 instead of guessing "motorbike".
+    weight = vehicle_data.get("revenue_weight")
+    if weight:
+        fuel = fuel_label or "Unknown"
+        if weight <= 3500:
+            band = _band(weight, _VAN_WEIGHT_BANDS) or "Average (up to 3.5 tonnes)"
+            row = _find_factor_row(con, dataset_ids, "Delivery vehicles", "Vans", band, fuel)
+            if not row and band != "Average (up to 3.5 tonnes)":
+                row = _find_factor_row(
+                    con, dataset_ids, "Delivery vehicles", "Vans", "Average (up to 3.5 tonnes)", fuel
+                )
+        else:
+            wheelplan = str(vehicle_data.get("wheelplan") or "").upper()
+            is_artic = "ARTIC" in wheelplan or "TRACTOR" in wheelplan
+            band = _band(weight, _HGV_ARTIC_BANDS if is_artic else _HGV_RIGID_BANDS)
+            band = band or ("All artics" if is_artic else "All rigids")
+            row = _find_factor_row(con, dataset_ids, "Delivery vehicles", "HGV (all diesel)", band, "Average laden")
+            if not row:
+                row = _find_factor_row(
+                    con, dataset_ids, "Delivery vehicles", "HGV (all diesel)",
+                    "All artics" if is_artic else "All rigids", "Average laden",
+                )
         if row:
             return row, None
+
+    # Only genuinely attempt a motorbike match when there's no revenue_weight
+    # (real motorbikes don't have one) and the engine size is within a
+    # plausible motorbike range -- an implausibly large reading here is more
+    # likely bad/missing DVLA data than an actual superbike.
+    engine_capacity = vehicle_data.get("engine_capacity")
+    if not weight and engine_capacity is not None and engine_capacity <= 2500:
+        size = _band(engine_capacity, _MOTORBIKE_CC_BANDS)
+        if size:
+            row = _find_factor_row(con, dataset_ids, "Passenger vehicles", "Motorbike", size, None)
+            if row:
+                return row, None
 
     return None, "Couldn't determine a category for this vehicle — please search manually"
