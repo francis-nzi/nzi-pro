@@ -62,7 +62,7 @@ export default function JobsPage() {
   const [familyFilter, setFamilyFilter] = useState("");
   const [limit, setLimit] = useState(50);
   const [offset, setOffset] = useState(0);
-  const [sortBy, setSortBy] = useState<SortBy>("risk");
+  const [sortBy, setSortBy] = useState<SortBy>("job");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
