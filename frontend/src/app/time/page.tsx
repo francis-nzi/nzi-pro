@@ -23,7 +23,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Download, Edit, FolderUp, Printer, Trash2, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Download,
+  Edit,
+  FolderUp,
+  Printer,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import TaskAssigneePicker, { type TaskAssigneeOption } from "@/components/TaskAssigneePicker";
 import {
@@ -304,6 +315,8 @@ function TimePageContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
   const [, setSelectedJobClientId] = useState<number | null>(null);
 
   // Save-to-files modal state
@@ -462,6 +475,18 @@ function TimePageContent() {
     () => timeLogs.reduce((s, l) => s + l.hours, 0),
     [timeLogs]
   );
+
+  const totalPages = Math.max(1, Math.ceil(timeLogs.length / rowsPerPage));
+  const paginatedTimeLogs = useMemo(() => {
+    const start = (currentPage - 1) * rowsPerPage;
+    return timeLogs.slice(start, start + rowsPerPage);
+  }, [currentPage, rowsPerPage, timeLogs]);
+  const firstVisibleRow = timeLogs.length === 0 ? 0 : (currentPage - 1) * rowsPerPage + 1;
+  const lastVisibleRow = Math.min(currentPage * rowsPerPage, timeLogs.length);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
 
   const hasActiveFilters =
     appliedFilters.userId ||
@@ -631,6 +656,7 @@ function TimePageContent() {
   }, []);
 
   function applyReportFilters() {
+    setCurrentPage(1);
     setAppliedFilters({
       userId: draftUserId,
       dateFrom: draftDateFrom,
@@ -641,6 +667,7 @@ function TimePageContent() {
   }
 
   function clearReportFilters() {
+    setCurrentPage(1);
     setDraftUserId("");
     setStaffQuery("");
     setDraftDateFrom("");
@@ -1416,7 +1443,49 @@ function TimePageContent() {
               {timeLogs.length === 0 ? (
                 <p className="text-muted-foreground">No time entries found.</p>
               ) : (
-                <Table>
+                <>
+                  <div className="mb-3 flex flex-col gap-3 border-b pb-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Label htmlFor="time-entries-page-size" className="whitespace-nowrap text-muted-foreground">
+                        Rows per page
+                      </Label>
+                      <Select
+                        value={String(rowsPerPage)}
+                        onValueChange={(value) => {
+                          setRowsPerPage(Number(value));
+                          setCurrentPage(1);
+                        }}
+                      >
+                        <SelectTrigger id="time-entries-page-size" className="h-8 w-20">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[10, 20, 50, 100].map((size) => (
+                            <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <span className="whitespace-nowrap text-muted-foreground">
+                        Showing {firstVisibleRow}-{lastVisibleRow} of {timeLogs.length}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1" aria-label="Top pagination">
+                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentPage(1)} disabled={currentPage === 1} aria-label="First page">
+                        <ChevronsLeft className="h-4 w-4" />
+                      </Button>
+                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1} aria-label="Previous page">
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <span className="min-w-24 text-center text-sm">Page {currentPage} of {totalPages}</span>
+                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage === totalPages} aria-label="Next page">
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} aria-label="Last page">
+                        <ChevronsRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Date</TableHead>
@@ -1430,7 +1499,7 @@ function TimePageContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {timeLogs.map((log) => (
+                    {paginatedTimeLogs.map((log) => (
                       <TableRow key={log.time_id}>
                         <TableCell>{formatDate(log.work_date)}</TableCell>
                         <TableCell>
@@ -1467,14 +1536,30 @@ function TimePageContent() {
                       </TableRow>
                     ))}
                   </TableBody>
-                </Table>
+                  </Table>
+                </>
               )}
               {timeLogs.length > 0 && (
-                <div className="mt-3 flex justify-end text-sm text-muted-foreground border-t pt-3">
+                <div className="mt-3 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
                   <span>
                     {timeLogs.length} {timeLogs.length === 1 ? "entry" : "entries"} &middot; Total:{" "}
                     <strong>{fmtH(totalHours)} hours</strong>
                   </span>
+                  <div className="flex items-center gap-1" aria-label="Bottom pagination">
+                    <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentPage(1)} disabled={currentPage === 1} aria-label="First page">
+                      <ChevronsLeft className="h-4 w-4" />
+                    </Button>
+                    <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1} aria-label="Previous page">
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="min-w-24 text-center text-sm text-foreground">Page {currentPage} of {totalPages}</span>
+                    <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage === totalPages} aria-label="Next page">
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} aria-label="Last page">
+                      <ChevronsRight className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               )}
             </CardContent>
