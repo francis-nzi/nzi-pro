@@ -2589,6 +2589,24 @@ def update_scope_data_row(
                            "directly — make changes on the Employee Commuting tab instead.",
                 )
 
+            # An auto-generated T&D row's quantity/monthly split is derived by
+            # summing its linked grid-electricity parents (see
+            # _recompute_td_row_totals). Editing those fields directly on the
+            # T&D row — e.g. saving the monthly-values modal, which pushes
+            # qty + month_1..12 — would overwrite the derived total and it
+            # would not self-correct. Drop the physical-activity fields from
+            # the payload (provenance fields like data_source / data_confidence
+            # / notes are still allowed) and re-derive the total afterwards.
+            is_derived_td_row = bool(
+                before and before.get("is_auto_generated")
+                and before.get("auto_pair_kind") == "td_electricity_kwh"
+            )
+            td_row_needs_rederive = False
+            if is_derived_td_row:
+                filtered_payload = {k: v for k, v in payload.items() if k not in _MIRRORED_SCOPE_ROW_FIELDS}
+                td_row_needs_rederive = len(filtered_payload) != len(payload)
+                payload = filtered_payload
+
             site_id = payload.get("site_id") if "site_id" in payload else None
             if site_id is not None:
                 try:
@@ -2645,22 +2663,29 @@ def update_scope_data_row(
                     else:
                         params.append(payload[field])
             
-            if not update_fields:
+            if not update_fields and not td_row_needs_rederive:
                 raise HTTPException(status_code=400, detail="No valid fields to update")
-            
-            # Add updated_at
-            update_fields.append("updated_at=NOW()")
-            
-            # Add row_id to params
-            params.append(int(row_id))
-            
-            query = f"""
-                UPDATE job_scope_rows
-                SET {', '.join(update_fields)}
-                WHERE row_id=%s
-            """
-            
-            con.execute(query, params)
+
+            if update_fields:
+                # Add updated_at
+                update_fields.append("updated_at=NOW()")
+
+                # Add row_id to params
+                params.append(int(row_id))
+
+                query = f"""
+                    UPDATE job_scope_rows
+                    SET {', '.join(update_fields)}
+                    WHERE row_id=%s
+                """
+
+                con.execute(query, params)
+
+            if td_row_needs_rederive:
+                # The caller tried to hand-edit a derived field on this T&D row
+                # (e.g. the monthly-values modal). Restore the correct total
+                # from its linked parents.
+                _recompute_td_row_totals(con, int(row_id))
 
             after = _job_scope_row_snapshot(con, int(job_id), int(row_id))
             record_audit_event(

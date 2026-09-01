@@ -130,3 +130,83 @@ def test_create_site_rejects_blank_name_and_location(monkeypatch) -> None:
 
     assert error.value.status_code == 400
     assert not conn.queries
+
+
+# ── Registered address → Registered Office site sync (update_client) ──────────
+
+
+class _SyncConn:
+    """Fake conn for _sync_registered_office_site_from_address: one RO site
+    lookup returning `site_row`, records every UPDATE/INSERT issued."""
+
+    def __init__(self, site_row):
+        self._site_row = site_row
+        self._last_sql = ""
+        self.updates: list[tuple[str, list]] = []
+
+    def execute(self, sql: str, params=None):
+        self._last_sql = sql
+        stripped = sql.strip().upper()
+        if stripped.startswith(("UPDATE CLIENT_SITES", "INSERT INTO CLIENT_SITES")):
+            self.updates.append((sql, params or []))
+        return self
+
+    def fetchone(self):
+        if "FROM client_sites" in self._last_sql:
+            return self._site_row
+        if "INSERT INTO client_sites" in self._last_sql:
+            return (555,)
+        return None
+
+
+def _sync(monkeypatch, conn, **kwargs):
+    monkeypatch.setattr(client_routes, "_client_site_audit_snapshot", lambda *_a, **_k: {})
+    monkeypatch.setattr(client_routes, "record_audit_event", lambda *_a, **_k: None)
+    defaults = dict(
+        client_db_id=154, org_id="org-1",
+        new_location="The Motte, Berkhamsted, HP4 1HR, United Kingdom",
+        previous_location="Old Hall, Norwich, NR1 1AA, United Kingdom",
+        request=None, actor={},
+    )
+    defaults.update(kwargs)
+    client_routes._sync_registered_office_site_from_address(conn, **defaults)
+
+
+def test_sync_updates_untouched_registered_office_site(monkeypatch) -> None:
+    conn = _SyncConn((333, "Old Hall, Norwich, NR1 1AA, United Kingdom"))
+    _sync(monkeypatch, conn)
+
+    assert len(conn.updates) == 1
+    sql, params = conn.updates[0]
+    assert sql.strip().upper().startswith("UPDATE CLIENT_SITES")
+    assert params[0] == "The Motte, Berkhamsted, HP4 1HR, United Kingdom"
+    # geocode is cleared so "Geocode Sites" re-resolves it
+    assert "latitude = NULL" in sql
+
+
+def test_sync_leaves_hand_edited_site_alone(monkeypatch) -> None:
+    conn = _SyncConn((333, "Client's actual HQ, 5 Some Street, Leeds, LS1 1AA"))
+    _sync(monkeypatch, conn)
+
+    assert conn.updates == []
+
+
+def test_sync_is_noop_when_address_unchanged(monkeypatch) -> None:
+    conn = _SyncConn((333, "Old Hall, Norwich, NR1 1AA, United Kingdom"))
+    _sync(
+        monkeypatch, conn,
+        new_location="Old Hall, Norwich, NR1 1AA, United Kingdom",
+        previous_location="Old Hall, Norwich, NR1 1AA, United Kingdom",
+    )
+
+    assert conn.updates == []
+
+
+def test_sync_creates_site_when_none_exists(monkeypatch) -> None:
+    conn = _SyncConn(None)
+    _sync(monkeypatch, conn)
+
+    assert len(conn.updates) == 1
+    sql, params = conn.updates[0]
+    assert "INSERT INTO client_sites" in sql
+    assert params[3] == "The Motte, Berkhamsted, HP4 1HR, United Kingdom"

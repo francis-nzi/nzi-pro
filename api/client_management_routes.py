@@ -48,6 +48,91 @@ def _client_select_expr(columns: set[str], source: str, alias: str | None = None
     return f"{fallback} AS {target}"
 
 
+def _compose_registered_address(*parts: object) -> str:
+    """Join the client's registered-address fields into one location string,
+    in the same order create_client / services.sites use when seeding a site."""
+    cleaned = [str(p).strip() for p in parts if p is not None and str(p).strip()]
+    return ", ".join(cleaned) if cleaned else "Registered Office"
+
+
+def _sync_registered_office_site_from_address(
+    con,
+    *,
+    client_db_id: int,
+    org_id: str,
+    new_location: str,
+    previous_location: str,
+    request,
+    actor: dict[str, str],
+) -> None:
+    """When 'create site from this address' is on, keep the Registered Office
+    site's location aligned with the client's registered address -- but only
+    while the site still holds the previously auto-derived value. A site whose
+    location has been hand-edited is owned by the site record and left alone
+    (see services/sites.py::ensure_registered_office_site). A location change
+    clears the stored geocode so the next 'Geocode Sites' run re-resolves it."""
+    if new_location.strip() == previous_location.strip():
+        return
+
+    existing = con.execute(
+        """
+        SELECT site_id, location
+        FROM client_sites
+        WHERE client_db_id = ?
+          AND is_registered_office = TRUE
+          AND vacated_date IS NULL
+          AND (archived = FALSE OR archived IS NULL)
+        ORDER BY site_id
+        LIMIT 1
+        """,
+        [int(client_db_id)],
+    ).fetchone()
+
+    if existing:
+        current_loc = str(existing[1] or "").strip()
+        # Only follow the address if the site was never hand-edited.
+        if current_loc != previous_location.strip() or current_loc == new_location.strip():
+            return
+        site_id = int(existing[0])
+        before = _client_site_audit_snapshot(con, int(client_db_id), site_id, org_id)
+        con.execute(
+            """
+            UPDATE client_sites
+            SET location = ?, latitude = NULL, longitude = NULL,
+                geocode_source = NULL, geocode_precision = NULL, geocoded_at = NULL
+            WHERE site_id = ?
+            """,
+            [new_location, site_id],
+        )
+        after = _client_site_audit_snapshot(con, int(client_db_id), site_id, org_id)
+    else:
+        row = con.execute(
+            """
+            INSERT INTO client_sites (org_id, client_db_id, site_name, location, is_registered_office)
+            VALUES (?, ?, ?, ?, TRUE)
+            RETURNING site_id
+            """,
+            [org_id, int(client_db_id), "Registered Office", new_location],
+        ).fetchone()
+        site_id = int(row[0]) if row else None
+        before = None
+        after = _client_site_audit_snapshot(con, int(client_db_id), site_id, org_id) if site_id else None
+
+    if site_id is not None:
+        record_audit_event(
+            con,
+            request=request,
+            actor=actor,
+            action="update",
+            entity_type="client_site",
+            entity_id=site_id,
+            client_id=int(client_db_id),
+            before=before,
+            after=after,
+            metadata={"synced_from": "client_registered_address"},
+        )
+
+
 @router.post("/clients")
 def create_client(
     request: Request,
@@ -585,6 +670,37 @@ def update_client(
                     WHERE db_id = ? AND org_id = ?
                 """
                 con.execute(query, params)
+
+            # Follow a registered-address change through to the Registered
+            # Office site, but only while that site still holds the
+            # auto-derived value (never hand-edited). update_client used to
+            # write clients.addr_* only, leaving the linked site stale.
+            _address_cols = (
+                "addr_line1", "addr_line2", "addr_city",
+                "addr_region", "addr_postcode", "addr_country",
+            )
+            if existing_client and any(
+                f in normalized_body for f in (*_address_cols, "create_site_from_address")
+            ):
+                _ensure_client_sites_runtime_columns(con)
+                current = con.execute(
+                    """
+                    SELECT create_site_from_address, addr_line1, addr_line2,
+                           addr_city, addr_region, addr_postcode, addr_country
+                    FROM clients WHERE db_id = ? AND org_id = ?
+                    """,
+                    [int(client_db_id), org_id],
+                ).fetchone()
+                if current and current[0]:
+                    _sync_registered_office_site_from_address(
+                        con,
+                        client_db_id=int(client_db_id),
+                        org_id=org_id,
+                        new_location=_compose_registered_address(*current[1:7]),
+                        previous_location=_compose_registered_address(*existing_client[1:7]),
+                        request=request,
+                        actor=_user,
+                    )
 
             after = _client_audit_snapshot(con, int(client_db_id), org_id)
             record_audit_event(

@@ -1750,7 +1750,30 @@ def portal_srs_readiness(current_user: dict = Depends(portal_user_dep)):
     with get_conn() as con:
         responses = get_client_srs_responses(client_db_id, con=con)
         summary = get_srs_readiness_summary(client_db_id, con=con)
-    return {**responses, "summary": summary}
+    finalised = [a for a in (responses.get("assessments") or []) if a.get("status") == "finalised"]
+    last_assessment = None
+    if finalised:
+        a = finalised[0]  # list_assessments is newest-first
+        last_assessment = {
+            "label": a.get("label"),
+            "conducted_on": a.get("conducted_on"),
+            "period_year": a.get("period_year"),
+            "period_label": a.get("period_label"),
+        }
+    # Don't expose the in-progress draft or the internal assessment list to the client.
+    responses.pop("current_assessment", None)
+    responses.pop("assessments", None)
+    return {**responses, "summary": summary, "last_assessment": last_assessment}
+
+
+@router.get("/portal/srs-readiness/progression")
+def portal_srs_readiness_progression(current_user: dict = Depends(portal_user_dep)):
+    """Read-only period-on-period SRS Readiness history for this client."""
+    _assert_section_allowed(current_user, "srs_readiness")
+    from services.srs_readiness import get_srs_progression
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        return get_srs_progression(client_db_id, con=con)
 
 
 @router.get("/portal/actions/library")

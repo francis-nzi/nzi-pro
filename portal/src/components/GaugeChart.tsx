@@ -34,11 +34,13 @@ export default function GaugeChart({
   label,
   maturityLabel,
   maturityDescription,
+  deltaLabel,
 }: {
   value: number | null;
   label: string;
   maturityLabel?: string | null;
   maturityDescription?: string | null;
+  deltaLabel?: string | null;
 }) {
   const size = 180;
   const cx = size / 2;
@@ -77,6 +79,7 @@ export default function GaugeChart({
         ) : (
           <div className="text-xs text-gray-400">Not scored yet</div>
         )}
+        {deltaLabel && <div className="mt-0.5 text-xs font-medium text-gray-600">{deltaLabel}</div>}
       </div>
     </div>
   );

@@ -906,3 +906,106 @@ def test_repoint_preserves_monthly_values_through_update(monkeypatch) -> None:
 
     # The UPDATE SQL should not contain month_ columns
     assert conn.updated is True
+
+
+# ── Auto-generated T&D row: derived qty/months can't be hand-edited ───────────
+
+
+class _UpdateRowConn:
+    """Fake conn for update_scope_data_row: row exists, records UPDATE SQL."""
+
+    def __init__(self):
+        self.update_sql: list[str] = []
+        self.update_params: list = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, sql: str, params=None):
+        if "SELECT 1 FROM job_scope_rows WHERE row_id" in sql:
+            return _ScopeDataResult(fetchone_value=(1,))
+        if sql.strip().startswith("UPDATE job_scope_rows"):
+            self.update_sql.append(sql)
+            self.update_params.append(params)
+        return _ScopeDataResult()
+
+
+_TD_AUTO_BEFORE = {
+    "row_id": 50,
+    "job_id": 100,
+    "scope": "Scope 3",
+    "qty": 47000.0,
+    "apply_pct": 100.0,
+    "is_auto_generated": True,
+    "auto_pair_kind": "td_electricity_kwh",
+    "linked_row_id": None,
+    "data_confidence": "M",
+    "original_id": "13_402_4000_5_1",
+}
+
+
+def _patch_update_row(monkeypatch, conn, before):
+    monkeypatch.setattr(job_scope_data_routes, "get_conn", lambda: conn)
+    monkeypatch.setattr(job_scope_data_routes, "_ensure_job_scope_rows_schema", lambda *_a, **_k: None)
+    monkeypatch.setattr(job_scope_data_routes, "_job_scope_row_snapshot", lambda *_a, **_k: before)
+    monkeypatch.setattr(job_scope_data_routes, "record_audit_event", lambda *_a, **_k: None)
+    calls: list[int] = []
+    monkeypatch.setattr(job_scope_data_routes, "_recompute_td_row_totals", lambda _con, rid: calls.append(int(rid)))
+    return calls
+
+
+def test_update_td_auto_row_ignores_qty_and_months_and_rederives(monkeypatch) -> None:
+    conn = _UpdateRowConn()
+    recompute_calls = _patch_update_row(monkeypatch, conn, dict(_TD_AUTO_BEFORE))
+
+    result = job_scope_data_routes.update_scope_data_row(
+        request=_FakeRequest(),
+        job_id=100,
+        row_id=50,
+        payload={"qty": 0, **{f"month_{i}": 0 for i in range(1, 13)}},
+        _user={"user_id": "u1", "org_id": "org-123"},
+    )
+
+    assert result["ok"] is True
+    # No UPDATE that writes qty/month_ was issued...
+    assert all("qty=" not in s and "month_1=" not in s for s in conn.update_sql)
+    # ...and the derived total was recomputed from the linked parents.
+    assert recompute_calls == [50]
+
+
+def test_update_td_auto_row_still_allows_provenance_edits(monkeypatch) -> None:
+    conn = _UpdateRowConn()
+    recompute_calls = _patch_update_row(monkeypatch, conn, dict(_TD_AUTO_BEFORE))
+
+    job_scope_data_routes.update_scope_data_row(
+        request=_FakeRequest(),
+        job_id=100,
+        row_id=50,
+        payload={"data_confidence": "H"},
+        _user={"user_id": "u1", "org_id": "org-123"},
+    )
+
+    assert len(conn.update_sql) == 1
+    assert "data_confidence=" in conn.update_sql[0]
+    # A pure provenance edit must not disturb the derived total.
+    assert recompute_calls == []
+
+
+def test_update_ordinary_row_qty_is_written(monkeypatch) -> None:
+    conn = _UpdateRowConn()
+    ordinary = {**_TD_AUTO_BEFORE, "is_auto_generated": False, "auto_pair_kind": None}
+    recompute_calls = _patch_update_row(monkeypatch, conn, ordinary)
+
+    job_scope_data_routes.update_scope_data_row(
+        request=_FakeRequest(),
+        job_id=100,
+        row_id=50,
+        payload={"qty": 123},
+        _user={"user_id": "u1", "org_id": "org-123"},
+    )
+
+    assert any("qty=" in s for s in conn.update_sql)
+    assert recompute_calls == []

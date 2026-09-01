@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Save, Search } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Lock, Save, Search } from "lucide-react";
 
+import ClientSrsProgression from "@/components/ClientSrsProgression";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -66,6 +67,16 @@ type ResponseEdit = {
   status: string;
 };
 
+type SrsAssessment = {
+  assessment_id: number;
+  label: string | null;
+  period_year: number | null;
+  period_label: string | null;
+  conducted_on: string | null;
+  status: "draft" | "finalised";
+  is_baseline: boolean;
+};
+
 const SCORE_OPTIONS: { value: number; label: string }[] = [
   { value: 1, label: "Compliance" },
   { value: 2, label: "Maturing" },
@@ -126,6 +137,22 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("all");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
+  const [view, setView] = useState<"assessment" | "progression">("assessment");
+  const [assessments, setAssessments] = useState<SrsAssessment[]>([]);
+  const [draft, setDraft] = useState<SrsAssessment | null>(null);
+  const [assessmentBusy, setAssessmentBusy] = useState(false);
+  const [assessmentError, setAssessmentError] = useState("");
+  const [showStart, setShowStart] = useState(false);
+  const thisYear = new Date().getFullYear();
+  const [startForm, setStartForm] = useState({
+    period_year: String(thisYear),
+    conducted_on: new Date().toISOString().slice(0, 10),
+    period_label: "",
+    label: "",
+  });
+  const lastFinalised = assessments.find((a) => a.status === "finalised") ?? null;
+  const scoringLocked = !draft;
+
   useEffect(() => {
     void loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -140,10 +167,17 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
         const detail = await res.text().catch(() => "");
         throw new Error(detail || `Failed to load SRS Readiness (${res.status})`);
       }
-      const payload = (await res.json()) as { sections?: SrsSection[]; summary?: SrsSummary };
+      const payload = (await res.json()) as {
+        sections?: SrsSection[];
+        summary?: SrsSummary;
+        current_assessment?: SrsAssessment | null;
+        assessments?: SrsAssessment[];
+      };
       const loadedSections = Array.isArray(payload.sections) ? payload.sections : [];
       setSections(loadedSections);
       setSummary(payload.summary ?? null);
+      setDraft(payload.current_assessment ?? null);
+      setAssessments(Array.isArray(payload.assessments) ? payload.assessments : []);
       const nextEdits: Record<number, ResponseEdit> = {};
       for (const section of loadedSections) {
         for (const q of section.questions) {
@@ -218,7 +252,9 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
           items: [
             {
               question_id: questionId,
-              score: edit.score,
+              // Score is only editable while a draft assessment is open; omit it
+              // otherwise so a tracker-only save can't trip the 409 guard.
+              ...(scoringLocked ? {} : { score: edit.score }),
               evidence_notes: edit.evidence_notes.trim() || null,
               priority: edit.priority.trim() || null,
               owner: edit.owner.trim() || null,
@@ -232,9 +268,16 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
         const detail = await res.text().catch(() => "");
         throw new Error(detail || `Failed to save (${res.status})`);
       }
-      const payload = (await res.json()) as { sections?: SrsSection[]; summary?: SrsSummary };
+      const payload = (await res.json()) as {
+        sections?: SrsSection[];
+        summary?: SrsSummary;
+        assessments?: SrsAssessment[];
+        current_assessment?: SrsAssessment | null;
+      };
       if (Array.isArray(payload.sections)) setSections(payload.sections);
       if (payload.summary) setSummary(payload.summary);
+      if (Array.isArray(payload.assessments)) setAssessments(payload.assessments);
+      if (payload.current_assessment !== undefined) setDraft(payload.current_assessment ?? null);
       setSavedEdits((prev) => ({ ...prev, [questionId]: edit }));
       setSavedFlashId(questionId);
       window.setTimeout(() => setSavedFlashId((id) => (id === questionId ? null : id)), 1800);
@@ -242,6 +285,47 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
       setRowError((prev) => ({ ...prev, [questionId]: err instanceof Error ? err.message : "Failed to save" }));
     } finally {
       setSavingId(null);
+    }
+  }
+
+  async function assessmentAction(
+    method: "POST" | "DELETE",
+    path: string,
+    body?: unknown,
+  ): Promise<boolean> {
+    setAssessmentBusy(true);
+    setAssessmentError("");
+    try {
+      const res = await fetch(`${base}/clients/${clientDbId}/srs-readiness${path}`, {
+        method,
+        credentials: "include",
+        headers: body ? { "Content-Type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(detail || `Request failed (${res.status})`);
+      }
+      await loadData();
+      return true;
+    } catch (err) {
+      setAssessmentError(err instanceof Error ? err.message : "Request failed");
+      return false;
+    } finally {
+      setAssessmentBusy(false);
+    }
+  }
+
+  async function startAssessment() {
+    const ok = await assessmentAction("POST", "/assessments", {
+      period_year: Number(startForm.period_year) || thisYear,
+      conducted_on: startForm.conducted_on || null,
+      period_label: startForm.period_label.trim() || null,
+      label: startForm.label.trim() || null,
+    });
+    if (ok) {
+      setShowStart(false);
+      setView("assessment");
     }
   }
 
@@ -270,6 +354,115 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
         )}
       </div>
 
+      {/* View toggle */}
+      <div className="flex gap-2 border-b">
+        {(["assessment", "progression"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => setView(v)}
+            className={`border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
+              view === v ? "border-[#1c5026] text-[#1c5026]" : "border-transparent text-gray-500 hover:text-gray-800"
+            }`}
+          >
+            {v === "assessment" ? "Assessment" : "Progression"}
+          </button>
+        ))}
+      </div>
+
+      {/* Assessment context bar */}
+      <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
+        {draft ? (
+          <>
+            <div className="text-sm">
+              <span className="font-medium">Survey in progress</span> — {draft.label}
+              {draft.period_label ? ` · ${draft.period_label}` : ""} · conducted {draft.conducted_on}
+              <div className="text-xs text-muted-foreground">Scores are editable. Finalise to timestamp this round.</div>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button size="sm" disabled={assessmentBusy}
+                onClick={() => void assessmentAction("POST", `/assessments/${draft.assessment_id}/finalise`)}>
+                Finalise &amp; timestamp
+              </Button>
+              <Button size="sm" variant="outline" disabled={assessmentBusy}
+                onClick={() => { if (confirm("Discard this in-progress survey round? Scores revert to the last finalised round.")) void assessmentAction("DELETE", `/assessments/${draft.assessment_id}`); }}>
+                Discard
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="text-sm">
+              <span className="font-medium">No survey in progress.</span>{" "}
+              {lastFinalised
+                ? `Last: ${lastFinalised.label} (${lastFinalised.conducted_on})`
+                : "No assessment has been conducted yet."}
+              <div className="text-xs text-muted-foreground">
+                Scores are locked between surveys — start a new round to re-score with the client.
+              </div>
+            </div>
+            <Button size="sm" className="shrink-0" disabled={assessmentBusy} onClick={() => {
+              setStartForm({
+                period_year: String(thisYear),
+                conducted_on: new Date().toISOString().slice(0, 10),
+                period_label: "",
+                label: lastFinalised ? `${thisYear} Review` : "Baseline",
+              });
+              setShowStart(true);
+            }}>
+              Start new assessment
+            </Button>
+          </>
+        )}
+      </div>
+      {assessmentError && <div className="text-sm text-red-600">{assessmentError}</div>}
+
+      {/* Start-assessment modal */}
+      {showStart && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowStart(false)}>
+          <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold">Start a survey round</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Freezes a scored snapshot when you finalise. Scores carry forward from the last round.
+            </p>
+            <div className="mt-4 grid gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Period year</Label>
+                  <Input type="number" value={startForm.period_year}
+                    onChange={(e) => setStartForm((f) => ({ ...f, period_year: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Conducted on</Label>
+                  <Input type="date" value={startForm.conducted_on}
+                    onChange={(e) => setStartForm((f) => ({ ...f, conducted_on: e.target.value }))} />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Label</Label>
+                <Input value={startForm.label} placeholder="e.g. Baseline, 2027 Review"
+                  onChange={(e) => setStartForm((f) => ({ ...f, label: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Sub-annual tag (optional)</Label>
+                <Input value={startForm.period_label} placeholder="e.g. H1, Q3, Interim"
+                  onChange={(e) => setStartForm((f) => ({ ...f, period_label: e.target.value }))} />
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowStart(false)}>Cancel</Button>
+              <Button size="sm" disabled={assessmentBusy} onClick={() => void startAssessment()}>
+                {assessmentBusy ? "Starting…" : "Start"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {view === "progression" && <ClientSrsProgression clientDbId={clientDbId} baseUrl={base} />}
+
+      {view === "assessment" && (
+      <>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -373,21 +566,28 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
                           <div className="text-xs text-red-600">{rowError[q.question_id]}</div>
                         )}
 
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           {SCORE_OPTIONS.map((opt) => (
                             <button
                               key={opt.value}
                               type="button"
+                              disabled={scoringLocked}
+                              title={scoringLocked ? "Start an assessment to change scores" : undefined}
                               onClick={() => updateEdit(q.question_id, { score: edit.score === opt.value ? null : opt.value })}
                               className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                                 edit.score === opt.value
                                   ? "bg-[#1c5026] text-white border-[#1c5026]"
                                   : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
-                              }`}
+                              } ${scoringLocked ? "cursor-not-allowed opacity-50 hover:bg-white" : ""}`}
                             >
                               {opt.value}. {opt.label}
                             </button>
                           ))}
+                          {scoringLocked && (
+                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                              <Lock className="h-3 w-3" /> scores locked
+                            </span>
+                          )}
                         </div>
 
                         <div className="grid gap-3 md:grid-cols-2">
@@ -457,6 +657,8 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
           </Card>
         );
       })}
+      </>
+      )}
     </div>
   );
 }

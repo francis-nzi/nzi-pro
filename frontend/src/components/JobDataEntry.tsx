@@ -1180,6 +1180,12 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
   async function saveMonthlyData() {
     if (!monthlyEditRow) return;
+    // Auto-generated rows (T&D, commuting consolidation) derive their qty and
+    // monthly split from their source rows — never overwrite from this modal.
+    if (monthlyEditRow.is_auto_generated) {
+      closeMonthlyModal();
+      return;
+    }
 
     const monthlySum = getMonthlySum();
     const fields: Record<string, number | null> = {
@@ -3409,10 +3415,15 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
           </div>
 
           <DialogFooter>
+            {monthlyEditRow?.is_auto_generated && (
+              <p className="mr-auto self-center text-xs text-muted-foreground">
+                Auto-calculated from its linked source rows — not directly editable.
+              </p>
+            )}
             <Button variant="outline" onClick={closeMonthlyModal}>
-              {monthlyEditRow && isLegacyFallbackRow(monthlyEditRow) ? "Close" : "Cancel"}
+              {monthlyEditRow && (isLegacyFallbackRow(monthlyEditRow) || monthlyEditRow.is_auto_generated) ? "Close" : "Cancel"}
             </Button>
-            {!(monthlyEditRow && isLegacyFallbackRow(monthlyEditRow)) && (
+            {!(monthlyEditRow && (isLegacyFallbackRow(monthlyEditRow) || monthlyEditRow.is_auto_generated)) && (
               <Button onClick={saveMonthlyData} disabled={monthlyEditRow ? pendingSaveRowIds.has(monthlyEditRow.row_id) : false}>
                 {monthlyEditRow && pendingSaveRowIds.has(monthlyEditRow.row_id) ? "Saving..." : "Save Monthly Data"}
               </Button>
