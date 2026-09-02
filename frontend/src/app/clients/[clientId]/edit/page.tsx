@@ -124,6 +124,7 @@ type Client = {
   client_db_id: number;
   client_name: string | null;
   industry: string | null;
+  referral: string | null;
   description_long: string | null;
   website: string | null;
   year_end_month: string | null;
@@ -224,12 +225,14 @@ export default function EditClientPage() {
   const [status, setStatus] = useState<string>("");
   const [portfolios, setPortfolios] = useState<string[]>([]);
   const [industries, setIndustries] = useState<string[]>([]);
+  const [referrals, setReferrals] = useState<string[]>([]);
   const [users, setUsers] = useState<Array<{email: string, full_name: string}>>([]);
   const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
 
   // Form fields
   const [clientName, setClientName] = useState<string>("");
   const [industry, setIndustry] = useState<string>("");
+  const [referral, setReferral] = useState<string>("");
   const [descriptionLong, setDescriptionLong] = useState<string>("");
   const [website, setWebsite] = useState<string>("");
   const [yearEndMonth, setYearEndMonth] = useState<string>("");
@@ -315,11 +318,12 @@ export default function EditClientPage() {
   const loadLookups = useCallback(async () => {
     try {
       const lookupInit = { credentials: "include", cache: "no-store" } as RequestInit;
-      const [portfoliosRes, industriesRes, usersRes, currenciesRes] = await Promise.allSettled([
+      const [portfoliosRes, industriesRes, usersRes, currenciesRes, referralsRes] = await Promise.allSettled([
         fetchJsonWithTimeout(`${baseUrl}/admin/lookups/portfolios_lookup`, lookupInit, 10000, "Portfolio lookup"),
         fetchJsonWithTimeout(`${baseUrl}/admin/lookups/industries_lookup`, lookupInit, 10000, "Industry lookup"),
         fetchJsonWithTimeout(`${baseUrl}/admin/users`, lookupInit, 10000, "User lookup"),
         fetchJsonWithTimeout(`${baseUrl}/admin/lookups/currency_lookup`, lookupInit, 10000, "Currency lookup"),
+        fetchJsonWithTimeout(`${baseUrl}/admin/lookups/referrals_lookup`, lookupInit, 10000, "Referral lookup"),
       ]);
 
       if (portfoliosRes.status === "fulfilled" && portfoliosRes.value.ok) {
@@ -335,6 +339,17 @@ export default function EditClientPage() {
           data.items?.map((item) => item.name).filter((item): item is string => Boolean(item)) || [];
         setIndustries(
           Array.from(new Set(industryList))
+            .map((value) => String(value))
+            .sort((a, b) => a.localeCompare(b))
+        );
+      }
+
+      if (referralsRes.status === "fulfilled" && referralsRes.value.ok) {
+        const data = (await referralsRes.value.json()) as LookupResponse;
+        const referralList =
+          data.items?.map((item) => item.name).filter((item): item is string => Boolean(item)) || [];
+        setReferrals(
+          Array.from(new Set(referralList))
             .map((value) => String(value))
             .sort((a, b) => a.localeCompare(b))
         );
@@ -404,6 +419,7 @@ export default function EditClientPage() {
         setClient(json);
         setClientName(json.client_name || "");
         setIndustry(json.industry || "");
+        setReferral(json.referral || "");
         setDescriptionLong(json.description_long || "");
         setWebsite(json.website || "");
         setYearEndMonth(json.year_end_month || "");
@@ -646,6 +662,7 @@ export default function EditClientPage() {
           client_name: clientName || null,
           billing_company: billingCompany || clientName || null,
           industry: industry || null,
+          referral: referral || null,
           description_long: descriptionLong || null,
           website: website || null,
           year_end_month: yearEndMonth || null,
@@ -823,6 +840,17 @@ export default function EditClientPage() {
                       options={industries}
                       placeholder="Search industries..."
                       onValueChange={setIndustry}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="referral">Referral</Label>
+                    <SearchableStringSelect
+                      id="referral"
+                      value={referral}
+                      options={referrals}
+                      placeholder="Select referral source..."
+                      showClearButton
+                      onValueChange={setReferral}
                     />
                   </div>
                   <div className="space-y-2">

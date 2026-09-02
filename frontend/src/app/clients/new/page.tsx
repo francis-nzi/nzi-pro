@@ -72,6 +72,7 @@ export default function NewClientPage() {
   const [capacityError, setCapacityError] = useState<OrgCapacityErrorInfo | null>(null);
   const [portfolios, setPortfolios] = useState<string[]>([]);
   const [industries, setIndustries] = useState<string[]>([]);
+  const [referrals, setReferrals] = useState<string[]>([]);
   const [users, setUsers] = useState<Array<{ email: string; full_name: string }>>(
     []
   );
@@ -80,6 +81,7 @@ export default function NewClientPage() {
   // Basic Info
   const [clientName, setClientName] = useState("");
   const [industry, setIndustry] = useState("");
+  const [referral, setReferral] = useState("");
   const [website, setWebsite] = useState("");
   const [companyReg, setCompanyReg] = useState("");
   const [sicCode, setSicCode] = useState("");
@@ -299,11 +301,12 @@ export default function NewClientPage() {
 
   const loadLookups = useCallback(async () => {
     try {
-      const [portfoliosRes, industriesRes, usersRes, currenciesRes] = await Promise.all([
+      const [portfoliosRes, industriesRes, usersRes, currenciesRes, referralsRes] = await Promise.all([
         fetch(`${baseUrl}/admin/lookups/portfolios_lookup`),
         fetch(`${baseUrl}/admin/lookups/industries_lookup`),
         fetch(`${baseUrl}/admin/users`),
         fetch(`${baseUrl}/admin/lookups/currency_lookup`),
+        fetch(`${baseUrl}/admin/lookups/referrals_lookup`),
       ]);
 
       if (portfoliosRes.ok) {
@@ -319,6 +322,17 @@ export default function NewClientPage() {
           data.items?.map((item) => item.name).filter((item): item is string => Boolean(item)) || [];
         setIndustries(
           Array.from(new Set(industryList))
+            .map((value) => String(value))
+            .sort((a, b) => a.localeCompare(b))
+        );
+      }
+
+      if (referralsRes.ok) {
+        const data = (await referralsRes.json()) as LookupResponse;
+        const referralList =
+          data.items?.map((item) => item.name).filter((item): item is string => Boolean(item)) || [];
+        setReferrals(
+          Array.from(new Set(referralList))
             .map((value) => String(value))
             .sort((a, b) => a.localeCompare(b))
         );
@@ -407,6 +421,7 @@ export default function NewClientPage() {
             client_name: clientName.trim(),
             billing_company: billingCompany.trim() || clientName.trim() || null,
             industry: industry || null,
+            referral: referral || null,
             description_long: description || null,
             website: website || null,
             year_end_month: yearEndMonth || null,
@@ -672,6 +687,17 @@ export default function NewClientPage() {
                         {formErrors.industry}
                       </p>
                     )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="referral">Referral</Label>
+                    <SearchableStringSelect
+                      id="referral"
+                      value={referral}
+                      options={referrals}
+                      placeholder="Select referral source..."
+                      showClearButton
+                      onValueChange={setReferral}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="companyReg">Company Registration</Label>

@@ -199,9 +199,9 @@ def create_client(
                     target_s3_year, target_s3_pct, billing_same_as_main,
                     billing_addr_line1, billing_addr_line2, billing_addr_city,
                     billing_addr_region, billing_addr_postcode, billing_addr_country,
-                    create_site_from_address
+                    create_site_from_address, referral
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING db_id
                 """,
                 [
@@ -250,6 +250,7 @@ def create_client(
                     billing_addr_postcode,
                     billing_addr_country,
                     body.get("create_site_from_address", False),
+                    (str(body.get("referral")).strip() or None) if body.get("referral") is not None else None,
                 ],
             ).fetchone()
 
@@ -418,6 +419,7 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
             _client_select_expr(columns, "db_id", "client_db_id", "c.db_id"),
             _client_select_expr(columns, "client_name", "client_name", "c.client_name"),
             _client_select_expr(columns, "industry", "industry"),
+            _client_select_expr(columns, "referral", "referral"),
             _client_select_expr(columns, "description_long", "description_long"),
             _client_select_expr(columns, "status", "status"),
             _client_select_expr(columns, "website", "website"),
@@ -483,6 +485,7 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
         "client_db_id": int(row["client_db_id"]),
         "client_name": row["client_name"],
         "industry": row.get("industry"),
+        "referral": row.get("referral"),
         "description_long": row.get("description_long"),
         "status": row.get("status"),
         "website": row.get("website"),
@@ -609,6 +612,7 @@ def update_client(
             field_mapping = {
                 "client_name": "client_name",
                 "industry": "industry",
+                "referral": "referral",
                 "description_long": "description_long",
                 "website": "website",
                 "year_end_month": "year_end_month",

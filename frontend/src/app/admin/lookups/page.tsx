@@ -56,6 +56,7 @@ const LOOKUP_TABLES = [
   { key: "time_subjects", label: "Time Subjects", idCol: "subject_id", nameCol: "name" },
   { key: "portfolios_lookup", label: "Portfolios", idCol: "portfolio_id", nameCol: "name" },
   { key: "industries_lookup", label: "Industries", idCol: "industry_id", nameCol: "name" },
+  { key: "referrals_lookup", label: "Referrals", idCol: "referral_id", nameCol: "name" },
   { key: "currency_lookup", label: "Currencies", idCol: "currency_id", nameCol: "currency_name" },
 ];
 

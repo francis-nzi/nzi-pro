@@ -55,6 +55,55 @@ def test_positions_lookup_list_does_not_raise(monkeypatch):
     assert result["items"][0]["name"] == "Director"
 
 
+def test_referrals_lookup_list_create_and_delete_are_allowed(monkeypatch):
+    """referrals_lookup must be a recognised lookup on every CRUD path so
+    Admin -> Lookups and the client Referral dropdown work."""
+    class _ReferralConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, sql: str, params=None):
+            sql_norm = " ".join(sql.lower().split())
+            if "information_schema.columns" in sql_norm:
+                return _FakeResult(fetchone_value=None)
+            if "select * from referrals_lookup" in sql_norm:
+                return _FakeResult(
+                    df_value=pd.DataFrame(
+                        [
+                            {"referral_id": 1, "name": "Net Zero Nation", "is_active": True},
+                            {"referral_id": 2, "name": "Direct", "is_active": True},
+                        ]
+                    )
+                )
+            return _FakeResult(fetchone_value=None)
+
+    monkeypatch.setattr(admin_lookups_routes, "_ensure_lookup_table_once", lambda *a, **k: None)
+    monkeypatch.setattr(admin_lookups_routes, "_ensure_lookup_table", lambda *a, **k: None)
+    monkeypatch.setattr(admin_lookups_routes, "get_conn", lambda: _ReferralConn())
+
+    listed = admin_lookups_routes.list_lookup_items("referrals_lookup", False, {"is_super_admin": True})
+    assert [i["name"] for i in listed["items"]] == ["Net Zero Nation", "Direct"]
+
+    created = admin_lookups_routes.create_lookup_item(
+        "referrals_lookup", {"name": "Website", "is_active": True}, {"user_id": "u1", "org_id": "o1"}
+    )
+    assert created["ok"] is True
+
+    # id column is mapped: delete gets past the whitelist / "Unknown table"
+    # guard and 404s on the missing row rather than 400-ing on the table name.
+    import pytest
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc:
+        admin_lookups_routes.permanently_delete_lookup_item(
+            "referrals_lookup", 999, {"user_id": "u1", "org_id": "o1"}
+        )
+    assert exc.value.status_code == 404
+
+
 def test_portfolios_lookup_create_and_update_support_owner_link(monkeypatch):
     class _PortfolioLookupConn:
         def __init__(self):
