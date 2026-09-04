@@ -636,7 +636,12 @@ export default function PortalDataEntry() {
   }
 
   function renderStatus(row: Row) {
-    const review = REVIEW_LABEL[row.review_status || "pending_review"];
+    // Rows entered in the CRM pre-date the portal review workflow and have a
+    // null review_status. They are already enabled/included, so do not present
+    // them to the client as awaiting CRM review. This also keeps the generic
+    // data-entry table consistent with the commuting and spend tables.
+    const review = row.review_status ? REVIEW_LABEL[row.review_status] : null;
+    if (!review) return <span className="text-xs text-muted-foreground">-</span>;
     return (
       <>
         <span className={`rounded-full px-2 py-0.5 text-xs ${review.className}`}>{review.label}</span>

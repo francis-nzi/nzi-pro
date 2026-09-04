@@ -13,12 +13,14 @@ import logging
 import re
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 
 from api.employee_commuting_routes import (
     COMMUTE_FACTOR_MAP,
     COMMUTE_MODE_OPTIONS,
     DIRECT_COMMUTING_DATA_SOURCE,
+    TEMPLATE_VERSION,
     SERVICE_TYPE_OPTIONS,
     UNIT_OPTIONS,
     _calc_commuting_tco2e,
@@ -26,6 +28,11 @@ from api.employee_commuting_routes import (
     _canonical_variant,
     _ensure_emission_register_schema,
     _insert_manual_commuting_rows,
+    _build_template_workbook,
+    _job_meta,
+    _job_site_label,
+    _parse_template,
+    _template_filename,
     _months_sum,
     _parse_months,
     _resolve_manual_commuting_rows,
@@ -44,6 +51,8 @@ from services.portal_data_entry import (
 )
 from services.vehicle_categorization import categorize_vehicle
 from services.vehicle_lookup import lookup_vehicle_by_registration, normalize_registration
+from services.audit_log import record_audit_event
+from services.virus_scan import VirusScanError, scan_bytes
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["portal-commuting"])
@@ -135,6 +144,138 @@ def portal_commuting_options(current_user: dict = Depends(portal_user_dep)):
         "unit_options": UNIT_OPTIONS,
         "mode_service_map": _build_mode_service_map(),
     }
+
+
+@router.get("/portal/commuting/template")
+def portal_commuting_template(current_user: dict = Depends(portal_user_dep)):
+    """Download the standard commuting/WFH workbook for the active portal job."""
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn(autocommit=False) as con:
+        job_id = _resolve_job_or_404(con, client_db_id)
+        meta = _job_meta(con, job_id)
+        default_site_id = _default_client_site_id(con, client_db_id)
+        _, site_label = _job_site_label(con, job_id, default_site_id)
+        workbook_bytes = _build_template_workbook(meta, site_label)
+        filename = _template_filename(meta, site_label)
+
+    safe_filename = filename.replace('"', '\\"')
+    return Response(
+        content=workbook_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_filename}"',
+            "X-Filename": filename,
+        },
+    )
+
+
+def _portal_upload_preview(con, job_id: int, site_id: int | None, raw: bytes) -> dict[str, Any]:
+    parsed_rows = _parse_template(raw)
+    preview = _resolve_manual_commuting_rows(con, job_id, site_id, parsed_rows)
+
+    # The manual form applies these privacy and duplicate checks before factor
+    # resolution. Apply the same rules to a workbook so preview catches them
+    # before the user confirms an import.
+    seen: set[tuple[str, str]] = set()
+    valid_ready_rows: list[dict[str, Any]] = []
+    for row in preview["ready_rows"]:
+        employee_name = str(row.get("employee_name") or "").strip()
+        row_type = str(row.get("source_subtype") or "commuting")
+        key = (employee_name.lower(), row_type)
+        reason = None
+        try:
+            _assert_not_a_full_name(employee_name)
+            if key in seen:
+                reason = "Duplicate employee/staff identifier for this row type in the workbook"
+            else:
+                _assert_employee_id_unique(con, job_id, employee_name, row_type)
+        except HTTPException as exc:
+            reason = str(exc.detail)
+        seen.add(key)
+        if reason:
+            preview["unresolved_rows"].append({
+                "sheet": "Employee Commuting" if row_type == "commuting" else "Working From Home",
+                "employee_name": employee_name,
+                "reason": reason,
+            })
+        else:
+            valid_ready_rows.append(row)
+
+    preview["ready_rows"] = valid_ready_rows
+    preview["ready_count"] = len(valid_ready_rows)
+    preview["unresolved_count"] = len(preview["unresolved_rows"])
+    preview["total_tco2e"] = round(sum(float(r.get("calc_tco2e") or 0) for r in valid_ready_rows), 6)
+    return preview
+
+
+@router.post("/portal/commuting/upload-preview")
+async def portal_commuting_upload_preview(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(portal_user_dep),
+):
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty upload file")
+    try:
+        scan_bytes(raw, filename=file.filename or "employee-commuting.xlsx")
+    except VirusScanError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        _ensure_emission_register_schema(con)
+        job_id = _resolve_job_or_404(con, client_db_id)
+        site_id = _default_client_site_id(con, client_db_id)
+        preview = _portal_upload_preview(con, job_id, site_id, raw)
+    return {"job_id": job_id, "template_version": TEMPLATE_VERSION, **preview}
+
+
+@router.post("/portal/commuting/upload-commit")
+async def portal_commuting_upload_commit(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(portal_user_dep),
+):
+    _assert_can_manage(current_user)
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty upload file")
+    try:
+        scan_bytes(raw, filename=file.filename or "employee-commuting.xlsx")
+    except VirusScanError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        _ensure_emission_register_schema(con)
+        job_id = _resolve_job_or_404(con, client_db_id)
+        _assert_data_entry_open(con, job_id)
+        site_id = _default_client_site_id(con, client_db_id)
+        preview = _portal_upload_preview(con, job_id, site_id, raw)
+        if preview["unresolved_count"]:
+            raise HTTPException(status_code=400, detail={
+                "message": "Upload contains unresolved rows. Correct the workbook and preview it again.",
+                "unresolved_rows": preview["unresolved_rows"],
+            })
+        if not preview["ready_count"]:
+            raise HTTPException(status_code=400, detail="No importable employee commuting rows were found")
+
+        inserted, inserted_ids = _insert_manual_commuting_rows(
+            con, job_id, preview["ready_rows"], submitted_by_portal=True
+        )
+        record_audit_event(
+            con,
+            request=request,
+            actor={"email": current_user.get("email"), "full_name": current_user.get("full_name"), "user_id": "portal"},
+            action="portal_upload",
+            entity_type="employee_commuting_import",
+            entity_id=f"{job_id}:{inserted_ids[0] if inserted_ids else 'none'}",
+            client_id=client_db_id,
+            job_id=job_id,
+            metadata={"inserted": inserted, "source_ids": inserted_ids, "template_version": TEMPLATE_VERSION},
+        )
+
+    return {"ok": True, "job_id": job_id, "inserted": inserted, "source_ids": inserted_ids}
 
 
 def _assert_employee_id_unique(

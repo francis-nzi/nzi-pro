@@ -77,6 +77,11 @@ type SrsAssessment = {
   is_baseline: boolean;
 };
 
+type OwnerOptions = {
+  contacts: { id: number; name: string; detail?: string | null }[];
+  teams: { id: number; name: string }[];
+};
+
 const SCORE_OPTIONS: { value: number; label: string }[] = [
   { value: 1, label: "Compliance" },
   { value: 2, label: "Maturing" },
@@ -132,6 +137,7 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [rowError, setRowError] = useState<Record<number, string>>({});
+  const [ownerOptions, setOwnerOptions] = useState<OwnerOptions>({ contacts: [], teams: [] });
 
   const [searchQuery, setSearchQuery] = useState("");
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("all");
@@ -172,12 +178,17 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
         summary?: SrsSummary;
         current_assessment?: SrsAssessment | null;
         assessments?: SrsAssessment[];
+        owner_options?: OwnerOptions;
       };
       const loadedSections = Array.isArray(payload.sections) ? payload.sections : [];
       setSections(loadedSections);
       setSummary(payload.summary ?? null);
       setDraft(payload.current_assessment ?? null);
       setAssessments(Array.isArray(payload.assessments) ? payload.assessments : []);
+      setOwnerOptions({
+        contacts: Array.isArray(payload.owner_options?.contacts) ? payload.owner_options.contacts : [],
+        teams: Array.isArray(payload.owner_options?.teams) ? payload.owner_options.teams : [],
+      });
       const nextEdits: Record<number, ResponseEdit> = {};
       for (const section of loadedSections) {
         for (const q of section.questions) {
@@ -339,6 +350,18 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
 
   return (
     <div className="space-y-6">
+      <datalist id={`srs-owner-options-${clientDbId}`}>
+        {ownerOptions.contacts.map((contact) => (
+          <option
+            key={`contact-${contact.id}`}
+            value={contact.name}
+            label={`Client contact${contact.detail ? ` — ${contact.detail}` : ""}`}
+          />
+        ))}
+        {ownerOptions.teams.map((team) => (
+          <option key={`team-${team.id}`} value={team.name} label="Client team" />
+        ))}
+      </datalist>
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-xl font-bold" style={{ color: "#F26624" }}>UK SRS Readiness</h2>
@@ -634,8 +657,12 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
                                 className="h-9 text-sm"
                                 value={edit.owner}
                                 onChange={(e) => updateEdit(q.question_id, { owner: e.target.value })}
-                                placeholder="e.g. Leadership"
+                                list={`srs-owner-options-${clientDbId}`}
+                                placeholder="Choose or enter an owner"
                               />
+                              <p className="text-[11px] text-muted-foreground">
+                                Select a client contact or team, or type a custom owner.
+                              </p>
                             </div>
                             <div className="space-y-1.5">
                               <Label className="text-xs">Target date</Label>

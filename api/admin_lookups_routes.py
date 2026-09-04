@@ -156,7 +156,7 @@ def list_lookup_items(
         "industries_lookup", "currency_lookup", "positions_lookup",
         "processes_lookup", "job_item_categories_lookup", "uom_lookup",
         "bd_bin_reasons_lookup", "job_file_types_lookup", "action_categories_lookup",
-        "governance_subjects_lookup", "lca_material_categories_lookup", "referrals_lookup",
+        "governance_subjects_lookup", "lca_material_categories_lookup", "referrals_lookup", "client_teams_lookup",
     ]
     
     if table_name not in allowed_tables:
@@ -276,7 +276,7 @@ def permanently_delete_lookup_item(
         "industries_lookup", "currency_lookup", "positions_lookup",
         "processes_lookup", "job_item_categories_lookup", "uom_lookup",
         "bd_bin_reasons_lookup", "job_file_types_lookup", "action_categories_lookup",
-        "governance_subjects_lookup", "lca_material_categories_lookup", "referrals_lookup",
+        "governance_subjects_lookup", "lca_material_categories_lookup", "referrals_lookup", "client_teams_lookup",
     ]
 
     if table_name not in allowed_tables:
@@ -301,6 +301,7 @@ def permanently_delete_lookup_item(
         "governance_subjects_lookup": "governance_subject_id",
         "lca_material_categories_lookup": "category_id",
         "referrals_lookup": "referral_id",
+        "client_teams_lookup": "client_team_id",
     }
     id_col = id_col_map.get(table_name)
     if not id_col:
@@ -355,7 +356,7 @@ def create_lookup_item(
         "industries_lookup", "currency_lookup", "positions_lookup",
         "processes_lookup", "job_item_categories_lookup", "uom_lookup",
         "bd_bin_reasons_lookup", "job_file_types_lookup", "action_categories_lookup",
-        "governance_subjects_lookup", "lca_material_categories_lookup", "referrals_lookup",
+        "governance_subjects_lookup", "lca_material_categories_lookup", "referrals_lookup", "client_teams_lookup",
     ]
     
     if table_name not in allowed_tables:
@@ -565,7 +566,7 @@ def update_lookup_item(
         "industries_lookup", "currency_lookup", "positions_lookup",
         "processes_lookup", "job_item_categories_lookup", "uom_lookup",
         "bd_bin_reasons_lookup", "job_file_types_lookup", "action_categories_lookup",
-        "governance_subjects_lookup", "lca_material_categories_lookup", "referrals_lookup",
+        "governance_subjects_lookup", "lca_material_categories_lookup", "referrals_lookup", "client_teams_lookup",
     ]
     
     if table_name not in allowed_tables:
@@ -591,6 +592,7 @@ def update_lookup_item(
         "governance_subjects_lookup": "governance_subject_id",
         "lca_material_categories_lookup": "category_id",
         "referrals_lookup": "referral_id",
+        "client_teams_lookup": "client_team_id",
     }
 
     id_col = id_col_map.get(table_name)

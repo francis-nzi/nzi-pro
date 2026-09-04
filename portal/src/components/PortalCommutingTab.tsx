@@ -142,6 +142,17 @@ export default function PortalCommutingTab() {
   const [dataEntryExpired, setDataEntryExpired] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadPreview, setUploadPreview] = useState<{
+    ready_count: number;
+    unresolved_count: number;
+    ready_rows: Record<string, unknown>[];
+    unresolved_rows: { employee_name?: string; reason?: string }[];
+  } | null>(null);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [uploadResult, setUploadResult] = useState<number | null>(null);
   const [justAdded, setJustAdded] = useState(false);
   const justAddedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -259,6 +270,72 @@ export default function PortalCommutingTab() {
       }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function downloadTemplate() {
+    setUploadError("");
+    try {
+      const res = await apiFetch("/portal/commuting/template");
+      if (!res.ok) throw new Error(`Download failed (${res.status})`);
+      const blob = await res.blob();
+      const contentDisposition = res.headers.get("Content-Disposition") || "";
+      const dispositionName = contentDisposition.match(/filename="?([^";]+)"?/i)?.[1];
+      const filename = res.headers.get("X-Filename") || dispositionName || "employee-commuting-template.xlsx";
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "Failed to download template.");
+    }
+  }
+
+  async function previewBulkUpload() {
+    if (!uploadFile) return;
+    setUploadBusy(true);
+    setUploadError("");
+    setUploadResult(null);
+    try {
+      const body = new FormData();
+      body.append("file", uploadFile);
+      const res = await apiFetch("/portal/commuting/upload-preview", { method: "POST", body });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.detail || "Couldn't read that workbook.");
+      setUploadPreview(data);
+    } catch (e) {
+      setUploadPreview(null);
+      setUploadError(e instanceof Error ? e.message : "Couldn't read that workbook.");
+    } finally {
+      setUploadBusy(false);
+    }
+  }
+
+  async function commitBulkUpload() {
+    if (!uploadFile || !uploadPreview || uploadPreview.unresolved_count > 0) return;
+    setUploadBusy(true);
+    setUploadError("");
+    try {
+      const body = new FormData();
+      body.append("file", uploadFile);
+      const res = await apiFetch("/portal/commuting/upload-commit", { method: "POST", body });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data?.detail?.message || data?.detail;
+        throw new Error(typeof detail === "string" ? detail : "Failed to import this workbook.");
+      }
+      setUploadResult(data.inserted || 0);
+      setUploadFile(null);
+      setUploadPreview(null);
+      void loadRows();
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "Failed to import this workbook.");
+    } finally {
+      setUploadBusy(false);
     }
   }
 
@@ -800,6 +877,16 @@ export default function PortalCommutingTab() {
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">{rows.length} entr{rows.length === 1 ? "y" : "ies"} submitted</div>
         {!dataEntryExpired && (
+          <div className="flex gap-2">
+          <Button variant="outline" onClick={() => {
+            setShowBulkUpload((value) => !value);
+            setUploadFile(null);
+            setUploadPreview(null);
+            setUploadError("");
+            setUploadResult(null);
+          }}>
+            {showBulkUpload ? "Cancel" : "Bulk Upload (XLSX)"}
+          </Button>
           <Button
             onClick={() => {
               const next = !showAdd;
@@ -809,8 +896,66 @@ export default function PortalCommutingTab() {
           >
             {showAdd ? "Cancel" : "+ Add Entry"}
           </Button>
+          </div>
         )}
       </div>
+      )}
+
+      {!noJobMessage && !dataEntryExpired && showBulkUpload && (
+        <Card>
+          <CardContent className="space-y-3 pt-4">
+            <p className="text-sm text-muted-foreground">
+              Download the workbook, complete either the Employee Commuting or Working From Home sheet, then upload it for review.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => void downloadTemplate()}>
+                Download Template
+              </Button>
+              <Input
+                type="file"
+                accept=".xlsx"
+                className="w-auto"
+                onChange={(e) => {
+                  setUploadFile(e.target.files?.[0] || null);
+                  setUploadPreview(null);
+                  setUploadError("");
+                  setUploadResult(null);
+                }}
+              />
+              <Button size="sm" disabled={!uploadFile || uploadBusy} onClick={() => void previewBulkUpload()}>
+                {uploadBusy ? "Working..." : "Preview"}
+              </Button>
+            </div>
+            {uploadError && <div className="text-xs text-rose-700">{uploadError}</div>}
+            {uploadPreview && (
+              <div className="space-y-2 rounded-md border p-3 text-sm">
+                <div>
+                  {uploadPreview.ready_count} row(s) ready
+                  {uploadPreview.unresolved_count > 0 && ` · ${uploadPreview.unresolved_count} row(s) need attention`}
+                </div>
+                {uploadPreview.unresolved_rows.length > 0 && (
+                  <ul className="list-disc space-y-1 pl-5 text-xs text-rose-700">
+                    {uploadPreview.unresolved_rows.map((row, index) => (
+                      <li key={index}>{row.employee_name || "Unnamed row"}: {row.reason || "Could not resolve row"}</li>
+                    ))}
+                  </ul>
+                )}
+                <Button
+                  size="sm"
+                  disabled={uploadBusy || uploadPreview.ready_count === 0 || uploadPreview.unresolved_count > 0}
+                  onClick={() => void commitBulkUpload()}
+                >
+                  {uploadBusy ? "Importing..." : `Confirm & Import ${uploadPreview.ready_count} Row(s)`}
+                </Button>
+              </div>
+            )}
+            {uploadResult !== null && (
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
+                Imported {uploadResult} row(s). They are now awaiting NZI review.
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {!noJobMessage && !dataEntryExpired && stagedCopies.length > 0 && (
