@@ -1,8 +1,32 @@
 # CRM Data Entry — Register Consolidation Scope
 
-**Status:** scoped, not started
+**Status:** delivered 2026-09-09
 **Raised:** 2026-09-09, from J000226 (Fenco Group Ltd, job 217)
 **Related:** `project_commuting_pattern_parity_2026_08` — this is the concrete version of that task.
+
+## What shipped
+
+Option A, with two changes to the plan below found during implementation:
+
+1. **PG&S needed nothing.** Spend already writes real `job_scope_rows` with
+   `data_source='Spend Data'` via `sync_spend_to_scope_data`
+   ([api/spend_data_routes.py:2155](api/spend_data_routes.py#L2155)), so it has
+   always appeared on Data Entry — 124 rows across 10 jobs at time of writing.
+   The gap was only Asset Register and Business Travel: 152 rows across 22 jobs.
+2. **Rows are consolidated, not raw.** Rather than listing 10 individual
+   vehicles, the union groups by (site, factor, register) — one line per factor,
+   matching how Employee Commuting presents and how the rest of Data Entry
+   reads. `_load_register_consolidated_rows` in
+   [api/job_scope_data_routes.py](api/job_scope_data_routes.py) computes them on
+   read; nothing is written back, so no totals query can double-count them.
+
+Consolidated lines carry a negative `row_id` anchored on the group's lowest
+`source_id` — stable across reloads, impossible to collide with a real row, and
+rejected by every write endpoint via `_reject_register_row_id`.
+
+**Verified:** across all 22 jobs holding register rows, the Data Entry filtered
+total now equals the reported job total exactly (0 mismatches). J000226 went
+from 12 rows / 19.56 tCO₂e to 23 rows / 42.25 tCO₂e, matching its report.
 
 ## The problem
 

@@ -1027,6 +1027,185 @@ def _scope_data_fallback_metrics(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Data Entry is the sense-check screen for a job, but it reads job_scope_rows
+# and the Asset Register / Business Travel Register keep their rows in
+# job_emission_sources, so a client's whole vehicle fleet was invisible here
+# while still counting in every report (both tables are unioned by
+# services/emissions_reporting.py and api/job_report_routes.py). Employee
+# Commuting solved the same problem by generating read-only job_scope_rows;
+# these two are consolidated on read instead. Rows generated here are never
+# written back, so they cannot be double-counted by a totals query that
+# forgets to exclude them -- the failure mode that hit the commuting rollout.
+#
+# Spend / Purchased Goods and Services needs nothing here: it already writes
+# real job_scope_rows with data_source='Spend Data' via
+# sync_spend_to_scope_data in api/spend_data_routes.py.
+_REGISTER_CONSOLIDATION = {
+    "asset": {
+        "auto_pair_kind": "asset_register",
+        "data_source": "Asset Register (Consolidated)",
+        "label": "Asset Register",
+        "noun": "Asset Register",
+    },
+    "business_travel": {
+        "auto_pair_kind": "business_travel_register",
+        "data_source": "Business Travel Register (Consolidated)",
+        "label": "Business Travel",
+        "noun": "Business Travel Register",
+    },
+}
+
+
+def _load_register_consolidated_rows(
+    con,
+    job_id: int,
+    scope: str | None = None,
+    include_disabled: bool = False,
+) -> list[dict[str, Any]]:
+    """One read-only row per (site, factor, register), mirroring how Employee
+    Commuting consolidates. Grouped the same way job_scope_rows is keyed, so
+    the result sits alongside real rows without the table needing to know
+    which store a row came from."""
+    month_sums = ", ".join(f"SUM(s.month_{i}) AS month_{i}" for i in range(1, 13))
+    has_months = "month_1" in _table_columns(con, "job_emission_sources")
+    if not has_months:
+        month_sums = ", ".join(f"NULL::numeric AS month_{i}" for i in range(1, 13))
+
+    where = ["s.job_id = %s", "s.source_type = ANY(%s)"]
+    params: list[Any] = [int(job_id), list(_REGISTER_CONSOLIDATION.keys())]
+    if not include_disabled:
+        where.append("COALESCE(s.enabled, TRUE) = TRUE")
+    if scope:
+        where.append("s.scope = %s")
+        params.append(scope)
+
+    try:
+        rows = con.execute(
+            f"""
+            SELECT
+                s.source_type,
+                s.site_id,
+                MIN(cs.site_name) AS site_name,
+                s.factor_db_id,
+                MIN(s.scope) AS scope,
+                MIN(s.dataset_id) AS dataset_id,
+                MIN(s.original_id) AS original_id,
+                MIN(s.uom) AS uom,
+                MIN(s.factor) AS factor,
+                MIN(s.ghg_unit) AS ghg_unit,
+                MIN(fl.category) AS category,
+                MIN(fl.level_1) AS level_1,
+                MIN(fl.level_2) AS level_2,
+                MIN(fl.level_3) AS level_3,
+                MIN(fl.level_4) AS level_4,
+                MIN(fl.column_text) AS column_text,
+                MIN(fl.report_label) AS report_label,
+                SUM(s.qty) AS qty,
+                SUM(s.calc_tco2e) AS calc_tco2e,
+                COUNT(*) AS entry_count,
+                MIN(s.source_id) AS anchor_source_id,
+                STRING_AGG(
+                    DISTINCT NULLIF(TRIM(COALESCE(s.asset_identifier, s.employee_name, s.source_name)), ''),
+                    ', '
+                ) AS entry_labels,
+                BOOL_AND(COALESCE(s.enabled, TRUE)) AS all_enabled,
+                {month_sums}
+            FROM job_emission_sources s
+            LEFT JOIN client_sites cs ON cs.site_id = s.site_id
+            LEFT JOIN v_factor_lookup fl ON fl.db_id = s.factor_db_id
+            WHERE {' AND '.join(where)}
+            GROUP BY s.source_type, s.site_id, s.factor_db_id
+            ORDER BY MIN(s.scope), MIN(fl.category), MIN(fl.report_label)
+            """,
+            params,
+        ).fetchall()
+    except Exception:
+        # Never let a register read break the main Data Entry list.
+        logger.warning("Failed to load consolidated register rows for job %s", job_id, exc_info=True)
+        return []
+
+    out: list[dict[str, Any]] = []
+    for raw in rows or []:
+        (
+            source_type, site_id, site_name, factor_db_id, row_scope, dataset_id, original_id,
+            uom, factor, ghg_unit, category, level_1, level_2, level_3, level_4, column_text,
+            report_label, qty, calc_tco2e, entry_count, anchor_source_id, entry_labels,
+            all_enabled, *months,
+        ) = raw
+        meta = _REGISTER_CONSOLIDATION[str(source_type)]
+        count = int(entry_count or 0)
+        notes = f"Consolidated from {count} {meta['noun']} {'entry' if count == 1 else 'entries'}"
+        if entry_labels:
+            notes = f"{notes}: {entry_labels}"
+        out.append({
+            # Negative so it can never collide with a real job_scope_rows id,
+            # and anchored on the group's lowest source_id so it stays stable
+            # across reloads. Every write endpoint rejects it -- see
+            # _reject_register_row_id.
+            "row_id": -int(anchor_source_id),
+            "job_id": int(job_id),
+            "scope": row_scope,
+            "site_id": _safe_int(site_id),
+            "site_name": site_name,
+            "dataset_id": _safe_int(dataset_id),
+            "dataset_category": category,
+            "factor_db_id": _safe_int(factor_db_id),
+            "original_id": original_id,
+            "category": category,
+            "level_1": level_1,
+            "level_2": level_2,
+            "level_3": level_3,
+            "level_4": level_4,
+            "column_text": column_text,
+            "report_label": report_label or column_text,
+            "qty": _safe_float(qty),
+            "uom": uom,
+            "factor": _safe_float(factor),
+            "ghg_unit": ghg_unit,
+            "calc_tco2e": round(float(calc_tco2e or 0.0), 4),
+            "tco2e_before_apply": round(float(calc_tco2e or 0.0), 4),
+            "apply_pct": 100,
+            **{f"month_{i + 1}": _safe_float(months[i]) for i in range(12)},
+            "data_source": meta["data_source"],
+            "data_confidence": "M",
+            "notes": notes,
+            "is_custom_entry": False,
+            "enabled": bool(all_enabled),
+            "linked_row_id": None,
+            "is_auto_generated": True,
+            "auto_pair_kind": meta["auto_pair_kind"],
+            "factor_label": None,
+            "dataset_label": None,
+            "factor_blended": False,
+            "uses_monthly_factors": False,
+            # Lets the table label the row and route its edit affordances to
+            # the screen that owns it.
+            "is_register_row": True,
+            "register_source_type": str(source_type),
+            "register_label": meta["label"],
+            "register_entry_count": count,
+        })
+    return out
+
+
+def _reject_register_row_id(row_id: Any) -> None:
+    """Consolidated register rows are surfaced with a negative row_id and are
+    read-only here -- they are owned by the Asset Register / Business Travel
+    screens. Fail with a pointer rather than a bare 404."""
+    try:
+        value = int(row_id)
+    except (TypeError, ValueError):
+        return
+    if value < 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This is a consolidated register line. Edit or remove the individual "
+                "entries on the Asset Register or Business Travel screen."
+            ),
+        )
+
+
 @router.get("/jobs/{job_id}/scope-data")
 def get_job_scope_data(
     job_id,
@@ -1262,13 +1441,29 @@ def get_job_scope_data(
                     logger.error("Error processing scope row %s", idx, exc_info=True)
                     raise
             
+            # Asset Register / Business Travel Register rows live in
+            # job_emission_sources and are consolidated on read. Skipped when
+            # the caller asked for one specific row_id, which only ever
+            # addresses a real job_scope_rows row.
+            register_rows: list[dict[str, Any]] = []
+            if row_id is None:
+                register_rows = _load_register_consolidated_rows(
+                    con, int(job_id), scope=scope, include_disabled=include_disabled
+                )
+                rows.extend(register_rows)
+
             try:
                 job_id_int = int(job_id)
             except Exception as jid_error:
                 logger.error("Error converting job_id to int for scope data", exc_info=True)
                 job_id_int = job_id
-            
-            return {"job_id": job_id_int, "rows": rows, "total": len(rows)}
+
+            return {
+                "job_id": job_id_int,
+                "rows": rows,
+                "total": len(rows),
+                "register_row_count": len(register_rows),
+            }
             
     except HTTPException:
         raise
@@ -2260,6 +2455,7 @@ def review_scope_data_row(
     exactly like any other disabled row (see CLIENT_PORTAL_DATA_ENTRY_SCOPE.md
     / the Phase 1 plan for why this reuses `enabled` rather than teaching
     report code a new review_status column)."""
+    _reject_register_row_id(row_id)
     decision = str(payload.get("decision") or "").strip().lower()
     if decision not in ("approve", "reject"):
         raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
@@ -2569,6 +2765,7 @@ def update_scope_data_row(
     """
     Update an existing scope data entry row.
     """
+    _reject_register_row_id(row_id)
     try:
         with get_conn() as con:
             _ensure_job_scope_rows_schema(con)
@@ -2789,6 +2986,7 @@ def repoint_scope_data_row(
     This preserves the row and its monthly values while updating the source
     mapping metadata and recalculating the stored emissions total.
     """
+    _reject_register_row_id(row_id)
     try:
         with get_conn() as con:
             _ensure_job_scope_rows_schema(con)
@@ -3075,6 +3273,7 @@ def delete_scope_data_row(
     """
     Delete (soft delete) a scope data entry row.
     """
+    _reject_register_row_id(row_id)
     try:
         with get_conn() as con:
             _ensure_job_scope_rows_schema(con)

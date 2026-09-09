@@ -109,7 +109,16 @@ type ScopeDataRow = {
   linked_row_id?: number | null;
   is_auto_generated?: boolean;
   auto_pair_kind?: string | null;
+  // Consolidated Asset Register / Business Travel Register lines. These are
+  // computed on read from job_emission_sources rather than stored, so they
+  // carry a negative row_id and are read-only here -- see
+  // _load_register_consolidated_rows in api/job_scope_data_routes.py.
+  is_register_row?: boolean;
+  register_source_type?: string | null;
+  register_label?: string | null;
+  register_entry_count?: number | null;
   site_id: number | null;
+  site_name?: string | null;
   month_1: number | null;
   month_2: number | null;
   month_3: number | null;
@@ -1558,6 +1567,34 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     return Boolean(row.is_auto_generated) && row.auto_pair_kind === "employee_commuting";
   }
 
+  function isRegisterConsolidatedRow(row: ScopeDataRow): boolean {
+    return Boolean(row.is_register_row);
+  }
+
+  // Every consolidated line -- commuting or register -- is owned by another
+  // screen and read-only here.
+  function isReadOnlyConsolidatedRow(row: ScopeDataRow): boolean {
+    return isCommutingConsolidatedRow(row) || isRegisterConsolidatedRow(row);
+  }
+
+  function consolidatedRowLabel(row: ScopeDataRow): string {
+    if (isRegisterConsolidatedRow(row)) return row.register_label || "Register";
+    return "Employee Commuting";
+  }
+
+  function consolidatedOwnerScreen(row: ScopeDataRow): string {
+    if (row.register_source_type === "asset") return "Asset Register";
+    if (row.register_source_type === "business_travel") return "Business Travel";
+    return "Employee Commuting";
+  }
+
+  function consolidatedRowHint(row: ScopeDataRow): string {
+    if (!isReadOnlyConsolidatedRow(row)) return "";
+    const count = row.register_entry_count;
+    const entries = count ? `${count} ${count === 1 ? "entry" : "entries"}` : "the entries";
+    return `Consolidated total of ${entries} for this factor and site — edit or remove them on the ${consolidatedOwnerScreen(row)} tab.`;
+  }
+
   function formatMaybeNumber(value: number | null | undefined, digits = 2): string {
     if (value === null || value === undefined || Number.isNaN(value)) return "-";
     return value.toFixed(digits);
@@ -2174,26 +2211,35 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                         </td>
                         {visibleColumns.site && (
                           <td className="p-2">
-                            <Select
-                              value={row.site_id?.toString() || ""}
-                              onValueChange={(value) => {
-                                if (value) {
-                                  markRowDirty(row.row_id);
-                                  void updateField(row.row_id, { site_id: parseInt(value) });
-                                }
-                              }}
-                            >
-                              <SelectTrigger className="h-7 w-32 text-xs">
-                                <SelectValue placeholder="Select site" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {sites.map((site) => (
-                                  <SelectItem key={site.site_id} value={site.site_id.toString()}>
-                                    {site.site_name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            {isRegisterConsolidatedRow(row) ? (
+                              <span
+                                className="inline-block truncate text-xs text-muted-foreground"
+                                title={consolidatedRowHint(row)}
+                              >
+                                {row.site_name || "No site"}
+                              </span>
+                            ) : (
+                              <Select
+                                value={row.site_id?.toString() || ""}
+                                onValueChange={(value) => {
+                                  if (value) {
+                                    markRowDirty(row.row_id);
+                                    void updateField(row.row_id, { site_id: parseInt(value) });
+                                  }
+                                }}
+                              >
+                                <SelectTrigger className="h-7 w-32 text-xs">
+                                  <SelectValue placeholder="Select site" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {sites.map((site) => (
+                                    <SelectItem key={site.site_id} value={site.site_id.toString()}>
+                                      {site.site_name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
                           </td>
                         )}
                         <td className="p-2 max-w-xs">
@@ -2222,12 +2268,12 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                 Unit missing
                               </div>
                             )}
-                            {isCommutingConsolidatedRow(row) ? (
+                            {isReadOnlyConsolidatedRow(row) ? (
                               <div
                                 className="inline-flex rounded-full bg-teal-100 px-2 py-0.5 text-[11px] font-medium text-teal-900"
-                                title="Consolidated total of every approved Employee Commuting entry for this factor and site — edit or remove individual entries on the Employee Commuting tab."
+                                title={consolidatedRowHint(row)}
                               >
-                                Employee Commuting
+                                {consolidatedRowLabel(row)}
                               </div>
                             ) : row.is_auto_generated ? (
                               <div
@@ -2266,10 +2312,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                         </td>
                         {visibleColumns.qty && (
                           <td className="p-2 text-right">
-                            {isCommutingConsolidatedRow(row) ? (
+                            {isReadOnlyConsolidatedRow(row) ? (
                               <span
                                 className="inline-block px-2 py-1 font-mono"
-                                title="Consolidated total from approved Employee Commuting entries - edit on the Employee Commuting tab."
+                                title={consolidatedRowHint(row)}
                               >
                                 {row.qty?.toFixed(2) || "0.00"}
                               </span>
@@ -2345,6 +2391,8 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               <button
                                 className={`rounded-full px-2 py-0.5 text-xs ${confidenceBadgeClass(row.data_confidence)}`}
                                 onClick={() => startEditConfidence(row)}
+                                disabled={isRegisterConsolidatedRow(row)}
+                                title={isRegisterConsolidatedRow(row) ? consolidatedRowHint(row) : undefined}
                               >
                                 {(row.data_confidence || "M").toUpperCase()}
                               </button>
@@ -2375,9 +2423,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               size="sm"
                               className="h-9 w-9 rounded-full p-0"
                               onClick={() => openRowEditorModal(row)}
-                              disabled={pendingSaveRowIds.has(row.row_id) || deletingRowId === row.row_id || isCommutingConsolidatedRow(row)}
+                              disabled={pendingSaveRowIds.has(row.row_id) || deletingRowId === row.row_id || isReadOnlyConsolidatedRow(row)}
                               aria-label="Edit row"
-                              title={isCommutingConsolidatedRow(row) ? "Consolidated from Employee Commuting — edit on the Employee Commuting tab" : "Edit row"}
+                              title={isReadOnlyConsolidatedRow(row) ? `Consolidated line — edit on the ${consolidatedOwnerScreen(row)} tab` : "Edit row"}
                             >
                               <PencilLine className="h-4 w-4" />
                               <span className="sr-only">Edit</span>
@@ -2387,9 +2435,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               size="sm"
                               className="h-9 w-9 rounded-full p-0 text-destructive hover:text-destructive"
                               onClick={() => deleteRow(row.row_id)}
-                              disabled={deletingRowId === row.row_id || isCommutingConsolidatedRow(row)}
+                              disabled={deletingRowId === row.row_id || isReadOnlyConsolidatedRow(row)}
                               aria-label="Delete row"
-                              title={isCommutingConsolidatedRow(row) ? "Consolidated from Employee Commuting — remove entries on the Employee Commuting tab" : "Delete row"}
+                              title={isReadOnlyConsolidatedRow(row) ? `Consolidated line — remove entries on the ${consolidatedOwnerScreen(row)} tab` : "Delete row"}
                             >
                               <Trash2 className="h-4 w-4" />
                               <span className="sr-only">{deletingRowId === row.row_id ? "Deleting..." : "Delete"}</span>
@@ -2458,7 +2506,12 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                     </Button>
                                   </div>
                                 ) : (
-                                  <button className="font-mono hover:bg-muted px-2 py-1 rounded" onClick={() => startEditApply(row)}>
+                                  <button
+                                    className="font-mono hover:bg-muted px-2 py-1 rounded"
+                                    onClick={() => startEditApply(row)}
+                                    disabled={isRegisterConsolidatedRow(row)}
+                                    title={isRegisterConsolidatedRow(row) ? consolidatedRowHint(row) : undefined}
+                                  >
                                     {detailRow.apply_pct}%
                                   </button>
                                 )}
@@ -2552,7 +2605,12 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                     </Button>
                                   </div>
                                 ) : (
-                                  <button className="w-full rounded border px-2 py-1 text-left hover:bg-muted" onClick={() => startEditSource(row)}>
+                                  <button
+                                    className="w-full rounded border px-2 py-1 text-left hover:bg-muted"
+                                    onClick={() => startEditSource(row)}
+                                    disabled={isRegisterConsolidatedRow(row)}
+                                    title={isRegisterConsolidatedRow(row) ? consolidatedRowHint(row) : undefined}
+                                  >
                                     {detailRow.data_source || "Company Data"}
                                   </button>
                                 )}
@@ -2577,7 +2635,12 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                     </Button>
                                   </div>
                                 ) : (
-                                  <button className="w-full rounded border px-2 py-1 text-left hover:bg-muted" onClick={() => startEditNotes(row)}>
+                                  <button
+                                    className="w-full rounded border px-2 py-1 text-left hover:bg-muted"
+                                    onClick={() => startEditNotes(row)}
+                                    disabled={isRegisterConsolidatedRow(row)}
+                                    title={isRegisterConsolidatedRow(row) ? consolidatedRowHint(row) : undefined}
+                                  >
                                     {detailRow.notes || <span className="text-muted-foreground italic">Add notes...</span>}
                                   </button>
                                 )}
@@ -2597,6 +2660,15 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                     {visibleColumns.site && <td className="p-2" />}
                     <td className="p-2 text-muted-foreground">
                       Filtered total ({filteredData.length} {filteredData.length === 1 ? "row" : "rows"})
+                      {(() => {
+                        const consolidated = filteredData.filter(isRegisterConsolidatedRow).length;
+                        if (!consolidated) return null;
+                        return (
+                          <span className="ml-2 font-normal text-xs">
+                            incl. {consolidated} consolidated register {consolidated === 1 ? "line" : "lines"}
+                          </span>
+                        );
+                      })()}
                     </td>
                     {visibleColumns.qty && (
                       <td className="p-2 text-right font-mono">

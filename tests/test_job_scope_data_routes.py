@@ -131,7 +131,9 @@ def test_get_job_scope_data_handles_empty_results(monkeypatch) -> None:
 
     result = job_scope_data_routes.get_job_scope_data(175, _user={"user_id": "u1", "org_id": "org-123"})
 
-    assert result == {"job_id": 175, "rows": [], "total": 0}
+    # register_row_count reports the consolidated Asset Register / Business
+    # Travel lines appended to the list -- see _load_register_consolidated_rows.
+    assert result == {"job_id": 175, "rows": [], "total": 0, "register_row_count": 0}
 
 
 def test_get_job_scope_data_falls_back_when_resolver_breaks(monkeypatch) -> None:
