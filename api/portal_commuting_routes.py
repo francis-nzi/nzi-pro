@@ -49,7 +49,7 @@ from services.portal_data_entry import (
     load_legacy_commuting_rows,
     resolve_current_job_for_client,
 )
-from services.vehicle_categorization import categorize_vehicle
+from services.vehicle_categorization import USAGE_EMPLOYEE_COMMUTING, categorize_vehicle
 from services.vehicle_lookup import lookup_vehicle_by_registration, normalize_registration
 from services.audit_log import record_audit_event
 from services.virus_scan import VirusScanError, scan_bytes
@@ -562,7 +562,7 @@ def portal_commuting_create_row_by_vehicle(
         _assert_data_entry_open(con, job_id)
         _assert_employee_id_unique(con, job_id, employee_name, "commuting")
 
-        factor, category_error = categorize_vehicle(con, job_id, vehicle_data)
+        factor, category_error = categorize_vehicle(con, job_id, vehicle_data, usage=USAGE_EMPLOYEE_COMMUTING)
         if category_error:
             raise HTTPException(status_code=422, detail=category_error)
 

@@ -1,4 +1,4 @@
-"""Maps DVLA VES vehicle specs to a real Company Vehicles factor row.
+"""Maps DVLA VES vehicle specs to a real emission factor row.
 
 Client Portal Data Entry Phase 3. Band boundaries (engine cc for car size,
 revenue weight for van class) are DEFRA-methodology conventions. Spot-checked
@@ -16,6 +16,18 @@ revenue_weight is present (real motorbikes never have one), then a
 best-effort motorbike match by engine size, else None. Fixed 2026-08 after
 a real Scania HGV with no type_approval and a ~13,000cc diesel engine was
 wrongly matched to "Motorbike Large" purely by engine size.
+
+`usage` picks the factor family. Employee Commuting registration lookups
+used to resolve into the Company Vehicles family like everything else, so
+a commuting entry carried a "Passenger vehicles" factor whose own category
+is Company Vehicles. Because every downstream category resolution prefers
+the factor's lookup category over the stored row category (see
+_dataset_category_label in api/job_report_routes.py and friends), those
+entries then reported as Company Vehicles -- on Data Entry via the
+consolidated rows from services/employee_commuting_consolidation.py, and in
+every report category breakdown -- despite being Scope 3 commuting. Fixed
+2026-09: commuting lookups resolve into the "Employee commuting- land"
+family, which carries the same Cars (by size)/size/fuel shape.
 """
 from __future__ import annotations
 
@@ -25,6 +37,18 @@ from typing import Any
 from services.dataset_selector import get_scope_primary_datasets
 
 logger = logging.getLogger(__name__)
+
+# Which factor family a lookup should resolve into. Callers pass the one
+# matching the screen the vehicle is being added on.
+USAGE_COMPANY_VEHICLE = "company_vehicle"
+USAGE_EMPLOYEE_COMMUTING = "employee_commuting"
+
+# level_1 of the Employee Commuting factor family. Its Cars (by size) rows
+# use the same level_2/level_3/level_4 shape as Passenger vehicles, so the
+# same size/fuel banding below applies -- except that commuting EVs sit in
+# this family under fuel "Battery Electric Vehicle" rather than in the
+# separate "UK electricity for EVs" branch company vehicles use.
+_COMMUTING_LEVEL_1 = "Employee commuting- land"
 
 # Car engine-size bands (cc) -- DEFRA/DESNZ convention. Diesel uses higher
 # thresholds than petrol (confirmed 2026-08 against DEFRA/DESNZ methodology
@@ -103,8 +127,19 @@ def _fuel_label(fuel_type: str | None) -> tuple[str | None, bool]:
 
 
 def _find_factor_row(
-    con, dataset_ids: list[int], level_1: str, level_2: str, level_3: str, level_4: str | None
+    con,
+    dataset_ids: list[int],
+    level_1: str,
+    level_2: str,
+    level_3: str,
+    level_4: str | None,
+    preferred_uom: str | None = "miles",
 ) -> dict[str, Any] | None:
+    """preferred_uom only breaks ties -- most of these factors exist as both
+    a miles and a km row, and every screen that feeds this takes distance in
+    miles (the caller stores the resolved factor's own uom against the
+    quantity the user typed). Without it the winner is whichever row happens
+    to have the higher db_id."""
     if not dataset_ids:
         return None
     params: list[Any] = [dataset_ids, level_1, level_2, level_3]
@@ -112,6 +147,10 @@ def _find_factor_row(
     if level_4:
         level_4_clause = "AND level_4 = %s"
         params.append(level_4)
+    uom_order = ""
+    if preferred_uom:
+        uom_order = "CASE WHEN LOWER(TRIM(uom)) = LOWER(%s) THEN 0 ELSE 1 END,"
+        params.append(preferred_uom)
     row = con.execute(
         f"""
         SELECT db_id, dataset_id, original_id, scope, category, report_label, uom, factor, ghg_unit
@@ -119,7 +158,7 @@ def _find_factor_row(
         WHERE dataset_id = ANY(%s)
           AND level_1 = %s AND level_2 = %s AND level_3 = %s
           {level_4_clause}
-        ORDER BY db_id DESC
+        ORDER BY {uom_order} db_id DESC
         LIMIT 1
         """,
         params,
@@ -139,11 +178,67 @@ def _find_factor_row(
     }
 
 
-def categorize_vehicle(con, job_id: int, vehicle_data: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+def _categorize_commuting_vehicle(
+    con, dataset_ids: list[int], vehicle_data: dict[str, Any], type_approval: str, fuel_label: str | None
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Employee Commuting equivalent of the Company Vehicles banding below.
+
+    DEFRA publishes commuting factors for cars, motorbikes and public
+    transport only -- there is no commuting van or HGV factor. A goods
+    vehicle someone commutes in therefore lands on the commuting car bands
+    rather than borrowing a Company Vehicles van/HGV factor, which is what
+    put Scope 3 commuting under a Company Vehicles category in the first
+    place."""
+    fuel = fuel_label or "Unknown"
+    weight = vehicle_data.get("revenue_weight")
+    engine_capacity = vehicle_data.get("engine_capacity")
+
+    # Same motorbike guard as the Company Vehicles path: a real motorbike
+    # never carries a revenue_weight, and an implausible engine size means
+    # bad DVLA data rather than a superbike.
+    if (
+        type_approval not in ("M1", "N1", "N2", "N3")
+        and not weight
+        and engine_capacity is not None
+        and engine_capacity <= 2500
+    ):
+        size = _band(engine_capacity, _MOTORBIKE_CC_BANDS)
+        for candidate_size in ([size] if size else []) + ["Average"]:
+            row = _find_factor_row(con, dataset_ids, _COMMUTING_LEVEL_1, "Motorbike", candidate_size, None)
+            if row:
+                return row, None
+
+    if type_approval == "M1" or not weight:
+        car_bands = _CAR_SIZE_BANDS_DIESEL if fuel == "Diesel" else _CAR_SIZE_BANDS_PETROL
+        size = _band(engine_capacity, car_bands) or "Average car"
+    else:
+        # A van or HGV has no commuting size band to sit in.
+        size = "Average car"
+
+    for candidate_size in (size, "Average car"):
+        for candidate_fuel in (fuel, "Unknown"):
+            row = _find_factor_row(
+                con, dataset_ids, _COMMUTING_LEVEL_1, "Cars (by size)", candidate_size, candidate_fuel
+            )
+            if row:
+                return row, None
+
+    return None, "Couldn't match this vehicle to an Employee Commuting category — please add it from the travel mode dropdowns instead"
+
+
+def categorize_vehicle(
+    con,
+    job_id: int,
+    vehicle_data: dict[str, Any],
+    usage: str = USAGE_COMPANY_VEHICLE,
+) -> tuple[dict[str, Any] | None, str | None]:
     """Returns (resolved_factor, error_message). resolved_factor has
     factor_db_id/original_id/scope/category/report_label/uom -- the same
     shape a manual factor-search result has, so callers can feed it straight
-    into the existing row-creation endpoints unchanged."""
+    into the existing row-creation endpoints unchanged.
+
+    `usage` selects the factor family: USAGE_COMPANY_VEHICLE (the default,
+    Scope 1 owned vehicles) or USAGE_EMPLOYEE_COMMUTING (Scope 3)."""
     dataset_map = get_scope_primary_datasets(int(job_id))
     dataset_ids = sorted({d for d in dataset_map.values() if d is not None})
     if not dataset_ids:
@@ -151,6 +246,10 @@ def categorize_vehicle(con, job_id: int, vehicle_data: dict[str, Any]) -> tuple[
 
     type_approval = str(vehicle_data.get("type_approval") or "").strip().upper()
     fuel_label, is_electric = _fuel_label(vehicle_data.get("fuel_type"))
+
+    if usage == USAGE_EMPLOYEE_COMMUTING:
+        return _categorize_commuting_vehicle(con, dataset_ids, vehicle_data, type_approval, fuel_label)
+
     level_1 = "UK electricity for EVs" if is_electric else None
 
     if type_approval == "M1":

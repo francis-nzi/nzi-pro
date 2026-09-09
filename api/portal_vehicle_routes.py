@@ -16,7 +16,11 @@ from api.portal_auth_routes import portal_user_dep
 from core.database import get_conn
 from services.portal import PORTAL_ROLE_CAN_MANAGE_ACTIONS
 from services.portal_data_entry import resolve_current_job_for_client
-from services.vehicle_categorization import categorize_vehicle
+from services.vehicle_categorization import (
+    USAGE_COMPANY_VEHICLE,
+    USAGE_EMPLOYEE_COMMUTING,
+    categorize_vehicle,
+)
 from services.vehicle_lookup import lookup_vehicle_by_registration
 
 logger = logging.getLogger(__name__)
@@ -35,6 +39,15 @@ def portal_vehicle_lookup(
     if not registration:
         raise HTTPException(status_code=400, detail="registration_number is required")
 
+    # Shared by the Company Vehicles bucket and Employee Commuting's "I drive
+    # my own car" step, which resolve into different factor families -- the
+    # preview has to match what the matching create endpoint will store.
+    usage = (
+        USAGE_EMPLOYEE_COMMUTING
+        if str(payload.get("usage") or "").strip() == USAGE_EMPLOYEE_COMMUTING
+        else USAGE_COMPANY_VEHICLE
+    )
+
     client_db_id = int(current_user["client_db_id"])
     vehicle_data, lookup_error = lookup_vehicle_by_registration(registration)
     if lookup_error:
@@ -45,7 +58,7 @@ def portal_vehicle_lookup(
         job_id = resolve_current_job_for_client(con, client_db_id)
         if job_id is None:
             raise HTTPException(status_code=404, detail="No open job found for this account yet — contact your NZI consultant")
-        factor, category_error = categorize_vehicle(con, job_id, vehicle_data)
+        factor, category_error = categorize_vehicle(con, job_id, vehicle_data, usage=usage)
 
     if category_error:
         raise HTTPException(status_code=422, detail=category_error)

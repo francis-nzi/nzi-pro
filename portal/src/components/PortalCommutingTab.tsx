@@ -505,7 +505,9 @@ export default function PortalCommutingTab() {
   // Vehicles uses -- returns the resolved factor without saving anything. The
   // actual save (submitByVehicle below) still re-resolves the registration
   // itself server-side, same as Company Vehicles does, so this is purely an
-  // added confirmation step, not a change to what gets persisted.
+  // added confirmation step, not a change to what gets persisted. usage has
+  // to be sent so the preview resolves into the Employee Commuting factor
+  // family the save will use, not the Company Vehicles one.
   async function lookupVehicle() {
     if (!regNumber.trim()) return;
     setRegLookupChecking(true);
@@ -514,7 +516,7 @@ export default function PortalCommutingTab() {
       const res = await apiFetch("/portal/vehicle-lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ registration_number: regNumber.trim() }),
+        body: JSON.stringify({ registration_number: regNumber.trim(), usage: "employee_commuting" }),
       });
       const d = await res.json().catch(() => ({}));
       if (res.ok) {

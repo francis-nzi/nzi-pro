@@ -36,7 +36,7 @@ from services.audit_log import record_audit_event
 from services.dataset_selector import get_applicable_datasets, get_scope_primary_datasets
 from services.download_filenames import build_download_filename
 from services.employee_commuting_consolidation import sync_commuting_scope_rows
-from services.vehicle_categorization import categorize_vehicle
+from services.vehicle_categorization import USAGE_EMPLOYEE_COMMUTING, categorize_vehicle
 from services.vehicle_lookup import lookup_vehicle_by_registration, normalize_registration
 from services.virus_scan import VirusScanError, scan_bytes
 
@@ -2068,7 +2068,7 @@ def create_employee_commuting_entry_by_vehicle(
         meta = _job_meta(con, int(job_id))
         validated_site_id, site_label = _job_site_label(con, int(job_id), site_id)
 
-        factor, category_error = categorize_vehicle(con, int(job_id), vehicle_data)
+        factor, category_error = categorize_vehicle(con, int(job_id), vehicle_data, usage=USAGE_EMPLOYEE_COMMUTING)
         if category_error:
             raise HTTPException(status_code=422, detail=category_error)
 
