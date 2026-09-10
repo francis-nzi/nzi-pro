@@ -548,8 +548,13 @@ def portal_spend_update_row(
         ).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Spend row not found")
-        if existing[1] == "approved":
-            raise HTTPException(status_code=409, detail="This row has already been approved and can no longer be edited here")
+        # Approved rows stay editable, matching Employee Commuting and the
+        # other Data Entry buckets. The update below resets review_status to
+        # pending_review, which for spend also means the row drops back out of
+        # job_scope_rows on the next sync_spend_to_scope_data run until the CRM
+        # re-approves it -- spend only ever reaches reported emissions through
+        # that sync, unlike the register buckets which report in place.
+        # Deleting an approved row is still refused.
         _assert_data_entry_open(con, int(existing[2]))
 
         if "reference_code" in payload:

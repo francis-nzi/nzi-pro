@@ -584,8 +584,14 @@ def portal_data_entry_update_row(
             ).fetchone()
             if not existing:
                 raise HTTPException(status_code=404, detail="Row not found")
-            if existing[3] == "approved":
-                raise HTTPException(status_code=409, detail="This row has already been approved and can no longer be edited here")
+            # Approved rows stay editable, matching Employee Commuting (see
+            # api/portal_commuting_routes.py): a client entering data as the
+            # year goes on needs to keep adding to an already-approved row,
+            # not lose access the moment the CRM reviews the months entered so
+            # far. The update below resets review_status to pending_review so
+            # the CRM sees it needs another look, and leaves enabled as-is so
+            # the row doesn't vanish from reports mid-year. Deleting an
+            # approved row is still refused.
             _assert_data_entry_open(con, int(existing[1]))
 
             site_ids = current_user.get("site_ids")
@@ -646,8 +652,7 @@ def portal_data_entry_update_row(
         ).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Row not found")
-        if existing[3] == "approved":
-            raise HTTPException(status_code=409, detail="This row has already been approved and can no longer be edited here")
+        # Approved rows stay editable -- see the register branch above.
         _assert_data_entry_open(con, int(existing[1]))
 
         site_ids = current_user.get("site_ids")

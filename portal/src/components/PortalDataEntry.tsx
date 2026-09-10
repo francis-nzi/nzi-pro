@@ -654,7 +654,12 @@ export default function PortalDataEntry() {
 
   function renderActions(row: Row, align: "start" | "end") {
     const justify = align === "end" ? "justify-end" : "justify-start";
-    if (row.review_status === "approved" || dataEntryExpired) {
+    // Approved rows stay editable, the same as Employee Commuting: data comes
+    // in through the year and a client shouldn't lose access to a row the
+    // moment the CRM reviews what's been entered so far. Saving sends it back
+    // for review. Deleting an approved row is still refused server-side, so
+    // that button is hidden below rather than shown and failing.
+    if (dataEntryExpired) {
       return <span className="text-xs text-muted-foreground">—</span>;
     }
     if (editingRowId === row.row_id) {
@@ -684,13 +689,15 @@ export default function PortalDataEntry() {
         <button className="text-primary hover:underline" onClick={() => openMonthlyModal(row)}>
           Monthly
         </button>
-        <button
-          className="text-rose-700 hover:underline disabled:opacity-50"
-          disabled={rowActionSaving}
-          onClick={() => void deleteRow(row.row_id)}
-        >
-          Delete
-        </button>
+        {row.review_status !== "approved" && (
+          <button
+            className="text-rose-700 hover:underline disabled:opacity-50"
+            disabled={rowActionSaving}
+            onClick={() => void deleteRow(row.row_id)}
+          >
+            Delete
+          </button>
+        )}
       </div>
     );
   }

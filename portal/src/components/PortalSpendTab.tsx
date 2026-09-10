@@ -477,7 +477,12 @@ export default function PortalSpendTab() {
 
   function renderActions(row: SpendRow, align: "start" | "end") {
     const justify = align === "end" ? "justify-end" : "justify-start";
-    if (row.review_status === "approved" || dataEntryExpired) {
+    // Approved rows stay editable, the same as Employee Commuting and the
+    // other Data Entry tabs. Saving sends the row back for review, which for
+    // spend also means it drops out of reported emissions until the CRM
+    // re-approves it. Deleting an approved row is still refused server-side,
+    // so that button is hidden below rather than shown and failing.
+    if (dataEntryExpired) {
       return <span className="text-xs text-muted-foreground">—</span>;
     }
     if (editingEntryId === row.entry_id) {
@@ -501,9 +506,11 @@ export default function PortalSpendTab() {
       <div className={`flex items-center ${justify} gap-3 text-xs`}>
         <button className="text-primary hover:underline" onClick={() => startEdit(row)}>Edit</button>
         <button className="text-primary hover:underline" onClick={() => openMonthlyModal(row)}>Monthly</button>
-        <button className="text-rose-700 hover:underline disabled:opacity-50" disabled={rowActionSaving} onClick={() => void deleteRow(row.entry_id)}>
-          Delete
-        </button>
+        {row.review_status !== "approved" && (
+          <button className="text-rose-700 hover:underline disabled:opacity-50" disabled={rowActionSaving} onClick={() => void deleteRow(row.entry_id)}>
+            Delete
+          </button>
+        )}
       </div>
     );
   }
@@ -911,7 +918,9 @@ export default function PortalSpendTab() {
                               Pick a category
                             </button>
                           )}
-                          {row.mapping_status === "mapped" && row.review_status !== "approved" && (
+                          {/* Approved rows included: confirm-category already
+                              allows it and resets the row to pending_review. */}
+                          {row.mapping_status === "mapped" && (
                             <button className="ml-2 text-xs text-primary underline" onClick={() => openCategoryPicker(row.entry_id)}>
                               change
                             </button>
@@ -984,7 +993,7 @@ export default function PortalSpendTab() {
                       Pick a category
                     </button>
                   )}
-                  {row.mapping_status === "mapped" && row.review_status !== "approved" && (
+                  {row.mapping_status === "mapped" && (
                     <button className="ml-2 text-xs text-primary underline" onClick={() => openCategoryPicker(row.entry_id)}>
                       change
                     </button>
