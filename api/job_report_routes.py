@@ -2336,6 +2336,8 @@ def _resolve_benchmark_reference_job(job_id: int, benchmark_year: int | None) ->
     """
     Resolve benchmark comparison job for a given job.
     Priority:
+    0) None when this job IS the client's baseline -- there is nothing to
+       compare it against.
     1) Explicit benchmark year job (excluding current), prefer is_benchmark then latest period.
     2) Latest prior reporting period for same client.
     3) Prior reporting year fallback.
@@ -2343,9 +2345,11 @@ def _resolve_benchmark_reference_job(job_id: int, benchmark_year: int | None) ->
     with get_conn() as con:
         current = con.execute(
             """
-            SELECT job_id, client_db_id, reporting_year, reporting_period_end
-            FROM jobs
-            WHERE job_id = %s
+            SELECT j.job_id, j.client_db_id, j.reporting_year, j.reporting_period_end,
+                   j.reporting_period_start, c.benchmark_period_start, c.benchmark_period_end
+            FROM jobs j
+            LEFT JOIN clients c ON c.db_id = j.client_db_id
+            WHERE j.job_id = %s
             """,
             [int(job_id)],
         ).fetchone()
@@ -2356,6 +2360,27 @@ def _resolve_benchmark_reference_job(job_id: int, benchmark_year: int | None) ->
         client_db_id = int(current[1])
         cur_reporting_year = int(current[2]) if current[2] is not None else None
         cur_period_end = current[3]
+        cur_period_start = current[4]
+        bm_period_start = current[5]
+        bm_period_end = current[6]
+
+        # A job that IS the client's baseline has no baseline to compare
+        # against -- every fallback below would otherwise hand back the
+        # previous year's job and the report would label that job's figures
+        # with the baseline period, which is the current period. Reported as a
+        # bug 2026-09-10 on J000699 (Silent Sounds), whose baseline was moved
+        # to its own reporting year. Returning None here drops the baseline and
+        # previous-year columns exactly as a first year of reporting does --
+        # note previous_categories downstream is derived from this same job id.
+        if (
+            bm_period_start is not None
+            and bm_period_end is not None
+            and cur_period_start is not None
+            and cur_period_end is not None
+            and bm_period_start == cur_period_start
+            and bm_period_end == cur_period_end
+        ):
+            return None
 
         if benchmark_year is not None:
             by_year = con.execute(
