@@ -57,6 +57,7 @@ from api.job_data_output_routes import (
     _clean_label,
     _dataset_category_label,
 )
+from services.baseline_resolution import resolve_baseline
 from services.emissions_reporting import combined_row_metrics, load_combined_emissions_summary_rows
 from services.monthly_emissions import JobMonthlyEmissionsResolver
 from services.playwright_browser import ensure_playwright_browser
@@ -163,29 +164,57 @@ def _coerce_int(value: Any) -> int | None:
         return None
 
 
+def _job_authority_rank(row) -> tuple[int, str, int]:
+    """Which job speaks for a year when a client has several in one.
+
+    Longest reporting period first. The previous rule was highest job_id,
+    which let a short job win on insertion order: Gama Healthcare's 2022 was
+    represented by a 21-day job (J000032, 2022-05-25..2022-06-15) instead of
+    the full year sitting beside it (J000019, 2021-04-01..2022-03-31), so the
+    trend chart showed three weeks of activity as that year's footprint.
+    Period end and job_id remain as tie-breaks, so genuine re-runs of the same
+    period still resolve to the later job exactly as before.
+    """
+    days = _coerce_int(row.get("period_days"))
+    period_end = row.get("reporting_period_end")
+    job_id = _coerce_int(row.get("job_id")) or 0
+    return (days if days is not None else -1, str(period_end or ""), job_id)
+
+
 def _build_yearly_emissions(con, client_db_id: int) -> list[dict[str, Any]]:
     jobs_df = con.execute(
         """
         SELECT job_id,
+               -- One expression, used for both the label and the ordering.
+               -- These were previously opposite COALESCEs -- the SELECT
+               -- preferred the period end, the ORDER BY preferred
+               -- reporting_year -- so where the two columns disagreed a row
+               -- was labelled with one year and sorted by another. No job in
+               -- the estate currently has them disagree, so this is latent
+               -- rather than an active defect, but the two must not drift.
                COALESCE(
                    EXTRACT(YEAR FROM reporting_period_end),
                    reporting_year
                ) AS dashboard_year,
+               reporting_period_start,
+               reporting_period_end,
+               (reporting_period_end - reporting_period_start) AS period_days,
                intensity_metrics
         FROM jobs
         WHERE client_db_id = %s
           AND (reporting_year IS NOT NULL OR reporting_period_end IS NOT NULL)
-        ORDER BY COALESCE(reporting_year, EXTRACT(YEAR FROM reporting_period_end)) ASC, job_id ASC
+        ORDER BY COALESCE(EXTRACT(YEAR FROM reporting_period_end), reporting_year) ASC, job_id ASC
         """,
         [int(client_db_id)],
     ).df()
     if jobs_df is None or getattr(jobs_df, "empty", True):
         return []
 
-    # Deduplicate to one job per year (most recent by job_id) so multiple
-    # jobs for the same dashboard_year don't double-count emissions.
+    # Deduplicate to one job per year so several jobs sharing a dashboard_year
+    # don't double-count -- see _job_authority_rank for which one wins.
     year_to_job_id: dict[int, int] = {}
     year_to_metrics: dict[int, Any] = {}
+    year_to_rank: dict[int, tuple[int, str, int]] = {}
     for _, row in jobs_df.iterrows():
         yr = _coerce_int(row.get("dashboard_year"))
         if yr is None:
@@ -193,10 +222,22 @@ def _build_yearly_emissions(con, client_db_id: int) -> list[dict[str, Any]]:
         jid = _coerce_int(row.get("job_id"))
         if jid is None:
             continue
-        if yr not in year_to_job_id or jid > year_to_job_id[yr]:
+        rank = _job_authority_rank(row)
+        if yr not in year_to_job_id or rank > year_to_rank[yr]:
             year_to_job_id[yr] = jid
-            raw = row.get("intensity_metrics")
-            year_to_metrics[yr] = raw
+            year_to_rank[yr] = rank
+            year_to_metrics[yr] = row.get("intensity_metrics")
+
+    # Years before the baseline in force are not part of the reported trend.
+    # A client that re-baselines keeps its earlier jobs and their data; those
+    # years simply stop being something the report compares against. This is
+    # the only place that rule lives today -- see services/baseline_resolution.py.
+    baseline = resolve_baseline(con, int(client_db_id))
+    if baseline is not None and baseline.year is not None:
+        for yr in [y for y in year_to_job_id if y < baseline.year]:
+            year_to_job_id.pop(yr, None)
+            year_to_metrics.pop(yr, None)
+            year_to_rank.pop(yr, None)
 
     job_ids = list(year_to_job_id.values())
     if not job_ids:
@@ -264,34 +305,24 @@ def _build_yearly_emissions(con, client_db_id: int) -> list[dict[str, Any]]:
     # every consumer of this list (Report Printing, PDF, Insights) in one
     # place -- see services/employee_commuting_consolidation.py's sibling
     # for a similar single-source-of-truth fix earlier this session.
+    # Reuses the baseline already resolved above rather than re-deriving the
+    # year from clients.benchmark_* a second time inside the same function.
     covered_years = {int(e["year"]) for e in yearly_emissions}
-    client_row = con.execute(
-        """
-        SELECT benchmark_year, benchmark_period_end,
-               benchmark_scope_1_tco2e, benchmark_scope_2_tco2e, benchmark_scope_3_tco2e, benchmark_total_tco2e
-        FROM clients WHERE db_id = %s
-        """,
-        [int(client_db_id)],
-    ).fetchone()
-    if client_row:
-        bm_year = _coerce_int(client_row[0])
-        if bm_year is None and client_row[1] is not None:
-            try:
-                bm_year = int(str(client_row[1])[:4])
-            except Exception:
-                bm_year = None
-        if bm_year is not None and bm_year not in covered_years and client_row[5] is not None:
-            bm_s1 = float(client_row[2]) if client_row[2] is not None else 0.0
-            bm_s2 = float(client_row[3]) if client_row[3] is not None else 0.0
-            bm_s3 = float(client_row[4]) if client_row[4] is not None else 0.0
-            yearly_emissions.append({
-                "year": bm_year,
-                "scope1": round(bm_s1, 2),
-                "scope2": round(bm_s2, 2),
-                "scope3": round(bm_s3, 2),
-                "total": round(float(client_row[5]), 2),
-            })
-            yearly_emissions.sort(key=lambda e: e["year"])
+    if (
+        baseline is not None
+        and baseline.year is not None
+        and baseline.has_figures
+        and baseline.total_tco2e is not None
+        and baseline.year not in covered_years
+    ):
+        yearly_emissions.append({
+            "year": baseline.year,
+            "scope1": round(baseline.scope_1_tco2e or 0.0, 2),
+            "scope2": round(baseline.scope_2_tco2e or 0.0, 2),
+            "scope3": round(baseline.scope_3_tco2e or 0.0, 2),
+            "total": round(baseline.total_tco2e, 2),
+        })
+        yearly_emissions.sort(key=lambda e: e["year"])
 
     return yearly_emissions
 
