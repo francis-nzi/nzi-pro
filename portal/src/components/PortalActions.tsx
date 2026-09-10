@@ -98,6 +98,59 @@ const ALL = "__all__";
 const NO_OWNER = "__none__";
 const UNCATEGORIZED = "Uncategorized";
 
+/** Owner picker, shared by the Add and Edit action modals.
+ *
+ * Both modals used to hide this field entirely when the client had no
+ * contacts on file, so the same modal appeared to have a different set of
+ * fields depending on the client -- Triton Construction (0 contacts) had no
+ * Owner field while Blaze Manufacturing (1) did, with nothing on screen to
+ * explain why. 175 of 435 clients have no contacts. The field now always
+ * renders and explains itself instead, and lives in one place so the two
+ * modals cannot drift apart again.
+ *
+ * There is no write path to client_contacts anywhere in the portal, so a
+ * client cannot resolve this themselves -- the message has to point at the
+ * consultant.
+ */
+function OwnerField({
+  contacts,
+  value,
+  onChange,
+}: {
+  contacts: Contact[];
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const hasContacts = contacts.length > 0;
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-medium text-foreground">Owner</label>
+      <Select
+        value={value || NO_OWNER}
+        onValueChange={(v) => onChange(v === NO_OWNER ? "" : v)}
+        disabled={!hasContacts}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder="No owner assigned" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_OWNER}>No owner assigned</SelectItem>
+          {contacts.map((c) => (
+            <SelectItem key={c.contact_id} value={String(c.contact_id)}>
+              {c.full_name}{c.job_title ? ` (${c.job_title})` : ""}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {!hasContacts && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          No contacts on file yet — ask your NZI consultant to add one before assigning an owner.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function formatDate(raw: string | null | undefined): string {
   if (!raw) return "";
   try {
@@ -485,24 +538,7 @@ function UpdateModal({
             </div>
           </div>
 
-          {contacts.length > 0 && (
-            <div>
-              <label className="mb-1 block text-sm font-medium text-foreground">Owner</label>
-              <Select value={ownerContactId || NO_OWNER} onValueChange={(v) => setOwnerContactId(v === NO_OWNER ? "" : v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_OWNER}>No owner assigned</SelectItem>
-                  {contacts.map(c => (
-                    <SelectItem key={c.contact_id} value={String(c.contact_id)}>
-                      {c.full_name}{c.job_title ? ` (${c.job_title})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+          <OwnerField contacts={contacts} value={ownerContactId} onChange={setOwnerContactId} />
 
           <div>
             <label className="mb-1 block text-sm font-medium text-foreground">Target date</label>
@@ -661,24 +697,7 @@ function AddActionModal({
             </Select>
           </div>
 
-          {contacts.length > 0 && (
-            <div>
-              <label className="mb-1 block text-sm font-medium text-foreground">Owner</label>
-              <Select value={ownerContactId || NO_OWNER} onValueChange={(v) => setOwnerContactId(v === NO_OWNER ? "" : v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_OWNER}>No owner assigned</SelectItem>
-                  {contacts.map(c => (
-                    <SelectItem key={c.contact_id} value={String(c.contact_id)}>
-                      {c.full_name}{c.job_title ? ` (${c.job_title})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+          <OwnerField contacts={contacts} value={ownerContactId} onChange={setOwnerContactId} />
 
           <div>
             <label className="mb-1 block text-sm font-medium text-foreground">Target date</label>
