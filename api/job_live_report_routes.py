@@ -38,6 +38,7 @@ from api.job_report_routes import (
     _serialize_report_version_row,
     _store_report_version_artifact,
     _resolve_benchmark_reference_job,
+    job_is_its_own_baseline,
     get_benchmark_emissions,
     get_emissions_by_category,
     get_job_data,
@@ -499,9 +500,21 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
         except Exception:
             pass
 
-    # Previous year (one year before the current reporting year)
+    # Previous year (one year before the current reporting year).
+    #
+    # Skipped entirely when this job IS the client's baseline: anything earlier
+    # sits before the declared baseline and is not part of the reported trend.
+    # This is resolved separately from benchmark_categories above -- it
+    # deliberately picks a *different* job from the benchmark -- so suppressing
+    # the baseline alone left the prior-year column standing on J000699.
     previous_year_categories: list[dict[str, Any]] = []
     previous_year_label: str = ""
+    _is_own_baseline = job_is_its_own_baseline(
+        job_data.get("reporting_period_start"),
+        job_data.get("reporting_period_end"),
+        job_data.get("benchmark_period_start"),
+        job_data.get("benchmark_period_end"),
+    )
     try:
         _re_end = job_data.get("reporting_period_end")
         _curr_year: int | None = None
@@ -514,6 +527,8 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
         if _curr_year is None:
             _ry = job_data.get("reporting_year")
             _curr_year = int(_ry) if _ry else None
+        if _is_own_baseline:
+            _curr_year = None
         if _curr_year:
             _prev_year = _curr_year - 1
             previous_year_label = str(_prev_year)

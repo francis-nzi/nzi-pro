@@ -2332,6 +2332,34 @@ def get_emissions_by_category(job_id: int):
         return categories
 
 
+def job_is_its_own_baseline(
+    reporting_period_start: Any,
+    reporting_period_end: Any,
+    benchmark_period_start: Any,
+    benchmark_period_end: Any,
+) -> bool:
+    """True when the client's baseline period is this job's own reporting
+    period, i.e. this job IS the baseline.
+
+    Such a job has nothing earlier to compare against: no baseline column, and
+    no previous year either -- any prior job sits before the declared baseline
+    and is not part of the reported trend. Reported 2026-09-10 on J000699
+    (Silent Sounds), whose baseline was moved to its own reporting year but
+    whose report still showed both a baseline and a prior-year column.
+
+    A half-configured baseline (only one of the two dates set) is not treated
+    as a match -- it isn't enough to say which period was meant.
+    """
+    if not (reporting_period_start and reporting_period_end):
+        return False
+    if not (benchmark_period_start and benchmark_period_end):
+        return False
+    return (
+        str(benchmark_period_start)[:10] == str(reporting_period_start)[:10]
+        and str(benchmark_period_end)[:10] == str(reporting_period_end)[:10]
+    )
+
+
 def _resolve_benchmark_reference_job(job_id: int, benchmark_year: int | None) -> int | None:
     """
     Resolve benchmark comparison job for a given job.
@@ -2367,19 +2395,8 @@ def _resolve_benchmark_reference_job(job_id: int, benchmark_year: int | None) ->
         # A job that IS the client's baseline has no baseline to compare
         # against -- every fallback below would otherwise hand back the
         # previous year's job and the report would label that job's figures
-        # with the baseline period, which is the current period. Reported as a
-        # bug 2026-09-10 on J000699 (Silent Sounds), whose baseline was moved
-        # to its own reporting year. Returning None here drops the baseline and
-        # previous-year columns exactly as a first year of reporting does --
-        # note previous_categories downstream is derived from this same job id.
-        if (
-            bm_period_start is not None
-            and bm_period_end is not None
-            and cur_period_start is not None
-            and cur_period_end is not None
-            and bm_period_start == cur_period_start
-            and bm_period_end == cur_period_end
-        ):
+        # with the baseline period, which is the current period.
+        if job_is_its_own_baseline(cur_period_start, cur_period_end, bm_period_start, bm_period_end):
             return None
 
         if benchmark_year is not None:

@@ -89,15 +89,34 @@ def test_a_half_configured_baseline_period_is_not_treated_as_self(monkeypatch, b
     assert job_report_routes._resolve_benchmark_reference_job(699, None) == 437
 
 
-def test_the_previous_year_columns_come_from_the_same_resolution(monkeypatch):
-    """previous_job_data / previous_categories downstream are both derived from
-    this job id, so returning None is what drops the previous-year column as
-    well as the baseline one -- the report renders exactly like a first year of
-    reporting."""
-    conn = _Conn(_current_row(CURRENT_START, CURRENT_END))
-    monkeypatch.setattr(job_report_routes, "get_conn", lambda: conn)
+def test_job_is_its_own_baseline_matches_on_both_dates():
+    assert job_report_routes.job_is_its_own_baseline(
+        CURRENT_START, CURRENT_END, CURRENT_START, CURRENT_END
+    ) is True
+    assert job_report_routes.job_is_its_own_baseline(
+        CURRENT_START, CURRENT_END, PRIOR_START, PRIOR_END
+    ) is False
 
-    resolved = job_report_routes._resolve_benchmark_reference_job(699, None)
 
-    assert resolved is None
-    assert (job_report_routes.get_job_data(resolved) if resolved else None) is None
+def test_job_is_its_own_baseline_tolerates_datetime_and_string_shapes():
+    """job_data carries these straight out of the DB, so they arrive as dates
+    from one caller and ISO strings from another."""
+    assert job_report_routes.job_is_its_own_baseline(
+        "2025-05-01", "2026-04-30", CURRENT_START, CURRENT_END
+    ) is True
+    assert job_report_routes.job_is_its_own_baseline(
+        "2025-05-01 00:00:00", "2026-04-30 00:00:00", CURRENT_START, CURRENT_END
+    ) is True
+
+
+@pytest.mark.parametrize(
+    "rps,rpe,bms,bme",
+    [
+        (CURRENT_START, CURRENT_END, CURRENT_START, None),
+        (CURRENT_START, CURRENT_END, None, CURRENT_END),
+        (CURRENT_START, None, CURRENT_START, CURRENT_END),
+        (None, None, None, None),
+    ],
+)
+def test_job_is_its_own_baseline_needs_all_four_dates(rps, rpe, bms, bme):
+    assert job_report_routes.job_is_its_own_baseline(rps, rpe, bms, bme) is False
