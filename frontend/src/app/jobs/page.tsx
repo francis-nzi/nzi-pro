@@ -63,7 +63,7 @@ export default function JobsPage() {
   const [limit, setLimit] = useState(50);
   const [offset, setOffset] = useState(0);
   const [sortBy, setSortBy] = useState<SortBy>("job");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q), 300);
