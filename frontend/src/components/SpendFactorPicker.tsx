@@ -1,59 +1,60 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Check, Search, Sparkles, X } from "lucide-react";
+import { Check, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-export type SpendCategory = {
+// CRM counterpart of the portal's SpendCategoryPicker
+// (portal/src/components/SpendCategoryPicker.tsx) -- same layout, plus the
+// factor's DB ID, SIC code and value on every row for staff.
+
+export type SpendFactor = {
   db_id: number;
   original_id: string | null;
   scope: string | null;
   category: string | null;
   report_label: string | null;
+  factor: number | null;
+  ghg_unit?: string | null;
+  uom?: string | null;
+  dataset_name?: string | null;
 };
 
-export type QuickPickCategory = {
+export type TopSpendFactor = {
   db_id: number;
   original_id?: string | null;
   scope: string | null;
   category: string | null;
   report_label: string | null;
+  use_count?: number;
 };
 
-export type SuggestedCategory = {
-  key: number;
-  db_id: number | null;
-  label: string;
-  category: string | null;
-};
-
-type PickerRow = {
-  spend_description: string | null;
+export type PickerSpendRow = {
   reference_code: string | null;
-  amount_net: number | null;
-  currency: string | null;
+  spend_description: string;
+  site_name?: string | null;
+  currency: string;
+  amount_net: number;
+  factor_db_id: number | null;
+  factor_original_id?: string | null;
   mapped_scope: string | null;
-  mapped_category: string | null;
+  mapped_category?: string | null;
   mapped_report_label: string | null;
 };
 
 type Props = {
-  row: PickerRow;
-  categories: SpendCategory[];
+  row: PickerSpendRow;
+  factors: SpendFactor[];
   loading: boolean;
   loadError: string;
-  suggested: SuggestedCategory[];
-  suggesting: boolean;
-  frequentlyUsed: QuickPickCategory[];
-  // Resolves to an error message, or null once the category is saved.
-  onPick: (category: { db_id: number }) => Promise<string | null>;
+  frequentlyUsed: TopSpendFactor[];
+  // Resolves to an error message, or null once the mapping is saved.
+  onPick: (factor: { db_id: number }) => Promise<string | null>;
   onClose: () => void;
 };
 
-// One row in the results list -- a spend category, or a frequently-used
-// shortcut to one.
 type Option = {
   key: string;
   db_id: number;
@@ -61,6 +62,7 @@ type Option = {
   scope: string | null;
   category: string | null;
   sic: string | null;
+  factor: SpendFactor | null;
 };
 
 type Group = {
@@ -82,7 +84,7 @@ function categoryOf(c: { category: string | null }) {
   return c.category || "Uncategorised";
 }
 
-// PG&S leads (it's this tab's own category), everything else alphabetical.
+// PG&S leads (it's the spend screen's own category), everything else alphabetical.
 function compareCategories(a: string, b: string) {
   if (a === PGS) return b === PGS ? 0 : -1;
   if (b === PGS) return 1;
@@ -90,10 +92,17 @@ function compareCategories(a: string, b: string) {
 }
 
 // "SPEND-SIC-49.3-5-b" -> "49.3-5". The trailing letter only marks which
-// category a shared SIC factor was filed under, so it isn't shown.
+// category a shared SIC factor was filed under.
 function sicCode(originalId: string | null | undefined) {
   const m = /^SPEND-SIC-(.+)$/i.exec(originalId || "");
   return m ? m[1].replace(/-[a-z]$/i, "") : null;
+}
+
+function formatFactor(f: SpendFactor) {
+  if (f.factor === null || f.factor === undefined) return null;
+  const value = Number(f.factor).toLocaleString("en-GB", { maximumSignificantDigits: 4 });
+  const unit = [f.ghg_unit, f.uom].filter(Boolean).join("/");
+  return unit ? `${value} ${unit}` : value;
 }
 
 function countBy<T>(items: T[], key: (item: T) => string) {
@@ -161,17 +170,7 @@ function FilterChip({
   );
 }
 
-export default function SpendCategoryPicker({
-  row,
-  categories,
-  loading,
-  loadError,
-  suggested,
-  suggesting,
-  frequentlyUsed,
-  onPick,
-  onClose,
-}: Props) {
+export default function SpendFactorPicker({ row, factors, loading, loadError, frequentlyUsed, onPick, onClose }: Props) {
   const [search, setSearch] = useState("");
   const [scopeFilter, setScopeFilter] = useState(DEFAULT_SCOPE); // "" = all scopes
   const [categoryFilter, setCategoryFilter] = useState(""); // "" = all categories
@@ -181,52 +180,51 @@ export default function SpendCategoryPicker({
   const listRef = useRef<HTMLDivElement>(null);
 
   const tokens = useMemo(() => search.toLowerCase().split(/\s+/).filter(Boolean), [search]);
+  const factorById = useMemo(() => new Map(factors.map((f) => [f.db_id, f])), [factors]);
 
-  // Every search word must appear somewhere in the label, category or SIC
-  // code, so "land transport business" narrows instead of widening.
+  // Every search word must appear somewhere in the label, category, SIC
+  // code or DB ID, so extra words narrow instead of widening.
   const textMatches = useMemo(() => {
-    if (!tokens.length) return categories;
-    return categories.filter((c) => {
-      const haystack = `${c.report_label || ""} ${c.category || ""} ${sicCode(c.original_id) || ""}`.toLowerCase();
+    if (!tokens.length) return factors;
+    return factors.filter((f) => {
+      const haystack = `${f.report_label || ""} ${f.category || ""} ${sicCode(f.original_id) || ""} ${f.db_id}`.toLowerCase();
       return tokens.every((t) => haystack.includes(t));
     });
-  }, [categories, tokens]);
+  }, [factors, tokens]);
 
   const scopeCounts = useMemo(() => countBy(textMatches, scopeOf), [textMatches]);
-  const scopes = useMemo(() => Array.from(countBy(categories, scopeOf).keys()).sort(), [categories]);
+  const scopes = useMemo(() => Array.from(countBy(factors, scopeOf).keys()).sort(), [factors]);
 
   const inScope = useMemo(
-    () => (scopeFilter ? textMatches.filter((c) => scopeOf(c) === scopeFilter) : textMatches),
+    () => (scopeFilter ? textMatches.filter((f) => scopeOf(f) === scopeFilter) : textMatches),
     [textMatches, scopeFilter]
   );
   const categoryCounts = useMemo(() => countBy(inScope, categoryOf), [inScope]);
   // Every category the scope holds stays listed (greyed at 0) while
   // searching, so the chip row doesn't reshuffle under the cursor.
   const categoryChips = useMemo(() => {
-    const names = new Set(
-      categories.filter((c) => !scopeFilter || scopeOf(c) === scopeFilter).map(categoryOf)
-    );
+    const names = new Set(factors.filter((f) => !scopeFilter || scopeOf(f) === scopeFilter).map(categoryOf));
     if (categoryFilter) names.add(categoryFilter);
     return Array.from(names).sort(compareCategories);
-  }, [categories, scopeFilter, categoryFilter]);
+  }, [factors, scopeFilter, categoryFilter]);
 
-  // Grouped by scope + category, in the same order as the chips, led by
-  // this client's frequently-used categories until they start searching or
-  // narrow to one category. `flat` is the same order as one list, for
-  // arrow-key navigation.
+  // Grouped by scope + category, in the same order as the chips, led by the
+  // client's frequently-used factors until a search or category narrows
+  // things. `flat` is the same order as one list, for arrow-key navigation.
   const { groups, flat, matchCount } = useMemo(() => {
-    const visible = categoryFilter ? inScope.filter((c) => categoryOf(c) === categoryFilter) : inScope;
+    const visible = categoryFilter ? inScope.filter((f) => categoryOf(f) === categoryFilter) : inScope;
     const byKey = new Map<string, Group>();
-    for (const c of visible) {
-      const key = `${scopeOf(c)}|${categoryOf(c)}`;
-      if (!byKey.has(key)) byKey.set(key, { key, title: categoryOf(c), scope: scopeOf(c), frequent: false, items: [] });
+    for (const f of visible) {
+      const key = `${scopeOf(f)}|${categoryOf(f)}`;
+      if (!byKey.has(key)) byKey.set(key, { key, title: categoryOf(f), scope: scopeOf(f), frequent: false, items: [] });
       byKey.get(key)!.items.push({
-        key: `c${c.db_id}`,
-        db_id: c.db_id,
-        label: c.report_label || "Unnamed category",
-        scope: c.scope,
-        category: c.category,
-        sic: sicCode(c.original_id),
+        key: `f${f.db_id}`,
+        db_id: f.db_id,
+        label: f.report_label || "Unnamed factor",
+        scope: f.scope,
+        category: f.category,
+        sic: sicCode(f.original_id),
+        factor: f,
       });
     }
     const sorted = Array.from(byKey.values()).sort(
@@ -235,9 +233,8 @@ export default function SpendCategoryPicker({
     for (const g of sorted) g.items.sort((a, b) => a.label.localeCompare(b.label));
 
     // The top endpoint already re-points these at the job's own factors.
-    const frequent = !tokens.length && !categoryFilter
-      ? frequentlyUsed.filter((c) => !scopeFilter || scopeOf(c) === scopeFilter)
-      : [];
+    const frequent =
+      !tokens.length && !categoryFilter ? frequentlyUsed.filter((c) => !scopeFilter || scopeOf(c) === scopeFilter) : [];
     if (frequent.length) {
       sorted.unshift({
         key: "frequent",
@@ -245,36 +242,40 @@ export default function SpendCategoryPicker({
         scope: null,
         frequent: true,
         items: frequent.map((c) => ({
-          key: `f${c.db_id}`,
+          key: `t${c.db_id}`,
           db_id: c.db_id,
-          label: c.report_label || "Unnamed category",
+          label: c.report_label || "Unnamed factor",
           scope: c.scope,
           category: c.category,
           sic: sicCode(c.original_id),
+          factor: factorById.get(c.db_id) || null,
         })),
       });
     }
     return { groups: sorted, flat: sorted.flatMap((g) => g.items), matchCount: visible.length };
-  }, [inScope, categoryFilter, tokens, frequentlyUsed, scopeFilter]);
+  }, [inScope, categoryFilter, tokens, frequentlyUsed, scopeFilter, factorById]);
 
   useEffect(() => {
     listRef.current?.querySelector(`[data-idx="${activeIndex}"]`)?.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
 
+  // By DB ID first; the label match covers a row mapped to the same factor
+  // in another year's dataset (the list only carries the job's own).
   function isCurrent(o: Option) {
+    if (row.factor_db_id !== null && o.db_id === row.factor_db_id) return true;
     return (
       !!row.mapped_report_label &&
       o.label === row.mapped_report_label &&
-      o.category === row.mapped_category &&
+      o.category === (row.mapped_category ?? null) &&
       (!row.mapped_scope || o.scope === row.mapped_scope)
     );
   }
 
-  async function pick(category: { db_id: number }) {
+  async function pick(option: { db_id: number }) {
     if (pendingId !== null) return;
-    setPendingId(category.db_id);
+    setPendingId(option.db_id);
     setPickError("");
-    const err = await onPick(category);
+    const err = await onPick(option);
     // On success the parent closes (and unmounts) the picker.
     if (err) {
       setPickError(err);
@@ -320,30 +321,32 @@ export default function SpendCategoryPicker({
     }
   }
 
-  const amount =
-    row.amount_net !== null && row.amount_net !== undefined
-      ? `${row.amount_net.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${row.currency || "GBP"}`
-      : null;
-  // Matches the scope/category filters are hiding, offered from the empty state.
+  const amount = `${(row.amount_net || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${row.currency || "GBP"}`;
   const hiddenMatches = textMatches.length - matchCount;
-  const pickableSuggestions = suggested.filter((s) => s.db_id);
-  const showSuggestions = !search.trim() && (suggesting || pickableSuggestions.length > 0);
   let idx = -1;
 
   return (
-    <div className="flex h-full min-h-0 flex-col" onKeyDown={onKeyDown}>
+    <div
+      className="flex h-[min(46rem,calc(100vh-2rem))] w-[min(52rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border bg-background shadow-lg"
+      onKeyDown={onKeyDown}
+    >
       <div className="flex items-start justify-between gap-4 border-b px-5 pb-4 pt-5">
         <div className="min-w-0">
-          <h2 className="text-lg font-semibold">Pick a spend category</h2>
-          <p className="mt-1 truncate text-sm text-muted-foreground" title={row.spend_description || undefined}>
-            <span className="font-medium text-foreground">{row.spend_description || "Untitled line"}</span>
-            {row.reference_code && <> · GL {row.reference_code}</>}
-            {amount && <> · {amount}</>}
+          <h2 className="text-lg font-semibold">{row.factor_db_id ? "Change mapping" : "Map spend row"}</h2>
+          <p className="mt-1 truncate text-sm text-muted-foreground" title={row.spend_description}>
+            <span className="font-medium text-foreground">{row.spend_description || "Untitled row"}</span>
+            {row.reference_code && <> · Code {row.reference_code}</>}
+            {row.site_name && <> · {row.site_name}</>} · {amount}
           </p>
-          {row.mapped_report_label && (
+          {row.mapped_report_label ? (
             <p className="mt-1 truncate text-xs text-muted-foreground">
               Currently <span className="font-medium text-foreground">{row.mapped_report_label}</span>
-              {row.mapped_category && ` · ${row.mapped_category}`}
+              {[row.mapped_scope, row.mapped_category].filter(Boolean).map((s) => ` · ${s}`).join("")}
+              {row.factor_db_id !== null && <span className="font-mono"> · DB {row.factor_db_id}</span>}
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Not mapped yet. Your choice is also saved against this client&apos;s code for future years.
             </p>
           )}
         </div>
@@ -358,37 +361,14 @@ export default function SpendCategoryPicker({
       </div>
 
       <div className="space-y-3 border-b px-5 py-4">
-        {showSuggestions && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 inline-flex items-center gap-1 text-xs font-medium text-emerald-800">
-              <Sparkles className="h-3.5 w-3.5" /> Suggested
-            </span>
-            {suggesting && pickableSuggestions.length === 0 && (
-              <span className="text-xs text-muted-foreground">Looking for a match from this line&apos;s description…</span>
-            )}
-            {pickableSuggestions.map((s) => (
-              <button
-                key={s.key}
-                type="button"
-                title={s.category || undefined}
-                disabled={pendingId !== null}
-                onClick={() => void pick({ db_id: s.db_id! })}
-                className="max-w-[18rem] truncate rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        )}
-
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             autoFocus
             value={search}
             onChange={(e) => changeSearch(e.target.value)}
-            placeholder="Search by name or SIC code — e.g. legal, computer, 69.1"
-            aria-label="Search spend categories"
+            placeholder="Search by name, SIC code or DB ID — e.g. legal, computer, 69.1"
+            aria-label="Search spend factors"
             className="h-10 pl-9 pr-9"
           />
           {search && (
@@ -403,39 +383,8 @@ export default function SpendCategoryPicker({
           )}
         </div>
 
-        {/* Phones get two compact dropdowns -- the chip rows below would
-            fill the whole modal and leave no room for the results. */}
-        <div className="grid grid-cols-2 gap-2 sm:hidden">
-          <select
-            aria-label="Scope"
-            value={scopeFilter}
-            onChange={(e) => selectScope(e.target.value)}
-            className="h-9 min-w-0 rounded-md border border-input bg-background px-2 text-sm"
-          >
-            <option value="">All scopes ({textMatches.length})</option>
-            {scopes.map((s) => (
-              <option key={s} value={s}>
-                {s} ({scopeCounts.get(s) || 0})
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Category"
-            value={categoryFilter}
-            onChange={(e) => selectCategory(e.target.value)}
-            className="h-9 min-w-0 rounded-md border border-input bg-background px-2 text-sm"
-          >
-            <option value="">All categories ({inScope.length})</option>
-            {categoryChips.map((c) => (
-              <option key={c} value={c}>
-                {c} ({categoryCounts.get(c) || 0})
-              </option>
-            ))}
-          </select>
-        </div>
-
         {scopes.length > 1 && (
-          <div className="hidden flex-wrap items-center gap-1.5 sm:flex">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="w-16 shrink-0 text-xs font-medium text-muted-foreground">Scope</span>
             <FilterChip active={!scopeFilter} count={textMatches.length} onClick={() => selectScope("")}>
               All
@@ -449,7 +398,7 @@ export default function SpendCategoryPicker({
         )}
 
         {categoryChips.length > 1 && (
-          <div className="hidden flex-wrap items-center gap-1.5 sm:flex">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="w-16 shrink-0 text-xs font-medium text-muted-foreground">Category</span>
             <FilterChip active={!categoryFilter} count={inScope.length} onClick={() => selectCategory("")}>
               All
@@ -468,19 +417,17 @@ export default function SpendCategoryPicker({
         )}
       </div>
 
-      {pickError && (
-        <div className="border-b border-rose-200 bg-rose-50 px-5 py-2 text-xs text-rose-800">{pickError}</div>
-      )}
+      {pickError && <div className="border-b border-rose-200 bg-rose-50 px-5 py-2 text-xs text-rose-800">{pickError}</div>}
 
-      <div ref={listRef} role="listbox" aria-label="Spend categories" className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={listRef} role="listbox" aria-label="Spend factors" className="min-h-0 flex-1 overflow-y-auto">
         {loading ? (
-          <div className="p-5 text-sm text-muted-foreground">Loading spend categories…</div>
+          <div className="p-5 text-sm text-muted-foreground">Loading spend factors…</div>
         ) : loadError ? (
           <div className="p-5 text-sm text-rose-700">{loadError}</div>
         ) : flat.length === 0 ? (
           <div className="space-y-3 p-5 text-sm text-muted-foreground">
             <p>
-              {search.trim() ? <>No spend categories match &ldquo;{search.trim()}&rdquo;</> : "No spend categories here"}
+              {search.trim() ? <>No spend factors match &ldquo;{search.trim()}&rdquo;</> : "No spend factors here"}
               {scopeFilter && ` in ${scopeFilter}`}
               {categoryFilter && ` · ${categoryFilter}`}.
             </p>
@@ -491,7 +438,7 @@ export default function SpendCategoryPicker({
             )}
             {search.trim() && hiddenMatches === 0 && (
               <p className="text-xs">
-                Categories use UK SIC names, so try a broader word — e.g. &ldquo;computer&rdquo; rather than
+                Factors use UK SIC names, so try a broader word — e.g. &ldquo;computer&rdquo; rather than
                 &ldquo;software&rdquo;, or &ldquo;legal&rdquo; rather than &ldquo;solicitor&rdquo;.
               </p>
             )}
@@ -499,7 +446,7 @@ export default function SpendCategoryPicker({
         ) : (
           groups.map((g) => (
             <div key={g.key}>
-              <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-muted/95 px-5 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+              <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-muted px-5 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 <span>
                   {g.title}
                   {!scopeFilter && g.scope && <span className="font-normal normal-case"> · {g.scope}</span>}
@@ -511,6 +458,7 @@ export default function SpendCategoryPicker({
                 const i = idx;
                 const active = i === activeIndex;
                 const current = isCurrent(o);
+                const factorText = o.factor ? formatFactor(o.factor) : null;
                 return (
                   <button
                     key={o.key}
@@ -522,33 +470,41 @@ export default function SpendCategoryPicker({
                     onMouseMove={() => i !== activeIndex && setActiveIndex(i)}
                     onClick={() => void pick(o)}
                     className={cn(
-                      "flex w-full items-center gap-3 border-b px-5 py-2.5 text-left text-sm last:border-0 disabled:cursor-wait",
+                      "flex w-full items-center gap-3 border-b px-5 py-2 text-left text-sm last:border-0 disabled:cursor-wait",
                       active ? "bg-primary/10" : "hover:bg-muted/60",
                       current && "font-medium"
                     )}
                   >
                     <span className="min-w-0 flex-1">
-                      <Highlight text={o.label} tokens={tokens} />
+                      <span className="block">
+                        <Highlight text={o.label} tokens={tokens} />
+                      </span>
+                      {g.frequent && (
+                        <span className="block text-xs font-normal text-muted-foreground">
+                          {[o.scope, o.category].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
                     </span>
                     {pendingId === o.db_id ? (
                       <span className="shrink-0 text-xs text-muted-foreground">Saving…</span>
-                    ) : current ? (
-                      <span className="inline-flex shrink-0 items-center gap-1 text-xs text-emerald-700">
-                        <Check className="h-3.5 w-3.5" /> Current
-                      </span>
-                    ) : g.frequent ? (
-                      // Same label can sit under several categories, so flag
-                      // the ones that aren't this tab's own.
-                      o.category &&
-                      o.category !== PGS && (
-                        <span className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground">{o.category}</span>
-                      )
                     ) : (
-                      o.sic && (
-                        <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-                          SIC <Highlight text={o.sic} tokens={tokens} />
+                      <span className="flex shrink-0 flex-col items-end gap-0.5 text-right font-mono text-[11px] font-normal text-muted-foreground">
+                        {current && (
+                          <span className="inline-flex items-center gap-1 font-sans text-xs text-emerald-700">
+                            <Check className="h-3.5 w-3.5" /> Current
+                          </span>
+                        )}
+                        {factorText && <span>{factorText}</span>}
+                        <span>
+                          DB <Highlight text={String(o.db_id)} tokens={tokens} />
+                          {o.sic && (
+                            <>
+                              {" · SIC "}
+                              <Highlight text={o.sic} tokens={tokens} />
+                            </>
+                          )}
                         </span>
-                      )
+                      </span>
                     )}
                   </button>
                 );
@@ -560,7 +516,7 @@ export default function SpendCategoryPicker({
 
       <div className="flex items-center justify-between gap-3 border-t px-5 py-3">
         <span className="text-xs text-muted-foreground">
-          {loading ? "" : `${matchCount} of ${categories.length} spend categories`}
+          {loading ? "" : `${matchCount} of ${factors.length} spend factors`}
           <span className="hidden sm:inline"> · ↑ ↓ to move, Enter to select, Esc to close</span>
         </span>
         <Button variant="outline" size="sm" onClick={onClose}>

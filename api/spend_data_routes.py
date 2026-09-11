@@ -295,6 +295,83 @@ def _factor_category_expr(con, alias: str = "") -> str:
     return f"COALESCE({prefix}level_2, {prefix}level_1, 'Uncategorized')"
 
 
+def _spend_based_sql(alias: str) -> str:
+    """SQL predicate: the factor is spend-based, i.e. its uom is a currency
+    code ("GBP") rather than a physical unit ("kg", "km", "kWh"). Same rule
+    as _classify_factor_kind in api/lca_routes.py -- the DESNZ "Activity &
+    Spend" datasets mix both kinds row-by-row, so the job's Scope 3 dataset
+    alone let activity factors (e.g. "Bioenergy: Biofuel Biopropane") into
+    spend pickers, when a ledger line is only ever priced by its currency
+    value."""
+    return (
+        f"UPPER(TRIM(COALESCE({alias}.uom, ''))) IN ("
+        "SELECT DISTINCT UPPER(TRIM(currency)) FROM datasets WHERE COALESCE(TRIM(currency), '') <> '')"
+    )
+
+
+def _is_spend_based_factor(con, factor_db_id: int) -> bool:
+    row = con.execute(
+        f"SELECT 1 FROM v_factor_lookup f WHERE f.db_id = %s AND {_spend_based_sql('f')} LIMIT 1",
+        [int(factor_db_id)],
+    ).fetchone()
+    return bool(row)
+
+
+def _top_spend_factors_for_job(con, job_id: int, client_db_id: int, limit: int = 8) -> list[dict[str, Any]]:
+    """get_top_spend_categories, re-pointed at this job's own factors.
+
+    The ranking comes from past mappings, which often sit in an earlier
+    year's dataset (e.g. "UK Activity & Spend 2022"). Offering those db_ids
+    as quick picks would price this year's spend with a stale value, so each
+    one is swapped for the factor with the same original_id in the job's
+    Scope 3 dataset(s) -- the same datasets the factor search is limited to
+    -- and dropped when the job has no equivalent."""
+    ranked = get_top_spend_categories(con, int(client_db_id), limit=limit * 2)
+    scope3_dataset_ids = get_applicable_datasets(int(job_id)).get("Scope 3") or []
+    if not ranked or not scope3_dataset_ids:
+        return ranked[:limit]
+
+    source_ids = [int(item["db_id"]) for item in ranked]
+    original_by_source = {
+        int(r[0]): r[1]
+        for r in con.execute(
+            "SELECT db_id, original_id FROM v_factor_lookup WHERE db_id = ANY(%s)", [source_ids]
+        ).fetchall()
+    }
+    original_ids = sorted({o for o in original_by_source.values() if o})
+    if not original_ids:
+        return []
+
+    category_expr = _factor_category_expr(con, "f")
+    label_expr = _factor_label_expr(con, "f")
+    job_factor_by_original: dict[str, dict[str, Any]] = {}
+    for r in con.execute(
+        f"""
+        SELECT DISTINCT ON (f.original_id)
+               f.original_id, f.db_id, f.scope, {category_expr} AS category, {label_expr} AS report_label
+        FROM v_factor_lookup f
+        WHERE f.original_id = ANY(%s) AND f.dataset_id = ANY(%s) AND {_spend_based_sql("f")}
+        ORDER BY f.original_id, f.dataset_id DESC
+        """,
+        [original_ids, scope3_dataset_ids],
+    ).fetchall():
+        job_factor_by_original[str(r[0])] = {
+            "db_id": int(r[1]), "original_id": r[0], "scope": r[2], "category": r[3], "report_label": r[4],
+        }
+
+    resolved: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for item in ranked:
+        job_factor = job_factor_by_original.get(str(original_by_source.get(int(item["db_id"])) or ""))
+        if not job_factor or job_factor["db_id"] in seen:
+            continue
+        seen.add(job_factor["db_id"])
+        resolved.append({**job_factor, "use_count": item.get("use_count")})
+        if len(resolved) >= limit:
+            break
+    return resolved
+
+
 def _job_client_id(con, job_id: int) -> int:
     row = con.execute(
         "SELECT client_db_id FROM jobs WHERE job_id = %s",
@@ -777,7 +854,7 @@ def list_spend_data(job_id: int, _user: dict = Depends(_current_user)):
                    e.amount_net, e.amount_gross, e.vat_pct, e.dataset_id, e.factor_db_id, e.factor_original_id,
                    e.mapped_scope, e.mapped_category, e.mapped_report_label,
                    e.mapping_status, e.mapping_confidence, e.estimated_emissions_tco2e,
-                   fl.ghg_unit AS factor_ghg_unit,
+                   fl.ghg_unit AS factor_ghg_unit, fl.factor AS factor_value, fl.uom AS factor_uom,
                    e.notes, e.created_at, e.updated_at
             FROM job_spend_entries e
             LEFT JOIN client_sites s ON s.site_id = e.site_id
@@ -818,6 +895,8 @@ def list_spend_data(job_id: int, _user: dict = Depends(_current_user)):
                     "mapping_status": _safe_optional_str(row.get("mapping_status")) or "unmapped",
                     "mapping_confidence": _safe_optional_str(row.get("mapping_confidence")),
                     "factor_ghg_unit": _safe_optional_str(row.get("factor_ghg_unit")),
+                    "factor_value": _safe_float(row.get("factor_value"), 0.0) if row.get("factor_value") is not None else None,
+                    "factor_uom": _safe_optional_str(row.get("factor_uom")),
                     "unit_warning": _spend_factor_warning(_safe_optional_str(row.get("factor_ghg_unit"))),
                     "estimated_emissions_kgco2e": _safe_float(row.get("estimated_emissions_tco2e"), 0.0),
                     "estimated_emissions_tco2e": _safe_float(row.get("estimated_emissions_tco2e"), 0.0) / 1000.0,
@@ -1231,32 +1310,38 @@ def update_spend_data(job_id: int, entry_id: int, body: dict = Body(...), _user:
             params.extend([int(entry_id), int(job_id)])
             con.execute(f"UPDATE job_spend_entries SET {', '.join(updates)} WHERE entry_id=%s AND job_id=%s", params)
 
+        row = con.execute(
+            """
+            SELECT code_type, reference_code, normalized_description, amount_gross, amount_net, vat_pct, conversion_rate,
+                   factor_db_id
+            FROM job_spend_entries
+            WHERE entry_id=%s
+            """,
+            [int(entry_id)],
+        ).fetchone()
+        gross_now = _safe_float(row[3], 0.0)
+        net_now = _safe_float(row[4], _net_from_gross(gross_now, _safe_float(row[5], 0.0)))
+        vat_now = _safe_float(row[5], 0.0)
+        rate_now = _safe_float(row[6], 1.0)
+        amounts_changed = ("amount_net" in body) or ("vat_pct" in body) or ("conversion_rate" in body)
+        if amounts_changed:
+            net_new = _safe_float(body.get("amount_net"), net_now)
+            vat_new = _safe_float(body.get("vat_pct"), vat_now)
+            rate_new = _safe_float(body.get("conversion_rate"), rate_now)
+            if rate_new <= 0:
+                rate_new = 1.0
+            gross_now = _gross_from_net(net_new * rate_new, vat_new)
+            con.execute(
+                "UPDATE job_spend_entries SET amount_net=%s, amount_gross=%s, updated_at=NOW() WHERE entry_id=%s",
+                [net_new * rate_new, gross_now, int(entry_id)],
+            )
+
+        # remap=False keeps the row's current mapping -- the CRM sends it for
+        # rows someone has already mapped by hand, so editing an amount or
+        # description can't swap their chosen factor for whatever the
+        # client's saved mapping or description match would pick.
+        mapping = None
         if bool(body.get("remap", True)):
-            row = con.execute(
-                """
-                SELECT code_type, reference_code, normalized_description, amount_gross, amount_net, vat_pct, conversion_rate
-                FROM job_spend_entries
-                WHERE entry_id=%s
-                """,
-                [int(entry_id)],
-            ).fetchone()
-            gross_now = _safe_float(row[3], 0.0)
-            net_now = _safe_float(row[4], _net_from_gross(gross_now, _safe_float(row[5], 0.0)))
-            vat_now = _safe_float(row[5], 0.0)
-            rate_now = _safe_float(row[6], 1.0)
-            converted_net_now = net_now
-            if ("amount_net" in body) or ("vat_pct" in body) or ("conversion_rate" in body):
-                net_new = _safe_float(body.get("amount_net"), net_now)
-                vat_new = _safe_float(body.get("vat_pct"), vat_now)
-                rate_new = _safe_float(body.get("conversion_rate"), rate_now)
-                if rate_new <= 0:
-                    rate_new = 1.0
-                converted_net_now = net_new * rate_new
-                gross_now = _gross_from_net(net_new * rate_new, vat_new)
-                con.execute(
-                    "UPDATE job_spend_entries SET amount_net=%s, amount_gross=%s, updated_at=NOW() WHERE entry_id=%s",
-                    [converted_net_now, gross_now, int(entry_id)],
-                )
             mapping = _auto_mapping(
                 con=con,
                 client_db_id=int(client_db_id),
@@ -1264,30 +1349,39 @@ def update_spend_data(job_id: int, entry_id: int, body: dict = Body(...), _user:
                 reference_code=str(row[1] or ""),
                 normalized_description=str(row[2] or ""),
             )
-            if mapping:
-                emissions = _safe_float(gross_now, 0.0) * _safe_float(mapping.get("factor"), 0.0)
+        if not mapping and amounts_changed and row[7] is not None:
+            # Same amount x factor rule as map_spend_row, re-run so a changed
+            # amount doesn't leave the old emissions estimate behind.
+            current = _factor_by_id(con, int(row[7]))
+            if current:
                 con.execute(
-                    """
-                    UPDATE job_spend_entries
-                    SET dataset_id=%s, factor_db_id=%s, factor_original_id=%s,
-                        mapped_scope=%s, mapped_category=%s, mapped_report_label=%s,
-                        mapping_status='suggested', mapping_confidence=%s, mapped_by=%s, mapped_at=NOW(),
-                        estimated_emissions_tco2e=%s, updated_at=NOW()
-                    WHERE entry_id=%s
-                    """,
-                    [
-                        mapping.get("dataset_id"),
-                        mapping.get("factor_db_id"),
-                        mapping.get("factor_original_id"),
-                        mapping.get("scope"),
-                        mapping.get("category"),
-                        mapping.get("report_label"),
-                        mapping.get("confidence"),
-                        actor,
-                        emissions,
-                        int(entry_id),
-                    ],
+                    "UPDATE job_spend_entries SET estimated_emissions_tco2e=%s, updated_at=NOW() WHERE entry_id=%s",
+                    [gross_now * _safe_float(current.get("factor"), 0.0), int(entry_id)],
                 )
+        if mapping:
+            emissions = _safe_float(gross_now, 0.0) * _safe_float(mapping.get("factor"), 0.0)
+            con.execute(
+                """
+                UPDATE job_spend_entries
+                SET dataset_id=%s, factor_db_id=%s, factor_original_id=%s,
+                    mapped_scope=%s, mapped_category=%s, mapped_report_label=%s,
+                    mapping_status='suggested', mapping_confidence=%s, mapped_by=%s, mapped_at=NOW(),
+                    estimated_emissions_tco2e=%s, updated_at=NOW()
+                WHERE entry_id=%s
+                """,
+                [
+                    mapping.get("dataset_id"),
+                    mapping.get("factor_db_id"),
+                    mapping.get("factor_original_id"),
+                    mapping.get("scope"),
+                    mapping.get("category"),
+                    mapping.get("report_label"),
+                    mapping.get("confidence"),
+                    actor,
+                    emissions,
+                    int(entry_id),
+                ],
+            )
 
     return {"ok": True}
 
@@ -1376,6 +1470,8 @@ def map_spend_row(job_id: int, entry_id: int, body: dict = Body(...), _user: dic
         factor = _factor_by_id(con, factor_db_id)
         if not factor:
             raise HTTPException(status_code=404, detail="Factor not found")
+        if not _is_spend_based_factor(con, factor_db_id):
+            raise HTTPException(status_code=400, detail="That factor isn't spend-based (its unit isn't a currency), so it can't price a spend row")
 
         row = con.execute(
             """
@@ -1548,7 +1644,17 @@ def review_spend_row(
 
 
 @router.get("/jobs/{job_id}/spend-data/factors/search")
-def search_spend_factors(job_id: int, q: str = Query("", min_length=0), limit: int = Query(25, ge=1, le=200), _user: dict = Depends(_current_user)):
+def search_spend_factors(
+    job_id: int,
+    q: str = Query("", min_length=0),
+    scope: str = Query(""),
+    category: str = Query(""),
+    limit: int = Query(25, ge=1, le=1000),
+    _user: dict = Depends(_current_user),
+):
+    """Spend-based factors only, optionally narrowed by scope/category. The
+    mapping picker loads the whole list once (a few hundred rows at most)
+    and filters it client-side, hence the high limit ceiling."""
     with get_conn() as con:
         _ensure_spend_tables(con)
         _job_client_id(con, int(job_id))
@@ -1564,22 +1670,33 @@ def search_spend_factors(job_id: int, q: str = Query("", min_length=0), limit: i
         scope3_dataset_ids = get_applicable_datasets(int(job_id)).get("Scope 3") or []
         dataset_filter_sql = "AND f.dataset_id = ANY(%s)" if scope3_dataset_ids else ""
 
+        # De-duplicated per (scope, category, label), not per label alone --
+        # the same SIC label is a separate factor under each category it
+        # serves (e.g. "Land transport services..." under Business Travel,
+        # Upstream and Downstream Transportation), and collapsing on label
+        # kept only one of them.
+        scope = scope.strip()
+        category = category.strip()
         params: list[Any] = []
         if scope3_dataset_ids:
             params.append(scope3_dataset_ids)
         params.append("%PROD%")
+        params.extend([scope, scope, category, category])
         params.extend([q, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", int(limit)])
 
         df = con.execute(
             f"""
-            SELECT DISTINCT ON ({label_expr})
+            SELECT DISTINCT ON (f.scope, {category_expr}, {label_expr})
                    f.db_id, f.dataset_id, f.original_id, f.scope, {category_expr} AS category, {label_expr} AS report_label, f.factor, f.ghg_unit,
-                   d.name AS dataset_name, d.analysis_type
+                   f.uom, d.name AS dataset_name, d.analysis_type
             FROM v_factor_lookup f
             LEFT JOIN datasets d ON d.dataset_id = f.dataset_id
             WHERE (d.archived IS NULL OR d.archived = FALSE)
               {dataset_filter_sql}
               AND f.original_id NOT ILIKE %s
+              AND {_spend_based_sql("f")}
+              AND (%s = '' OR f.scope = %s)
+              AND (%s = '' OR {category_expr} = %s)
               AND (
                    %s = ''
                    OR {label_expr} ILIKE %s
@@ -1587,7 +1704,7 @@ def search_spend_factors(job_id: int, q: str = Query("", min_length=0), limit: i
                    OR f.column_text ILIKE %s
                    OR f.original_id ILIKE %s
               )
-            ORDER BY {label_expr}, f.dataset_id DESC
+            ORDER BY f.scope, {category_expr}, {label_expr}, f.dataset_id DESC
             LIMIT %s
             """,
             params,
@@ -1606,6 +1723,7 @@ def search_spend_factors(job_id: int, q: str = Query("", min_length=0), limit: i
                     "report_label": r.get("report_label"),
                     "factor": _safe_float(r.get("factor"), 0.0),
                     "ghg_unit": _safe_optional_str(r.get("ghg_unit")),
+                    "uom": _safe_optional_str(r.get("uom")),
                     "unit_warning": _spend_factor_warning(_safe_optional_str(r.get("ghg_unit"))),
                     "dataset_name": r.get("dataset_name"),
                     "analysis_type": r.get("analysis_type"),
@@ -1621,7 +1739,7 @@ def top_spend_factors(job_id: int, _user: dict = Depends(_current_user)):
     with get_conn() as con:
         _ensure_spend_tables(con)
         client_db_id = _job_client_id(con, int(job_id))
-        items = get_top_spend_categories(con, int(client_db_id))
+        items = _top_spend_factors_for_job(con, int(job_id), int(client_db_id))
     return {"items": items}
 
 

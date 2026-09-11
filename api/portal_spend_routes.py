@@ -25,10 +25,13 @@ from api.spend_data_routes import (
     _factor_category_expr,
     _factor_label_expr,
     _gross_from_net,
+    _is_spend_based_factor,
     _parse_upload,
     _persist_spend_row,
     _safe_float,
     _safe_optional_int,
+    _spend_based_sql,
+    _top_spend_factors_for_job,
 )
 from core.database import get_conn
 from services.dataset_selector import get_applicable_datasets
@@ -38,7 +41,6 @@ from services.portal_data_entry import (
     PORTAL_DATA_ENTRY_EXPIRED_MESSAGE,
     get_job_summary,
     get_portal_data_entry_status,
-    get_top_spend_categories,
     load_client_category_history,
     resolve_current_job_for_client,
 )
@@ -59,27 +61,6 @@ def _is_prod_coded(original_id: str | None) -> bool:
     categories that sit under a different top-level category (e.g. Insurance
     is filed under "Investments") -- see /portal/spend/categories/search."""
     return "prod" in str(original_id or "").lower()
-
-
-def _spend_based_sql(alias: str) -> str:
-    """SQL predicate: the factor is spend-based, i.e. its uom is a currency
-    code ("GBP") rather than a physical unit ("kg", "km", "kWh"). Same rule
-    as _classify_factor_kind in api/lca_routes.py -- the DESNZ "Activity &
-    Spend" datasets mix both kinds row-by-row, so the job's Scope 3 dataset
-    alone let activity factors (e.g. "Bioenergy: Biofuel Biopropane") into a
-    picker that only ever prices a ledger line by its currency value."""
-    return (
-        f"UPPER(TRIM(COALESCE({alias}.uom, ''))) IN ("
-        "SELECT DISTINCT UPPER(TRIM(currency)) FROM datasets WHERE COALESCE(TRIM(currency), '') <> '')"
-    )
-
-
-def _is_spend_based_factor(con, factor_db_id: int) -> bool:
-    row = con.execute(
-        f"SELECT 1 FROM v_factor_lookup f WHERE f.db_id = %s AND {_spend_based_sql('f')} LIMIT 1",
-        [int(factor_db_id)],
-    ).fetchone()
-    return bool(row)
 
 
 MAX_GL_CODE_LENGTH = 15
@@ -317,7 +298,10 @@ def portal_spend_top_categories(current_user: dict = Depends(portal_user_dep)):
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         _ensure_spend_tables(con)
-        items = get_top_spend_categories(con, client_db_id)
+        job_id = resolve_current_job_for_client(con, client_db_id)
+        if job_id is None:
+            return {"items": []}
+        items = _top_spend_factors_for_job(con, int(job_id), client_db_id)
     return {"items": items}
 
 

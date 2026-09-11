@@ -14,6 +14,7 @@ import { dispatchJobScopeRefresh } from "@/lib/job-scope-refresh";
 import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
 import PendingPortalSpendSubmissions from "@/components/PendingPortalSpendSubmissions";
 import SpendFactorRefreshBanner from "@/components/SpendFactorRefreshBanner";
+import SpendFactorPicker, { type SpendFactor, type TopSpendFactor } from "@/components/SpendFactorPicker";
 
 type SpendEntry = {
   entry_id: number;
@@ -30,9 +31,13 @@ type SpendEntry = {
   mapping_status: string;
   mapping_confidence: string | null;
   factor_db_id: number | null;
+  factor_original_id: string | null;
   mapped_scope: string | null;
+  mapped_category: string | null;
   mapped_report_label: string | null;
   factor_ghg_unit?: string | null;
+  factor_value?: number | null;
+  factor_uom?: string | null;
   unit_warning?: string | null;
   estimated_emissions_kgco2e: number;
   estimated_emissions_tco2e: number;
@@ -55,17 +60,6 @@ type SpendPreviewRow = {
   id_mismatch_warning?: string | null;
   estimated_emissions_kgco2e?: number | null;
   estimated_emissions_tco2e?: number | null;
-};
-
-type FactorItem = {
-  db_id: number;
-  report_label: string | null;
-  scope: string | null;
-  category: string | null;
-  factor: number;
-  ghg_unit?: string | null;
-  unit_warning?: string | null;
-  dataset_name: string | null;
 };
 
 function isKgBasedUnit(unit?: string | null) {
@@ -125,11 +119,13 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
   const [commitResult, setCommitResult] = useState<{ inserted: number; auto_mapped: number } | null>(null);
   const [syncResult, setSyncResult] = useState<{ created: number; updated: number; deactivated: number } | null>(null);
 
-  const [factorQuery, setFactorQuery] = useState("");
-  const [factorResults, setFactorResults] = useState<FactorItem[]>([]);
-  const [selectedEntryId, setSelectedEntryId] = useState<string>("__none__");
-  const [selectedFactorId, setSelectedFactorId] = useState<string>("__none__");
-  const [mappingDialogOpen, setMappingDialogOpen] = useState(false);
+  // The row whose mapping picker is open. The job's spend factors (a few
+  // hundred at most) load once on first open and are filtered client-side.
+  const [mappingEntryId, setMappingEntryId] = useState<number | null>(null);
+  const [spendFactors, setSpendFactors] = useState<SpendFactor[]>([]);
+  const [spendFactorsLoading, setSpendFactorsLoading] = useState(false);
+  const [spendFactorsError, setSpendFactorsError] = useState("");
+  const [topFactors, setTopFactors] = useState<TopSpendFactor[]>([]);
   const [rollforwardLoading, setRollforwardLoading] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingEntryId, setEditingEntryId] = useState<number | null>(null);
@@ -150,7 +146,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
     return Boolean(
       uploadFile ||
         editDialogOpen ||
-        mappingDialogOpen ||
+        mappingEntryId !== null ||
         referenceCode.trim() ||
         description.trim() ||
         currency.trim() ||
@@ -165,7 +161,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
         editNotes.trim()
     );
   }, [
-    uploadFile, editDialogOpen, mappingDialogOpen, referenceCode, description,
+    uploadFile, editDialogOpen, mappingEntryId, referenceCode, description,
     currency, amountNet, vatPct, notes, editReferenceCode, editDescription,
     editCurrency, editAmountNet, editVatPct, editNotes,
   ]);
@@ -245,7 +241,6 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
     setError("");
     setStatus("");
     try {
-      const spendDescription = description.trim();
       const res = await fetch(`${baseUrl}/jobs/${jobId}/spend-data`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -266,17 +261,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
       setStatus("Spend row added. Please complete mapping.");
       await loadData();
       setCurrentStep(3);
-      if (data?.entry_id) {
-        setSelectedEntryId(String(data.entry_id));
-        setSelectedFactorId("__none__");
-      }
-      if (spendDescription.length > 0) {
-        setFactorQuery(spendDescription);
-        await searchFactors(spendDescription);
-      } else {
-        setFactorResults([]);
-      }
-      setMappingDialogOpen(true);
+      if (data?.entry_id) openMappingPicker(Number(data.entry_id));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to save spend row");
     } finally {
@@ -333,41 +318,59 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
     }
   }
 
-  async function searchFactors(queryOverride?: string) {
-    const queryToUse = (queryOverride ?? factorQuery).trim();
-    setLoading(true); setError("");
+  function openMappingPicker(entryId: number) {
+    setMappingEntryId(entryId);
+    if (spendFactors.length === 0) void loadSpendFactors();
+    void loadTopFactors();
+  }
+
+  async function loadSpendFactors() {
+    setSpendFactorsLoading(true);
+    setSpendFactorsError("");
     try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/spend-data/factors/search?q=${encodeURIComponent(queryToUse)}&limit=30`);
-      if (!res.ok) throw new Error(`Factor search failed (${res.status})`);
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/spend-data/factors/search?limit=1000`);
+      if (!res.ok) throw new Error(`Couldn't load spend factors (${res.status}) — close this and try again.`);
       const data = await res.json();
-      setFactorResults(Array.isArray(data?.items) ? data.items : []);
+      setSpendFactors(Array.isArray(data?.items) ? data.items : []);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Factor search failed");
+      setSpendFactorsError(e instanceof Error ? e.message : "Couldn't load spend factors — close this and try again.");
     } finally {
-      setLoading(false);
+      setSpendFactorsLoading(false);
     }
   }
 
-  async function applyMapping() {
-    if (selectedEntryId === "__none__" || selectedFactorId === "__none__") {
-      setError("Choose an entry and a factor first"); return;
-    }
-    setLoading(true); setError(""); setStatus("");
+  async function loadTopFactors() {
     try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/spend-data/${selectedEntryId}/map`, {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/spend-data/factors/top`);
+      const data = res.ok ? await res.json() : null;
+      setTopFactors(Array.isArray(data?.items) ? data.items : []);
+    } catch {
+      setTopFactors([]);
+    }
+  }
+
+  // Resolves to an error message, or null once saved.
+  async function applyMapping(entryId: number, factorDbId: number): Promise<string | null> {
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/spend-data/${entryId}/map`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ factor_db_id: Number(selectedFactorId), confidence: "High", lock_mapping: true }),
+        body: JSON.stringify({ factor_db_id: factorDbId, confidence: "High", lock_mapping: true }),
       });
-      if (!res.ok) throw new Error(`Mapping failed (${res.status})`);
-      setStatus("Mapping saved and reusable for future years.");
-      await loadData();
-      if ((summary?.unmapped ?? 1) <= 1) setCurrentStep(4);
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        return data?.detail || `Mapping failed (${res.status})`;
+      }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Mapping failed");
-    } finally {
-      setLoading(false);
+      return e instanceof Error ? e.message : "Mapping failed";
     }
+    const wasUnmapped = entries.find((e) => e.entry_id === entryId)?.mapping_status === "unmapped";
+    setMappingEntryId(null);
+    setError("");
+    setStatus("Mapping saved and reusable for future years. Push to emissions again to update reported figures.");
+    await loadData();
+    if (wasUnmapped && unmappedCount <= 1) setCurrentStep(4);
+    return null;
   }
 
   function openEditDialog(row: SpendEntry) {
@@ -381,6 +384,10 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
     setEditNotes(row.notes || "");
     setEditDialogOpen(true);
   }
+
+  // Read live from `entries` so a mapping changed from inside the Edit
+  // dialog shows straight away.
+  const editingEntry = entries.find((e) => e.entry_id === editingEntryId) ?? null;
 
   async function saveEditRow() {
     if (!editingEntryId) return;
@@ -399,7 +406,9 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
           amount_net: Number(editAmountNet || 0),
           vat_pct: Number(editVatPct || 0),
           notes: editNotes || null,
-          remap: true,
+          // Only auto-map rows nobody has mapped by hand -- otherwise saving
+          // an amount change could swap the chosen factor for a guess.
+          remap: editingEntry?.mapping_status !== "mapped",
         }),
       });
       if (!res.ok) throw new Error(`Failed to update spend row (${res.status})`);
@@ -535,14 +544,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
     }
   }
 
-  const entryOptions = useMemo(
-    () => entries.map((e) => ({ value: String(e.entry_id), label: `${e.reference_code || "(no code)"} - ${e.spend_description}` })),
-    [entries]
-  );
-  const selectedEntry = useMemo(
-    () => entries.find((e) => String(e.entry_id) === selectedEntryId) ?? null,
-    [entries, selectedEntryId]
-  );
+  const mappingEntry = entries.find((e) => e.entry_id === mappingEntryId) ?? null;
 
   const stages = [
     { num: 1, label: "Setup", done: stepState.setupDone },
@@ -875,7 +877,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
             {unmappedCount > 0 ? (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                 <strong>{unmappedCount} row(s)</strong> need mapping before you can push to emissions.
-                Click an unmapped row below or use the mapping panel.
+                Click &ldquo;Unmapped — click to map&rdquo; on a row below.
               </div>
             ) : hasRows ? (
               <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -916,19 +918,40 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                         <td className="p-2">{r.spend_description}</td>
                         <td className="p-2">{r.currency} {(r.amount_net || 0).toLocaleString()}</td>
                         <td className="p-2">{r.vat_pct}</td>
-                        <td className="p-2">
+                        <td className="p-2 min-w-[16rem]">
                           {r.mapped_scope ? (
-                            <span className="text-emerald-700">{r.mapped_scope} – {r.mapped_report_label || ""}</span>
+                            <div className="space-y-0.5">
+                              <div className="text-emerald-800">
+                                {r.mapped_report_label || "-"}
+                                {r.mapping_status === "suggested" ? (
+                                  <span
+                                    className="ml-1.5 inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
+                                    title="Auto-suggested from this client's earlier mappings -- not confirmed by hand yet"
+                                  >
+                                    suggested
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {[r.mapped_scope, r.mapped_category].filter(Boolean).join(" · ")}
+                              </div>
+                              <div className="font-mono text-[11px] text-muted-foreground">
+                                DB {r.factor_db_id ?? "-"}
+                                {r.factor_original_id ? ` · ${r.factor_original_id}` : ""}
+                              </div>
+                              <button
+                                type="button"
+                                className="text-xs text-primary underline underline-offset-2 hover:text-primary/80"
+                                onClick={() => openMappingPicker(r.entry_id)}
+                              >
+                                Change mapping
+                              </button>
+                            </div>
                           ) : (
                             <button
                               type="button"
                               className="text-amber-700 underline underline-offset-2 hover:text-amber-900 text-left"
-                              onClick={() => {
-                                setSelectedEntryId(String(r.entry_id));
-                                setSelectedFactorId("__none__");
-                                setFactorResults([]);
-                                setMappingDialogOpen(true);
-                              }}
+                              onClick={() => openMappingPicker(r.entry_id)}
                             >
                               Unmapped — click to map
                             </button>
@@ -961,59 +984,6 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
             ) : (
               <div className="text-sm text-muted-foreground">No spend rows yet. Go back to Upload Data.</div>
             )}
-
-            {/* Manual mapping panel */}
-            {unmappedCount > 0 ? (
-              <div className="rounded-md border p-4 space-y-3">
-                <h3 className="text-sm font-semibold">Map a Spend Row</h3>
-                <div className="grid gap-3 md:grid-cols-3">
-                  <div className="space-y-1">
-                    <Label>Spend Row</Label>
-                    <Select value={selectedEntryId} onValueChange={setSelectedEntryId}>
-                      <SelectTrigger><SelectValue placeholder="Select spend row" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Select spend row</SelectItem>
-                        {entryOptions.map((x) => (
-                          <SelectItem key={x.value} value={x.value}>{x.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Search Factor</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        value={factorQuery}
-                        onChange={(e) => setFactorQuery(e.target.value)}
-                        placeholder="Label, category, or ID"
-                        onKeyDown={(e) => { if (e.key === "Enter") searchFactors(); }}
-                      />
-                      <Button variant="outline" size="sm" onClick={() => searchFactors()}>Search</Button>
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Factor</Label>
-                    <Select value={selectedFactorId} onValueChange={setSelectedFactorId}>
-                      <SelectTrigger><SelectValue placeholder="Select factor" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Select factor</SelectItem>
-                        {factorResults.map((f) => (
-                          <SelectItem key={f.db_id} value={String(f.db_id)}>
-                            {f.report_label || f.category || `Factor ${f.db_id}`} ({f.scope || "-"}) [{f.db_id}]
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <Button
-                  disabled={loading || selectedEntryId === "__none__" || selectedFactorId === "__none__"}
-                  onClick={applyMapping}
-                >
-                  Apply Mapping
-                </Button>
-              </div>
-            ) : null}
 
             <div className="flex gap-2 border-t pt-4">
               <Button variant="outline" onClick={() => setCurrentStep(2)}>← Back</Button>
@@ -1079,73 +1049,6 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
         </Card>
       )}
 
-      {/* Mapping dialog */}
-      <Dialog open={mappingDialogOpen} onOpenChange={setMappingDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Map Spend Row</DialogTitle>
-            <DialogDescription>
-              Assign a conversion factor. The mapping will be reused automatically for future years.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="rounded border p-3 text-sm">
-              <div><strong>Row:</strong> {selectedEntry ? `${selectedEntry.reference_code || "(no code)"} – ${selectedEntry.spend_description}` : "Not found"}</div>
-              <div><strong>Site:</strong> {selectedEntry?.site_name || "-"}</div>
-              <div><strong>Net:</strong> {selectedEntry?.currency || "GBP"} {(selectedEntry?.amount_net || 0).toLocaleString()}</div>
-            </div>
-            <div className="space-y-1">
-              <Label>Search Factor</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={factorQuery}
-                  onChange={(e) => setFactorQuery(e.target.value)}
-                  placeholder="Search by label, category, or ID"
-                  onKeyDown={(e) => { if (e.key === "Enter") searchFactors(); }}
-                />
-                <Button variant="outline" onClick={() => searchFactors()}>Search</Button>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label>Factor</Label>
-              <Select value={selectedFactorId} onValueChange={setSelectedFactorId}>
-                <SelectTrigger><SelectValue placeholder="Select factor" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Select factor</SelectItem>
-                  {factorResults.map((f) => (
-                    <SelectItem key={f.db_id} value={String(f.db_id)}>
-                      <span className="min-w-0 truncate">
-                        {f.report_label || f.category || `Factor ${f.db_id}`} ({f.scope || "-"}) [{f.db_id}]
-                      </span>
-                      {(f.ghg_unit || f.unit_warning) ? (
-                        <span
-                          className={`ml-2 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${factorUnitBadgeClass(f.ghg_unit, f.unit_warning)}`}
-                          title={f.unit_warning || undefined}
-                        >
-                          {f.ghg_unit ? `Unit: ${f.ghg_unit}` : "Unit missing"}
-                        </span>
-                      ) : null}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setMappingDialogOpen(false)}>Skip for now</Button>
-            <Button
-              disabled={loading || selectedEntryId === "__none__" || selectedFactorId === "__none__"}
-              onClick={async () => {
-                await applyMapping();
-                setMappingDialogOpen(false);
-              }}
-            >
-              Save Mapping
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Edit dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent className="max-w-2xl">
@@ -1195,11 +1098,69 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
               <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
             </div>
           </div>
+
+          {editingEntry ? (
+            <div className="mt-4 rounded-md border bg-muted/30 p-3 text-sm">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="font-semibold">Mapping</span>
+                <Button type="button" variant="outline" size="sm" onClick={() => openMappingPicker(editingEntry.entry_id)}>
+                  {editingEntry.factor_db_id ? "Change mapping" : "Map this row"}
+                </Button>
+              </div>
+              {editingEntry.factor_db_id ? (
+                <dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1">
+                  <dt className="text-muted-foreground">Factor</dt>
+                  <dd>
+                    {editingEntry.mapped_report_label || "-"}
+                    {editingEntry.mapping_status === "suggested" ? (
+                      <span className="ml-1.5 inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                        suggested
+                      </span>
+                    ) : null}
+                  </dd>
+                  <dt className="text-muted-foreground">Scope</dt>
+                  <dd>{editingEntry.mapped_scope || "-"}</dd>
+                  <dt className="text-muted-foreground">Category</dt>
+                  <dd>{editingEntry.mapped_category || "-"}</dd>
+                  <dt className="text-muted-foreground">DB ID</dt>
+                  <dd className="font-mono">{editingEntry.factor_db_id}</dd>
+                  <dt className="text-muted-foreground">Original ID</dt>
+                  <dd className="font-mono">{editingEntry.factor_original_id || "-"}</dd>
+                  <dt className="text-muted-foreground">Factor value</dt>
+                  <dd className="font-mono">
+                    {editingEntry.factor_value != null
+                      ? `${editingEntry.factor_value.toLocaleString("en-GB", { maximumSignificantDigits: 4 })} ${[editingEntry.factor_ghg_unit, editingEntry.factor_uom].filter(Boolean).join("/")}`
+                      : "-"}
+                  </dd>
+                  <dt className="text-muted-foreground">Est. tCO₂e</dt>
+                  <dd className="font-mono">{(editingEntry.estimated_emissions_tco2e || 0).toLocaleString()}</dd>
+                </dl>
+              ) : (
+                <p className="text-muted-foreground">Not mapped yet.</p>
+              )}
+            </div>
+          ) : null}
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
             <Button type="button" disabled={loading} onClick={saveEditRow}>Save Changes</Button>
           </DialogFooter>
         </DialogContent>
+      </Dialog>
+
+      {/* After the Edit dialog so it stacks on top when opened from there. */}
+      <Dialog open={mappingEntry !== null} onOpenChange={(open) => { if (!open) setMappingEntryId(null); }}>
+        {mappingEntry ? (
+          <SpendFactorPicker
+            row={mappingEntry}
+            factors={spendFactors}
+            loading={spendFactorsLoading}
+            loadError={spendFactorsError}
+            frequentlyUsed={topFactors}
+            onPick={(factor) => applyMapping(mappingEntry.entry_id, factor.db_id)}
+            onClose={() => setMappingEntryId(null)}
+          />
+        ) : null}
       </Dialog>
     </div>
   );
