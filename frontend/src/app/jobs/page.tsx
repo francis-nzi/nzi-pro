@@ -94,10 +94,12 @@ export default function JobsPage() {
     if (debouncedQ.trim()) p.set("q", debouncedQ.trim());
     if (crmFilter.trim()) p.set("crm", crmFilter.trim());
     if (familyFilter.trim()) p.set("job_family", familyFilter.trim());
+    p.set("sort", sortBy);
+    p.set("direction", sortDir);
     p.set("limit", String(limit));
     p.set("offset", String(offset));
     return p.toString();
-  }, [debouncedQ, crmFilter, familyFilter, limit, offset]);
+  }, [debouncedQ, crmFilter, familyFilter, sortBy, sortDir, limit, offset]);
 
   const {
     data: jobsData,
@@ -143,28 +145,12 @@ export default function JobsPage() {
     return "bg-emerald-100 text-emerald-800";
   }
 
-  const sortedItems = useMemo(() => {
-    function valueFor(job: JobListItem): string | number {
-      if (sortBy === "job") return (job.job_number ?? `job-${job.job_id}`).toLowerCase();
-      if (sortBy === "client") return (job.client_name ?? "").toLowerCase();
-      if (sortBy === "title") return (job.title ?? "").toLowerCase();
-      if (sortBy === "crm") return (job.crm_name ?? "").toLowerCase();
-      if (sortBy === "status") return (job.status ?? "").toLowerCase();
-      if (sortBy === "due") return job.due_date ? new Date(job.due_date).getTime() : Number.MAX_SAFE_INTEGER;
-      const risk = riskFromMilestone(job.milestone_status);
-      return risk === "Overdue" ? 0 : risk === "Due" ? 1 : 2;
-    }
-
-    return [...items].sort((a, b) => {
-      const av = valueFor(a);
-      const bv = valueFor(b);
-      if (av < bv) return sortDir === "asc" ? -1 : 1;
-      if (av > bv) return sortDir === "asc" ? 1 : -1;
-      return 0;
-    });
-  }, [items, sortBy, sortDir]);
+  // Sorting is done server-side so it applies across all pages, not just
+  // the rows currently loaded.
+  const sortedItems = items;
 
   function toggleSort(next: SortBy) {
+    setOffset(0);
     if (sortBy === next) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
       return;

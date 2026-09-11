@@ -537,6 +537,8 @@ def list_jobs(
     q: str | None = None,
     crm: str | None = None,
     job_family: str | None = None,
+    sort: str | None = None,
+    direction: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     _user: dict[str, str] = Depends(_current_user),
@@ -545,6 +547,9 @@ def list_jobs(
     query = (q or "").strip()
     crm_filter = (crm or "").strip()
     job_family_filter = (job_family or "").strip().lower()
+    sort_key = (sort or "").strip().lower()
+    sort_dir = "DESC" if (direction or "").strip().lower() == "desc" else "ASC"
+    explicit_sort = False
 
     def _col_exists(con, table_name: str, col_name: str) -> bool:
         try:
@@ -710,6 +715,29 @@ def list_jobs(
                         END AS milestone_sort_rank
                     """
 
+            # Column sorting from the Jobs page applies across every page of
+            # results. Callers that don't pass a sort (search pickers etc.)
+            # keep the at-risk-first ordering.
+            sort_columns = {
+                "job": "COALESCE(j.job_number, '')",
+                "client": "LOWER(COALESCE(c.client_name, ''))",
+                "title": "LOWER(COALESCE(j.title, ''))",
+                "crm": f"LOWER(COALESCE({crm_name_value_expr}, ''))",
+                "status": "LOWER(COALESCE(j.status, ''))",
+                "risk": "milestone_sort_rank",
+            }
+            if has_due_date:
+                sort_columns["due"] = "j.due_date"
+            explicit_sort = sort_key in sort_columns
+            if explicit_sort:
+                nulls_sql = " NULLS LAST" if sort_key == "due" else ""
+                order_by_sql = (
+                    f"{sort_columns[sort_key]} {sort_dir}{nulls_sql}, "
+                    f"COALESCE(j.job_number, '') {sort_dir}, j.job_id {sort_dir}"
+                )
+            else:
+                order_by_sql = "milestone_sort_rank ASC, COALESCE(j.job_number, '') DESC, j.job_id DESC"
+
             rows = (
                 con.execute(
                     f"""
@@ -724,7 +752,7 @@ def list_jobs(
                     LEFT JOIN clients c ON c.db_id = j.client_db_id
                     {job_plan_join_sql}
                     {where_sql}
-                    ORDER BY milestone_sort_rank ASC, COALESCE(j.job_number, '') DESC, j.job_id DESC
+                    ORDER BY {order_by_sql}
                     LIMIT ? OFFSET ?
                     """,
                     [*params, int(limit), int(offset)],
@@ -824,7 +852,8 @@ def list_jobs(
                 }
             )
 
-    # Sort by milestone status priority: red > amber > green > None/completed
+    # Without an explicit column sort, keep at-risk jobs first:
+    # red > amber > green > None/completed
     def status_priority(item):
         status = item.get("milestone_status")
         if status == "red":
@@ -836,7 +865,8 @@ def list_jobs(
         else:
             return 3
     
-    items.sort(key=status_priority)
+    if not explicit_sort:
+        items.sort(key=status_priority)
 
     total = int(total_row[0] if total_row else 0)
     return {"items": items, "limit": int(limit), "offset": int(offset), "total": total}
