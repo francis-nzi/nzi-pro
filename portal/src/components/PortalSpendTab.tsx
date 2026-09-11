@@ -8,14 +8,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
 import PortalCategoryHistoryTable from "@/components/PortalCategoryHistoryTable";
-
-type SpendCategory = {
-  db_id: number;
-  original_id: string | null;
-  scope: string | null;
-  category: string | null;
-  report_label: string | null;
-};
+import SpendCategoryPicker, { type SpendCategory } from "@/components/SpendCategoryPicker";
 
 type TopSpendCategory = {
   db_id: number;
@@ -43,6 +36,7 @@ type SpendRow = {
   amount_net: number | null;
   amount_gross: number | null;
   vat_pct: number | null;
+  mapped_scope: string | null;
   mapped_category: string | null;
   mapped_report_label: string | null;
   mapping_status: string | null;
@@ -103,21 +97,16 @@ export default function PortalSpendTab() {
   const justAddedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [categorizingEntryId, setCategorizingEntryId] = useState<number | null>(null);
-  const [categorySearch, setCategorySearch] = useState("");
-  const [categoryOptions, setCategoryOptions] = useState<SpendCategory[]>([]);
-  const [searchingCategories, setSearchingCategories] = useState(false);
+  // The job's whole spend-category list (a few hundred rows at most), loaded
+  // once on first open and filtered client-side by the picker -- instant
+  // search and scope/category counts, and no per-keystroke requests racing
+  // each other.
+  const [spendCategories, setSpendCategories] = useState<SpendCategory[]>([]);
+  const [spendCategoriesLoading, setSpendCategoriesLoading] = useState(false);
+  const [spendCategoriesError, setSpendCategoriesError] = useState("");
   const [topCategories, setTopCategories] = useState<TopSpendCategory[]>([]);
   const [suggestedSpendLines, setSuggestedSpendLines] = useState<SuggestedSpendLine[]>([]);
   const [suggesting, setSuggesting] = useState(false);
-  const categorySearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Guards against a slower, earlier keystroke's response landing after a
-  // faster, later one and clobbering the results with stale data -- with no
-  // debounce/cancellation, rapid typing fired one request per keystroke and
-  // whichever resolved last won, regardless of which query it was actually
-  // for. That's what made the results list look like it "randomly
-  // disappeared" -- it wasn't disappearing, an older/narrower response was
-  // silently overwriting a newer/correct one.
-  const categorySearchRequestId = useRef(0);
 
   const [jobNumber, setJobNumber] = useState<string | null>(null);
   const [reportingYear, setReportingYear] = useState<number | null>(null);
@@ -147,7 +136,6 @@ export default function PortalSpendTab() {
     void loadRows();
     return () => {
       if (justAddedTimerRef.current) clearTimeout(justAddedTimerRef.current);
-      if (categorySearchTimer.current) clearTimeout(categorySearchTimer.current);
     };
   }, []);
 
@@ -217,7 +205,8 @@ export default function PortalSpendTab() {
       if (res.ok) {
         const d = await res.json().catch(() => ({}));
         if (quickPickCategory && d?.entry_id) {
-          await confirmCategory(d.entry_id, quickPickCategory);
+          const categoryError = await confirmCategory(d.entry_id, quickPickCategory);
+          if (categoryError) setError(`Spend line added, but not categorised: ${categoryError}`);
         }
         // Panel stays open (no site to re-pick here) so entering several
         // spend lines back-to-back doesn't require reopening the form each time.
@@ -328,43 +317,47 @@ export default function PortalSpendTab() {
 
   function openCategoryPicker(entryId: number) {
     setCategorizingEntryId(entryId);
-    setCategorySearch("");
     setSuggestedSpendLines([]);
-    void searchCategories("");
+    if (spendCategories.length === 0) void loadSpendCategories();
     void loadTopCategories();
     void suggestSpendLine(entryId);
   }
 
-  async function searchCategories(text: string) {
-    const requestId = ++categorySearchRequestId.current;
-    setSearchingCategories(true);
+  async function loadSpendCategories() {
+    setSpendCategoriesLoading(true);
+    setSpendCategoriesError("");
     try {
-      const res = await apiFetch(`/portal/spend/categories/search?q=${encodeURIComponent(text)}`);
-      if (requestId !== categorySearchRequestId.current) return; // superseded by a later keystroke
+      const res = await apiFetch("/portal/spend/categories/search?limit=1000");
       if (res.ok) {
-        const d = await res.json();
-        setCategoryOptions(d.items || []);
+        setSpendCategories((await res.json()).items || []);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setSpendCategoriesError(d?.detail || "Couldn't load spend categories — close this and try again.");
       }
+    } catch {
+      setSpendCategoriesError("Couldn't load spend categories — close this and try again.");
     } finally {
-      if (requestId === categorySearchRequestId.current) setSearchingCategories(false);
+      setSpendCategoriesLoading(false);
     }
   }
 
-  function onCategorySearchChange(text: string) {
-    setCategorySearch(text);
-    if (categorySearchTimer.current) clearTimeout(categorySearchTimer.current);
-    categorySearchTimer.current = setTimeout(() => void searchCategories(text), 250);
-  }
-
-  async function confirmCategory(entryId: number, category: { db_id: number }) {
-    const res = await apiFetch(`/portal/spend/rows/${entryId}/confirm-category`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ factor_db_id: category.db_id }),
-    });
-    if (res.ok) {
-      closeCategoryPicker();
-      void loadRows();
+  // Resolves to an error message, or null once saved.
+  async function confirmCategory(entryId: number, category: { db_id: number }): Promise<string | null> {
+    try {
+      const res = await apiFetch(`/portal/spend/rows/${entryId}/confirm-category`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ factor_db_id: category.db_id }),
+      });
+      if (res.ok) {
+        closeCategoryPicker();
+        void loadRows();
+        return null;
+      }
+      const d = await res.json().catch(() => ({}));
+      return d?.detail || "Couldn't save that category — please try again.";
+    } catch {
+      return "Couldn't save that category — please try again.";
     }
   }
 
@@ -517,84 +510,7 @@ export default function PortalSpendTab() {
 
   function closeCategoryPicker() {
     setCategorizingEntryId(null);
-    setCategorySearch("");
-    setCategoryOptions([]);
     setSuggestedSpendLines([]);
-    if (categorySearchTimer.current) clearTimeout(categorySearchTimer.current);
-  }
-
-  // Rendered once as a Dialog (see the modal near the bottom of this
-  // component's JSX) rather than expanded inline per-row -- a fixed-size
-  // modal gives the results list stable room to render in regardless of
-  // where the row sits in a long, scrollable table, and keeps its own
-  // click-away/Escape handling instead of pushing table rows around.
-  function renderCategoryPicker(row: SpendRow) {
-    return (
-      <>
-        {suggesting && (
-          <div className="mb-2 text-xs text-muted-foreground">Suggesting a Spend Line from this row&apos;s description...</div>
-        )}
-        {!categorySearch.trim() && suggestedSpendLines.length > 0 && (
-          <div className="mb-2 space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Suggested from this line&apos;s description</label>
-            <div className="flex flex-wrap gap-1.5">
-              {suggestedSpendLines.map((sl) => (
-                <button
-                  key={sl.spend_line_id}
-                  className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs text-emerald-800 hover:bg-emerald-100"
-                  disabled={!sl.factor_db_id}
-                  onClick={() => sl.factor_db_id && void confirmCategory(row.entry_id, { db_id: sl.factor_db_id })}
-                >
-                  {sl.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        {!categorySearch.trim() && topCategories.length > 0 && (
-          <div className="mb-2 space-y-1.5">
-            <label className="text-sm font-semibold text-foreground">Frequently used</label>
-            <div className="flex flex-wrap gap-1.5">
-              {topCategories.map((cat) => (
-                <button
-                  key={cat.db_id}
-                  className="rounded-full border bg-background px-3 py-1 text-xs hover:bg-muted"
-                  onClick={() => void confirmCategory(row.entry_id, cat)}
-                >
-                  {cat.report_label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        <Input
-          autoFocus
-          placeholder="Search spend categories..."
-          value={categorySearch}
-          onChange={(e) => onCategorySearchChange(e.target.value)}
-          className="mb-2"
-        />
-        {searchingCategories ? (
-          <div className="text-sm text-muted-foreground">Searching...</div>
-        ) : (
-          <div className="max-h-64 overflow-y-auto rounded-md border bg-background">
-            {categoryOptions.length === 0 ? (
-              <div className="p-2 text-sm text-muted-foreground">No matches.</div>
-            ) : (
-              categoryOptions.slice(0, 30).map((cat) => (
-                <button
-                  key={cat.db_id}
-                  className="block w-full border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-muted"
-                  onClick={() => void confirmCategory(row.entry_id, cat)}
-                >
-                  {cat.report_label}
-                </button>
-              ))
-            )}
-          </div>
-        )}
-      </>
-    );
   }
 
   return (
@@ -1008,17 +924,29 @@ export default function PortalSpendTab() {
 
       {!noJobMessage && <PortalCategoryHistoryTable fetchUrl="/portal/spend/history" />}
 
-      <Dialog open={categorizingEntryId !== null} onOpenChange={(open) => !open && closeCategoryPicker()}>
-        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Pick a Category</DialogTitle>
-          </DialogHeader>
-          <div className="py-2">{categorizingRow && renderCategoryPicker(categorizingRow)}</div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeCategoryPicker}>
-              Cancel
-            </Button>
-          </DialogFooter>
+      {/* Rendered once as a Dialog rather than expanded inline per-row -- a
+          fixed-size modal gives the results list stable room regardless of
+          where the row sits in a long, scrollable table. */}
+      <Dialog open={categorizingRow !== null} onOpenChange={(open) => !open && closeCategoryPicker()}>
+        <DialogContent className="flex h-[min(46rem,calc(100vh-2rem))] w-[min(46rem,calc(100vw-2rem))] max-h-none max-w-none flex-col overflow-hidden p-0">
+          {categorizingRow && (
+            <SpendCategoryPicker
+              row={categorizingRow}
+              categories={spendCategories}
+              loading={spendCategoriesLoading}
+              loadError={spendCategoriesError}
+              suggested={suggestedSpendLines.map((sl) => ({
+                key: sl.spend_line_id,
+                db_id: sl.factor_db_id,
+                label: sl.label,
+                category: sl.category,
+              }))}
+              suggesting={suggesting}
+              frequentlyUsed={topCategories}
+              onPick={(category) => confirmCategory(categorizingRow.entry_id, category)}
+              onClose={closeCategoryPicker}
+            />
+          )}
         </DialogContent>
       </Dialog>
 

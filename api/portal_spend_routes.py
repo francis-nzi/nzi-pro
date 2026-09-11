@@ -61,6 +61,27 @@ def _is_prod_coded(original_id: str | None) -> bool:
     return "prod" in str(original_id or "").lower()
 
 
+def _spend_based_sql(alias: str) -> str:
+    """SQL predicate: the factor is spend-based, i.e. its uom is a currency
+    code ("GBP") rather than a physical unit ("kg", "km", "kWh"). Same rule
+    as _classify_factor_kind in api/lca_routes.py -- the DESNZ "Activity &
+    Spend" datasets mix both kinds row-by-row, so the job's Scope 3 dataset
+    alone let activity factors (e.g. "Bioenergy: Biofuel Biopropane") into a
+    picker that only ever prices a ledger line by its currency value."""
+    return (
+        f"UPPER(TRIM(COALESCE({alias}.uom, ''))) IN ("
+        "SELECT DISTINCT UPPER(TRIM(currency)) FROM datasets WHERE COALESCE(TRIM(currency), '') <> '')"
+    )
+
+
+def _is_spend_based_factor(con, factor_db_id: int) -> bool:
+    row = con.execute(
+        f"SELECT 1 FROM v_factor_lookup f WHERE f.db_id = %s AND {_spend_based_sql('f')} LIMIT 1",
+        [int(factor_db_id)],
+    ).fetchone()
+    return bool(row)
+
+
 MAX_GL_CODE_LENGTH = 15
 MAX_VAT_PCT = 100
 MAX_NET_VALUE = 999_999_999
@@ -328,9 +349,14 @@ def portal_spend_suggest_category(entry_id: int, current_user: dict = Depends(po
 @router.get("/portal/spend/categories/search")
 def portal_spend_search_categories(
     q: str = Query("", min_length=0),
-    limit: int = Query(25, ge=1, le=100),
+    scope: str = Query(""),
+    category: str = Query(""),
+    limit: int = Query(25, ge=1, le=1000),
     current_user: dict = Depends(portal_user_dep),
 ):
+    """Spend-based factors only, optionally narrowed by scope/category. The
+    picker loads the whole list once (a few hundred rows at most) and
+    filters it client-side, hence the high limit ceiling."""
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         _ensure_spend_tables(con)
@@ -358,21 +384,33 @@ def portal_spend_search_categories(
         # CRM staff could still pick. Only PROD-coded factors are excluded:
         # those are DEFRA/ONS personal/household-consumption factors, not
         # applicable to a commercial GL/ledger line.
+        #
+        # De-duplicated per (scope, category, label), not per label alone --
+        # the same SIC label is a separate factor under each category it
+        # serves (e.g. "Land transport services..." under Business Travel,
+        # Upstream and Downstream Transportation), and collapsing on label
+        # kept only one of them.
+        scope = scope.strip()
+        category = category.strip()
         params: list[Any] = []
         if scope3_dataset_ids:
             params.append(scope3_dataset_ids)
         params.append("%PROD%")
+        params.extend([scope, scope, category, category])
         params.extend([q, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", int(limit)])
 
         df = con.execute(
             f"""
-            SELECT DISTINCT ON ({label_expr})
+            SELECT DISTINCT ON (f.scope, {category_expr}, {label_expr})
                    f.db_id, f.dataset_id, f.original_id, f.scope, {category_expr} AS category, {label_expr} AS report_label
             FROM v_factor_lookup f
             LEFT JOIN datasets d ON d.dataset_id = f.dataset_id
             WHERE (d.archived IS NULL OR d.archived = FALSE)
               {dataset_filter_sql}
               AND f.original_id NOT ILIKE %s
+              AND {_spend_based_sql("f")}
+              AND (%s = '' OR f.scope = %s)
+              AND (%s = '' OR {category_expr} = %s)
               AND (
                    %s = ''
                    OR {label_expr} ILIKE %s
@@ -380,7 +418,7 @@ def portal_spend_search_categories(
                    OR f.column_text ILIKE %s
                    OR f.original_id ILIKE %s
               )
-            ORDER BY {label_expr}, f.dataset_id DESC
+            ORDER BY f.scope, {category_expr}, {label_expr}, f.dataset_id DESC
             LIMIT %s
             """,
             params,
@@ -435,7 +473,7 @@ def portal_spend_confirm_category(
         factor = _factor_by_id(con, factor_db_id)
         if not factor:
             raise HTTPException(status_code=404, detail="Category not found")
-        if _is_prod_coded(factor.get("original_id")):
+        if _is_prod_coded(factor.get("original_id")) or not _is_spend_based_factor(con, factor_db_id):
             raise HTTPException(status_code=400, detail="That isn't a valid spend category")
 
         amount = _gross_from_net(_safe_float(row[1], 0.0), _safe_float(row[2], 0.0))
@@ -498,7 +536,7 @@ def portal_spend_suggest_categories_bulk(current_user: dict = Depends(portal_use
             suggestions = suggest_spend_lines(con, text)
             factor_db_id = suggestions[0].get("factor_db_id") if suggestions else None
             factor = _factor_by_id(con, int(factor_db_id)) if factor_db_id else None
-            if not factor or _is_prod_coded(factor.get("original_id")):
+            if not factor or _is_prod_coded(factor.get("original_id")) or not _is_spend_based_factor(con, factor["db_id"]):
                 skipped += 1
                 continue
 
