@@ -61,6 +61,12 @@ type InvoiceLine = {
   notes: string;
 };
 
+type QuoteOption = {
+  quote_id: number;
+  quote_number: string | null;
+  status: string | null;
+};
+
 type XeroInvoiceInfo = {
   xero_invoice_id: string;
   xero_invoice_number: string;
@@ -110,6 +116,8 @@ export default function InvoiceDetailPage() {
   const [paidDate, setPaidDate] = useState("");
   const [notes, setNotes] = useState("");
   const [quoteId, setQuoteId] = useState<string>("");
+  const [linkedQuoteNumber, setLinkedQuoteNumber] = useState<string>("");
+  const [quotes, setQuotes] = useState<QuoteOption[]>([]);
   const [yourRef, setYourRef] = useState<string>("");
   const [currencyCode, setCurrencyCode] = useState("GBP");
   const [lines, setLines] = useState<InvoiceLine[]>([newLine()]);
@@ -133,10 +141,11 @@ export default function InvoiceDetailPage() {
       setLoading(true);
       setError("");
       try {
-        const [invRes, lookupsRes, teamRes] = await Promise.all([
+        const [invRes, lookupsRes, teamRes, quotesRes] = await Promise.all([
           fetch(`${baseUrl}/invoices/${invoiceId}`, { credentials: "include" }),
           fetch(`${baseUrl}/clients/${clientId}/quotes/lookups`, { credentials: "include" }),
           fetch(`${baseUrl}/admin/users`, { credentials: "include" }),
+          fetch(`${baseUrl}/clients/${clientId}/quotes`, { credentials: "include" }),
         ]);
         if (!invRes.ok) {
           const t = await invRes.text().catch(() => "");
@@ -149,7 +158,10 @@ export default function InvoiceDetailPage() {
         const inv = await invRes.json();
         const lookups = await lookupsRes.json();
         const teamJson = teamRes.ok ? await teamRes.json() : { items: [] };
+        const quotesJson = quotesRes.ok ? await quotesRes.json() : { items: [] };
         if (cancelled) return;
+
+        setQuotes(Array.isArray(quotesJson.items) ? quotesJson.items : []);
 
         const members = (Array.isArray(teamJson.items) ? teamJson.items : []) as TeamMember[];
         setTeamMembers(members.filter((m) => String(m.status || "").toLowerCase() === "active" && m.email));
@@ -163,6 +175,7 @@ export default function InvoiceDetailPage() {
         setPaidDate(String(inv.paid_date || ""));
         setNotes(String(inv.notes || ""));
         setQuoteId(inv.quote_id != null ? String(inv.quote_id) : "");
+        setLinkedQuoteNumber(String(inv.quote_number || ""));
         setYourRef(String(inv.your_ref || ""));
         setCurrencyCode(String(inv.currency_code || "GBP").toUpperCase());
         setEmailTo(String(inv.contact_email || ""));
@@ -494,8 +507,18 @@ export default function InvoiceDetailPage() {
               <div className="space-y-3">
                 <h1 className="text-5xl font-light tracking-wide">INVOICE</h1>
                 <div>
-                  <div className="mb-1 text-xs text-muted-foreground">Quote ID</div>
-                  <Input value={quoteId} onChange={(e) => setQuoteId(e.target.value)} />
+                  <div className="mb-1 text-xs text-muted-foreground">Quote</div>
+                  <select className="w-full rounded-md border px-3 py-2 text-sm" value={quoteId} onChange={(e) => setQuoteId(e.target.value)}>
+                    <option value="">No quote linked</option>
+                    {quoteId && !quotes.some((q) => String(q.quote_id) === quoteId) ? (
+                      <option value={quoteId}>{linkedQuoteNumber || `#${quoteId}`}</option>
+                    ) : null}
+                    {quotes.map((q) => (
+                      <option key={q.quote_id} value={String(q.quote_id)}>
+                        {q.quote_number || `#${q.quote_id}`} ({q.status || "-"})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <div className="mb-1 text-xs text-muted-foreground">Your Ref (e.g. Purchase Order)</div>

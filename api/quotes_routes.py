@@ -654,10 +654,11 @@ def _serialize_invoice(con, invoice_id: int, org_id: str | None = None) -> dict[
     attention = ""
     bill_to = ""
     job_number = ""
+    quote_number = ""
     quote_contact_id: int | None = None
     if quote_id is not None:
         q_row = con.execute(
-            "SELECT attention, bill_to, job_number, contact_id FROM quotes WHERE quote_id = %s" + (" AND org_id = %s" if org_id else ""),
+            "SELECT attention, bill_to, job_number, contact_id, quote_number FROM quotes WHERE quote_id = %s" + (" AND org_id = %s" if org_id else ""),
             [int(quote_id)] + ([str(org_id).strip()] if org_id else []),
         ).fetchone()
         if q_row:
@@ -665,6 +666,7 @@ def _serialize_invoice(con, invoice_id: int, org_id: str | None = None) -> dict[
             bill_to = str(q_row[1] or "")
             job_number = str(q_row[2] or "")
             quote_contact_id = _safe_int(q_row[3], None)
+            quote_number = str(q_row[4] or "")
     if not job_number and _safe_int(row[2], None) is not None:
         j_row = con.execute("SELECT job_number FROM jobs WHERE job_id = %s", [_safe_int(row[2], None)]).fetchone()
         if j_row:
@@ -715,6 +717,7 @@ def _serialize_invoice(con, invoice_id: int, org_id: str | None = None) -> dict[
         "client_name": client_name,
         "job_id": _safe_int(row[2], None),
         "quote_id": quote_id,
+        "quote_number": quote_number,
         "invoice_number": str(row[4] or ""),
         "invoice_date": row[5].isoformat() if row[5] else None,
         "due_date": row[6].isoformat() if row[6] else None,
