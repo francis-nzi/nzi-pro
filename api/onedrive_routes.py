@@ -1,6 +1,8 @@
 import io
 import json
+import logging
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -13,6 +15,8 @@ from api.auth import _current_user
 from api.permissions import require_permission
 from services.permissions import ADMIN_ACCESS_PERMISSION
 from services.virus_scan import VirusScanError, scan_bytes
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/admin/storage/onedrive",
@@ -87,6 +91,51 @@ def _token_endpoint() -> str:
     return f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
 
 
+# Entra ID (Azure AD) sign-in failure codes worth naming, mapped to the
+# setting that actually needs fixing. Without this the raw token response
+# reached the file-upload screen as a wall of JSON with trace IDs, which said
+# nothing about the real cause -- a client secret that had simply expired.
+_ENTRA_TOKEN_ERRORS: dict[str, str] = {
+    "AADSTS7000222": (
+        "the Microsoft 365 app's client secret has expired. An NZI admin needs to create a new secret "
+        "(Azure portal > App registrations > this app > Certificates & secrets) and update MS_CLIENT_SECRET"
+    ),
+    "AADSTS7000215": "the Microsoft 365 client secret is wrong. Check MS_CLIENT_SECRET matches a current secret on the app",
+    "AADSTS700016": "the Microsoft 365 app wasn't found in this tenant. Check MS_CLIENT_ID and MS_TENANT_ID",
+    "AADSTS900023": "the Microsoft 365 tenant wasn't found. Check MS_TENANT_ID",
+    "AADSTS90002": "the Microsoft 365 tenant wasn't found. Check MS_TENANT_ID",
+}
+
+
+def _token_error_detail(status: int, raw: str) -> str:
+    """A message that names the broken setting, not the raw Entra payload.
+
+    The full response is logged for support; only the short explanation and
+    the AADSTS code reach the user, since the payload carries trace and
+    correlation IDs and the app registration id."""
+    logger.error("Microsoft Graph token request failed (%s): %s", status, raw)
+    code = ""
+    try:
+        payload = json.loads(raw)
+        codes = payload.get("error_codes") or []
+        code = f"AADSTS{codes[0]}" if codes else ""
+        if not code:
+            match = re.search(r"AADSTS\d+", str(payload.get("error_description") or ""))
+            code = match.group(0) if match else ""
+    except Exception:
+        match = re.search(r"AADSTS\d+", raw)
+        code = match.group(0) if match else ""
+
+    known = _ENTRA_TOKEN_ERRORS.get(code)
+    if known:
+        return f"Microsoft 365 file storage isn't connected: {known}. ({code})"
+    suffix = f" ({code})" if code else ""
+    return (
+        "Microsoft 365 file storage isn't connected: signing in to Microsoft failed, so files can't be "
+        f"uploaded or downloaded. An NZI admin should check the MS_* settings on the API service.{suffix}"
+    )
+
+
 def _graph_token() -> str:
     client_id = _require_env("MS_CLIENT_ID")
     client_secret = _require_env("MS_CLIENT_SECRET")
@@ -116,11 +165,15 @@ def _graph_token() -> str:
             return token
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", errors="ignore")
-        raise HTTPException(status_code=502, detail=f"Token request failed: {e.code} {detail}")
+        raise HTTPException(status_code=502, detail=_token_error_detail(e.code, detail))
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Token request error: {e}")
+        logger.exception("Microsoft Graph token request errored")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Microsoft 365 file storage isn't reachable right now, so files can't be uploaded or downloaded: {e}",
+        )
 
 
 def _graph_request(
