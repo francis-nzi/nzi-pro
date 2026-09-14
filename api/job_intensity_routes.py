@@ -16,6 +16,28 @@ logger = logging.getLogger(__name__)
 
 EMPLOYEE_METRIC_KEY = "employees"
 EMPLOYEE_METRIC_LABEL = "Employee"
+EMPLOYEE_DECIMAL_PLACES = 1
+
+
+def safe_employee_value(value: Any, default: float | int | None = None) -> float | int | None:
+    """Employee headcount, kept to one decimal place.
+
+    Headcount is recorded as average FTE over the reporting period, so it is
+    not a whole number -- 12.5 FTE is a normal answer. Returns an int when
+    the value is whole, so reports still read "12" rather than "12.0", and a
+    decimal only appears when the client actually reported one."""
+    try:
+        if value is None:
+            return default
+        text = str(value).strip()
+        if text == "":
+            return default
+        number = round(float(text), EMPLOYEE_DECIMAL_PLACES)
+    except Exception:
+        return default
+    if number != number or number in (float("inf"), float("-inf")):
+        return default
+    return int(number) if float(number).is_integer() else number
 
 
 def _safe_int(value: Any, default: int | None = None) -> int | None:
@@ -30,7 +52,7 @@ def _safe_int(value: Any, default: int | None = None) -> int | None:
         return default
 
 
-def _load_employee_fallback(con, job_id: int) -> int:
+def _load_employee_fallback(con, job_id: int) -> float | int:
     row = con.execute(
         """
         SELECT
@@ -42,7 +64,7 @@ def _load_employee_fallback(con, job_id: int) -> int:
         """,
         [int(job_id)],
     ).fetchone()
-    return int(row[0] or 0) if row else 0
+    return (safe_employee_value(row[0], 0) or 0) if row else 0
 
 
 def _normalize_intensity_metrics(con, job_id: int, metrics: dict[str, Any]) -> dict[str, Any]:
@@ -53,7 +75,7 @@ def _normalize_intensity_metrics(con, job_id: int, metrics: dict[str, Any]) -> d
     employee_value = None
     employee_divider = 1
     if isinstance(employee_entry, dict):
-        employee_value = _safe_int(employee_entry.get("value"))
+        employee_value = safe_employee_value(employee_entry.get("value"))
         employee_divider = _safe_int(employee_entry.get("divider"), 1) or 1
 
     if employee_value is None or employee_value <= 0:
@@ -61,7 +83,7 @@ def _normalize_intensity_metrics(con, job_id: int, metrics: dict[str, Any]) -> d
 
     normalized[EMPLOYEE_METRIC_KEY] = {
         "label": EMPLOYEE_METRIC_LABEL,
-        "value": int(employee_value or 0),
+        "value": employee_value or 0,
         "divider": int(employee_divider or 1),
     }
 
@@ -197,7 +219,7 @@ def update_job_intensity_metrics(
                     [metrics_json, int(job_id)]
                 )
                 try:
-                    employee_value = _safe_int(metrics.get(EMPLOYEE_METRIC_KEY, {}).get("value"), 0) or 0
+                    employee_value = safe_employee_value(metrics.get(EMPLOYEE_METRIC_KEY, {}).get("value"), 0) or 0
                     cur.execute(
                         """
                         INSERT INTO job_report_metadata (job_id, employee_number)
@@ -205,7 +227,7 @@ def update_job_intensity_metrics(
                         ON CONFLICT (job_id)
                         DO UPDATE SET employee_number = EXCLUDED.employee_number
                         """,
-                        [int(job_id), int(employee_value)],
+                        [int(job_id), employee_value],
                     )
                 except Exception as sync_exc:
                     logger.warning(

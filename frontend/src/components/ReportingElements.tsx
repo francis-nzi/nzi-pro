@@ -24,12 +24,16 @@ const EMPTY: Fields = {
 };
 
 const FIELD_LABELS: [keyof Fields, string][] = [
-  ["employee_number",  "No. of Staff"],
+  ["employee_number",  "No. of Staff (average FTE)"],
   ["premises_owned",   "No. of Premises Owned"],
   ["premises_leased",  "No. of Premises Leased"],
   ["vehicles_owned",   "No. of Vehicles Owned"],
   ["vehicles_leased",  "No. of Vehicles Leased"],
 ];
+
+// Staff is average FTE over the reporting period, so it takes one decimal
+// place; premises and vehicles are counts and stay whole.
+const FIELD_STEPS: Partial<Record<keyof Fields, string>> = { employee_number: "0.1" };
 
 export default function ReportingElements({
   jobId,
@@ -166,6 +170,7 @@ export default function ReportingElements({
                 id={`re-${key}`}
                 type="number"
                 min="0"
+                step={FIELD_STEPS[key] ?? "1"}
                 placeholder="0"
                 value={fields[key]}
                 onChange={(e) => setFields(prev => ({ ...prev, [key]: e.target.value }))}

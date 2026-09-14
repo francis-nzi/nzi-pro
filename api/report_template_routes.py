@@ -17,6 +17,7 @@ from typing import Optional, List, Any
 
 from core.database import get_conn
 from api.auth import _current_user
+from api.job_intensity_routes import safe_employee_value
 from services.audit_log import record_audit_event
 from services.dataset_selector import (
     get_datasets_names_for_report,
@@ -476,12 +477,15 @@ REPORT_METADATA_BOOLEAN_FIELDS = {
 }
 
 REPORT_METADATA_INTEGER_FIELDS = {
-    "employee_number",
     "premises_owned",
     "premises_leased",
     "vehicles_owned",
     "vehicles_leased",
 }
+
+# Headcount is average FTE over the reporting period, so it carries one
+# decimal place -- see safe_employee_value in api/job_intensity_routes.py.
+REPORT_METADATA_EMPLOYEE_FIELDS = {"employee_number"}
 
 REPORT_METADATA_FLOAT_FIELDS = {
     "energy_consumption_uk_kwh",
@@ -1935,7 +1939,7 @@ def _sync_employee_number_from_intensity_metrics(con, job_id: int, meta: dict[st
             employees_value = employees_metric.get("value")
             if employees_value is not None:
                 try:
-                    new_employee_number = int(employees_value)
+                    new_employee_number = safe_employee_value(employees_value)
                     current_employee_number = meta.get("employee_number")
                     # Sync if: current is None/0 OR intensity metrics value is different
                     if current_employee_number is None or current_employee_number == 0:
@@ -2040,7 +2044,7 @@ def _ensure_report_metadata_table(con) -> None:
           current_reporting_period_label VARCHAR,
           company_number VARCHAR,
           registered_address TEXT,
-          employee_number INTEGER,
+          employee_number NUMERIC,
           premises_owned INTEGER,
           premises_leased INTEGER,
           vehicles_owned INTEGER,
@@ -2167,11 +2171,12 @@ def _build_default_report_meta(con, job_id: int) -> dict[str, Any]:
         if employees_metric and isinstance(employees_metric, dict):
             employees_value = employees_metric.get("value")
             if employees_value is not None:
-                try:
-                    employee_number = int(employees_value)
-                except (ValueError, TypeError):
+                coerced_employee_number = safe_employee_value(employees_value)
+                if coerced_employee_number is None:
                     # Keep the fallback value if conversion fails
-                    logger.debug("Ignoring malformed employees.value while deriving employee number", exc_info=True)
+                    logger.debug("Ignoring malformed employees.value while deriving employee number")
+                else:
+                    employee_number = coerced_employee_number
 
     defaults = dict(REPORT_METADATA_DEFAULTS)
     defaults.update(
@@ -2283,6 +2288,15 @@ def _coerce_report_meta_value(key: str, value: Any) -> Any:
         if normalized in {"false", "0", "no", "n", "off"}:
             return False
         raise HTTPException(status_code=400, detail=f"Invalid boolean value for '{key}'")
+
+    if key in REPORT_METADATA_EMPLOYEE_FIELDS:
+        txt = str(value).strip()
+        if txt == "":
+            return None
+        coerced = safe_employee_value(txt)
+        if coerced is None:
+            raise HTTPException(status_code=400, detail=f"Invalid numeric value for '{key}'")
+        return coerced
 
     if key in REPORT_METADATA_INTEGER_FIELDS:
         txt = str(value).strip()

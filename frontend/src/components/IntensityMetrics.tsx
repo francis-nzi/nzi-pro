@@ -55,9 +55,19 @@ type CanonicalKey = (typeof CANONICAL_PRESETS)[number]["key"];
 // Also treat legacy key variants as canonical so they show the "Standard" badge
 const PRESET_KEYS = new Set<string>([...CANONICAL_PRESETS.map((p) => p.key), "office_space_m2"]);
 
+// Headcount is average FTE over the reporting period, so it carries one
+// decimal place (12.5 FTE is a normal answer). Kept to 1dp on save so the
+// figure the report quotes matches what was typed.
+const EMPLOYEE_DECIMALS = 1;
+
+function roundEmployeeValue(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 10 ** EMPLOYEE_DECIMALS) / 10 ** EMPLOYEE_DECIMALS;
+}
+
 function ensureRequiredEmployeeMetric(source: IntensityMetrics, fallbackValue = 0): IntensityMetrics {
   const employeeMetric = source[REQUIRED_METRIC_KEY];
-  const employeeValue = Number(employeeMetric?.value ?? fallbackValue) || 0;
+  const employeeValue = roundEmployeeValue(Number(employeeMetric?.value ?? fallbackValue) || 0);
   const employeeDivider = Number(employeeMetric?.divider ?? 1) || 1;
   const normalized: IntensityMetrics = {
     [REQUIRED_METRIC_KEY]: {
@@ -376,6 +386,7 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
                       <Input
                         id="metricValue"
                         type="number"
+                        step="any"
                         value={newMetricValue}
                         onChange={(e) => setNewMetricValue(e.target.value)}
                         placeholder="0"
@@ -438,14 +449,21 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
                       />
                     </div>
                     <div className="col-span-3 space-y-2">
-                      <Label htmlFor={`value-${key}`} className="text-xs text-muted-foreground">Value</Label>
+                      <Label htmlFor={`value-${key}`} className="text-xs text-muted-foreground">
+                        {isLocked ? "Value (average FTE)" : "Value"}
+                      </Label>
                       <Input
                         id={`value-${key}`}
                         type="number"
+                        min={isLocked ? 0 : undefined}
+                        step={isLocked ? 0.1 : "any"}
                         value={metric.value}
                         onChange={(e) => updateMetric(key, "value", e.target.value)}
                         className="h-9"
                       />
+                      {isLocked && (
+                        <p className="text-[11px] text-muted-foreground">To 1 decimal place, e.g. 12.5</p>
+                      )}
                     </div>
                     <div className="col-span-2 space-y-2">
                       <Label htmlFor={`divider-${key}`} className="text-xs text-muted-foreground">Divider</Label>
