@@ -39,6 +39,7 @@ const DIVIDER_OPTIONS = [
   { value: 10000, label: "Per 10,000" },
   { value: 100000, label: "Per 100,000" },
   { value: 1000000, label: "Per 1,000,000" },
+  { value: 10000000, label: "Per 10,000,000" },
 ];
 
 const REQUIRED_METRIC_KEY = "employees";
