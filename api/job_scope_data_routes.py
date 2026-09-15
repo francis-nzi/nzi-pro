@@ -218,7 +218,10 @@ def _attach_parent_to_td_row(
             False,
             True,
             None,
-            td_pair["auto_pair_kind"],
+            # .get(): callers that rebuild td_pair by hand (the site-change
+            # cascade in update_scope_data_row) must not 500 the whole request
+            # over a missing key.
+            td_pair.get("auto_pair_kind"),
         ],
     ).fetchone()
     if not td_result:
@@ -2956,6 +2959,11 @@ def update_scope_data_row(
                         "column_text": (linked_before or {}).get("column_text"),
                         "report_label": (linked_before or {}).get("report_label"),
                         "uom": (linked_before or {}).get("uom"),
+                        # Carried over from the row we are detaching from, so the
+                        # new site's row keeps its "auto" identity -- without it
+                        # the new row would lose both its badge and the guard that
+                        # stops its derived qty being hand-edited.
+                        "auto_pair_kind": (linked_before or {}).get("auto_pair_kind"),
                     }
                     cascaded_row_id = _attach_parent_to_td_row(
                         con,

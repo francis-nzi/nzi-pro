@@ -1065,3 +1065,78 @@ def test_recompute_td_totals_nulls_months_on_a_partial_split() -> None:
     qty, *months = conn.update_params[:13]
     assert qty == 1000.0
     assert months == [None] * 12, "a partial monthly split must fall back to annual"
+
+
+# ── _attach_parent_to_td_row: the site-change cascade rebuilds td_pair by hand,
+#    so a missing key must not 500 the request ──────────────────────────────────
+
+
+class _AttachTdConn:
+    """Fake conn for _attach_parent_to_td_row's insert path: no T&D row exists
+    at the target site yet, so it INSERTs one and records the params."""
+
+    def __init__(self):
+        self.insert_params = None
+
+    def execute(self, sql: str, params=None):
+        stripped = sql.strip()
+        if stripped.startswith("SELECT row_id FROM job_scope_rows"):
+            return _ScopeDataResult(fetchone_value=None)
+        if stripped.startswith("INSERT INTO job_scope_rows"):
+            self.insert_params = params
+            return _ScopeDataResult(fetchone_value=(999,))
+        return _ScopeDataResult()
+
+
+_CASCADE_TD_PAIR = {
+    "original_id": "13_402_4000_5_1",
+    "category": "Fuels and Energy Related Activities",
+    "level_1": "Transmission and distribution",
+    "level_2": "T&D- UK electricity",
+    "level_3": None,
+    "level_4": None,
+    "column_text": None,
+    "report_label": "Transmission and Distribution: T&D UK Electricity",
+    "uom": "kWh",
+}
+
+
+def _attach_td(monkeypatch, td_pair):
+    conn = _AttachTdConn()
+    monkeypatch.setattr(job_scope_data_routes, "_recompute_td_row_totals", lambda *_a, **_k: None)
+    monkeypatch.setattr(job_scope_data_routes, "_job_scope_row_snapshot", lambda *_a, **_k: {})
+    monkeypatch.setattr(job_scope_data_routes, "record_audit_event", lambda *_a, **_k: None)
+    row_id = job_scope_data_routes._attach_parent_to_td_row(
+        conn,
+        job_id=688,
+        parent_row_id=7505,
+        site_id=168,
+        td_pair=td_pair,
+        td_dataset_id=1,
+        td_factor_db_id=1812,
+        td_factor=0.01853,
+        td_ghg_unit="kgCO2e",
+        data_source="Company Data",
+        data_confidence="M",
+        request=_FakeRequest(),
+        actor={"user_id": "u1", "org_id": "org-123"},
+    )
+    return conn, row_id
+
+
+def test_attach_td_row_carries_auto_pair_kind_through_a_site_change(monkeypatch) -> None:
+    conn, row_id = _attach_td(
+        monkeypatch, {**_CASCADE_TD_PAIR, "auto_pair_kind": "td_electricity_kwh"}
+    )
+
+    assert row_id == 999
+    assert "td_electricity_kwh" in conn.insert_params
+
+
+def test_attach_td_row_survives_a_td_pair_missing_auto_pair_kind(monkeypatch) -> None:
+    # Regression: the site-change cascade used to omit the key entirely, and the
+    # bare subscript turned a routine site edit into "Update failed: 'auto_pair_kind'".
+    conn, row_id = _attach_td(monkeypatch, dict(_CASCADE_TD_PAIR))
+
+    assert row_id == 999
+    assert conn.insert_params[-1] is None
