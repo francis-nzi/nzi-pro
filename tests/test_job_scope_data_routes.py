@@ -1011,3 +1011,57 @@ def test_update_ordinary_row_qty_is_written(monkeypatch) -> None:
 
     assert any("qty=" in s for s in conn.update_sql)
     assert recompute_calls == []
+
+
+# ── _recompute_td_row_totals: monthly columns are kept only when they account
+#    for the whole annual qty (otherwise the read path reads the row as 0) ─────
+
+
+class _RecomputeConn:
+    """Fake conn for _recompute_td_row_totals: returns a canned aggregate row
+    for the SELECT and records the params of the UPDATE."""
+
+    def __init__(self, aggregate):
+        self._aggregate = aggregate
+        self.update_params = None
+
+    def execute(self, sql: str, params=None):
+        if sql.strip().startswith("UPDATE job_scope_rows"):
+            self.update_params = params
+            return _ScopeDataResult()
+        return _ScopeDataResult(fetchone_value=self._aggregate)
+
+
+def test_recompute_td_totals_nulls_months_when_parents_are_annual_only() -> None:
+    # The only parent stores its 41905 kWh annually, so every month sum is 0.
+    conn = _RecomputeConn((41905.0, *([0.0] * 12)))
+
+    job_scope_data_routes._recompute_td_row_totals(conn, 7506)
+
+    qty, *months = conn.update_params[:13]
+    assert qty == 41905.0
+    assert months == [None] * 12, "annual-only parents must not stamp zero months"
+
+
+def test_recompute_td_totals_keeps_months_when_they_cover_the_annual_total() -> None:
+    month_sums = [100.0, 200.0, 300.0] + [0.0] * 9
+    conn = _RecomputeConn((600.0, *month_sums))
+
+    job_scope_data_routes._recompute_td_row_totals(conn, 4296)
+
+    qty, *months = conn.update_params[:13]
+    assert qty == 600.0
+    assert months == month_sums
+
+
+def test_recompute_td_totals_nulls_months_on_a_partial_split() -> None:
+    # Two parents: one monthly (600 kWh split over three months), one holding
+    # 400 kWh annually. Keeping the months would report 600 instead of 1000.
+    month_sums = [100.0, 200.0, 300.0] + [0.0] * 9
+    conn = _RecomputeConn((1000.0, *month_sums))
+
+    job_scope_data_routes._recompute_td_row_totals(conn, 5664)
+
+    qty, *months = conn.update_params[:13]
+    assert qty == 1000.0
+    assert months == [None] * 12, "a partial monthly split must fall back to annual"

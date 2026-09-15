@@ -44,23 +44,36 @@ def _recompute_td_row_totals(con, td_row_id: int) -> None:
     total of every grid-electricity source row pairing to this factor at
     this site. The T&D row's own apply_pct is reset to 100 since each
     parent's apply_pct is already folded into the weighted sum.
+
+    Monthly values are kept only when they account for the whole annual
+    qty, and are reset to NULL otherwise. The read path
+    (``services.monthly_emissions.row_metrics``) switches a row onto its
+    per-month branch as soon as one month column is non-NULL and then
+    derives the displayed quantity from the months alone -- so stamping
+    twelve zeros onto a T&D row whose parents hold annual-only quantities
+    made the row read as 0 kWh / 0 tCO2e even though its annual qty was
+    right. The same applies to a partial split, where the months would
+    cover only the monthly parents while qty covers all of them. Falling
+    back to NULL keeps the row on the annual branch, which is always
+    correct; the months survive whenever the split really is complete,
+    including when a non-monthly parent contributes nothing.
     """
     totals = con.execute(
         """
         SELECT
             COALESCE(SUM(qty * COALESCE(apply_pct, 100) / 100.0), 0),
-            COALESCE(SUM(month_1 * COALESCE(apply_pct, 100) / 100.0), 0),
-            COALESCE(SUM(month_2 * COALESCE(apply_pct, 100) / 100.0), 0),
-            COALESCE(SUM(month_3 * COALESCE(apply_pct, 100) / 100.0), 0),
-            COALESCE(SUM(month_4 * COALESCE(apply_pct, 100) / 100.0), 0),
-            COALESCE(SUM(month_5 * COALESCE(apply_pct, 100) / 100.0), 0),
-            COALESCE(SUM(month_6 * COALESCE(apply_pct, 100) / 100.0), 0),
-            COALESCE(SUM(month_7 * COALESCE(apply_pct, 100) / 100.0), 0),
-            COALESCE(SUM(month_8 * COALESCE(apply_pct, 100) / 100.0), 0),
-            COALESCE(SUM(month_9 * COALESCE(apply_pct, 100) / 100.0), 0),
-            COALESCE(SUM(month_10 * COALESCE(apply_pct, 100) / 100.0), 0),
-            COALESCE(SUM(month_11 * COALESCE(apply_pct, 100) / 100.0), 0),
-            COALESCE(SUM(month_12 * COALESCE(apply_pct, 100) / 100.0), 0)
+            SUM(COALESCE(month_1, 0) * COALESCE(apply_pct, 100) / 100.0),
+            SUM(COALESCE(month_2, 0) * COALESCE(apply_pct, 100) / 100.0),
+            SUM(COALESCE(month_3, 0) * COALESCE(apply_pct, 100) / 100.0),
+            SUM(COALESCE(month_4, 0) * COALESCE(apply_pct, 100) / 100.0),
+            SUM(COALESCE(month_5, 0) * COALESCE(apply_pct, 100) / 100.0),
+            SUM(COALESCE(month_6, 0) * COALESCE(apply_pct, 100) / 100.0),
+            SUM(COALESCE(month_7, 0) * COALESCE(apply_pct, 100) / 100.0),
+            SUM(COALESCE(month_8, 0) * COALESCE(apply_pct, 100) / 100.0),
+            SUM(COALESCE(month_9, 0) * COALESCE(apply_pct, 100) / 100.0),
+            SUM(COALESCE(month_10, 0) * COALESCE(apply_pct, 100) / 100.0),
+            SUM(COALESCE(month_11, 0) * COALESCE(apply_pct, 100) / 100.0),
+            SUM(COALESCE(month_12, 0) * COALESCE(apply_pct, 100) / 100.0)
         FROM job_scope_rows
         WHERE linked_row_id = %s AND COALESCE(enabled, TRUE) = TRUE
         """,
@@ -68,6 +81,23 @@ def _recompute_td_row_totals(con, td_row_id: int) -> None:
     ).fetchone()
     if totals is None:
         return
+    qty_total = totals[0]
+    months = list(totals[1:])
+
+    def _as_float(value) -> float:
+        try:
+            return float(value or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    qty_float = _as_float(qty_total)
+    month_total = sum(_as_float(v) for v in months)
+    monthly_covers_annual = month_total > 0 and abs(month_total - qty_float) <= max(
+        1e-6, abs(qty_float) * 1e-9
+    )
+    if not monthly_covers_annual:
+        months = [None] * 12
+    totals = [qty_total, *months]
     con.execute(
         """
         UPDATE job_scope_rows
