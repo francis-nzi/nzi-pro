@@ -38,18 +38,19 @@ def _spend_td_row(scope: str):
     )
 
 
-def test_spend_pair_is_found_even_when_the_dataset_tags_it_scope_2() -> None:
-    # T&D is Scope 3 Category 3 and the 2019-2024 datasets say so, but the 2025
-    # and 2026 spend files label this factor 'Scope 2'. Filtering on Scope 3
-    # silently stopped spend electricity pairing on the current datasets.
+def test_spend_lookup_keeps_its_scope_filter() -> None:
+    # SPEND-SIC-35.1 is the whole SIC 35.1 electricity supply sector
+    # (1.1768 kgCO2e/GBP) not a T&D-loss increment -- plain "Electricity" spend
+    # is 1.1283 -- so pairing the two would roughly double an electricity spend
+    # row. The 2025/2026 datasets tag it Scope 2, which holds this lookup shut
+    # on the datasets current jobs use. Dropping the filter would switch that
+    # double-count on, so the filter stays until a real spend-side T&D-loss
+    # factor exists.
     conn = _FactorConn([_spend_td_row("Scope 2")])
+    find_td_pair_factor(conn, dataset_id=69, pair_kind="spend", uom="GBP")
 
-    pair = find_td_pair_factor(conn, dataset_id=69, pair_kind="spend", uom="GBP")
-
-    assert pair is not None
-    assert pair["original_id"] == "SPEND-SIC-35.1"
-    assert "scope" not in conn.sql.lower().split("where")[1].split("order by")[0], \
-        "the spend lookup must not filter on scope"
+    where = conn.sql.lower().split("where")[1].split("order by")[0]
+    assert "scope" in where, "the spend lookup must keep filtering on scope"
 
 
 def test_spend_pair_still_refuses_to_guess_between_two_candidates() -> None:
