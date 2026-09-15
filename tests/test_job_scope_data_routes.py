@@ -1223,3 +1223,65 @@ def test_pair_on_approve_just_recomputes_an_already_linked_row(monkeypatch) -> N
 
     assert linked == 7506
     assert conn.recomputed == [7506], "an already-paired row folds into the shared total"
+
+
+# ── Site change on a paired row: attach to the new site's T&D row before
+#    letting go of the old one, because there is no transaction to roll back ──
+
+
+_TD_PARENT_BEFORE = {
+    "row_id": 7505,
+    "job_id": 688,
+    "scope": "Scope 2",
+    "qty": 41905.0,
+    "apply_pct": 100.0,
+    "is_auto_generated": False,
+    "auto_pair_kind": None,
+    "linked_row_id": 50,
+    "data_confidence": "M",
+    "original_id": "7_400_4000_5_1",
+    "uom": "kWh",
+}
+
+
+def _site_change(monkeypatch, attach):
+    import pytest
+
+    conn = _UpdateRowConn()
+    _patch_update_row(monkeypatch, conn, dict(_TD_PARENT_BEFORE))
+    pruned: list[int] = []
+    monkeypatch.setattr(job_scope_data_routes, "_attach_parent_to_td_row", attach)
+    monkeypatch.setattr(job_scope_data_routes, "_prune_td_row_if_orphaned", lambda _c, rid: pruned.append(int(rid)))
+    try:
+        job_scope_data_routes.update_scope_data_row(
+            request=_FakeRequest(),
+            job_id=688,
+            row_id=7505,
+            payload={"site_id": 168},
+            _user={"user_id": "u1", "org_id": "org-123"},
+        )
+    except Exception as exc:  # noqa: BLE001 - the handler wraps failures in a 500
+        return conn, pruned, exc
+    return conn, pruned, None
+
+
+def test_site_change_does_not_orphan_the_row_when_the_attach_fails(monkeypatch) -> None:
+    # Regression: the cascade used to null linked_row_id and prune the old T&D
+    # row *before* attaching. On an autocommit connection a failing attach then
+    # left the row permanently unpaired and its T&D emissions gone.
+    def _boom(*_a, **_k):
+        raise RuntimeError("target site already has an active T&D row")
+
+    conn, pruned, exc = _site_change(monkeypatch, _boom)
+
+    assert exc is not None, "the failure should still surface to the caller"
+    assert not any("linked_row_id=NULL" in sql for sql in conn.update_sql), \
+        "the row must keep its existing pair when the attach fails"
+    assert pruned == [], "the old T&D row must not be pruned when the attach fails"
+
+
+def test_site_change_releases_the_old_row_once_the_attach_succeeds(monkeypatch) -> None:
+    conn, pruned, exc = _site_change(monkeypatch, lambda *_a, **_k: 9002)
+
+    assert exc is None
+    assert pruned == [50], "the old site's T&D row is recomputed and pruned after a successful move"

@@ -76,12 +76,18 @@ def find_td_pair_factor(
         """
         params: list[Any] = [int(dataset_id), uom]
     elif pair_kind == "spend":
+        # Deliberately not filtered on scope. T&D losses are Scope 3 Category 3
+        # and every dataset from 2019-2024 tags this factor that way, but the
+        # 2025 and 2026 spend files label it 'Scope 2' -- so filtering on
+        # Scope 3 silently stopped spend-based electricity pairing on exactly
+        # the datasets current jobs use. The level_1 match is specific enough
+        # on its own, and the "exactly one candidate" guard below still refuses
+        # to guess if a dataset ever holds more than one.
         query = """
             SELECT db_id, original_id, factor, ghg_unit, uom, report_label,
                    category, level_1, level_2, level_3, level_4, column_text
             FROM factor_lookup
             WHERE dataset_id = %s
-              AND scope = 'Scope 3'
               AND TRIM(level_1) = 'Electricity, transmission and distribution'
             ORDER BY db_id ASC
             LIMIT 2

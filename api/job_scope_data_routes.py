@@ -3041,10 +3041,6 @@ def update_scope_data_row(
                 linked_before = _job_scope_row_snapshot(con, int(job_id), linked_row_id)
 
                 if "site_id" in mirrored_fields_in_payload:
-                    con.execute("UPDATE job_scope_rows SET linked_row_id=NULL WHERE row_id=%s", [int(row_id)])
-                    _recompute_td_row_totals(con, linked_row_id)
-                    _prune_td_row_if_orphaned(con, linked_row_id)
-
                     td_pair = {
                         "original_id": (linked_before or {}).get("original_id"),
                         "category": (linked_before or {}).get("category"),
@@ -3061,6 +3057,20 @@ def update_scope_data_row(
                         # stops its derived qty being hand-edited.
                         "auto_pair_kind": (linked_before or {}).get("auto_pair_kind"),
                     }
+                    # Attach to the new site's T&D row FIRST, and only then let
+                    # go of the old one. _attach_parent_to_td_row re-points this
+                    # row's linked_row_id itself, so the detach is implicit.
+                    #
+                    # The order matters because these handlers run on an
+                    # autocommit connection (get_conn defaults to
+                    # autocommit=True), so there is no rollback to undo a
+                    # half-finished cascade. Detaching first meant that anything
+                    # going wrong in the attach -- the KeyError fixed in
+                    # 1be223cc, a unique-index clash with a hand-added T&D row
+                    # at the target site, a dropped connection -- left the row
+                    # permanently orphaned and its old T&D row pruned, silently
+                    # losing those emissions. Attaching first makes the failure
+                    # mode "nothing changed" instead.
                     cascaded_row_id = _attach_parent_to_td_row(
                         con,
                         job_id=int(job_id),
@@ -3076,6 +3086,14 @@ def update_scope_data_row(
                         request=request,
                         actor=_user,
                     )
+                    if cascaded_row_id is None:
+                        # Nothing took ownership of the row, so leave it on its
+                        # existing pair rather than stranding it.
+                        cascaded_row_id = linked_row_id
+                    elif int(cascaded_row_id) != linked_row_id:
+                        # The old site's row has one parent fewer now.
+                        _recompute_td_row_totals(con, linked_row_id)
+                        _prune_td_row_if_orphaned(con, linked_row_id)
                 else:
                     _recompute_td_row_totals(con, linked_row_id)
                     cascaded_row_id = linked_row_id
