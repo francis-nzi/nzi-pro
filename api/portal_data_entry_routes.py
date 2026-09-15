@@ -15,6 +15,7 @@ from api.job_emission_register_routes import _calc_tco2e as _register_calc_tco2e
 from api.job_emission_register_routes import _ensure_schema as _ensure_emission_register_schema
 from api.job_scope_data_routes import (
     _ensure_job_scope_rows_schema,
+    _lookup_factor_from_reference,
     _resolve_scope_row_factor_for_creation,
     get_template_factors,
 )
@@ -461,6 +462,18 @@ def portal_data_entry_create_row(
             _resolve_scope_row_factor_for_creation(con, job_id, scope, original_id, payload)
         )
 
+        # The portal submits an original_id and lets the server resolve the
+        # factor, so the taxonomy columns arrive empty where the CRM-side form
+        # fills them in. Left NULL they cost the row its category grouping in
+        # reports, and they silently defeat the grid-electricity detection that
+        # pairs a Scope 3 T&D row on approval, which keys off level_1/level_2.
+        _factor_taxonomy = (
+            _lookup_factor_from_reference(con, final_dataset_id, scope, original_id) or {}
+        )
+
+        def _resolved(field: str):
+            return payload.get(field) or _factor_taxonomy.get(field)
+
         source_type = _register_source_type_for_bucket(bucket_key)
         if source_type:
             _ensure_emission_register_schema(con)
@@ -527,9 +540,9 @@ def portal_data_entry_create_row(
             """,
             [
                 int(job_id), scope, site_id, final_dataset_id, final_factor_db_id, original_id,
-                submitted_category, payload.get("level_1"), payload.get("level_2"),
-                payload.get("level_3"), payload.get("level_4"), payload.get("column_text"),
-                payload.get("report_label"),
+                submitted_category, _resolved("level_1"), _resolved("level_2"),
+                _resolved("level_3"), _resolved("level_4"), _resolved("column_text"),
+                _resolved("report_label"),
                 payload.get("qty"), payload.get("uom"), final_factor, final_ghg_unit,
                 payload.get("apply_pct", 100), "Client Portal", payload.get("data_confidence", "M"),
                 payload.get("notes"), payload.get("identifier"), False,

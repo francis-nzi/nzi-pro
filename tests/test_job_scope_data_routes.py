@@ -1140,3 +1140,86 @@ def test_attach_td_row_survives_a_td_pair_missing_auto_pair_kind(monkeypatch) ->
 
     assert row_id == 999
     assert conn.insert_params[-1] is None
+
+
+# ── _pair_td_for_enabled_row: portal rows are paired on approval, and carry no
+#    level_1/level_2 of their own, so the factor library has to supply them ────
+
+
+class _PairOnApproveConn:
+    """Fake conn for _pair_td_for_enabled_row: returns one job_scope_rows row."""
+
+    def __init__(self, row):
+        self._row = row
+        self.recomputed: list[int] = []
+
+    def execute(self, sql: str, params=None):
+        if sql.strip().startswith("SELECT site_id, dataset_id, original_id"):
+            return _ScopeDataResult(fetchone_value=self._row)
+        return _ScopeDataResult()
+
+
+# site_id, dataset_id, original_id, scope, level_1, level_2, uom,
+# data_source, data_confidence, linked_row_id
+_PORTAL_ELECTRICITY_ROW = (
+    168, 1, "7_400_4000_5_1", "Scope 2", None, None, "kWh", "Client Portal", "M", None,
+)
+
+
+def _pair_on_approve(monkeypatch, row, *, reference, pair):
+    conn = _PairOnApproveConn(row)
+    seen: dict = {}
+
+    def _fake_resolve(_con, *, dataset_id, level_1, level_2, uom):
+        seen["detect_args"] = (dataset_id, level_1, level_2, uom)
+        return pair
+
+    monkeypatch.setattr(job_scope_data_routes, "_lookup_factor_from_reference", lambda *_a, **_k: reference)
+    monkeypatch.setattr(job_scope_data_routes, "resolve_td_pair_for_new_row", _fake_resolve)
+    monkeypatch.setattr(
+        job_scope_data_routes,
+        "_refresh_td_pair_to_scope3_dataset",
+        lambda *_a, **_k: (1, 1812, 0.01853, "kgCO2e"),
+    )
+    monkeypatch.setattr(job_scope_data_routes, "_attach_parent_to_td_row", lambda *_a, **_k: 9001)
+    monkeypatch.setattr(job_scope_data_routes, "_recompute_td_row_totals", lambda _c, rid: conn.recomputed.append(int(rid)))
+
+    linked = job_scope_data_routes._pair_td_for_enabled_row(
+        conn, job_id=688, row_id=7973, request=_FakeRequest(), actor={"user_id": "u1"}
+    )
+    return conn, linked, seen
+
+
+def test_pair_on_approve_resolves_levels_from_the_factor_library(monkeypatch) -> None:
+    # Regression: portal submissions stored level_1/level_2 as NULL, so the
+    # electricity detection never fired and no T&D row was ever created.
+    _conn, linked, seen = _pair_on_approve(
+        monkeypatch,
+        _PORTAL_ELECTRICITY_ROW,
+        reference={"level_1": "UK electricity", "level_2": "Electricity generated"},
+        pair={"db_id": 1812, "factor": 0.01853, "ghg_unit": "kgCO2e", "original_id": "13_402_4000_5_1"},
+    )
+
+    assert seen["detect_args"] == (1, "UK electricity", "Electricity generated", "kWh")
+    assert linked == 9001
+
+
+def test_pair_on_approve_is_a_noop_for_a_non_electricity_row(monkeypatch) -> None:
+    _conn, linked, _seen = _pair_on_approve(
+        monkeypatch,
+        _PORTAL_ELECTRICITY_ROW,
+        reference={"level_1": "Postal and courier services", "level_2": None},
+        pair=None,
+    )
+
+    assert linked is None
+
+
+def test_pair_on_approve_just_recomputes_an_already_linked_row(monkeypatch) -> None:
+    already_linked = (*_PORTAL_ELECTRICITY_ROW[:9], 7506)
+    conn, linked, _seen = _pair_on_approve(
+        monkeypatch, already_linked, reference={}, pair=None
+    )
+
+    assert linked == 7506
+    assert conn.recomputed == [7506], "an already-paired row folds into the shared total"

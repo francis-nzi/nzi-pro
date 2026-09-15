@@ -253,6 +253,112 @@ def _attach_parent_to_td_row(
     return td_row_id
 
 
+def _refresh_td_pair_to_scope3_dataset(
+    con, *, job_id: int, td_pair: dict[str, Any], fallback_dataset_id: int | None
+) -> tuple[Any, Any, Any, Any]:
+    """Re-resolve a T&D pair factor against the job's Scope 3 primary dataset.
+
+    resolve_td_pair_for_new_row searches within the *parent* row's dataset,
+    which is the Scope 2 one for grid electricity. The T&D row itself is
+    Scope 3, so its factor should come from the job's Scope 3 dataset where
+    the two differ. Falls back to the pair factor as found.
+    """
+    td_dataset_id = fallback_dataset_id
+    td_factor_db_id = td_pair["db_id"]
+    td_factor = td_pair["factor"]
+    td_ghg_unit = td_pair["ghg_unit"]
+    try:
+        from services.dataset_selector import resolve_dataset_resolution
+
+        resolution = resolve_dataset_resolution(int(job_id))
+        scope_map: dict[str, int] = {
+            str(s): int(d)
+            for s, d in (resolution.get("scope_primary_datasets") or {}).items()
+            if d is not None
+        }
+        scope3_dataset = scope_map.get("Scope 3")
+        if scope3_dataset:
+            refreshed = _lookup_factor_from_reference(
+                con, scope3_dataset, "Scope 3", str(td_pair["original_id"])
+            )
+            if refreshed:
+                td_dataset_id = scope3_dataset
+                td_factor_db_id = refreshed["db_id"]
+                td_factor = refreshed["factor"]
+                td_ghg_unit = refreshed["ghg_unit"]
+    except Exception:
+        logger.debug("Falling back to raw td_pair factor values", exc_info=True)
+    return td_dataset_id, td_factor_db_id, td_factor, td_ghg_unit
+
+
+def _pair_td_for_enabled_row(con, *, job_id: int, row_id: int, request, actor) -> int | None:
+    """Attach an existing, now-enabled grid-electricity row to its site's
+    shared Scope 3 T&D row, creating that row if this is the first parent.
+
+    Portal-submitted rows land ``enabled=FALSE, review_status='pending_review'``,
+    so the pairing cannot run at submit time the way it does for a CRM-side
+    create: every T&D total counts only enabled parents, so a row built for a
+    still-pending parent would be created at qty 0 and then immediately
+    soft-deleted by _prune_td_row_if_orphaned. Approval is the first point at
+    which the electricity actually counts towards the job, so it is the hook.
+
+    Portal rows also arrive without level_1/level_2 -- the portal submits an
+    original_id and lets the server resolve the factor -- and the electricity
+    detection keys off exactly those two fields, so fall back to the factor
+    library when the row itself doesn't carry them.
+    """
+    row = con.execute(
+        """
+        SELECT site_id, dataset_id, original_id, scope, level_1, level_2, uom,
+               data_source, data_confidence, linked_row_id
+        FROM job_scope_rows
+        WHERE row_id = %s AND job_id = %s
+        """,
+        [int(row_id), int(job_id)],
+    ).fetchone()
+    if not row:
+        return None
+    (site_id, dataset_id, original_id, scope, level_1, level_2, uom,
+     data_source, data_confidence, linked_row_id) = row
+
+    if linked_row_id:
+        # Already paired (re-approval, or approved after a manual link) --
+        # just fold this row's quantity into the shared total.
+        _recompute_td_row_totals(con, int(linked_row_id))
+        return int(linked_row_id)
+
+    if not level_1 and not level_2:
+        reference = _lookup_factor_from_reference(con, dataset_id, scope, original_id)
+        if reference:
+            level_1 = reference.get("level_1")
+            level_2 = reference.get("level_2")
+
+    td_pair = resolve_td_pair_for_new_row(
+        con, dataset_id=dataset_id, level_1=level_1, level_2=level_2, uom=uom
+    )
+    if td_pair is None:
+        return None
+
+    td_dataset_id, td_factor_db_id, td_factor, td_ghg_unit = _refresh_td_pair_to_scope3_dataset(
+        con, job_id=int(job_id), td_pair=td_pair, fallback_dataset_id=dataset_id
+    )
+    return _attach_parent_to_td_row(
+        con,
+        job_id=int(job_id),
+        parent_row_id=int(row_id),
+        site_id=site_id,
+        td_pair=td_pair,
+        td_dataset_id=td_dataset_id,
+        td_factor_db_id=td_factor_db_id,
+        td_factor=td_factor,
+        td_ghg_unit=td_ghg_unit,
+        data_source=data_source or "Client Portal",
+        data_confidence=data_confidence or "M",
+        request=request,
+        actor=actor,
+    )
+
+
 def _ensure_job_scope_rows_schema(con) -> None:
     """Keep job_scope_rows schema aligned for data-entry endpoints."""
     global _scope_rows_schema_seeded
@@ -2416,28 +2522,9 @@ def create_scope_data_row(
                     uom=payload.get("uom"),
                 )
                 if td_pair is not None:
-                    td_dataset_id = final_dataset_id
-                    td_factor_db_id = td_pair["db_id"]
-                    td_factor = td_pair["factor"]
-                    td_ghg_unit = td_pair["ghg_unit"]
-                    try:
-                        td_scope_map: dict[str, int] = {
-                            str(s): int(d)
-                            for s, d in (_resolution.get("scope_primary_datasets") or {}).items()
-                            if d is not None
-                        }
-                        td_scope3_dataset = td_scope_map.get("Scope 3")
-                        if td_scope3_dataset:
-                            _td_refreshed = _lookup_factor_from_reference(
-                                con, td_scope3_dataset, "Scope 3", str(td_pair["original_id"])
-                            )
-                            if _td_refreshed:
-                                td_dataset_id = td_scope3_dataset
-                                td_factor_db_id = _td_refreshed["db_id"]
-                                td_factor = _td_refreshed["factor"]
-                                td_ghg_unit = _td_refreshed["ghg_unit"]
-                    except Exception:
-                        logger.debug("Falling back to raw td_pair factor values", exc_info=True)
+                    td_dataset_id, td_factor_db_id, td_factor, td_ghg_unit = _refresh_td_pair_to_scope3_dataset(
+                        con, job_id=int(job_id), td_pair=td_pair, fallback_dataset_id=final_dataset_id
+                    )
 
                     linked_row_id = _attach_parent_to_td_row(
                         con,
@@ -2530,6 +2617,12 @@ def review_scope_data_row(
                             ),
                         )
                     raise
+                # The row only starts counting towards the job now, so this is
+                # where a portal-submitted grid-electricity row picks up its
+                # paired T&D line.
+                _pair_td_for_enabled_row(
+                    con, job_id=int(job_id), row_id=int(row_id), request=request, actor=_user
+                )
             else:
                 con.execute(
                     """
@@ -2625,6 +2718,9 @@ def bulk_review_scope_data_rows(
                         })
                         continue
                     raise
+                _pair_td_for_enabled_row(
+                    con, job_id=int(job_id), row_id=int(row_id), request=request, actor=_user
+                )
             else:
                 con.execute(
                     """
