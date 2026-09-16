@@ -13,7 +13,7 @@ import logging
 from typing import Any
 
 import pandas as pd
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
@@ -173,6 +173,43 @@ def portal_spend_template(current_user: dict = Depends(portal_user_dep)):
     )
 
 
+def _resolve_portal_site_id(con, current_user: dict, client_db_id: int, raw: Any) -> int | None:
+    """Validate a site the portal user picked for a spend submission.
+
+    Spend arrives as a nominal-ledger export with no site column of its own,
+    so the client chooses one site for the whole submission instead. Left
+    unset the entries land site-less, which is what made a client re-upload
+    silently replace site-tagged spend with a site-less copy of itself.
+
+    Returns None when nothing was picked. Raises 400 when the site is not
+    one this user may submit against, so a stale or guessed id can never
+    attach spend to another client's site.
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    try:
+        site_id = int(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="site_id must be a whole number")
+
+    owned = con.execute(
+        """
+        SELECT 1 FROM client_sites
+        WHERE site_id = %s AND client_db_id = %s AND COALESCE(archived, FALSE) = FALSE
+        """,
+        [site_id, int(client_db_id)],
+    ).fetchone()
+    if not owned:
+        raise HTTPException(status_code=400, detail="Site not found for this account")
+
+    # Portal users can be scoped to a subset of their client's sites; honour
+    # that here the way /portal/data-entry/sites does when listing them.
+    allowed = current_user.get("site_ids")
+    if allowed is not None and site_id not in allowed:
+        raise HTTPException(status_code=403, detail="You do not have access to that site")
+    return site_id
+
+
 @router.post("/portal/spend/upload-preview")
 async def portal_spend_upload_preview(
     file: UploadFile = File(...),
@@ -194,6 +231,7 @@ async def portal_spend_upload_preview(
 @router.post("/portal/spend/upload-commit")
 async def portal_spend_upload_commit(
     file: UploadFile = File(...),
+    site_id: str | None = Form(None),
     current_user: dict = Depends(portal_user_dep),
 ):
     _assert_can_manage(current_user)
@@ -210,6 +248,7 @@ async def portal_spend_upload_commit(
         _ensure_spend_tables(con)
         job_id = _resolve_job_or_404(con, client_db_id)
         _assert_data_entry_open(con, job_id)
+        resolved_site_id = _resolve_portal_site_id(con, current_user, client_db_id, site_id)
         df = _parse_upload(data, file.filename or "upload.csv")
 
         inserted = 0
@@ -229,7 +268,7 @@ async def portal_spend_upload_commit(
                 con=con,
                 job_id=int(job_id),
                 client_db_id=int(client_db_id),
-                site_id=None,
+                site_id=resolved_site_id,
                 source_type="portal_upload",
                 code_type="nominal_code",
                 reference_code=reference_code,
@@ -275,7 +314,7 @@ def portal_spend_create_row(
             con=con,
             job_id=int(job_id),
             client_db_id=client_db_id,
-            site_id=None,
+            site_id=_resolve_portal_site_id(con, current_user, client_db_id, payload.get("site_id")),
             source_type="portal_manual",
             code_type="nominal_code",
             reference_code=reference_code,
