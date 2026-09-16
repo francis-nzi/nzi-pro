@@ -151,3 +151,101 @@ def test_list_spend_data_handles_legacy_schema_after_backfill(monkeypatch) -> No
 
     assert result["summary"]["count"] == 1
     assert result["items"][0]["amount_net"] == 100.0
+
+
+# ── Pushing spend to emissions: a pushed row is identified by original_id AND
+#    site_id, so a site change can't leave the old row behind counting twice ──
+
+
+class _PushConn:
+    """Fake conn for sync_spend_to_scope_data: serves the mapped spend entries
+    and captures the deactivation sweep's SQL and params."""
+
+    def __init__(self, entries):
+        self._entries = entries
+        self.deactivate_sql = ""
+        self.deactivate_params = None
+        self._result_df = pd.DataFrame([])
+        self._fetchone = (1,)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, sql: str, params=None):
+        if "FROM job_spend_entries" in sql and "mapped_scope IS NOT NULL" in sql:
+            self._result_df = pd.DataFrame(self._entries)
+            return self
+        if "SET enabled = FALSE" in sql:
+            self.deactivate_sql = sql
+            self.deactivate_params = params
+            self._fetchone = (0,)
+            return self
+        self._result_df = pd.DataFrame([])
+        self._fetchone = (1,)
+        return self
+
+    def fetchone(self):
+        return self._fetchone
+
+    def df(self):
+        return self._result_df
+
+
+def _push(monkeypatch, entries):
+    conn = _PushConn(entries)
+    monkeypatch.setattr(spend_data_routes, "get_conn", lambda *_a, **_k: conn)
+    monkeypatch.setattr(spend_data_routes, "_ensure_spend_tables", lambda *_a, **_k: None)
+    monkeypatch.setattr(spend_data_routes, "_job_client_id", lambda *_a, **_k: 205)
+    monkeypatch.setattr(
+        spend_data_routes,
+        "_factor_by_id",
+        lambda _con, db_id: {"factor": 0.1, "scope": "Scope 3", "category": "Energy",
+                             "report_label": "x", "dataset_id": 1, "original_id": f"F{db_id}"},
+    )
+    spend_data_routes.sync_spend_to_scope_data(
+        job_id=663, body={"deactivate_missing": True}, _user={"email": "t@x"},
+    )
+    return conn
+
+
+def _entry(entry_id, site_id, factor_db_id=38024):
+    return {
+        "entry_id": entry_id, "amount_net": 100.0, "amount_gross": 120.0,
+        "conversion_currency": "GBP", "currency": "GBP", "vat_pct": 20, "notes": None,
+        "site_id": site_id, "factor_db_id": factor_db_id, "factor_original_id": "SPEND-SIC-1",
+        "dataset_id": 1, "mapped_scope": "Scope 3", "mapped_category": "Energy",
+        "mapped_report_label": "Energy", "mapping_confidence": 0.9,
+    }
+
+
+def test_push_deactivation_is_keyed_on_original_id_and_site() -> None:
+    import inspect
+
+    source = inspect.getsource(spend_data_routes.sync_spend_to_scope_data)
+    assert "(original_id, COALESCE(site_id, -1)) NOT IN" in source, \
+        "the sweep must compare the (original_id, site_id) pair, not the id alone"
+
+
+def test_push_sweep_params_pair_each_id_with_its_site(monkeypatch) -> None:
+    # Job 663's shape: every entry arrived through the portal with no site, so
+    # the groups are site-less and generate a bare SPEND-F<factor> id -- the
+    # same id legacy rows carry alongside a real site_id. The sweep must send
+    # -1 as this group's site so those legacy rows fall outside the keep-list
+    # and get deactivated instead of double-counting.
+    conn = _push(monkeypatch, [_entry(1, None), _entry(2, None)])
+
+    assert "(original_id, COALESCE(site_id, -1)) NOT IN" in conn.deactivate_sql
+    # params: job_id, pattern, then (original_id, site) pairs
+    assert conn.deactivate_params[0] == 663
+    assert conn.deactivate_params[2] == "SPEND-F38024"
+    assert conn.deactivate_params[3] == -1
+
+
+def test_push_sweep_keeps_the_site_when_entries_carry_one(monkeypatch) -> None:
+    conn = _push(monkeypatch, [_entry(1, 123)])
+
+    assert conn.deactivate_params[2] == "SPEND-F38024-S123"
+    assert conn.deactivate_params[3] == 123

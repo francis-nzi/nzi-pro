@@ -2346,7 +2346,15 @@ def sync_spend_to_scope_data(
                 }
             groups[key]["amount_gross"] += _safe_float(row.get("amount_gross"), 0.0)
 
-        active_original_ids: list[str] = []
+        # A pushed row is identified by original_id *and* site_id, not by
+        # original_id alone: rows pushed before the "-S<site>" suffix existed
+        # carry a bare SPEND-F<factor> id together with a real site_id, which
+        # is exactly the id a site-less group generates today. Keying the
+        # deactivation sweep below on the id alone therefore spared those rows
+        # whenever a job's entries lost their site -- the new site-less row was
+        # created alongside the old site-tagged one and the job counted the
+        # same spend twice.
+        active_row_keys: list[tuple[str, int]] = []
         created = 0
         updated = 0
 
@@ -2356,7 +2364,8 @@ def sync_spend_to_scope_data(
                 original_id = f"SPEND-F{factor_db_id_key}-S{site_id}"
             else:
                 original_id = f"SPEND-F{factor_db_id_key}"
-            active_original_ids.append(original_id)
+            # -1 stands in for NULL so the pair compares without NULL semantics.
+            active_row_keys.append((original_id, site_id if site_id is not None else -1))
 
             factor = _factor_by_id(con, factor_db_id_key)
             if not factor:
@@ -2468,8 +2477,11 @@ def sync_spend_to_scope_data(
         deactivated = 0
         if deactivate_missing:
             spend_pattern = "SPEND-%"
-            if active_original_ids:
-                placeholders = ",".join(["%s"] * len(active_original_ids))
+            if active_row_keys:
+                placeholders = ",".join(["(%s, %s)"] * len(active_row_keys))
+                key_params: list[Any] = []
+                for original_id_key, site_key in active_row_keys:
+                    key_params.extend([original_id_key, site_key])
                 deactivated_row = con.execute(
                     f"""
                     WITH updated_rows AS (
@@ -2478,12 +2490,12 @@ def sync_spend_to_scope_data(
                       WHERE job_id = %s
                         AND COALESCE(data_source, '') = 'Spend Data'
                         AND original_id LIKE %s
-                        AND original_id NOT IN ({placeholders})
+                        AND (original_id, COALESCE(site_id, -1)) NOT IN ({placeholders})
                       RETURNING 1
                     )
                     SELECT COUNT(*) FROM updated_rows
                     """,
-                    [int(job_id), spend_pattern] + active_original_ids,
+                    [int(job_id), spend_pattern] + key_params,
                 ).fetchone()
                 deactivated = int(deactivated_row[0] or 0) if deactivated_row else 0
             else:
