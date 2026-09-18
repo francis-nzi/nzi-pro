@@ -539,6 +539,7 @@ def list_jobs(
     job_family: str | None = None,
     sort: str | None = None,
     direction: str | None = None,
+    ending_within_60_days: bool = False,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     _user: dict[str, str] = Depends(_current_user),
@@ -659,6 +660,16 @@ def list_jobs(
                 else:
                     where_clauses.append(f"LOWER(COALESCE({family_expr}, '')) = ?")
                 params.append(job_family_filter)
+
+            if ending_within_60_days:
+                if has_due_date:
+                    from datetime import date, timedelta
+
+                    today = date.today()
+                    where_clauses.append("j.due_date BETWEEN ? AND ?")
+                    params.extend([today, today + timedelta(days=60)])
+                else:
+                    where_clauses.append("1 = 0")
 
             where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
 

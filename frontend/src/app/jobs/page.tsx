@@ -60,6 +60,7 @@ export default function JobsPage() {
   const [debouncedQ, setDebouncedQ] = useState("");
   const [crmFilter, setCrmFilter] = useState("");
   const [familyFilter, setFamilyFilter] = useState("");
+  const [endDateFilter, setEndDateFilter] = useState("all");
   const [limit, setLimit] = useState(50);
   const [offset, setOffset] = useState(0);
   const [sortBy, setSortBy] = useState<SortBy>("job");
@@ -94,12 +95,13 @@ export default function JobsPage() {
     if (debouncedQ.trim()) p.set("q", debouncedQ.trim());
     if (crmFilter.trim()) p.set("crm", crmFilter.trim());
     if (familyFilter.trim()) p.set("job_family", familyFilter.trim());
+    if (endDateFilter === "next60") p.set("ending_within_60_days", "true");
     p.set("sort", sortBy);
     p.set("direction", sortDir);
     p.set("limit", String(limit));
     p.set("offset", String(offset));
     return p.toString();
-  }, [debouncedQ, crmFilter, familyFilter, sortBy, sortDir, limit, offset]);
+  }, [debouncedQ, crmFilter, familyFilter, endDateFilter, sortBy, sortDir, limit, offset]);
 
   const {
     data: jobsData,
@@ -195,7 +197,7 @@ export default function JobsPage() {
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">Due</span>
                 <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-800">Healthy</span>
               </div>
-              <div className="grid gap-4 md:grid-cols-4">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                 <div className="space-y-2">
                   <Label htmlFor="q">Search</Label>
                   <Input
@@ -255,6 +257,24 @@ export default function JobsPage() {
                           <div className="text-xs text-muted-foreground">{getJobFamilyDescription(family)}</div>
                         </SelectItem>
                       ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="endDateFilter">End Date</Label>
+                  <Select
+                    value={endDateFilter}
+                    onValueChange={(value) => {
+                      setEndDateFilter(value);
+                      setOffset(0);
+                    }}
+                  >
+                    <SelectTrigger id="endDateFilter" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All dates</SelectItem>
+                      <SelectItem value="next60">Next 60 days</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
