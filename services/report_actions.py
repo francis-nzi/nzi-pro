@@ -36,8 +36,8 @@ ACTION_TERM_HINTS = {
 ACTION_STATUSES = ["open", "approved", "in_progress", "completed", "cancelled"]
 
 DEFAULT_ACTION_CATEGORIES = [
-    "Energy", "Buildings", "Travel", "Commuting",
-    "Fleet", "Procurement", "Renewables", "Data & Governance",
+    "Governance", "Metrics", "Strategy", "Risk",
+    "Upskilling", "Energy", "Engagement", "Accreditation",
 ]
 
 UNCLASSIFIED_LEGACY_LEVER_CODE = "UNCLASSIFIED-LEGACY"

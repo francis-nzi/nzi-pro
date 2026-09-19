@@ -80,6 +80,9 @@ export default function AdminActionsOptionsPage() {
   const [items, setItems] = useState<ActionOption[]>([]);
   const [termOptions, setTermOptions] = useState<TermOption[]>(DEFAULT_TERM_OPTIONS);
   const [levers, setLevers] = useState<LeverOption[]>([]);
+  const [categories, setCategories] = useState<{ category_id: number; name: string }[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [categoriesError, setCategoriesError] = useState("");
   const [srsQuestions, setSrsQuestions] = useState<SrsQuestion[]>([]);
   const [srsLoading, setSrsLoading] = useState(true);
   const [srsError, setSrsError] = useState("");
@@ -106,6 +109,7 @@ export default function AdminActionsOptionsPage() {
     void loadData();
     void loadLevers();
     void loadSrsQuestions();
+    void loadCategories();
   }, []);
 
   async function loadData() {
@@ -129,6 +133,21 @@ export default function AdminActionsOptionsPage() {
       setError(err instanceof Error ? err.message : "Failed to load action options");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadCategories() {
+    setCategoriesLoading(true);
+    setCategoriesError("");
+    try {
+      const res = await fetch(`${apiBaseUrl()}/admin/lookups/action_categories_lookup`, { credentials: "include" });
+      if (!res.ok) throw new Error("Could not load action categories. Please retry.");
+      const payload = await res.json() as { items?: { category_id: number; name: string }[] };
+      setCategories(Array.isArray(payload.items) ? payload.items : []);
+    } catch (err) {
+      setCategoriesError(err instanceof Error ? err.message : "Could not load action categories.");
+    } finally {
+      setCategoriesLoading(false);
     }
   }
 
@@ -396,12 +415,31 @@ export default function AdminActionsOptionsPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="actionCategory">Category</Label>
-                    <Input
-                      id="actionCategory"
-                      value={actionCategory}
-                      onChange={(event) => setActionCategory(event.target.value)}
-                      placeholder="e.g. Energy, Travel, Procurement"
-                    />
+                    <Select
+                      value={actionCategory || "__none__"}
+                      onValueChange={(value) => setActionCategory(value === "__none__" ? "" : value)}
+                      disabled={categoriesLoading || Boolean(categoriesError)}
+                    >
+                      <SelectTrigger id="actionCategory" className="w-full">
+                        <SelectValue placeholder="Select action category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">None</SelectItem>
+                        {actionCategory && !categories.some((category) => category.name === actionCategory) ? (
+                          <SelectItem value={actionCategory}>{actionCategory} (existing)</SelectItem>
+                        ) : null}
+                        {categories.map((category) => (
+                          <SelectItem key={category.category_id} value={category.name}>{category.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {categoriesLoading ? <p className="text-xs text-muted-foreground">Loading categories...</p> : null}
+                    {categoriesError ? (
+                      <div role="alert" className="text-sm text-red-600">
+                        {categoriesError} <Button type="button" variant="outline" size="sm" onClick={() => void loadCategories()}>Retry</Button>
+                      </div>
+                    ) : null}
+                    <Link href="/admin-center/lookups" className="text-xs text-muted-foreground underline">Manage Action Categories in Admin Lookups</Link>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="scopeFocus">Scope / Focus</Label>
