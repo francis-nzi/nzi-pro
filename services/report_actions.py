@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from core.database import get_conn
+from services.srs_readiness import ensure_srs_readiness_schema
 
 # Same memoization pattern as services.ai_prompt_schema's
 # _AI_PROMPT_SCHEMA_READY: this function is called on nearly every actions
@@ -465,7 +466,10 @@ def ensure_report_actions_schema(con) -> None:
         [UNCLASSIFIED_LEGACY_LEVER_CODE],
     )
 
+    ensure_srs_readiness_schema(con)
+
     for ddl in (
+        "ALTER TABLE report_action_options ADD COLUMN IF NOT EXISTS srs_question_id INTEGER REFERENCES srs_readiness_questions(question_id) ON DELETE SET NULL",
         "ALTER TABLE report_action_options ADD COLUMN IF NOT EXISTS description TEXT",
         "ALTER TABLE report_action_options ADD COLUMN IF NOT EXISTS action_term VARCHAR(12) NOT NULL DEFAULT 'medium'",
         "ALTER TABLE report_action_options ADD COLUMN IF NOT EXISTS action_category TEXT",
@@ -699,7 +703,8 @@ def list_report_action_options(
           l.lever_name,
           l.sphere_name,
           l.sub_sphere_name,
-          l.is_custom AS lever_is_custom
+          l.is_custom AS lever_is_custom,
+          o.srs_question_id
         FROM report_action_options o
         LEFT JOIN action_levers_lookup l ON l.lever_id = o.lever_id
         {where_sql}
@@ -731,6 +736,7 @@ def list_report_action_options(
                 "lever_sphere_name": str(row[14] or "") or None,
                 "lever_sub_sphere_name": str(row[15] or "") or None,
                 "lever_is_custom": bool(row[16]) if row[16] is not None else None,
+                "srs_question_id": int(row[17]) if row[17] is not None else None,
             }
         )
     return items
@@ -767,6 +773,16 @@ def upsert_report_action_option(
     is_default = bool(payload.get("is_default", False))
     lever_id = _resolve_lever_id(payload.get("lever_id"), con=con)
 
+    # Omitted links are preserved for older callers; explicit null clears the link.
+    srs_question_id = payload.get("srs_question_id")
+    if srs_question_id is not None:
+        question = con.execute(
+            "SELECT question_id FROM srs_readiness_questions WHERE question_id = %s",
+            [srs_question_id],
+        ).fetchone()
+        if not question:
+            raise HTTPException(status_code=400, detail="SRS Readiness question not found")
+
     duplicate = con.execute(
         """
         SELECT action_option_id
@@ -784,9 +800,9 @@ def upsert_report_action_option(
         row = con.execute(
             """
             INSERT INTO report_action_options
-              (action_name, description, action_term, action_category, scope_focus, sort_order, is_active, is_default, lever_id, created_by, updated_by)
+              (action_name, description, action_term, action_category, scope_focus, sort_order, is_active, is_default, lever_id, srs_question_id, created_by, updated_by)
             VALUES
-              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING action_option_id
             """,
             [
@@ -799,6 +815,7 @@ def upsert_report_action_option(
                 is_active,
                 is_default,
                 lever_id,
+                srs_question_id,
                 actor,
                 actor,
             ],
@@ -824,6 +841,7 @@ def upsert_report_action_option(
                 is_active = %s,
                 is_default = %s,
                 lever_id = %s,
+                srs_question_id = CASE WHEN %s THEN %s ELSE srs_question_id END,
                 updated_at = NOW(),
                 updated_by = %s
             WHERE action_option_id = %s
@@ -838,6 +856,8 @@ def upsert_report_action_option(
                 is_active,
                 is_default,
                 lever_id,
+                "srs_question_id" in payload,
+                srs_question_id,
                 actor,
                 int(action_option_id),
             ],

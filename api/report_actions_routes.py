@@ -45,6 +45,7 @@ class ActionOptionPayload(BaseModel):
     is_active: bool = True
     is_default: bool = False
     lever_id: int
+    srs_question_id: int | None = Field(default=None, gt=0)
 
 
 class ClientActionPayload(BaseModel):
@@ -105,7 +106,7 @@ def admin_create_report_action_option(
     actor = _actor_identifier(_reporting_user)
     with get_conn(autocommit=False) as con:
         item = upsert_report_action_option(
-            payload=payload.model_dump(),
+            payload=payload.model_dump(exclude_unset=True),
             actor=actor,
             action_option_id=None,
             con=con,
@@ -123,7 +124,7 @@ def admin_update_report_action_option(
     actor = _actor_identifier(_reporting_user)
     with get_conn(autocommit=False) as con:
         item = upsert_report_action_option(
-            payload=payload.model_dump(),
+            payload=payload.model_dump(exclude_unset=True),
             actor=actor,
             action_option_id=int(action_option_id),
             con=con,

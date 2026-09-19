@@ -37,6 +37,14 @@ type TermOption = {
   hint: string;
 };
 
+type SrsQuestion = {
+  question_id: number;
+  question_code: string;
+  section: string;
+  question_text: string;
+  is_active: boolean;
+};
+
 type ActionOption = {
   action_option_id: number;
   action_name: string;
@@ -49,6 +57,7 @@ type ActionOption = {
   sort_order: number;
   is_active: boolean;
   is_default?: boolean;
+  srs_question_id?: number | null;
   lever_id?: number | null;
   lever_code?: string | null;
   lever_name?: string | null;
@@ -71,6 +80,10 @@ export default function AdminActionsOptionsPage() {
   const [items, setItems] = useState<ActionOption[]>([]);
   const [termOptions, setTermOptions] = useState<TermOption[]>(DEFAULT_TERM_OPTIONS);
   const [levers, setLevers] = useState<LeverOption[]>([]);
+  const [srsQuestions, setSrsQuestions] = useState<SrsQuestion[]>([]);
+  const [srsLoading, setSrsLoading] = useState(true);
+  const [srsError, setSrsError] = useState("");
+  const [srsQuestionId, setSrsQuestionId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
@@ -92,6 +105,7 @@ export default function AdminActionsOptionsPage() {
   useEffect(() => {
     void loadData();
     void loadLevers();
+    void loadSrsQuestions();
   }, []);
 
   async function loadData() {
@@ -115,6 +129,23 @@ export default function AdminActionsOptionsPage() {
       setError(err instanceof Error ? err.message : "Failed to load action options");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadSrsQuestions() {
+    setSrsLoading(true);
+    setSrsError("");
+    try {
+      const res = await fetch(`${apiBaseUrl()}/admin/srs-readiness-questions?include_inactive=true`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Could not load SRS Readiness questions. Please retry.");
+      const payload = (await res.json()) as { items?: SrsQuestion[] };
+      setSrsQuestions(Array.isArray(payload.items) ? payload.items : []);
+    } catch (err) {
+      setSrsError(err instanceof Error ? err.message : "Could not load SRS Readiness questions.");
+    } finally {
+      setSrsLoading(false);
     }
   }
 
@@ -168,6 +199,7 @@ export default function AdminActionsOptionsPage() {
     setActionCategory("");
     setScopeFocus("");
     setLeverId(null);
+    setSrsQuestionId(null);
     setSortOrder("0");
     setIsActive(true);
     setIsDefault(false);
@@ -187,6 +219,7 @@ export default function AdminActionsOptionsPage() {
     setActionCategory(item.action_category || "");
     setScopeFocus(item.scope_focus || "");
     setLeverId(item.lever_id ?? null);
+    setSrsQuestionId(item.srs_question_id ?? null);
     setSortOrder(String(item.sort_order || 0));
     setIsActive(item.is_active);
     setIsDefault(item.is_default ?? false);
@@ -213,6 +246,7 @@ export default function AdminActionsOptionsPage() {
       action_category: actionCategory.trim() || null,
       scope_focus: scopeFocus.trim() || null,
       lever_id: leverId,
+      srs_question_id: srsQuestionId,
       sort_order: Number(sortOrder || 0) || 0,
       is_active: isActive,
       is_default: isDefault,
@@ -258,6 +292,7 @@ export default function AdminActionsOptionsPage() {
           action_category: item.action_category || null,
           scope_focus: item.scope_focus || null,
           lever_id: item.lever_id ?? null,
+          srs_question_id: item.srs_question_id ?? null,
           sort_order: item.sort_order,
           is_active: !item.is_active,
           is_default: item.is_default ?? false,
@@ -395,6 +430,39 @@ export default function AdminActionsOptionsPage() {
                 </div>
 
                 <div className="space-y-2">
+                  <Label htmlFor="srsQuestionId">SRS Readiness Question</Label>
+                  <Select
+                    value={srsQuestionId === null ? "__none__" : String(srsQuestionId)}
+                    onValueChange={(value) => setSrsQuestionId(value === "__none__" ? null : Number(value))}
+                    disabled={srsLoading || Boolean(srsError)}
+                  >
+                    <SelectTrigger id="srsQuestionId" className="w-full min-w-0">
+                      <SelectValue placeholder="Select an SRS Readiness question" />
+                    </SelectTrigger>
+                    <SelectContent className="max-w-[calc(100vw-3rem)]">
+                      <SelectItem value="__none__">None</SelectItem>
+                      {srsQuestionId !== null && !srsQuestions.some((question) => question.question_id === srsQuestionId) ? (
+                        <SelectItem value={String(srsQuestionId)} disabled>Linked question #{srsQuestionId}</SelectItem>
+                      ) : null}
+                      {srsQuestions.filter((question) => question.is_active || question.question_id === srsQuestionId).map((question) => (
+                        <SelectItem key={question.question_id} value={String(question.question_id)} className="whitespace-normal">
+                          {question.question_code} - {question.section}: {question.question_text}{question.is_active ? "" : " (Inactive)"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {srsLoading ? "Loading SRS Readiness questions..." : "Optionally link this action to a row in the SRS Readiness question bank."}
+                  </p>
+                  {srsError ? (
+                    <div role="alert" className="flex items-center gap-2 text-sm text-red-600">
+                      {srsError}
+                      <Button type="button" variant="outline" size="sm" onClick={() => void loadSrsQuestions()}>Retry</Button>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
                   <Textarea
                     id="description"
@@ -486,6 +554,7 @@ export default function AdminActionsOptionsPage() {
                     <TableHead>Scope / Focus</TableHead>
                     <TableHead>Term</TableHead>
                     <TableHead>Lever</TableHead>
+                    <TableHead>SRS Readiness</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -517,6 +586,14 @@ export default function AdminActionsOptionsPage() {
                         ) : (
                           <span className="text-xs text-destructive">Not set</span>
                         )}
+                      </TableCell>
+                      <TableCell>
+                        {item.srs_question_id ? (() => {
+                          const question = srsQuestions.find((question) => question.question_id === item.srs_question_id);
+                          return <span className="text-xs" title={question?.question_text}>
+                            {question ? `${question.question_code} - ${question.section}${question.is_active ? "" : " (Inactive)"}` : `Question #${item.srs_question_id}`}
+                          </span>;
+                        })() : "-"}
                       </TableCell>
                       <TableCell>
                         <Badge variant={item.is_active ? "secondary" : "outline"}>
