@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
+import { csvCell, dataOutputFilename, exportContextRows, type DataOutputExportContext } from "@/lib/data-output-csv";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -176,6 +177,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
   const [auditData, setAuditData] = useState<AuditData | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState("");
+  const [exportContext, setExportContext] = useState<DataOutputExportContext | null>(null);
   const [clientId, setClientId] = useState<number | null>(null);
   const [selectedScope, setSelectedScope] = useState<string | null>(null);
   const [detailedData, setDetailedData] = useState<DataOutputDetailed | null>(null);
@@ -242,6 +244,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
 
   const loadSummary = useCallback(async () => {
     setLoading(true);
+    setExportContext(null);
     setError("");
     setAuditError("");
     setComparisonError("");
@@ -265,6 +268,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
       const summaryJson = await summaryRes.json();
       const jobJson = await jobRes.json();
       setSummaryData(summaryJson);
+      setExportContext(jobJson as DataOutputExportContext);
 
       resolvedClientId = Number(jobJson?.client_db_id);
       setClientId(Number.isFinite(resolvedClientId) ? resolvedClientId : null);
@@ -411,16 +415,10 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
     toggleCategory(categoryKey);
   }
 
-  function csvEscape(value: string | number): string {
-    const text = String(value ?? "");
-    if (/[",\n]/.test(text)) {
-      return `"${text.replace(/"/g, '""')}"`;
-    }
-    return text;
-  }
+  const csvEscape = csvCell;
 
   function exportAuditCsv() {
-    if (!auditData || (auditData.rows || []).length === 0) return;
+    if (!exportContext || !auditData || (auditData.rows || []).length === 0) return;
     const headers = [
       "Site",
       "Scope",
@@ -500,12 +498,11 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
       }
     }
 
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["\uFEFF", lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const today = new Date().toISOString().slice(0, 10);
     a.href = url;
-    a.download = `job-${jobId}-data-output-audit-${today}.csv`;
+    a.download = dataOutputFilename(exportContext, "Data Output Audit");
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -833,13 +830,13 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
 
   const siteDetailNames = useMemo(() => {
     const names = Array.from(
-      new Set((comparisonData?.by_site_activity_detail || []).map((r) => r.site_name))
+      new Set([...(comparisonData?.by_site_activity_detail || []), ...(comparisonData?.by_site_activity_detail_volume || [])].map((r) => r.site_name))
     ).sort();
     return names;
   }, [comparisonData]);
 
   const activeSiteDetail = useMemo(
-    () => selectedSiteDetail ?? siteDetailNames[0] ?? null,
+    () => selectedSiteDetail && siteDetailNames.includes(selectedSiteDetail) ? selectedSiteDetail : siteDetailNames[0] ?? null,
     [selectedSiteDetail, siteDetailNames]
   );
 
@@ -859,9 +856,11 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
     );
   }, [buildDetailTableRows, comparisonData, activeSiteDetail]);
 
-  function exportActivityDetailCsv(tab: "emissions" | "volume") {
-    const rows = tab === "emissions" ? detailEmissionsRows : detailVolumeRows;
-    if (!rows.length) return;
+  function exportActivityDetailCsv(tab: "emissions" | "volume", bySite = false) {
+    const rows = bySite
+      ? (tab === "emissions" ? siteDetailEmissionsRows : siteDetailVolumeRows)
+      : (tab === "emissions" ? detailEmissionsRows : detailVolumeRows);
+    if (!rows.length || !exportContext || (bySite && !activeSiteDetail)) return;
 
     const unit = tab === "emissions" ? "tCO₂e" : "Volume";
     const yearHeaders = comparisonYears.map((yr) => {
@@ -871,12 +870,13 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
     });
 
     const lines: string[] = [
+      ...exportContextRows(exportContext, bySite ? activeSiteDetail! : undefined).map((row) => row.map(csvEscape).join(",")),
       ["Scope", "Category", "Activity", ...yearHeaders].map(csvEscape).join(","),
     ];
 
     for (const row of rows) {
       if (row.type === "activity") {
-        lines.push([row.scope, row.category, row.activity, ...row.values.map((v) => v > 0 ? v.toFixed(2) : "0")].map(csvEscape).join(","));
+        lines.push([row.scope, row.category, row.activity, ...row.values.map((v) => v.toFixed(2))].map(csvEscape).join(","));
       } else if (row.type === "cat-subtotal") {
         lines.push([row.scope, `${row.category} – Subtotal`, "", ...row.values.map((v) => v.toFixed(2))].map(csvEscape).join(","));
       } else if (row.type === "scope-subtotal") {
@@ -886,12 +886,11 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
       }
     }
 
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["\uFEFF", lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const today = new Date().toISOString().slice(0, 10);
     a.href = url;
-    a.download = `job-${jobId}-activity-breakdown-${tab}-${today}.csv`;
+    a.download = dataOutputFilename(exportContext, `Year-on-Year Activity Breakdown ${tab === "emissions" ? "Emissions" : "Volume"}`, bySite ? activeSiteDetail! : undefined);
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1491,6 +1490,12 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                       const rows = tab === "emissions" ? siteDetailEmissionsRows : siteDetailVolumeRows;
                       return (
                         <TabsContent key={tab} value={tab} className="pt-2">
+                          <div className="mb-3 flex justify-end">
+                            <Button variant="outline" size="sm" disabled={!exportContext || !activeSiteDetail || !rows.length}
+                              onClick={() => exportActivityDetailCsv(tab, true)}>
+                              <Download className="mr-2 h-4 w-4" /> Download CSV
+                            </Button>
+                          </div>
                           {rows.length === 0 ? (
                             <div className="text-sm text-muted-foreground">No data available.</div>
                           ) : (
