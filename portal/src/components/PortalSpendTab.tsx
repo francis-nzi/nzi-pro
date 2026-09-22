@@ -30,6 +30,8 @@ type SuggestedSpendLine = {
 
 type SpendRow = {
   entry_id: number;
+  site_id: number | null;
+  site_name: string | null;
   reference_code: string | null;
   spend_description: string | null;
   currency: string | null;
@@ -75,6 +77,11 @@ const REVIEW_LABEL: Record<string, { label: string; className: string }> = {
 };
 
 export default function PortalSpendTab() {
+  const [sites, setSites] = useState<{ site_id: number; site_name: string }[]>([]);
+  const [siteId, setSiteId] = useState("");
+  const [uploadSiteId, setUploadSiteId] = useState("");
+  const [editSiteId, setEditSiteId] = useState("");
+  const [sitesError, setSitesError] = useState("");
   const [rows, setRows] = useState<SpendRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -134,10 +141,36 @@ export default function PortalSpendTab() {
 
   useEffect(() => {
     void loadRows();
+    void loadSites();
     return () => {
       if (justAddedTimerRef.current) clearTimeout(justAddedTimerRef.current);
     };
   }, []);
+
+  async function loadSites() {
+    setSitesError("");
+    try {
+      const res = await apiFetch("/portal/data-entry/sites");
+      if (!res.ok) throw new Error("Could not load sites. Please retry.");
+      const data = await res.json();
+      setSites(data.sites || []);
+    } catch (err) {
+      setSitesError(err instanceof Error ? err.message : "Could not load sites.");
+    }
+  }
+
+  function sitePicker(value: string, onChange: (value: string) => void, label = "Site") {
+    return <label className="block space-y-1 text-xs text-muted-foreground">
+      <span>{label}</span>
+      <select aria-label={label} className="block h-9 w-full rounded-md border bg-background px-2 text-sm text-foreground"
+        value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">Not allocated</option>
+        {value && !sites.some((site) => String(site.site_id) === value) ? <option value={value}>Existing site #{value}</option> : null}
+        {sites.map((site) => <option key={site.site_id} value={String(site.site_id)}>{site.site_name}</option>)}
+      </select>
+      {sitesError ? <span role="alert">{sitesError} <button type="button" className="underline" onClick={() => void loadSites()}>Retry</button></span> : null}
+    </label>;
+  }
 
   async function loadRows() {
     setLoading(true);
@@ -195,6 +228,7 @@ export default function PortalSpendTab() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          site_id: siteId ? Number(siteId) : null,
           reference_code: refCode.trim(),
           spend_description: description.trim(),
           amount_net: Number(netValue),
@@ -208,7 +242,7 @@ export default function PortalSpendTab() {
           const categoryError = await confirmCategory(d.entry_id, quickPickCategory);
           if (categoryError) setError(`Spend line added, but not categorised: ${categoryError}`);
         }
-        // Panel stays open (no site to re-pick here) so entering several
+        // Panel stays open and retains the selected site so entering several
         // spend lines back-to-back doesn't require reopening the form each time.
         // Quick pick deliberately survives -- adding several lines against the
         // same recurring category is the common case.
@@ -238,7 +272,7 @@ export default function PortalSpendTab() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "spend-data-template.xlsx";
+      a.download = res.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] || `${jobNumber || "Job"} Spend Analysis.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -256,6 +290,7 @@ export default function PortalSpendTab() {
     try {
       const fd = new FormData();
       fd.append("file", uploadFile);
+      if (uploadSiteId) fd.append("site_id", uploadSiteId);
       const res = await apiFetch("/portal/spend/upload-preview", { method: "POST", body: fd });
       if (res.ok) {
         const d = await res.json();
@@ -277,6 +312,7 @@ export default function PortalSpendTab() {
     try {
       const fd = new FormData();
       fd.append("file", uploadFile);
+      if (uploadSiteId) fd.append("site_id", uploadSiteId);
       const res = await apiFetch("/portal/spend/upload-commit", { method: "POST", body: fd });
       if (res.ok) {
         const d = await res.json();
@@ -363,6 +399,7 @@ export default function PortalSpendTab() {
 
   function startEdit(row: SpendRow) {
     setEditingEntryId(row.entry_id);
+    setEditSiteId(row.site_id == null ? "" : String(row.site_id));
     setEditRefCode(row.reference_code || "");
     setEditDescription(row.spend_description || "");
     setEditNetValue(row.amount_net !== null && row.amount_net !== undefined ? String(row.amount_net) : "");
@@ -382,6 +419,7 @@ export default function PortalSpendTab() {
           spend_description: editDescription.trim(),
           amount_net: Number(editNetValue),
           vat_pct: Number(editVatPct || 0),
+          site_id: editSiteId ? Number(editSiteId) : null,
         }),
       });
       if (res.ok) {
@@ -516,7 +554,7 @@ export default function PortalSpendTab() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Add spend lines from your nominal/general ledger — GL code, description, net value and VAT% only. Pick a
+        Add spend lines from your nominal/general ledger — GL code, description, net value, VAT% and site. Pick a
         category for each line; your NZI consultant reviews and approves before it counts toward your reported
         emissions.
       </p>
@@ -586,6 +624,9 @@ export default function PortalSpendTab() {
         <Card>
           <CardContent className="space-y-3 pt-4">
             <div className="flex flex-wrap items-center gap-2">
+              <div className="min-w-48">
+                {sitePicker(uploadSiteId, (value) => { setUploadSiteId(value); setUploadPreview([]); setUploadPreviewCount(0); }, "Default site for blank spreadsheet sites")}
+              </div>
               <Button variant="outline" size="sm" onClick={() => void downloadTemplate()}>
                 Download Template
               </Button>
@@ -617,6 +658,7 @@ export default function PortalSpendTab() {
                       <tr className="border-b bg-muted/50">
                         <th className="p-1.5 text-left">GL Code</th>
                         <th className="p-1.5 text-left">Description</th>
+                        <th className="p-1.5 text-left">Site</th>
                         <th className="p-1.5 text-right">Net</th>
                         <th className="p-1.5 text-right">VAT%</th>
                       </tr>
@@ -626,6 +668,7 @@ export default function PortalSpendTab() {
                         <tr key={idx} className="border-b last:border-0">
                           <td className="p-1.5">{String(r.reference_code ?? "-")}</td>
                           <td className="p-1.5">{String(r.spend_description ?? "-")}</td>
+                          <td className="p-1.5">{sites.find((site) => site.site_id === Number(r.site_id))?.site_name || String(r.site_name || "Not allocated")}</td>
                           <td className="p-1.5 text-right font-mono">{String(r.amount_net ?? "-")}</td>
                           <td className="p-1.5 text-right font-mono">{String(r.vat_pct ?? "-")}</td>
                         </tr>
@@ -667,6 +710,7 @@ export default function PortalSpendTab() {
                 Spend line added — ready for the next one.
               </div>
             )}
+            <div className="mb-3 max-w-sm">{sitePicker(siteId, setSiteId)}</div>
             <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
               <div className="space-y-2">
                 {quickPickCategory && (
@@ -772,6 +816,7 @@ export default function PortalSpendTab() {
                 <tr className="border-b bg-muted/50">
                   <th className="p-2 text-left">Code</th>
                   <th className="p-2 text-left">Description</th>
+                  <th className="p-2 text-left">Site</th>
                   <th className="p-2 text-right">Net</th>
                   <th className="p-2 text-right">VAT%</th>
                   <th className="p-2 text-left">Category</th>
@@ -800,6 +845,7 @@ export default function PortalSpendTab() {
                         <td className="p-2">
                           {isEditing ? <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} className="h-7" /> : row.spend_description}
                         </td>
+                        <td className="p-2">{isEditing ? sitePicker(editSiteId, setEditSiteId) : row.site_name || "Not allocated"}</td>
                         <td className="p-2 text-right font-mono">
                           {isEditing ? (
                             <Input
@@ -855,6 +901,7 @@ export default function PortalSpendTab() {
           <div className="space-y-2 sm:hidden">
             {rows.map((row) => (
               <div key={row.entry_id} className="rounded-md border p-3 text-sm">
+                <div className="mb-2">{editingEntryId === row.entry_id ? sitePicker(editSiteId, setEditSiteId) : `Site: ${row.site_name || "Not allocated"}`}</div>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     {editingEntryId === row.entry_id ? (

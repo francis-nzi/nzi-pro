@@ -16,7 +16,11 @@ import pandas as pd
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.workbook.defined_name import DefinedName
+from services.download_filenames import build_download_filename
+from api.spend_data_routes import _format_period_label
 
 from api.portal_auth_routes import portal_user_dep
 from api.spend_data_routes import (
@@ -122,7 +126,8 @@ def portal_spend_list_rows(current_user: dict = Depends(portal_user_dep)):
                    mapped_scope, mapped_category, mapped_report_label,
                    mapping_status, review_status, review_note, created_at,
                    month_1, month_2, month_3, month_4, month_5, month_6,
-                   month_7, month_8, month_9, month_10, month_11, month_12
+                   month_7, month_8, month_9, month_10, month_11, month_12, site_id,
+                   (SELECT site_name FROM client_sites s WHERE s.site_id = job_spend_entries.site_id) AS site_name
             FROM job_spend_entries
             WHERE job_id = %s AND COALESCE(is_deleted, FALSE) = FALSE AND submitted_by_portal = TRUE
             ORDER BY entry_id DESC
@@ -144,46 +149,91 @@ def portal_spend_list_rows(current_user: dict = Depends(portal_user_dep)):
 
 @router.get("/portal/spend/template")
 def portal_spend_template(current_user: dict = Depends(portal_user_dep)):
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        job_id = _resolve_job_or_404(con, client_db_id)
+        row = con.execute("""SELECT j.job_number, j.reporting_period_start,
+            j.reporting_period_end, c.client_name, j.reporting_year
+            FROM jobs j JOIN clients c ON c.db_id=j.client_db_id WHERE j.job_id=%s""", [job_id]).fetchone()
+        sites = _portal_spend_sites(con, current_user)
     wb = Workbook()
     ws = wb.active
     ws.title = "Spend Data"
-    headers = ["GL / Nominal Code", "Description", "Net Value (excl VAT)", "VAT %", "Currency", "Conversion Rate"]
-    header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
-    header_font = Font(color="FFFFFF", bold=True)
-    for col, header in enumerate(headers, start=1):
-        cell = ws.cell(row=1, column=col, value=header)
-        cell.fill = header_fill
-        cell.font = header_font
-    ws.cell(row=2, column=1, value="1234")
-    ws.cell(row=2, column=2, value="Example: IT consultancy services")
-    ws.cell(row=2, column=3, value=1000)
-    ws.cell(row=2, column=4, value=20)
-    ws.cell(row=2, column=5, value="GBP")
-    ws.cell(row=2, column=6, value=1)
-    for col in range(1, 7):
-        ws.column_dimensions[chr(64 + col)].width = 24
-
+    ws.append(["Client Name:", row[3], None, None, "Job Number:", row[0]])
+    ws.append(["Site Name:", "Select a site for each spend line", None, None, "Reporting Period:", _format_period_label(row[1], row[2])])
+    ws.append(["Data Files:", "Spend data", None, None, "Reporting Year:", row[4]])
+    ws.append(["Enter one spend line per site. Split shared spend into separate lines; do not repeat the full amount for each site."])
+    ws.merge_cells("A4:G4")
+    ws["A4"].alignment = Alignment(wrap_text=True, vertical="center")
+    ws.row_dimensions[4].height = 32
+    headers = ["GL / Nominal Code", "Description", "Net Value (excl VAT)", "VAT %", "Currency", "Conversion Rate", "Site Name"]
+    ws.append(headers)
+    for cell in ws[5]:
+        cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.alignment = Alignment(wrap_text=True)
+    ws.row_dimensions[5].height = 30
+    for cell in ("A1", "E1", "A2", "E2", "A3", "E3"):
+        ws[cell].font = Font(bold=True)
+    for col, width in zip("ABCDEFG", [24, 48, 24, 12, 22, 24, 40]):
+        ws.column_dimensions[col].width = width
+    ws.freeze_panes = "C6"
+    for r in range(6, 106):
+        ws.cell(r, 1).number_format = "@"
+        ws.cell(r, 3).number_format = "#,##0.00"
+        ws.cell(r, 4).number_format = "0.##"
+        ws.cell(r, 5, "GBP")
+        ws.cell(r, 6, 1)
+    lookup = wb.create_sheet("Sites")
+    lookup.append(["Site Name", "Site ID"])
+    for site in sites:
+        lookup.append([site["site_name"], site["site_id"]])
+    lookup.column_dimensions["A"].width = 48
+    lookup.column_dimensions["B"].width = 14
+    if sites:
+        wb.defined_names.add(DefinedName("SpendSites", attr_text=f"'Sites'!$A$2:$A${len(sites)+1}"))
+        validation = DataValidation(type="list", formula1="SpendSites", allow_blank=True)
+        validation.errorTitle = "Choose a listed site"
+        validation.error = "Select a site from the Sites sheet."
+        validation.showErrorMessage = True
+        ws.add_data_validation(validation)
+        validation.add("G6:G10005")
     buf = io.BytesIO()
     wb.save(buf)
-    buf.seek(0)
-    return Response(
-        content=buf.getvalue(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="spend-data-template.xlsx"'},
-    )
+    filename = build_download_filename(job_number=row[0], client_name=row[3], descriptor="Spend Analysis",
+        period_start=row[1], period_end=row[2], reporting_year=row[4])
+    return Response(content=buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+def _portal_spend_sites(con, current_user):
+    rows = con.execute("""SELECT site_id, site_name FROM client_sites
+        WHERE client_db_id=%s AND COALESCE(archived,FALSE)=FALSE ORDER BY site_name""",
+        [int(current_user["client_db_id"])]).fetchall()
+    allowed = current_user.get("site_ids")
+    return [{"site_id": int(r[0]), "site_name": r[1]} for r in rows
+            if allowed is None or int(r[0]) in allowed]
+
+
+def _assign_upload_sites(df, sites, fallback_site_id=None):
+    """Resolve all sites before any rows are written; never silently discard a site."""
+    resolved = []
+    for index, row in df.iterrows():
+        name = str(row.get("site_name") or "").strip()
+        matches = [site for site in sites if site["site_name"].strip().casefold() == name.casefold()]
+        if name and len(matches) != 1:
+            raise HTTPException(status_code=400, detail=f"Spend line {int(index)+1}: site '{name}' is not a unique permitted site. Choose a site from the template's Sites sheet.")
+        resolved.append(matches[0]["site_id"] if name else fallback_site_id)
+    df = df.copy()
+    df["site_id"] = pd.Series(resolved, index=df.index, dtype=object)
+    return df
 
 
 def _resolve_portal_site_id(con, current_user: dict, client_db_id: int, raw: Any) -> int | None:
-    """Validate a site the portal user picked for a spend submission.
+    """Validate a manual/default site against client ownership and portal access.
 
-    Spend arrives as a nominal-ledger export with no site column of its own,
-    so the client chooses one site for the whole submission instead. Left
-    unset the entries land site-less, which is what made a client re-upload
-    silently replace site-tagged spend with a site-less copy of itself.
-
-    Returns None when nothing was picked. Raises 400 when the site is not
-    one this user may submit against, so a stale or guessed id can never
-    attach spend to another client's site.
+    Per-row spreadsheet site names are resolved separately against the same
+    permitted active sites. Blank manual/default selections remain unallocated.
     """
     if raw is None or (isinstance(raw, str) and not raw.strip()):
         return None
@@ -213,6 +263,7 @@ def _resolve_portal_site_id(con, current_user: dict, client_db_id: int, raw: Any
 @router.post("/portal/spend/upload-preview")
 async def portal_spend_upload_preview(
     file: UploadFile = File(...),
+    site_id: str | None = Form(None),
     current_user: dict = Depends(portal_user_dep),
 ):
     data = await file.read()
@@ -225,6 +276,8 @@ async def portal_spend_upload_preview(
     with get_conn() as con:
         _ensure_spend_tables(con)
         df = _parse_upload(data, file.filename or "upload.csv")
+        fallback = _resolve_portal_site_id(con, current_user, int(current_user["client_db_id"]), site_id)
+        df = _assign_upload_sites(df, _portal_spend_sites(con, current_user), fallback)
     return {"count": len(df), "preview": df.head(20).to_dict("records")}
 
 
@@ -244,12 +297,13 @@ async def portal_spend_upload_commit(
     except VirusScanError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    with get_conn() as con:
+    with get_conn(autocommit=False) as con:
         _ensure_spend_tables(con)
         job_id = _resolve_job_or_404(con, client_db_id)
         _assert_data_entry_open(con, job_id)
         resolved_site_id = _resolve_portal_site_id(con, current_user, client_db_id, site_id)
-        df = _parse_upload(data, file.filename or "upload.csv")
+        df = _assign_upload_sites(_parse_upload(data, file.filename or "upload.csv"),
+                                  _portal_spend_sites(con, current_user), resolved_site_id)
 
         inserted = 0
         skipped: list[dict[str, Any]] = []
@@ -268,7 +322,7 @@ async def portal_spend_upload_commit(
                 con=con,
                 job_id=int(job_id),
                 client_db_id=int(client_db_id),
-                site_id=resolved_site_id,
+                site_id=r.get("site_id"),
                 source_type="portal_upload",
                 code_type="nominal_code",
                 reference_code=reference_code,
@@ -627,6 +681,9 @@ def portal_spend_update_row(
 
         set_clauses: list[str] = []
         params: list[Any] = []
+        if "site_id" in payload:
+            set_clauses.append("site_id = %s")
+            params.append(_resolve_portal_site_id(con, current_user, client_db_id, payload["site_id"]))
         for field in ["reference_code", "spend_description", "currency", "notes"]:
             if field in payload:
                 set_clauses.append(f"{field} = %s")

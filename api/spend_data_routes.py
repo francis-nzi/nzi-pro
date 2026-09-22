@@ -735,8 +735,8 @@ def _parse_upload(file_bytes: bytes, filename: str) -> pd.DataFrame:
     header_idx = 0
     for idx, row in raw_df.head(30).iterrows():
         values = [str(v or "").strip().lower() for v in list(row.values)]
-        if "spend description" in values and (
-            "spend amount (net ex vat)" in values or "spend amount" in values or "amount" in values
+        if any(v in values for v in ("spend description", "description", "account description")) and any(
+            v in values for v in ("spend amount (net ex vat)", "spend amount", "amount", "net value (excl vat)", "net value")
         ):
             header_idx = int(idx)
             break
@@ -746,6 +746,7 @@ def _parse_upload(file_bytes: bytes, filename: str) -> pd.DataFrame:
     data_df.columns = header_values
     data_df = data_df.dropna(how="all")
 
+    data_df = data_df.astype(object).where(data_df.notna(), None)
     normalized_columns = {str(c).strip().lower(): c for c in data_df.columns}
 
     def find_col(candidates: list[str]) -> str | None:
@@ -758,6 +759,7 @@ def _parse_upload(file_bytes: bytes, filename: str) -> pd.DataFrame:
                     return original
         return None
 
+    site_col = find_col(["site name", "site"])
     code_col = find_col(["reference code", "nominal code", "gl code", "code"])
     desc_col = find_col(["spend description", "description", "account description"])
     currency_col = find_col(["currency", "currency code"])
@@ -778,6 +780,7 @@ def _parse_upload(file_bytes: bytes, filename: str) -> pd.DataFrame:
             continue
         rows.append(
             {
+                "site_name": str(r.get(site_col) or "").strip() if site_col else "",
                 "reference_code": str(r.get(code_col) or "").strip() if code_col else "",
                 "spend_description": description,
                 "currency": str(r.get(currency_col) or "GBP").strip().upper() if currency_col else "GBP",
