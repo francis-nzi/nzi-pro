@@ -19,7 +19,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.workbook.defined_name import DefinedName
-from services.download_filenames import build_download_filename
+from services.download_filenames import build_download_filename, safe_filename_part
 from api.spend_data_routes import _format_period_label
 
 from api.portal_auth_routes import portal_user_dep
@@ -148,7 +148,7 @@ def portal_spend_list_rows(current_user: dict = Depends(portal_user_dep)):
 
 
 @router.get("/portal/spend/template")
-def portal_spend_template(current_user: dict = Depends(portal_user_dep)):
+def portal_spend_template(current_user: dict = Depends(portal_user_dep), site_id: int | None = None):
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         job_id = _resolve_job_or_404(con, client_db_id)
@@ -156,11 +156,15 @@ def portal_spend_template(current_user: dict = Depends(portal_user_dep)):
             j.reporting_period_end, c.client_name, j.reporting_year
             FROM jobs j JOIN clients c ON c.db_id=j.client_db_id WHERE j.job_id=%s""", [job_id]).fetchone()
         sites = _portal_spend_sites(con, current_user)
+        selected_site = next((site for site in sites if site["site_id"] == site_id), None)
+        if site_id is not None and selected_site is None:
+            raise HTTPException(status_code=400, detail="Selected site is not an active permitted site for this account")
+    site_name = selected_site["site_name"] if selected_site else None
     wb = Workbook()
     ws = wb.active
     ws.title = "Spend Data"
     ws.append(["Client Name:", row[3], None, None, "Job Number:", row[0]])
-    ws.append(["Site Name:", "Select a site for each spend line", None, None, "Reporting Period:", _format_period_label(row[1], row[2])])
+    ws.append(["Site Name:", site_name or "Select a site for each spend line", None, None, "Reporting Period:", _format_period_label(row[1], row[2])])
     ws.append(["Data Files:", "Spend data", None, None, "Reporting Year:", row[4]])
     ws.append(["Enter one spend line per site. Split shared spend into separate lines; do not repeat the full amount for each site."])
     ws.merge_cells("A4:G4")
@@ -184,6 +188,8 @@ def portal_spend_template(current_user: dict = Depends(portal_user_dep)):
         ws.cell(r, 4).number_format = "0.##"
         ws.cell(r, 5, "GBP")
         ws.cell(r, 6, 1)
+        if site_name:
+            ws.cell(r, 7, site_name)
     lookup = wb.create_sheet("Sites")
     lookup.append(["Site Name", "Site ID"])
     for site in sites:
@@ -201,7 +207,8 @@ def portal_spend_template(current_user: dict = Depends(portal_user_dep)):
     buf = io.BytesIO()
     wb.save(buf)
     filename = build_download_filename(job_number=row[0], client_name=row[3], descriptor="Spend Analysis",
-        period_start=row[1], period_end=row[2], reporting_year=row[4])
+        period_start=row[1], period_end=row[2], reporting_year=row[4],
+        suffix=f" {safe_filename_part(site_name)}" if site_name else "")
     return Response(content=buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 

@@ -91,7 +91,8 @@ def test_upload_rejects_unknown_or_ambiguous_site(sites):
     assert exc.value.status_code == 400
 
 
-def test_template_metadata_filename_sites_and_roundtrip(monkeypatch):
+@pytest.mark.parametrize("selected_site_id", [None, 1])
+def test_template_metadata_filename_sites_and_roundtrip(monkeypatch, selected_site_id):
     import io
     from datetime import date
     from openpyxl import load_workbook
@@ -103,13 +104,19 @@ def test_template_metadata_filename_sites_and_roundtrip(monkeypatch):
     monkeypatch.setattr(portal_spend_routes, "get_conn", lambda: Conn())
     monkeypatch.setattr(portal_spend_routes, "_resolve_job_or_404", lambda *args: 663)
     monkeypatch.setattr(portal_spend_routes, "_portal_spend_sites", lambda *args: [{"site_id": 1, "site_name": "Office"}])
-    response = portal_spend_routes.portal_spend_template({"client_db_id": 1})
-    assert 'J000663 EFF GROUP Spend Analysis 2025-2026.xlsx' in response.headers["content-disposition"]
+    response = portal_spend_routes.portal_spend_template({"client_db_id": 1}, site_id=selected_site_id)
+    suffix = " Office" if selected_site_id else ""
+    assert f'J000663 EFF GROUP Spend Analysis 2025-2026{suffix}.xlsx' in response.headers["content-disposition"]
     wb = load_workbook(io.BytesIO(response.body))
     ws = wb["Spend Data"]
     assert ws["B1"].value == "EFF GROUP"
     assert ws["F1"].value == "J000663"
     assert ws["F2"].value == "Apr 2025 - Mar 2026"
+    assert ws["B2"].value == ("Office" if selected_site_id else "Select a site for each spend line")
+    assert all(ws.cell(r, 7).value == ("Office" if selected_site_id else None) for r in range(6, 106))
+    with pytest.raises(HTTPException) as exc:
+        portal_spend_routes.portal_spend_template({"client_db_id": 1}, site_id=999)
+    assert exc.value.status_code == 400
     assert ws["G5"].value == "Site Name"
     assert wb["Sites"]["A2"].value == "Office"
     assert len(ws.data_validations.dataValidation) == 1

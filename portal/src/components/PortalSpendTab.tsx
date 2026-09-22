@@ -266,7 +266,7 @@ export default function PortalSpendTab() {
 
   async function downloadTemplate() {
     try {
-      const res = await apiFetch("/portal/spend/template");
+      const res = await apiFetch(`/portal/spend/template${uploadSiteId ? `?site_id=${encodeURIComponent(uploadSiteId)}` : ""}`);
       if (!res.ok) throw new Error(`Download failed (${res.status})`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -625,7 +625,7 @@ export default function PortalSpendTab() {
           <CardContent className="space-y-3 pt-4">
             <div className="flex flex-wrap items-center gap-2">
               <div className="min-w-48">
-                {sitePicker(uploadSiteId, (value) => { setUploadSiteId(value); setUploadPreview([]); setUploadPreviewCount(0); }, "Default site for blank spreadsheet sites")}
+                {sitePicker(uploadSiteId, (value) => { setUploadSiteId(value); setUploadPreview([]); setUploadPreviewCount(0); }, "Site for template and blank spreadsheet sites")}
               </div>
               <Button variant="outline" size="sm" onClick={() => void downloadTemplate()}>
                 Download Template
