@@ -20,7 +20,7 @@ function apiBaseUrl(): string {
 const DATA_SECTIONS: Record<string, { label: string; entityType?: string }> = {
   "data-entry":         { label: "Data Entry",         entityType: "job_scope_row" },
   "employee-commuting": { label: "Employee Commuting",  entityType: "employee_commuting_direct_entry,employee_commuting_import" },
-  "asset-register":     { label: "Asset Register",      entityType: "job_scope_row" },
+  "asset-register":     { label: "Company Vehicles",      entityType: "job_scope_row" },
   "business-travel":    { label: "Business Travel",     entityType: "job_scope_row,job_emission_register_import" },
   "custom-dataset":     { label: "Custom Dataset" },
   "custom-factors":     { label: "Client Factors",   entityType: "job_custom_factor" },
@@ -85,7 +85,7 @@ export default function JobDataSectionPage() {
                   jobId={jobId}
                   baseUrl={baseUrl}
                   sourceType="asset"
-                  title="Asset Register"
+                  title="Company Vehicles"
                   description="Capture individual vehicles, equipment, and other Scope 1 sources, then group them for roll-up and reporting."
                   jobNumber={job.job_number}
                   clientName={job.client_name}

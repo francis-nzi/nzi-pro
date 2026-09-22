@@ -46,7 +46,7 @@ function buildGroups(jobId: number): GroupDef[] {
       subtabs: [
         { key: "data-entry",         label: "Data Entry",         href: `/jobs/${j}/data-entry` },
         { key: "employee-commuting", label: "Employee Commuting", href: `/jobs/${j}/data-entry/employee-commuting` },
-        { key: "asset-register",     label: "Asset Register",     href: `/jobs/${j}/data-entry/asset-register` },
+        { key: "asset-register",     label: "Company Vehicles",     href: `/jobs/${j}/data-entry/asset-register` },
         { key: "business-travel",    label: "Business Travel",    href: `/jobs/${j}/data-entry/business-travel` },
         { key: "upload",             label: "Data Upload",        href: `/jobs/${j}?tab=upload` },
         { key: "custom-dataset",     label: "Custom Dataset",     href: `/jobs/${j}/data-entry/custom-dataset` },

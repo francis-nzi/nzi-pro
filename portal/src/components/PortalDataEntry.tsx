@@ -24,6 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import PortalSpendTab from "@/components/PortalSpendTab";
+import PortalRegisterUpload from "@/components/PortalRegisterUpload";
 import PortalCommutingTab from "@/components/PortalCommutingTab";
 import PortalCategoryHistoryTable, { type HistoryItem } from "@/components/PortalCategoryHistoryTable";
 
@@ -766,6 +767,9 @@ export default function PortalDataEntry() {
 
       {isSpendTab && <PortalSpendTab />}
       {isCommutingTab && <PortalCommutingTab />}
+      {isVehicleBucket && !noJobMessage && !dataEntryExpired && (
+        <PortalRegisterUpload key={activeBucket} bucket={activeBucket} sites={sites} onImported={() => { void loadRows(activeBucket); }} />
+      )}
 
       {!isComingSoon && !isSpendTab && !isCommutingTab && !noJobMessage && (
       <div className="flex items-center justify-between">
@@ -1092,6 +1096,7 @@ export default function PortalDataEntry() {
                       <thead>
                         <tr className="border-b bg-muted/50">
                           <th className="p-2 text-left">Report Label</th>
+                          <th className="p-2 text-left">Site</th>
                           {showIdentifierColumn && <th className="p-2 text-left">ID</th>}
                           <th className="p-2 text-right">Qty</th>
                           <th className="p-2 text-left">Unit</th>
@@ -1103,6 +1108,7 @@ export default function PortalDataEntry() {
                         {rows.map((row) => (
                           <tr key={row.row_id} className="border-b last:border-0">
                             <td className="p-2">{row.report_label || row.original_id}</td>
+                            <td className="p-2">{sites.find((site) => site.site_id === row.site_id)?.site_name || "Not allocated"}</td>
                             {showIdentifierColumn && (
                               <td className="p-2 text-muted-foreground">{renderIdentifierValue(row)}</td>
                             )}
@@ -1118,7 +1124,7 @@ export default function PortalDataEntry() {
                       <tfoot>
                         {sumByUnit(rows).map(({ uom, total }) => (
                           <tr key={uom} className="border-t bg-muted/30 font-medium">
-                            <td className="p-2 text-right" colSpan={showIdentifierColumn ? 2 : 1}>Total</td>
+                            <td className="p-2 text-right" colSpan={showIdentifierColumn ? 3 : 2}>Total</td>
                             <td className="p-2 text-right font-mono">{total.toLocaleString()}</td>
                             <td className="p-2">{uom}</td>
                             <td className="p-2" colSpan={2} />
@@ -1132,6 +1138,7 @@ export default function PortalDataEntry() {
                     {rows.map((row) => (
                       <div key={row.row_id} className="rounded-md border p-3 text-sm">
                         <div className="font-medium">{row.report_label || row.original_id}</div>
+                        <div className="text-xs text-muted-foreground">Site: {sites.find((site) => site.site_id === row.site_id)?.site_name || "Not allocated"}</div>
                         {(row.identifier || editingRowId === row.row_id) && (
                           <div className="text-xs text-muted-foreground">{renderIdentifierValue(row)}</div>
                         )}

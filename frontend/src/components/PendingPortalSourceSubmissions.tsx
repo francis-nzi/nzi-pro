@@ -30,7 +30,7 @@ type Props = {
 };
 
 // Client-portal-submitted Company Vehicles / Business Travel rows awaiting
-// CRM approval on the Asset Register / Business Travel Register pages --
+// CRM approval on the Company Vehicles / Business Travel Register pages --
 // same bulk-select/approve/reject mechanics as
 // PendingPortalCommutingSubmissions.tsx, generalized over sourceType since
 // both hit the same generic job_emission_sources register endpoints (see

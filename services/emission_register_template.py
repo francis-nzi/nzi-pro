@@ -26,7 +26,7 @@ def _safe_int(value: Any) -> int | None:
 
 
 def _register_descriptor(source_type: str) -> str:
-    return "Business Travel" if str(source_type or "").strip() == "business_travel" else "Asset Register"
+    return "Business Travel" if str(source_type or "").strip() == "business_travel" else "Company Vehicles"
 
 
 def _job_context(con, job_id: int) -> dict[str, Any]:
@@ -178,7 +178,7 @@ def build_emission_register_workbook(
     site_choices = ["No site", *sites] if sites else ["No site"]
     example_site = selected_site_name or (sites[0] if sites else "No site")
     is_business_travel = source_type_value == "business_travel"
-    register_title = "Business Travel Register Workbook" if is_business_travel else "Asset Register Workbook"
+    register_title = "Business Travel Register Workbook" if is_business_travel else "Company Vehicles Workbook"
     register_description = (
         "Add groups and travel rows here, then import the workbook back into the job. "
         "Groups own the scope, site, and factor family; travel rows inherit that configuration."
@@ -204,7 +204,7 @@ def build_emission_register_workbook(
     instructions["A5"] = "Client"
     instructions["B5"] = client_name
     instructions["A6"] = "Data Register"
-    instructions["B6"] = "Asset Register" if source_type_value == "asset" else "Business Travel Register"
+    instructions["B6"] = "Company Vehicles" if source_type_value == "asset" else "Business Travel Register"
     instructions["A7"] = "Reporting Year"
     instructions["B7"] = reporting_year
     instructions["A8"] = "Site selection"
@@ -225,7 +225,7 @@ def build_emission_register_workbook(
             "Group name is the roll-up label and the place where Scope, Site, and factor metadata live.",
             "A group can contain many asset rows. Use it to roll similar assets together for reporting.",
             "Asset Name and Asset Identity describe the real-world item; Group rows carry Factor DB ID / Original ID / Factor / UOM.",
-            "group_type is an internal family label. It usually stays as asset for the Asset Register or business_travel for Business Travel.",
+            "group_type is an internal family label. It usually stays as asset for the Company Vehicles register or business_travel for Business Travel.",
             "Keep group names stable year to year so rollforward imports stay clean.",
             "If you choose a site for the download, the workbook only includes that site in the site dropdowns.",
         ],

@@ -13,7 +13,7 @@ import logging
 import re
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 
 from api.employee_commuting_routes import (
@@ -39,6 +39,8 @@ from api.employee_commuting_routes import (
 )
 from api.portal_auth_routes import portal_user_dep
 from core.database import get_conn
+from services.portal_upload_sites import permitted_sites, selected_site, row_site
+from services.download_filenames import safe_filename_part
 from services.employee_commuting_consolidation import sync_commuting_scope_rows
 from services.portal import PORTAL_ROLE_CAN_MANAGE_ACTIONS
 from services.portal_data_entry import (
@@ -147,16 +149,19 @@ def portal_commuting_options(current_user: dict = Depends(portal_user_dep)):
 
 
 @router.get("/portal/commuting/template")
-def portal_commuting_template(current_user: dict = Depends(portal_user_dep)):
+def portal_commuting_template(current_user: dict = Depends(portal_user_dep), site_id: int | None = None):
     """Download the standard commuting/WFH workbook for the active portal job."""
     client_db_id = int(current_user["client_db_id"])
     with get_conn(autocommit=False) as con:
         job_id = _resolve_job_or_404(con, client_db_id)
         meta = _job_meta(con, job_id)
-        default_site_id = _default_client_site_id(con, client_db_id)
-        _, site_label = _job_site_label(con, job_id, default_site_id)
-        workbook_bytes = _build_template_workbook(meta, site_label)
+        sites = permitted_sites(con, current_user)
+        chosen = selected_site(sites, site_id)
+        site_label = chosen["site_name"] if chosen else "Select a site for each row"
+        workbook_bytes = _build_template_workbook(meta, site_label, sites=sites)
         filename = _template_filename(meta, site_label)
+        if chosen:
+            filename = filename[:-5] + " " + safe_filename_part(site_label) + ".xlsx"
 
     safe_filename = filename.replace('"', '\\"')
     return Response(
@@ -169,9 +174,20 @@ def portal_commuting_template(current_user: dict = Depends(portal_user_dep)):
     )
 
 
-def _portal_upload_preview(con, job_id: int, site_id: int | None, raw: bytes) -> dict[str, Any]:
+def _portal_upload_preview(con, job_id: int, site_id: int | None, raw: bytes, sites=None) -> dict[str, Any]:
     parsed_rows = _parse_template(raw)
-    preview = _resolve_manual_commuting_rows(con, job_id, site_id, parsed_rows)
+    if sites is None:
+        preview = _resolve_manual_commuting_rows(con, job_id, site_id, parsed_rows)
+    else:
+        preview = {"parsed_count": len(parsed_rows), "ready_rows": [], "unresolved_rows": []}
+        groups = {}
+        for entry in parsed_rows:
+            resolved_site = row_site(sites, entry.get("site_name"), site_id)
+            groups.setdefault(resolved_site, []).append(entry)
+        for resolved_site, entries in groups.items():
+            result = _resolve_manual_commuting_rows(con, job_id, resolved_site, entries)
+            preview["ready_rows"].extend(result["ready_rows"])
+            preview["unresolved_rows"].extend(result["unresolved_rows"])
 
     # The manual form applies these privacy and duplicate checks before factor
     # resolution. Apply the same rules to a workbook so preview catches them
@@ -212,6 +228,7 @@ def _portal_upload_preview(con, job_id: int, site_id: int | None, raw: bytes) ->
 async def portal_commuting_upload_preview(
     file: UploadFile = File(...),
     current_user: dict = Depends(portal_user_dep),
+    site_id: int | None = Form(None),
 ):
     raw = await file.read()
     if not raw:
@@ -225,8 +242,9 @@ async def portal_commuting_upload_preview(
     with get_conn() as con:
         _ensure_emission_register_schema(con)
         job_id = _resolve_job_or_404(con, client_db_id)
-        site_id = _default_client_site_id(con, client_db_id)
-        preview = _portal_upload_preview(con, job_id, site_id, raw)
+        sites = permitted_sites(con, current_user)
+        selected_site(sites, site_id)
+        preview = _portal_upload_preview(con, job_id, site_id, raw, sites=sites)
     return {"job_id": job_id, "template_version": TEMPLATE_VERSION, **preview}
 
 
@@ -235,6 +253,7 @@ async def portal_commuting_upload_commit(
     request: Request,
     file: UploadFile = File(...),
     current_user: dict = Depends(portal_user_dep),
+    site_id: int | None = Form(None),
 ):
     _assert_can_manage(current_user)
     raw = await file.read()
@@ -246,12 +265,13 @@ async def portal_commuting_upload_commit(
         raise HTTPException(status_code=400, detail=str(exc))
 
     client_db_id = int(current_user["client_db_id"])
-    with get_conn() as con:
+    with get_conn(autocommit=False) as con:
         _ensure_emission_register_schema(con)
         job_id = _resolve_job_or_404(con, client_db_id)
         _assert_data_entry_open(con, job_id)
-        site_id = _default_client_site_id(con, client_db_id)
-        preview = _portal_upload_preview(con, job_id, site_id, raw)
+        sites = permitted_sites(con, current_user)
+        selected_site(sites, site_id)
+        preview = _portal_upload_preview(con, job_id, site_id, raw, sites=sites)
         if preview["unresolved_count"]:
             raise HTTPException(status_code=400, detail={
                 "message": "Upload contains unresolved rows. Correct the workbook and preview it again.",

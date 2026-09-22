@@ -488,7 +488,7 @@ def _add_list_validation(ws, cell_range: str, formula: str) -> None:
     dv.add(cell_range)
 
 
-def _build_template_workbook(meta: dict[str, Any], site_label: str) -> bytes:
+def _build_template_workbook(meta: dict[str, Any], site_label: str, sites: list[dict] | None = None) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = COMMUTING_SHEET
@@ -524,6 +524,9 @@ def _build_template_workbook(meta: dict[str, Any], site_label: str) -> bytes:
             f" to "
             f"{_fmt_period_part(meta.get('reporting_period_end'))}"
         ).strip()
+        target["D5"] = "Reporting Year"
+        target["E5"] = meta.get("reporting_year")
+        target["D5"].font = Font(bold=True)
         target["D4"] = "Template"
         target["E4"] = TEMPLATE_VERSION
         for ref_cell in ("A4", "A5", "A6", "A7", "D4"):
@@ -598,6 +601,26 @@ def _build_template_workbook(meta: dict[str, Any], site_label: str) -> bytes:
     ws.freeze_panes = f"A{DATA_START_ROW}"
     wfh.freeze_panes = f"A{DATA_START_ROW}"
 
+    if sites is not None:
+        from openpyxl.workbook.defined_name import DefinedName
+        site_sheet = wb.create_sheet("Sites")
+        site_sheet.append(["Site Name"])
+        for site in sites:
+            site_sheet.append([site["site_name"]])
+        site_sheet.column_dimensions["A"].width = 44
+        if sites:
+            wb.defined_names.add(DefinedName("PortalSites", attr_text=f"'Sites'!$A$2:$A${len(sites)+1}"))
+        for sheet, column, letter in [(ws, 10, "J"), (wfh, 6, "F")]:
+            cell = sheet.cell(HEADER_ROW, column, "Site Name")
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill(fill_type="solid", fgColor="1F4E78")
+            sheet.column_dimensions[letter].width = 36
+            if sites:
+                _add_list_validation(sheet, f"{letter}{DATA_START_ROW}:{letter}{commute_end_row}", "PortalSites")
+            if any(site["site_name"] == site_label for site in sites):
+                for row_num in range(DATA_START_ROW, commute_end_row + 1):
+                    sheet.cell(row_num, column, site_label)
+
     stream = io.BytesIO()
     wb.save(stream)
     return stream.getvalue()
@@ -646,6 +669,7 @@ def _parse_commuting_sheet(ws) -> list[dict[str, Any]]:
                 "sheet": COMMUTING_SHEET,
                 "row_number": row_num,
                 "row_type": "commuting",
+                "site_name": _safe_str(ws.cell(row_num, 10).value) if ws.cell(HEADER_ROW, 10).value == "Site Name" else "",
                 "employee_name": employee_name,
                 "mode_value": mode_value,
                 "service_value": service_value,
@@ -681,6 +705,7 @@ def _parse_wfh_sheet(ws) -> list[dict[str, Any]]:
                 "sheet": WFH_SHEET,
                 "row_number": row_num,
                 "row_type": "wfh",
+                "site_name": _safe_str(ws.cell(row_num, 6).value) if ws.cell(HEADER_ROW, 6).value == "Site Name" else "",
                 "employee_name": employee_name,
                 "annual_quantity": annual_hours,
                 "annual_days": annual_days,

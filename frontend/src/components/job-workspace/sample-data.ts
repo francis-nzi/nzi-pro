@@ -41,7 +41,7 @@ export const workspaceSubtabs: Record<WorkspaceTabKey, WorkspaceSubtab[]> = {
   data: [
     { key: "data-entry", label: "Data Entry" },
     { key: "employee-commuting", label: "Employee Commuting" },
-    { key: "asset-register", label: "Asset Register" },
+    { key: "asset-register", label: "Company Vehicles" },
     { key: "business-travel", label: "Business Travel" },
     { key: "data-upload", label: "Data Upload" },
     { key: "custom-dataset", label: "Custom Dataset" },

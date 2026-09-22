@@ -143,6 +143,7 @@ export default function PortalCommutingTab() {
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [uploadSiteId, setUploadSiteId] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadPreview, setUploadPreview] = useState<{
     ready_count: number;
@@ -276,7 +277,7 @@ export default function PortalCommutingTab() {
   async function downloadTemplate() {
     setUploadError("");
     try {
-      const res = await apiFetch("/portal/commuting/template");
+      const res = await apiFetch(`/portal/commuting/template${uploadSiteId ? `?site_id=${encodeURIComponent(uploadSiteId)}` : ""}`);
       if (!res.ok) throw new Error(`Download failed (${res.status})`);
       const blob = await res.blob();
       const contentDisposition = res.headers.get("Content-Disposition") || "";
@@ -303,6 +304,7 @@ export default function PortalCommutingTab() {
     try {
       const body = new FormData();
       body.append("file", uploadFile);
+      if (uploadSiteId) body.append("site_id", uploadSiteId);
       const res = await apiFetch("/portal/commuting/upload-preview", { method: "POST", body });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.detail || "Couldn't read that workbook.");
@@ -322,6 +324,7 @@ export default function PortalCommutingTab() {
     try {
       const body = new FormData();
       body.append("file", uploadFile);
+      if (uploadSiteId) body.append("site_id", uploadSiteId);
       const res = await apiFetch("/portal/commuting/upload-commit", { method: "POST", body });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -910,6 +913,13 @@ export default function PortalCommutingTab() {
               Download the workbook, complete either the Employee Commuting or Working From Home sheet, then upload it for review.
             </p>
             <div className="flex flex-wrap items-center gap-2">
+              <label className="text-xs text-muted-foreground">Site for template and blank spreadsheet sites
+                <select aria-label="Commuting template site" className="ml-2 rounded-md border bg-background p-2 text-sm"
+                  value={uploadSiteId} onChange={(e) => { setUploadSiteId(e.target.value); setUploadPreview(null); }}>
+                  <option value="">Select per row in workbook</option>
+                  {sites.map((site) => <option key={site.site_id} value={site.site_id}>{site.site_name}</option>)}
+                </select>
+              </label>
               <Button variant="outline" size="sm" onClick={() => void downloadTemplate()}>
                 Download Template
               </Button>

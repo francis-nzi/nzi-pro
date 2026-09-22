@@ -109,7 +109,7 @@ type ScopeDataRow = {
   linked_row_id?: number | null;
   is_auto_generated?: boolean;
   auto_pair_kind?: string | null;
-  // Consolidated Asset Register / Business Travel Register lines. These are
+  // Consolidated Company Vehicles / Business Travel Register lines. These are
   // computed on read from job_emission_sources rather than stored, so they
   // carry a negative row_id and are read-only here -- see
   // _load_register_consolidated_rows in api/job_scope_data_routes.py.
@@ -1583,7 +1583,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   }
 
   function consolidatedOwnerScreen(row: ScopeDataRow): string {
-    if (row.register_source_type === "asset") return "Asset Register";
+    if (row.register_source_type === "asset") return "Company Vehicles";
     if (row.register_source_type === "business_travel") return "Business Travel";
     return "Employee Commuting";
   }

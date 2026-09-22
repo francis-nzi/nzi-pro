@@ -1040,7 +1040,7 @@ export default function JobSourceRegister({
                 </p>
                 <p>
                   <span className="font-medium text-foreground">group_type</span> is handled internally by the system and
-                  usually stays as <span className="font-medium text-foreground">asset</span> for the Asset Register and{" "}
+                  usually stays as <span className="font-medium text-foreground">asset</span> for the Company Vehicles register and{" "}
                   <span className="font-medium text-foreground">business_travel</span> for the business travel upload.
                 </p>
                 <p>

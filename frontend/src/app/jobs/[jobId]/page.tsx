@@ -979,7 +979,7 @@ export default function JobDetailPage() {
             jobId={jobId}
             baseUrl={baseUrl}
             sourceType="asset"
-            title="Asset Register"
+            title="Company Vehicles"
             description="Capture individual vehicles, equipment, and other Scope 1 sources, then group them for roll-up and reporting."
             jobNumber={job?.job_number}
             clientName={job?.client_name}

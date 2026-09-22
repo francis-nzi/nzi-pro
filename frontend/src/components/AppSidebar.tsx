@@ -141,7 +141,7 @@ const JOB_NAV_GROUPS: JobNavGroup[] = [
     subtabs: [
       { key: "data-entry",         label: "Data Entry",         href: (j) => `/jobs/${j}/data-entry` },
       { key: "employee-commuting", label: "Employee Commuting", href: (j) => `/jobs/${j}/data-entry/employee-commuting` },
-      { key: "asset-register",     label: "Asset Register",     href: (j) => `/jobs/${j}/data-entry/asset-register` },
+      { key: "asset-register",     label: "Company Vehicles",     href: (j) => `/jobs/${j}/data-entry/asset-register` },
       { key: "business-travel",    label: "Business Travel",    href: (j) => `/jobs/${j}/data-entry/business-travel` },
       { key: "upload",             label: "Data Upload",        href: (j) => `/jobs/${j}?tab=upload` },
       { key: "custom-dataset",     label: "Custom Dataset",     href: (j) => `/jobs/${j}/data-entry/custom-dataset` },

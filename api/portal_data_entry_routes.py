@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Request, UploadFile
 
 from api.job_emission_register_routes import _calc_tco2e as _register_calc_tco2e
 from api.job_emission_register_routes import _ensure_schema as _ensure_emission_register_schema
@@ -416,6 +416,11 @@ def portal_data_entry_create_row(
     payload: dict = Body(...),
     current_user: dict = Depends(portal_user_dep),
 ):
+    with get_conn(autocommit=False) as con:
+        return _create_portal_data_entry_row(con, request, bucket_key, payload, current_user)
+
+
+def _create_portal_data_entry_row(con, request, bucket_key, payload, current_user):
     _assert_valid_bucket(bucket_key)
     client_db_id = int(current_user["client_db_id"])
     if current_user.get("role", "ClientAdmin") not in PORTAL_ROLE_CAN_MANAGE_ACTIONS:
@@ -434,118 +439,73 @@ def portal_data_entry_create_row(
     if site_ids is not None and site_id not in site_ids:
         raise HTTPException(status_code=403, detail="Not one of your assigned sites")
 
-    with get_conn() as con:
-        _ensure_job_scope_rows_schema(con)
-        ensure_portal_data_entry_schema(con)
-        job_id = _resolve_job_or_404(con, client_db_id)
-        _assert_data_entry_open(con, job_id)
+    _ensure_job_scope_rows_schema(con)
+    ensure_portal_data_entry_schema(con)
+    job_id = _resolve_job_or_404(con, client_db_id)
+    _assert_data_entry_open(con, job_id)
 
-        category_map = load_bucket_category_map(con)
-        submitted_category = (
-            payload.get("category") or payload.get("level_1") or payload.get("level_2")
-        )
-        if bucket_for_category(category_map, submitted_category) != bucket_key:
-            raise HTTPException(
-                status_code=400,
-                detail=f"That category doesn't belong under {BUCKET_LABELS[bucket_key]}",
-            )
-
-        # Verify the site really belongs to this client before attaching a row to it.
-        site_row = con.execute(
-            "SELECT 1 FROM client_sites WHERE site_id = %s AND client_db_id = %s",
-            [int(site_id), client_db_id],
-        ).fetchone()
-        if not site_row:
-            raise HTTPException(status_code=400, detail="Site not found for this account")
-
-        final_dataset_id, final_factor_db_id, final_factor, final_ghg_unit = (
-            _resolve_scope_row_factor_for_creation(con, job_id, scope, original_id, payload)
+    category_map = load_bucket_category_map(con)
+    submitted_category = (
+        payload.get("category") or payload.get("level_1") or payload.get("level_2")
+    )
+    if bucket_for_category(category_map, submitted_category) != bucket_key:
+        raise HTTPException(
+            status_code=400,
+            detail=f"That category doesn't belong under {BUCKET_LABELS[bucket_key]}",
         )
 
-        # The portal submits an original_id and lets the server resolve the
-        # factor, so the taxonomy columns arrive empty where the CRM-side form
-        # fills them in. Left NULL they cost the row its category grouping in
-        # reports, and they silently defeat the grid-electricity detection that
-        # pairs a Scope 3 T&D row on approval, which keys off level_1/level_2.
-        _factor_taxonomy = (
-            _lookup_factor_from_reference(con, final_dataset_id, scope, original_id) or {}
+    # Verify the site really belongs to this client before attaching a row to it.
+    site_row = con.execute(
+        "SELECT 1 FROM client_sites WHERE site_id = %s AND client_db_id = %s",
+        [int(site_id), client_db_id],
+    ).fetchone()
+    if not site_row:
+        raise HTTPException(status_code=400, detail="Site not found for this account")
+
+    final_dataset_id, final_factor_db_id, final_factor, final_ghg_unit = (
+        _resolve_scope_row_factor_for_creation(con, job_id, scope, original_id, payload)
+    )
+
+    # The portal submits an original_id and lets the server resolve the
+    # factor, so the taxonomy columns arrive empty where the CRM-side form
+    # fills them in. Left NULL they cost the row its category grouping in
+    # reports, and they silently defeat the grid-electricity detection that
+    # pairs a Scope 3 T&D row on approval, which keys off level_1/level_2.
+    _factor_taxonomy = (
+        _lookup_factor_from_reference(con, final_dataset_id, scope, original_id) or {}
+    )
+
+    def _resolved(field: str):
+        return payload.get(field) or _factor_taxonomy.get(field)
+
+    source_type = _register_source_type_for_bucket(bucket_key)
+    if source_type:
+        _ensure_emission_register_schema(con)
+        calc_tco2e = _register_calc_tco2e(
+            payload.get("qty"), final_factor, payload.get("apply_pct", 100), final_ghg_unit
         )
-
-        def _resolved(field: str):
-            return payload.get(field) or _factor_taxonomy.get(field)
-
-        source_type = _register_source_type_for_bucket(bucket_key)
-        if source_type:
-            _ensure_emission_register_schema(con)
-            calc_tco2e = _register_calc_tco2e(
-                payload.get("qty"), final_factor, payload.get("apply_pct", 100), final_ghg_unit
-            )
-            result = con.execute(
-                """
-                INSERT INTO job_emission_sources (
-                    job_id, scope, category, source_type, site_id, source_name, asset_identifier,
-                    dataset_id, factor_db_id, original_id, qty, uom, factor, ghg_unit, apply_pct,
-                    data_source, data_confidence, notes, calc_tco2e, enabled, review_status, submitted_by_portal,
-                    month_1, month_2, month_3, month_4, month_5, month_6,
-                    month_7, month_8, month_9, month_10, month_11, month_12
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, FALSE, 'pending_review', TRUE,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING source_id
-                """,
-                [
-                    int(job_id), scope, submitted_category, source_type, site_id,
-                    payload.get("report_label") or original_id,
-                    payload.get("identifier") or payload.get("vehicle_registration"),
-                    final_dataset_id, final_factor_db_id, original_id,
-                    payload.get("qty"), payload.get("uom"), final_factor, final_ghg_unit,
-                    payload.get("apply_pct", 100), "Client Portal", payload.get("data_confidence", "M"),
-                    payload.get("notes"), calc_tco2e,
-                    payload.get("month_1"), payload.get("month_2"), payload.get("month_3"),
-                    payload.get("month_4"), payload.get("month_5"), payload.get("month_6"),
-                    payload.get("month_7"), payload.get("month_8"), payload.get("month_9"),
-                    payload.get("month_10"), payload.get("month_11"), payload.get("month_12"),
-                ],
-            ).fetchone()
-            row_id = int(result[0])
-
-            record_audit_event(
-                con,
-                request=request,
-                actor={"email": current_user.get("email"), "full_name": current_user.get("full_name"), "user_id": "portal"},
-                action="portal_submit",
-                entity_type="job_emission_source",
-                entity_id=row_id,
-                client_id=client_db_id,
-                job_id=job_id,
-                metadata={"bucket_key": bucket_key, "scope": scope, "original_id": original_id, "source_type": source_type},
-            )
-            return {"ok": True, "row_id": row_id, "job_id": job_id, "review_status": "pending_review"}
-
         result = con.execute(
             """
-            INSERT INTO job_scope_rows (
-                job_id, scope, site_id, dataset_id, factor_db_id, original_id,
-                category, level_1, level_2, level_3, level_4, column_text, report_label,
-                qty, uom, factor, ghg_unit, apply_pct, data_source, data_confidence, notes,
-                asset_identifier, is_custom_entry, enabled, review_status, submitted_by_portal,
+            INSERT INTO job_emission_sources (
+                job_id, scope, category, source_type, site_id, source_name, asset_identifier,
+                dataset_id, factor_db_id, original_id, qty, uom, factor, ghg_unit, apply_pct,
+                data_source, data_confidence, notes, calc_tco2e, enabled, review_status, submitted_by_portal,
                 month_1, month_2, month_3, month_4, month_5, month_6,
                 month_7, month_8, month_9, month_10, month_11, month_12
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, FALSE, 'pending_review', TRUE,
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, FALSE, 'pending_review', TRUE,
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING row_id
+            RETURNING source_id
             """,
             [
-                int(job_id), scope, site_id, final_dataset_id, final_factor_db_id, original_id,
-                submitted_category, _resolved("level_1"), _resolved("level_2"),
-                _resolved("level_3"), _resolved("level_4"), _resolved("column_text"),
-                _resolved("report_label"),
+                int(job_id), scope, submitted_category, source_type, site_id,
+                payload.get("report_label") or original_id,
+                payload.get("identifier") or payload.get("vehicle_registration"),
+                final_dataset_id, final_factor_db_id, original_id,
                 payload.get("qty"), payload.get("uom"), final_factor, final_ghg_unit,
                 payload.get("apply_pct", 100), "Client Portal", payload.get("data_confidence", "M"),
-                payload.get("notes"), payload.get("identifier"), False,
+                payload.get("notes"), calc_tco2e,
                 payload.get("month_1"), payload.get("month_2"), payload.get("month_3"),
                 payload.get("month_4"), payload.get("month_5"), payload.get("month_6"),
                 payload.get("month_7"), payload.get("month_8"), payload.get("month_9"),
@@ -559,12 +519,56 @@ def portal_data_entry_create_row(
             request=request,
             actor={"email": current_user.get("email"), "full_name": current_user.get("full_name"), "user_id": "portal"},
             action="portal_submit",
-            entity_type="job_scope_row",
+            entity_type="job_emission_source",
             entity_id=row_id,
             client_id=client_db_id,
             job_id=job_id,
-            metadata={"bucket_key": bucket_key, "scope": scope, "original_id": original_id},
+            metadata={"bucket_key": bucket_key, "scope": scope, "original_id": original_id, "source_type": source_type},
         )
+        return {"ok": True, "row_id": row_id, "job_id": job_id, "review_status": "pending_review"}
+
+    result = con.execute(
+        """
+        INSERT INTO job_scope_rows (
+            job_id, scope, site_id, dataset_id, factor_db_id, original_id,
+            category, level_1, level_2, level_3, level_4, column_text, report_label,
+            qty, uom, factor, ghg_unit, apply_pct, data_source, data_confidence, notes,
+            asset_identifier, is_custom_entry, enabled, review_status, submitted_by_portal,
+            month_1, month_2, month_3, month_4, month_5, month_6,
+            month_7, month_8, month_9, month_10, month_11, month_12
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, FALSE, 'pending_review', TRUE,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING row_id
+        """,
+        [
+            int(job_id), scope, site_id, final_dataset_id, final_factor_db_id, original_id,
+            submitted_category, _resolved("level_1"), _resolved("level_2"),
+            _resolved("level_3"), _resolved("level_4"), _resolved("column_text"),
+            _resolved("report_label"),
+            payload.get("qty"), payload.get("uom"), final_factor, final_ghg_unit,
+            payload.get("apply_pct", 100), "Client Portal", payload.get("data_confidence", "M"),
+            payload.get("notes"), payload.get("identifier"), False,
+            payload.get("month_1"), payload.get("month_2"), payload.get("month_3"),
+            payload.get("month_4"), payload.get("month_5"), payload.get("month_6"),
+            payload.get("month_7"), payload.get("month_8"), payload.get("month_9"),
+            payload.get("month_10"), payload.get("month_11"), payload.get("month_12"),
+        ],
+    ).fetchone()
+    row_id = int(result[0])
+
+    record_audit_event(
+        con,
+        request=request,
+        actor={"email": current_user.get("email"), "full_name": current_user.get("full_name"), "user_id": "portal"},
+        action="portal_submit",
+        entity_type="job_scope_row",
+        entity_id=row_id,
+        client_id=client_db_id,
+        job_id=job_id,
+        metadata={"bucket_key": bucket_key, "scope": scope, "original_id": original_id},
+    )
 
     return {"ok": True, "row_id": row_id, "job_id": job_id, "review_status": "pending_review"}
 
@@ -802,3 +806,70 @@ def portal_data_entry_delete_row(
         )
 
     return {"ok": True, "row_id": row_id}
+
+
+# Spreadsheet imports use the same row writer as manual portal submissions.
+def _register_workbook_context(con, bucket_key, current_user, site_id):
+    from services.portal_upload_sites import permitted_sites, selected_site
+    from services.portal_register_workbook import LABELS
+    from api.employee_commuting_routes import _job_meta
+    if bucket_key not in LABELS:
+        raise HTTPException(400, "Workbook uploads are available for Company Vehicles and Business Travel")
+    job_id = _resolve_job_or_404(con, int(current_user["client_db_id"]))
+    sites = permitted_sites(con, current_user)
+    chosen = selected_site(sites, site_id)
+    factors = portal_data_entry_factors(bucket_key, search="", scope="", current_user=current_user)["factors"]
+    return job_id, _job_meta(con, job_id), sites, chosen, factors
+
+
+@router.get("/portal/data-entry/{bucket_key}/template")
+def portal_register_template(bucket_key: str, site_id: int | None = None,
+                             current_user: dict = Depends(portal_user_dep)):
+    from fastapi.responses import Response
+    from services.portal_register_workbook import build_workbook
+    with get_conn() as con:
+        _, meta, sites, chosen, factors = _register_workbook_context(con, bucket_key, current_user, site_id)
+        content, filename = build_workbook(meta, bucket_key, sites, chosen, factors)
+    return Response(content=content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"', "X-Filename": filename})
+
+
+async def _read_register_upload(file):
+    from services.virus_scan import scan_bytes, VirusScanError
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Empty upload file")
+    try:
+        scan_bytes(raw, filename=file.filename or "upload.xlsx")
+    except VirusScanError as exc:
+        raise HTTPException(400, str(exc))
+    return raw
+
+
+@router.post("/portal/data-entry/{bucket_key}/upload-preview")
+async def portal_register_upload_preview(bucket_key: str, file: UploadFile = File(...),
+        site_id: int | None = Form(None), current_user: dict = Depends(portal_user_dep)):
+    from services.portal_register_workbook import parse_workbook
+    raw = await _read_register_upload(file)
+    with get_conn() as con:
+        _, _, sites, _, factors = _register_workbook_context(con, bucket_key, current_user, site_id)
+        return parse_workbook(raw, bucket_key, sites, site_id, factors)
+
+
+@router.post("/portal/data-entry/{bucket_key}/upload-commit")
+async def portal_register_upload_commit(request: Request, bucket_key: str, file: UploadFile = File(...),
+        site_id: int | None = Form(None), current_user: dict = Depends(portal_user_dep)):
+    from services.portal_register_workbook import parse_workbook
+    if current_user.get("role", "ClientAdmin") not in PORTAL_ROLE_CAN_MANAGE_ACTIONS:
+        raise HTTPException(403, "Your portal role doesn't allow this action")
+    raw = await _read_register_upload(file)
+    with get_conn(autocommit=False) as con:
+        job_id, _, sites, _, factors = _register_workbook_context(con, bucket_key, current_user, site_id)
+        _assert_data_entry_open(con, job_id)
+        preview = parse_workbook(raw, bucket_key, sites, site_id, factors)
+        if preview["errors"]:
+            raise HTTPException(400, {"message": "Correct the workbook and preview again", "errors": preview["errors"]})
+        if not preview["rows"]:
+            raise HTTPException(400, "No data rows found in workbook")
+        results = [_create_portal_data_entry_row(con, request, bucket_key, row, current_user) for row in preview["rows"]]
+    return {"ok": True, "inserted": len(results), "job_id": job_id}

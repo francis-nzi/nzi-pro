@@ -318,7 +318,7 @@ function WorkspacePanels({
             jobId={job.jobId}
             baseUrl={baseUrl}
             sourceType="asset"
-            title="Asset Register"
+            title="Company Vehicles"
             description="Manage assets that feed job-level emissions and source grouping."
             jobNumber={job.jobNumber}
             clientName={job.clientName}
