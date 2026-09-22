@@ -263,12 +263,13 @@ export default function JobReportVariablesSection({
                       </div>
                     ) : field.key === "energy_emissions_tco2e" ? (
                       <div className="text-xs text-muted-foreground">
-                        Auto-calculated from the data-derived kWh using the active electricity and T&amp;D factors.
+                        Auto-calculated from the data-derived kWh at the grid average generation factor, including
+                        renewable kWh. Excludes T&amp;D losses, which are disclosed under Scope 3 category 3.
                       </div>
                     ) : field.key === "energy_emissions_market_tco2e" ? (
                       <div className="text-xs text-muted-foreground">
-                        Auto-calculated from the data-derived kWh. Renewable kWh suppresses the location factor,
-                        while T&amp;D still applies to total grid electricity.
+                        Auto-calculated from the data-derived kWh, pricing grid electricity only — renewable kWh is
+                        zero-rated. Excludes T&amp;D losses, which are disclosed under Scope 3 category 3.
                       </div>
                     ) : null}
                   </div>

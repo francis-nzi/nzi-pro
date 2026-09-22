@@ -1,11 +1,12 @@
 const DEFAULT_LOCATION_BASED_ELECTRICITY_FACTOR_KG_PER_KWH = 0.177;
-const DEFAULT_TD_ELECTRICITY_FACTOR_KG_PER_KWH = 0.01853;
 
 export type EnergyEmissionFactorDetails = {
   uk_location_based_kg_per_kwh?: number | null;
+  uk_market_based_kg_per_kwh?: number | null;
   uk_transmission_distribution_kg_per_kwh?: number | null;
   uk_combined_kg_per_kwh?: number | null;
   non_uk_location_based_kg_per_kwh?: number | null;
+  non_uk_market_based_kg_per_kwh?: number | null;
   non_uk_transmission_distribution_kg_per_kwh?: number | null;
   non_uk_combined_kg_per_kwh?: number | null;
 };
@@ -49,45 +50,32 @@ export function calculateDerivedEnergyEmissionFields(
   const totalKwh = ukKwh + nonUkKwh;
   const renewableKwhRaw = Math.max(0, parseNumericValue(values.renewable_energy_kwh) ?? 0);
   const renewableKwh = Math.min(renewableKwhRaw, totalKwh);
+  // Mirrors _sync_energy_emissions_from_kwh in api/report_template_routes.py:
+  // both figures are generation only. T&D losses are not part of either Scope 2
+  // total under the GHG Protocol Scope 2 Guidance -- they are disclosed under
+  // Scope 3 category 3, from the job's own T&D rows.
   const ukLocationFactor =
     pickFiniteNumber(factorDetails?.uk_location_based_kg_per_kwh) ??
     DEFAULT_LOCATION_BASED_ELECTRICITY_FACTOR_KG_PER_KWH;
-  const ukTdFactor =
-    pickFiniteNumber(factorDetails?.uk_transmission_distribution_kg_per_kwh) ??
-    (() => {
-      const combined = pickFiniteNumber(factorDetails?.uk_combined_kg_per_kwh);
-      return combined != null
-        ? Math.max(0, combined - ukLocationFactor)
-        : DEFAULT_TD_ELECTRICITY_FACTOR_KG_PER_KWH;
-    })();
+  // The market-based blend is weighted over grid kWh alone, so it can differ
+  // from the location-based blend when grid and renewable draw fall in months
+  // priced by different factor years.
+  const ukMarketFactor =
+    pickFiniteNumber(factorDetails?.uk_market_based_kg_per_kwh) ?? ukLocationFactor;
   const nonUkLocationFactor =
     pickFiniteNumber(factorDetails?.non_uk_location_based_kg_per_kwh) ?? ukLocationFactor;
-  const nonUkTdFactor =
-    pickFiniteNumber(factorDetails?.non_uk_transmission_distribution_kg_per_kwh) ??
-    (() => {
-      const combined = pickFiniteNumber(factorDetails?.non_uk_combined_kg_per_kwh);
-      return combined != null ? Math.max(0, combined - nonUkLocationFactor) : ukTdFactor;
-    })();
+  const nonUkMarketFactor =
+    pickFiniteNumber(factorDetails?.non_uk_market_based_kg_per_kwh) ?? nonUkLocationFactor;
   const renewableRatio = totalKwh > 0 ? renewableKwh / totalKwh : 0;
-  const ukMarketLocationKwh = ukKwh * (1 - renewableRatio);
-  const nonUkMarketLocationKwh = nonUkKwh * (1 - renewableRatio);
+  const ukGridKwh = ukKwh * (1 - renewableRatio);
+  const nonUkGridKwh = nonUkKwh * (1 - renewableRatio);
 
   return {
     energy_emissions_tco2e: formatDerivedValue(
-      (
-        (ukKwh * ukLocationFactor) +
-        (ukKwh * ukTdFactor) +
-        (nonUkKwh * nonUkLocationFactor) +
-        (nonUkKwh * nonUkTdFactor)
-      ) / 1000,
+      ((ukKwh * ukLocationFactor) + (nonUkKwh * nonUkLocationFactor)) / 1000,
     ),
     energy_emissions_market_tco2e: formatDerivedValue(
-      (
-        (ukMarketLocationKwh * ukLocationFactor) +
-        (ukKwh * ukTdFactor) +
-        (nonUkMarketLocationKwh * nonUkLocationFactor) +
-        (nonUkKwh * nonUkTdFactor)
-      ) / 1000,
+      ((ukGridKwh * ukMarketFactor) + (nonUkGridKwh * nonUkMarketFactor)) / 1000,
     ),
   };
 }

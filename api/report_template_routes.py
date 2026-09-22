@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 from fastapi import APIRouter, Depends, HTTPException, Body, Request
 from pydantic import BaseModel
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Mapping, Sequence
 
 from core.database import get_conn
 from api.auth import _current_user
@@ -1425,36 +1425,82 @@ def _get_job_energy_factor_year(con, job_id: int, dataset_id: int | None) -> int
     return datetime.now().year
 
 
-def _get_energy_emissions_factor_pair(
+def _calendar_month_from_resolution_record(month_record: Mapping[str, Any]) -> int | None:
+    """Calendar month (1 = January) for one resolver month record.
+
+    job_scope_rows.month_N is calendar-indexed whatever month the fiscal year
+    starts in -- see the same keying in services/monthly_emissions.py's
+    _build_resolution_maps. Weighting a factor blend by a month's kWh only
+    works if both sides agree on what "month 3" means, so the resolution's
+    month records are keyed the same way here rather than by their position
+    within the reporting period.
+    """
+    raw = str(month_record.get("date") or "").strip()
+    if not raw:
+        return None
+    for parse in (datetime.fromisoformat, date.fromisoformat):
+        try:
+            return int(parse(raw).month)
+        except Exception:
+            continue
+    return None
+
+
+def _period_calendar_months(resolution: Mapping[str, Any] | None) -> list[int]:
+    months: list[int] = []
+    for month_record in (resolution or {}).get("months") or []:
+        month_idx = _calendar_month_from_resolution_record(month_record)
+        if month_idx is not None and month_idx not in months:
+            months.append(month_idx)
+    return months
+
+
+def _blend_monthly_factor(
+    month_factors: Mapping[int, float],
+    month_weights: Mapping[int, float] | None = None,
+) -> float | None:
+    """Blend per-month factors into one annual factor, weighted by kWh.
+
+    A plain mean over months prices a job against factor years it barely
+    consumed in: a reporting period running 8 months on one dataset and 4 on
+    the next returns an 8/12-4/12 blend even when every kWh was drawn in a
+    single month. Weighting by the kWh actually recorded in each month is what
+    Data Entry already does per row (_build_monthly_factor_summary in
+    services/monthly_emissions.py), so the report block and the grid agree.
+
+    Falls back to the unweighted mean when no month carries weight, which is
+    the only sensible blend for rows entered as an annual total.
+    """
+    if not month_factors:
+        return None
+
+    weights = month_weights or {}
+    weight_total = 0.0
+    weighted_sum = 0.0
+    for month_idx, factor in month_factors.items():
+        weight = max(0.0, _safe_float(weights.get(int(month_idx))) or 0.0)
+        weight_total += weight
+        weighted_sum += weight * float(factor)
+
+    if weight_total > 0:
+        return weighted_sum / weight_total
+    return sum(float(f) for f in month_factors.values()) / len(month_factors)
+
+
+def _collect_monthly_energy_factor_samples(
     con,
     job_id: int,
     resolution: dict[str, Any] | None = None,
-    factor_cache: dict[int, tuple[float | None, float | None]] | None = None,
-) -> tuple[float, float]:
-    """resolution/factor_cache let a caller that already has both (e.g.
-    _get_energy_emissions_factor_details, which needs the same resolve_dataset_
-    resolution() call and per-dataset factor lookups right after this) reuse
-    them instead of redoing the same work a second time."""
-    dataset_id: int | None = None
-    try:
-        scope_map = get_scope_primary_datasets(int(job_id))
-        raw_scope_dataset = scope_map.get("Scope 2")
-        dataset_id = int(raw_scope_dataset) if raw_scope_dataset is not None else None
-    except Exception:
-        logger.debug("Failed to resolve scope 2 dataset for energy-factor lookup; continuing without dataset context", exc_info=True)
-        dataset_id = None
+) -> dict[str, dict[str, dict[int, float]]]:
+    """Per-calendar-month electricity factors, split UK/non-UK and location/T&D.
 
-    factor_year = _get_job_energy_factor_year(con, int(job_id), dataset_id)
-    asset_location_factor, asset_td_factor = _load_energy_factors_from_asset(int(factor_year))
-
-    location_samples: list[float] = []
-    td_samples: list[float] = []
-
+    Shape: {"uk": {"location": {month: factor}, "td": {...}}, "non_uk": {...}}.
+    """
     if resolution is None:
         try:
             resolution = resolve_dataset_resolution(int(job_id), scopes=("Scope 2", "Scope 3"), con=con)
         except Exception:
-            logger.debug("Failed to resolve dataset resolution for energy factor pair; defaulting to empty resolution", exc_info=True)
+            logger.debug("Failed to resolve dataset resolution for energy factor samples; defaulting to empty resolution", exc_info=True)
             resolution = {}
 
     dataset_catalog = {
@@ -1462,133 +1508,172 @@ def _get_energy_emissions_factor_pair(
         for ds in (resolution.get("dataset_catalog") or [])
         if ds.get("dataset_id") is not None
     }
-    if factor_cache is None:
-        factor_cache = {}
+    # dict.setdefault(key, value) evaluates `value` eagerly even when `key`
+    # already exists -- that silently defeated this cache, re-running the
+    # (2-query) lookup on every month referencing the same dataset.
+    factor_cache: dict[int, tuple[float | None, float | None]] = {}
+    samples: dict[str, dict[str, dict[int, float]]] = {
+        "uk": {"location": {}, "td": {}},
+        "non_uk": {"location": {}, "td": {}},
+    }
 
     for month_record in resolution.get("months") or []:
+        month_idx = _calendar_month_from_resolution_record(month_record)
+        if month_idx is None:
+            continue
         scope_month_map = month_record.get("scope_datasets") or {}
 
-        raw_scope_2_dataset = scope_month_map.get("Scope 2")
-        scope_2_dataset = int(raw_scope_2_dataset) if raw_scope_2_dataset is not None else None
-        if scope_2_dataset is not None:
-            ds_meta = dataset_catalog.get(scope_2_dataset) or {}
-            ds_country = _normalize_country_token(ds_meta.get("country"))
-            if _is_uk_country(ds_country) or _is_global_country(ds_country):
-                # dict.setdefault(key, value) evaluates `value` eagerly even
-                # when `key` already exists -- that silently defeated this
-                # cache, re-running the (2-query) lookup on every month that
-                # referenced the same dataset instead of once.
-                if scope_2_dataset not in factor_cache:
-                    factor_cache[scope_2_dataset] = _lookup_energy_factors_from_dataset(con, scope_2_dataset)
-                loc_factor, _ = factor_cache[scope_2_dataset]
-                if loc_factor is not None:
-                    location_samples.append(float(loc_factor))
+        for scope_name, slot in (("Scope 2", "location"), ("Scope 3", "td")):
+            raw_dataset = scope_month_map.get(scope_name)
+            dataset_id = int(raw_dataset) if raw_dataset is not None else None
+            if dataset_id is None:
+                continue
 
-        raw_scope_3_dataset = scope_month_map.get("Scope 3")
-        scope_3_dataset = int(raw_scope_3_dataset) if raw_scope_3_dataset is not None else None
-        if scope_3_dataset is not None:
-            ds_meta = dataset_catalog.get(scope_3_dataset) or {}
-            ds_country = _normalize_country_token(ds_meta.get("country"))
-            if _is_uk_country(ds_country) or _is_global_country(ds_country):
-                if scope_3_dataset not in factor_cache:
-                    factor_cache[scope_3_dataset] = _lookup_energy_factors_from_dataset(con, scope_3_dataset)
-                _, td_factor = factor_cache[scope_3_dataset]
-                if td_factor is not None:
-                    td_samples.append(float(td_factor))
+            ds_country = _normalize_country_token((dataset_catalog.get(dataset_id) or {}).get("country"))
+            region = "uk" if (_is_uk_country(ds_country) or _is_global_country(ds_country)) else "non_uk"
 
-    location_factor = (
-        (sum(location_samples) / len(location_samples))
-        if location_samples
-        else asset_location_factor
-    )
-    td_factor = (
-        (sum(td_samples) / len(td_samples))
-        if td_samples
-        else asset_td_factor
-    )
+            if dataset_id not in factor_cache:
+                factor_cache[dataset_id] = _lookup_energy_factors_from_dataset(con, dataset_id)
+            location_factor, td_factor = factor_cache[dataset_id]
 
-    return (
-        float(location_factor if location_factor is not None else DEFAULT_LOCATION_BASED_ELECTRICITY_FACTOR_KG_PER_KWH),
-        float(td_factor if td_factor is not None else DEFAULT_TD_ELECTRICITY_FACTOR_KG_PER_KWH),
-    )
+            factor = location_factor if slot == "location" else td_factor
+            if factor is not None:
+                samples[region][slot][month_idx] = float(factor)
+
+    return samples
 
 
-def _get_energy_emissions_factor_details(con, job_id: int) -> dict[str, float]:
+def _get_energy_emissions_factor_details(
+    con,
+    job_id: int,
+    weights: Mapping[str, Mapping[int, float]] | None = None,
+    resolution: dict[str, Any] | None = None,
+) -> dict[str, float]:
+    """Resolve the electricity factors the energy emissions boxes are built from.
+
+    `weights` carries the job's monthly kWh so each factor is blended against
+    the consumption it actually prices: "uk_total"/"non_uk_total" for the
+    location-based blend, "uk_grid"/"non_uk_grid" (total less renewable) for
+    the market-based blend, which only ever prices grid draw.
+
+    T&D factors are still resolved and returned for disclosure, but they no
+    longer feed either emissions figure -- see _sync_energy_emissions_from_kwh.
+    """
+    samples = _collect_monthly_energy_factor_samples(con, int(job_id), resolution=resolution)
+    weights = weights or {}
+
+    primary_scope_2_dataset: int | None = None
     try:
-        resolution = resolve_dataset_resolution(int(job_id), scopes=("Scope 2", "Scope 3"), con=con)
+        scope_map = get_scope_primary_datasets(int(job_id))
+        raw_scope_dataset = scope_map.get("Scope 2")
+        primary_scope_2_dataset = int(raw_scope_dataset) if raw_scope_dataset is not None else None
     except Exception:
-        logger.debug("Failed to resolve dataset resolution for report template sync; defaulting to empty resolution", exc_info=True)
-        resolution = {}
-    factor_cache: dict[int, tuple[float | None, float | None]] = {}
+        logger.debug("Failed to resolve scope 2 dataset for energy-factor lookup; continuing without dataset context", exc_info=True)
+        primary_scope_2_dataset = None
 
-    # Pass the resolution/cache through so the pair lookup doesn't repeat the
-    # same resolve_dataset_resolution() call and per-dataset factor queries
-    # this function is about to do anyway.
-    uk_location_factor, uk_td_factor = _get_energy_emissions_factor_pair(
-        con, int(job_id), resolution=resolution, factor_cache=factor_cache
+    factor_year = _get_job_energy_factor_year(con, int(job_id), primary_scope_2_dataset)
+    asset_location_factor, asset_td_factor = _load_energy_factors_from_asset(int(factor_year))
+
+    uk_location_factor = _blend_monthly_factor(samples["uk"]["location"], weights.get("uk_total"))
+    if uk_location_factor is None:
+        uk_location_factor = asset_location_factor
+    if uk_location_factor is None:
+        uk_location_factor = DEFAULT_LOCATION_BASED_ELECTRICITY_FACTOR_KG_PER_KWH
+
+    uk_td_factor = _blend_monthly_factor(samples["uk"]["td"], weights.get("uk_total"))
+    if uk_td_factor is None:
+        uk_td_factor = asset_td_factor
+    if uk_td_factor is None:
+        uk_td_factor = DEFAULT_TD_ELECTRICITY_FACTOR_KG_PER_KWH
+
+    uk_market_factor = _blend_monthly_factor(samples["uk"]["location"], weights.get("uk_grid"))
+    if uk_market_factor is None:
+        uk_market_factor = uk_location_factor
+
+    non_uk_factor_found = bool(samples["non_uk"]["location"] or samples["non_uk"]["td"])
+
+    non_uk_location_factor = _blend_monthly_factor(samples["non_uk"]["location"], weights.get("non_uk_total"))
+    if non_uk_location_factor is None:
+        non_uk_location_factor = uk_location_factor
+
+    non_uk_market_factor = _blend_monthly_factor(samples["non_uk"]["location"], weights.get("non_uk_grid"))
+    if non_uk_market_factor is None:
+        non_uk_market_factor = non_uk_location_factor
+
+    non_uk_td_factor = _blend_monthly_factor(samples["non_uk"]["td"], weights.get("non_uk_total"))
+    if non_uk_td_factor is None:
+        non_uk_td_factor = uk_td_factor
+
+    kwh_weighted = any(
+        (_safe_float(value) or 0.0) > 0
+        for key in ("uk_total", "uk_grid", "non_uk_total", "non_uk_grid")
+        for value in (weights.get(key) or {}).values()
     )
-    non_uk_location_factor = uk_location_factor
-    non_uk_td_factor = uk_td_factor
-    non_uk_factor_found = False
-
-    dataset_catalog = {
-        int(ds.get("dataset_id")): ds
-        for ds in (resolution.get("dataset_catalog") or [])
-        if ds.get("dataset_id") is not None
-    }
-    non_uk_location_samples: list[float] = []
-    non_uk_td_samples: list[float] = []
-
-    for month_record in resolution.get("months") or []:
-        scope_map = month_record.get("scope_datasets") or {}
-
-        raw_scope_2_dataset = scope_map.get("Scope 2")
-        scope_2_dataset = int(raw_scope_2_dataset) if raw_scope_2_dataset is not None else None
-        if scope_2_dataset is not None:
-            ds_meta = dataset_catalog.get(scope_2_dataset) or {}
-            ds_country = _normalize_country_token(ds_meta.get("country"))
-            if ds_country and not _is_uk_country(ds_country) and not _is_global_country(ds_country):
-                if scope_2_dataset not in factor_cache:
-                    factor_cache[scope_2_dataset] = _lookup_energy_factors_from_dataset(con, scope_2_dataset)
-                loc_factor, _ = factor_cache[scope_2_dataset]
-                if loc_factor is not None:
-                    non_uk_location_samples.append(float(loc_factor))
-                    non_uk_factor_found = True
-
-        raw_scope_3_dataset = scope_map.get("Scope 3")
-        scope_3_dataset = int(raw_scope_3_dataset) if raw_scope_3_dataset is not None else None
-        if scope_3_dataset is not None:
-            ds_meta = dataset_catalog.get(scope_3_dataset) or {}
-            ds_country = _normalize_country_token(ds_meta.get("country"))
-            if ds_country and not _is_uk_country(ds_country) and not _is_global_country(ds_country):
-                if scope_3_dataset not in factor_cache:
-                    factor_cache[scope_3_dataset] = _lookup_energy_factors_from_dataset(con, scope_3_dataset)
-                _, td_factor = factor_cache[scope_3_dataset]
-                if td_factor is not None:
-                    non_uk_td_samples.append(float(td_factor))
-                    non_uk_factor_found = True
-
-    if non_uk_location_samples:
-        non_uk_location_factor = sum(non_uk_location_samples) / len(non_uk_location_samples)
-    if non_uk_td_samples:
-        non_uk_td_factor = sum(non_uk_td_samples) / len(non_uk_td_samples)
 
     return {
         "uk_location_based_kg_per_kwh": round(float(uk_location_factor), 8),
+        "uk_market_based_kg_per_kwh": round(float(uk_market_factor), 8),
         "uk_transmission_distribution_kg_per_kwh": round(float(uk_td_factor), 8),
         "uk_combined_kg_per_kwh": round(float(uk_location_factor) + float(uk_td_factor), 8),
         "non_uk_location_based_kg_per_kwh": round(float(non_uk_location_factor), 8),
+        "non_uk_market_based_kg_per_kwh": round(float(non_uk_market_factor), 8),
         "non_uk_transmission_distribution_kg_per_kwh": round(float(non_uk_td_factor), 8),
         "non_uk_combined_kg_per_kwh": round(
             float(non_uk_location_factor) + float(non_uk_td_factor),
             8,
         ),
         "renewable_allocation_method": "proportional",
+        # Scope 2 location- and market-based figures are generation only; T&D
+        # losses are a Scope 3 category 3 disclosure and are reported there.
+        "transmission_distribution_included": False,
+        "factor_blend_basis": "kwh_weighted" if kwh_weighted else "monthly_average",
         "non_uk_factor_derived_from_active_dataset": bool(non_uk_factor_found),
     }
 
 
-def _derive_energy_kwh_from_scope_rows(con, job_id: int) -> dict[str, float]:
+def _allocate_quantity_to_months(
+    row: Mapping[str, Any],
+    effective_qty: float,
+    period_months: Sequence[int],
+) -> dict[int, float]:
+    """Spread a row's effective annual quantity across calendar months.
+
+    Uses the row's own month_1..month_12 split when it has one (month_N is
+    calendar-indexed, 1 = January), rescaled so the parts add back up to
+    effective_qty even where qty and the monthly columns disagree. A row
+    entered as an annual total only is spread evenly over the reporting
+    period, which leaves it with the unweighted blend it has always had.
+    """
+    month_values: dict[int, float] = {}
+    monthly_total = 0.0
+    for month_idx in range(1, 13):
+        value = _safe_float(row.get(f"month_{month_idx}")) or 0.0
+        if value > 0:
+            month_values[month_idx] = value
+            monthly_total += value
+
+    if monthly_total > 0:
+        return {
+            month_idx: effective_qty * (value / monthly_total)
+            for month_idx, value in month_values.items()
+        }
+
+    months = [int(m) for m in period_months] or list(range(1, 13))
+    share = effective_qty / len(months)
+    return {int(m): share for m in months}
+
+
+def _accumulate_months(target: dict[int, float], additions: Mapping[int, float]) -> None:
+    for month_idx, value in additions.items():
+        target[int(month_idx)] = target.get(int(month_idx), 0.0) + float(value)
+
+
+def _derive_energy_kwh_from_scope_rows(
+    con,
+    job_id: int,
+    period_months: Sequence[int] | None = None,
+) -> dict[str, Any]:
+    period_months = [int(m) for m in (period_months or []) if m] or list(range(1, 13))
     parts = _job_scope_rows_select_parts(con)
     default_scope_2_country = _get_job_primary_scope_country(con, int(job_id), "Scope 2")
     rows = con.execute(
@@ -1626,21 +1711,20 @@ def _derive_energy_kwh_from_scope_rows(con, job_id: int) -> dict[str, float]:
         [int(job_id)],
     ).df()
 
-    if rows is None or rows.empty:
-        return {
-            "uk_kwh": 0.0,
-            "non_uk_kwh": 0.0,
-            "renewable_kwh": 0.0,
-            "total_kwh": 0.0,
-            "grid_kwh": 0.0,
-        }
-
     uk_kwh = 0.0
     non_uk_kwh = 0.0
     renewable_kwh = 0.0
+    uk_kwh_by_month: dict[int, float] = {}
+    non_uk_kwh_by_month: dict[int, float] = {}
+    uk_renewable_by_month: dict[int, float] = {}
+    non_uk_renewable_by_month: dict[int, float] = {}
 
-    rows = rows.where(rows.notna(), None)
-    for _, source_row in rows.iterrows():
+    if rows is None or rows.empty:
+        rows = None
+    else:
+        rows = rows.where(rows.notna(), None)
+
+    for _, source_row in (rows.iterrows() if rows is not None else []):
         row = source_row.to_dict()
         scope = _normalize_energy_factor_text(row.get("scope"))
         uom = _normalize_energy_factor_text(row.get("uom"))
@@ -1668,10 +1752,16 @@ def _derive_energy_kwh_from_scope_rows(con, job_id: int) -> dict[str, float]:
             continue
 
         dataset_country = _normalize_country_token(row.get("dataset_country") or default_scope_2_country)
-        if dataset_country and not _is_uk_country(dataset_country) and not _is_global_country(dataset_country):
+        is_non_uk = bool(
+            dataset_country and not _is_uk_country(dataset_country) and not _is_global_country(dataset_country)
+        )
+        month_split = _allocate_quantity_to_months(row, effective_qty, period_months)
+        if is_non_uk:
             non_uk_kwh += effective_qty
+            _accumulate_months(non_uk_kwh_by_month, month_split)
         else:
             uk_kwh += effective_qty
+            _accumulate_months(uk_kwh_by_month, month_split)
 
         if _is_renewable_electricity_input_row(
             scope=scope,
@@ -1684,15 +1774,27 @@ def _derive_energy_kwh_from_scope_rows(con, job_id: int) -> dict[str, float]:
             report_label=report_label,
         ):
             renewable_kwh += effective_qty
+            _accumulate_months(
+                non_uk_renewable_by_month if is_non_uk else uk_renewable_by_month,
+                month_split,
+            )
 
     # Also scan job_emission_sources (Asset Register) for electricity rows so
     # energy kWh figures match the Outputs / scope-totals path.
+    src_cols = _table_columns(con, "job_emission_sources")
+    src_month_select = ", ".join(
+        f"js.month_{idx} AS month_{idx}"
+        if f"month_{idx}" in src_cols
+        else f"NULL::numeric AS month_{idx}"
+        for idx in range(1, 13)
+    )
     try:
         src_rows = con.execute(
-            """
+            f"""
             SELECT
                 js.scope,
                 COALESCE(g.uom, js.uom) AS uom,
+                {src_month_select},
                 COALESCE(
                     NULLIF(TRIM(CAST(fl.category AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''),
@@ -1752,10 +1854,16 @@ def _derive_energy_kwh_from_scope_rows(con, job_id: int) -> dict[str, float]:
                 continue
 
             dataset_country = _normalize_country_token(row.get("dataset_country") or default_scope_2_country)
-            if dataset_country and not _is_uk_country(dataset_country) and not _is_global_country(dataset_country):
+            is_non_uk = bool(
+                dataset_country and not _is_uk_country(dataset_country) and not _is_global_country(dataset_country)
+            )
+            month_split = _allocate_quantity_to_months(row, effective_qty, period_months)
+            if is_non_uk:
                 non_uk_kwh += effective_qty
+                _accumulate_months(non_uk_kwh_by_month, month_split)
             else:
                 uk_kwh += effective_qty
+                _accumulate_months(uk_kwh_by_month, month_split)
 
             if _is_renewable_electricity_input_row(
                 scope=scope,
@@ -1768,9 +1876,22 @@ def _derive_energy_kwh_from_scope_rows(con, job_id: int) -> dict[str, float]:
                 report_label=column_text,
             ):
                 renewable_kwh += effective_qty
+                _accumulate_months(
+                    non_uk_renewable_by_month if is_non_uk else uk_renewable_by_month,
+                    month_split,
+                )
 
     total_kwh = uk_kwh + non_uk_kwh
     renewable_kwh = min(renewable_kwh, total_kwh)
+
+    def _grid_by_month(
+        totals: Mapping[int, float],
+        renewables: Mapping[int, float],
+    ) -> dict[int, float]:
+        return {
+            month_idx: round(max(0.0, value - (renewables.get(month_idx) or 0.0)), 4)
+            for month_idx, value in totals.items()
+        }
 
     return {
         "uk_kwh": round(uk_kwh, 4),
@@ -1778,11 +1899,24 @@ def _derive_energy_kwh_from_scope_rows(con, job_id: int) -> dict[str, float]:
         "renewable_kwh": round(renewable_kwh, 4),
         "total_kwh": round(total_kwh, 4),
         "grid_kwh": round(max(0.0, total_kwh - renewable_kwh), 4),
+        # Monthly weights for the factor blend -- keyed by calendar month
+        # (1 = January) to match job_scope_rows.month_N. "grid" is total less
+        # renewable, which is all the market-based figure ever prices.
+        "uk_kwh_by_month": {k: round(v, 4) for k, v in uk_kwh_by_month.items()},
+        "non_uk_kwh_by_month": {k: round(v, 4) for k, v in non_uk_kwh_by_month.items()},
+        "uk_grid_kwh_by_month": _grid_by_month(uk_kwh_by_month, uk_renewable_by_month),
+        "non_uk_grid_kwh_by_month": _grid_by_month(non_uk_kwh_by_month, non_uk_renewable_by_month),
     }
 
 
-def _sync_energy_inputs_from_scope_rows(con, job_id: int, meta: dict[str, Any]) -> bool:
-    derived = _derive_energy_kwh_from_scope_rows(con, int(job_id))
+def _sync_energy_inputs_from_scope_rows(
+    con,
+    job_id: int,
+    meta: dict[str, Any],
+    derived: Mapping[str, Any] | None = None,
+) -> bool:
+    if derived is None:
+        derived = _derive_energy_kwh_from_scope_rows(con, int(job_id))
     changed = False
     for meta_key, derived_key in (
         ("energy_consumption_uk_kwh", "uk_kwh"),
@@ -1821,16 +1955,34 @@ def _sync_renewables_pct_from_kwh(meta: dict[str, Any]) -> bool:
     return False
 
 
-def _sync_energy_emissions_from_kwh(con, job_id: int, meta: dict[str, Any]) -> bool:
+def _sync_energy_emissions_from_kwh(
+    con,
+    job_id: int,
+    meta: dict[str, Any],
+    derived: Mapping[str, Any] | None = None,
+    resolution: dict[str, Any] | None = None,
+) -> tuple[bool, dict[str, float]]:
     """
     Keep report metadata energy emissions aligned with the derived kWh inputs.
+
+    Both figures are generation only. Under the GHG Protocol Scope 2 Guidance
+    transmission and distribution losses are not part of either the location-
+    based or the market-based Scope 2 total -- they are a Scope 3 category 3
+    disclosure, reported from the job's own T&D rows. Including them here
+    double-counted them against those rows and roughly doubled the market-based
+    figure on a job running a green tariff.
 
     Assumption:
     - UK and Non-UK energy can use different electricity factors.
     - Renewable kWh is allocated proportionally across UK and Non-UK energy when
-      deriving the market-based location-based portion because the input is stored
-      as a single total.
-    - Transmission and distribution applies across all purchased grid electricity.
+      deriving the market-based grid portion, because the input is stored as a
+      single total.
+    - The location-based factor is blended over the period's kWh, the
+      market-based factor over grid kWh only -- grid draw and renewable draw
+      rarely sit in the same months, and each must be priced by its own.
+
+    Returns (changed, factor_details) so callers can report the factors that
+    were actually used without resolving them a second time.
     """
     uk_kwh = max(0.0, _safe_float(meta.get("energy_consumption_uk_kwh")) or 0.0)
     non_uk_kwh = max(0.0, _safe_float(meta.get("energy_consumption_non_uk_kwh")) or 0.0)
@@ -1838,48 +1990,49 @@ def _sync_energy_emissions_from_kwh(con, job_id: int, meta: dict[str, Any]) -> b
     total_kwh = uk_kwh + non_uk_kwh
     renewable_kwh = min(renewable_kwh, total_kwh)
 
-    factor_details = _get_energy_emissions_factor_details(con, int(job_id))
+    if derived is None:
+        derived = _derive_energy_kwh_from_scope_rows(
+            con, int(job_id), period_months=_period_calendar_months(resolution)
+        )
+
+    weights = {
+        "uk_total": derived.get("uk_kwh_by_month") or {},
+        "uk_grid": derived.get("uk_grid_kwh_by_month") or {},
+        "non_uk_total": derived.get("non_uk_kwh_by_month") or {},
+        "non_uk_grid": derived.get("non_uk_grid_kwh_by_month") or {},
+    }
+
+    factor_details = _get_energy_emissions_factor_details(
+        con, int(job_id), weights=weights, resolution=resolution
+    )
     uk_location_factor = max(
         0.0,
         _safe_float(factor_details.get("uk_location_based_kg_per_kwh"))
         or DEFAULT_LOCATION_BASED_ELECTRICITY_FACTOR_KG_PER_KWH,
     )
-    uk_td_factor = max(
+    uk_market_factor = max(
         0.0,
-        _safe_float(factor_details.get("uk_transmission_distribution_kg_per_kwh"))
-        or DEFAULT_TD_ELECTRICITY_FACTOR_KG_PER_KWH,
+        _safe_float(factor_details.get("uk_market_based_kg_per_kwh")) or uk_location_factor,
     )
     non_uk_location_factor = max(
         0.0,
         _safe_float(factor_details.get("non_uk_location_based_kg_per_kwh")) or uk_location_factor,
     )
-    non_uk_td_factor = max(
+    non_uk_market_factor = max(
         0.0,
-        _safe_float(factor_details.get("non_uk_transmission_distribution_kg_per_kwh")) or uk_td_factor,
+        _safe_float(factor_details.get("non_uk_market_based_kg_per_kwh")) or non_uk_location_factor,
     )
 
     renewable_ratio = 0.0 if total_kwh <= 0 else renewable_kwh / total_kwh
-    uk_market_location_kwh = uk_kwh * (1.0 - renewable_ratio)
-    non_uk_market_location_kwh = non_uk_kwh * (1.0 - renewable_ratio)
+    uk_grid_kwh = uk_kwh * (1.0 - renewable_ratio)
+    non_uk_grid_kwh = non_uk_kwh * (1.0 - renewable_ratio)
 
     next_location_tco2e = round(
-        (
-            (uk_kwh * uk_location_factor)
-            + (uk_kwh * uk_td_factor)
-            + (non_uk_kwh * non_uk_location_factor)
-            + (non_uk_kwh * non_uk_td_factor)
-        )
-        / 1000.0,
+        ((uk_kwh * uk_location_factor) + (non_uk_kwh * non_uk_location_factor)) / 1000.0,
         4,
     )
     next_market_tco2e = round(
-        (
-            (uk_market_location_kwh * uk_location_factor)
-            + (uk_kwh * uk_td_factor)
-            + (non_uk_market_location_kwh * non_uk_location_factor)
-            + (non_uk_kwh * non_uk_td_factor)
-        )
-        / 1000.0,
+        ((uk_grid_kwh * uk_market_factor) + (non_uk_grid_kwh * non_uk_market_factor)) / 1000.0,
         4,
     )
 
@@ -1894,7 +2047,37 @@ def _sync_energy_emissions_from_kwh(con, job_id: int, meta: dict[str, Any]) -> b
         meta["energy_emissions_market_tco2e"] = next_market_tco2e
         changed = True
 
-    return changed
+    return changed, factor_details
+
+
+def _sync_energy_fields(con, job_id: int, meta: dict[str, Any]) -> tuple[bool, dict[str, float]]:
+    """Refresh every derived energy field on `meta` in one pass.
+
+    Resolves the job's datasets once and shares both that and the derived kWh
+    profile across the kWh inputs, the legacy renewables %, and the emissions
+    figures, so a request doesn't repeat the same resolver and row scans.
+    """
+    try:
+        resolution = resolve_dataset_resolution(int(job_id), scopes=("Scope 2", "Scope 3"), con=con)
+    except Exception:
+        logger.debug("Failed to resolve dataset resolution for energy sync; defaulting to empty resolution", exc_info=True)
+        resolution = {}
+
+    derived = _derive_energy_kwh_from_scope_rows(
+        con, int(job_id), period_months=_period_calendar_months(resolution)
+    )
+
+    changed = _sync_energy_inputs_from_scope_rows(con, int(job_id), meta, derived=derived)
+    if _sync_renewables_pct_from_kwh(meta):
+        changed = True
+
+    emissions_changed, factor_details = _sync_energy_emissions_from_kwh(
+        con, int(job_id), meta, derived=derived, resolution=resolution
+    )
+    if emissions_changed:
+        changed = True
+
+    return changed, factor_details
 
 
 def _sync_datasets_names_from_resolver(con, job_id: int, meta: dict[str, Any]) -> bool:
@@ -2232,7 +2415,15 @@ def _upsert_report_meta(con, job_id: int, meta: dict[str, Any], updated_by: str)
     )
 
 
-def _ensure_job_report_meta(con, job_id: int, updated_by: str = "system") -> dict[str, Any]:
+def _ensure_job_report_meta(
+    con,
+    job_id: int,
+    updated_by: str = "system",
+    energy_out: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Pass `energy_out` to receive the resolved electricity factors under
+    "factor_details" -- routes that report them alongside the metadata would
+    otherwise have to resolve them all over again."""
     _ensure_report_metadata_table(con)
     defaults = _build_default_report_meta(con, int(job_id))
     existing = _fetch_report_meta_row(con, int(job_id))
@@ -2249,14 +2440,11 @@ def _ensure_job_report_meta(con, job_id: int, updated_by: str = "system") -> dic
         else:
             merged[key] = stored_value
 
-    if _sync_energy_inputs_from_scope_rows(con, int(job_id), merged):
+    energy_changed, energy_factor_details = _sync_energy_fields(con, int(job_id), merged)
+    if energy_changed:
         changed = True
-
-    if _sync_renewables_pct_from_kwh(merged):
-        changed = True
-
-    if _sync_energy_emissions_from_kwh(con, int(job_id), merged):
-        changed = True
+    if energy_out is not None:
+        energy_out["factor_details"] = energy_factor_details
 
     if _sync_datasets_names_from_resolver(con, int(job_id), merged):
         changed = True
@@ -2347,15 +2535,17 @@ def _get_job_report_metadata(job_id: int, updated_by: str = "system") -> dict[st
 @router.get("/jobs/{job_id}/report-metadata")
 def get_job_report_metadata(job_id: int, _user: dict = Depends(_current_user)):
     actor_identifier = _current_actor_identifier(_user)
+    energy_out: dict[str, Any] = {}
     with get_conn() as con:
         _get_job_client_id(con, int(job_id))
         meta = _ensure_job_report_meta(
             con,
             int(job_id),
             updated_by=actor_identifier,
+            energy_out=energy_out,
         )
         metadata = _serialize_report_meta(meta)
-        factor_details = _get_energy_emissions_factor_details(con, int(job_id))
+        factor_details = energy_out.get("factor_details") or {}
     return {
         "job_id": int(job_id),
         "metadata": metadata,
@@ -2405,9 +2595,7 @@ def save_job_report_metadata(
             updated_by=actor_identifier,
         )
         merged.update(resolved_updates)
-        _sync_energy_inputs_from_scope_rows(con, int(job_id), merged)
-        _sync_renewables_pct_from_kwh(merged)
-        _sync_energy_emissions_from_kwh(con, int(job_id), merged)
+        _, factor_details = _sync_energy_fields(con, int(job_id), merged)
         _sync_datasets_names_from_resolver(con, int(job_id), merged)
         _upsert_report_meta(
             con,
@@ -2417,7 +2605,6 @@ def save_job_report_metadata(
         )
 
         refreshed = _fetch_report_meta_row(con, int(job_id)) or merged
-        factor_details = _get_energy_emissions_factor_details(con, int(job_id))
         after = _serialize_report_meta(refreshed)
         record_audit_event(
             con,
