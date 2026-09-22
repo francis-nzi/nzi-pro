@@ -2006,7 +2006,7 @@ def portal_list_actions(current_user: dict = Depends(portal_user_dep)):
                 a.is_custom,
                 COALESCE(a.status, 'open')  AS status,
                 COALESCE(a.progress, 0)     AS progress,
-                a.target_date,
+                a.target_date::text AS target_date,
                 a.completed_at,
                 a.owner_contact_id,
                 cc.full_name                AS owner_name,
@@ -2097,7 +2097,7 @@ def portal_add_action(
     """Add a new custom action to this client's shared action list."""
     _assert_section_allowed(current_user, "actions")
     _assert_role_allowed(current_user, PORTAL_ROLE_CAN_MANAGE_ACTIONS)
-    from services.report_actions import _resolve_lever_id, ensure_report_actions_schema, list_client_report_actions, normalize_action_term
+    from services.report_actions import normalize_action_target_date, _resolve_lever_id, ensure_report_actions_schema, list_client_report_actions, normalize_action_term
 
     client_db_id = int(current_user["client_db_id"])
     actor = str(current_user.get("email") or current_user.get("full_name") or "portal")
@@ -2139,7 +2139,7 @@ def portal_add_action(
                 str(payload.scope_focus or "").strip() or None,
                 lever_id,
                 sort_order,
-                str(payload.target_date or "").strip() or None,
+                normalize_action_target_date(payload.target_date),
                 int(payload.owner_contact_id) if payload.owner_contact_id else None,
                 actor, actor,
             ],

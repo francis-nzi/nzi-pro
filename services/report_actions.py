@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+import re
 from typing import Any
 
 from fastapi import HTTPException
@@ -211,6 +212,18 @@ def action_term_options() -> list[dict[str, str]]:
 def _clean_text(value: Any) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def normalize_action_target_date(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", text):
+            raise ValueError("Invalid date format")
+        return date.fromisoformat(text).isoformat()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Target date must be a valid date with a four-digit year (YYYY-MM-DD)")
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -893,7 +906,7 @@ def list_client_report_actions(client_db_id: int, *, con=None) -> list[dict[str,
           a.updated_at,
           COALESCE(a.status, 'open')    AS status,
           COALESCE(a.progress, 0)       AS progress,
-          a.target_date,
+          a.target_date::text AS target_date,
           a.completed_at,
           a.owner_contact_id,
           cc.full_name                  AS owner_name,
@@ -967,7 +980,7 @@ def replace_client_report_actions(
     state_snapshot: dict[int, dict[str, Any]] = {}
     existing_rows = con.execute(
         """
-        SELECT client_action_id, status, progress, target_date, completed_at, owner_contact_id
+        SELECT client_action_id, status, progress, target_date::text AS target_date, completed_at, owner_contact_id
         FROM client_report_actions WHERE client_db_id = %s
         """,
         [int(client_db_id)],
@@ -1054,7 +1067,7 @@ def replace_client_report_actions(
                 "sort_order": _safe_int(raw_dict.get("sort_order"), (idx + 1) * 10),
                 "status": saved_state["status"] if saved_state else str(raw_dict.get("status") or "open"),
                 "progress": saved_state["progress"] if saved_state else _safe_int(raw_dict.get("progress"), 0),
-                "target_date": saved_state["target_date"] if saved_state else raw_dict.get("target_date"),
+                "target_date": saved_state["target_date"] if saved_state else normalize_action_target_date(raw_dict.get("target_date")),
                 "completed_at": saved_state["completed_at"] if saved_state else None,
                 "owner_contact_id": saved_state["owner_contact_id"] if saved_state else raw_dict.get("owner_contact_id"),
             }
@@ -1182,7 +1195,7 @@ def update_client_action(
 
     existing = con.execute(
         """
-        SELECT client_action_id, status, progress, target_date, completed_at, owner_contact_id,
+        SELECT client_action_id, status, progress, target_date::text AS target_date, completed_at, owner_contact_id,
                action_name, description, action_category, scope_focus, action_term, lever_id
         FROM client_report_actions
         WHERE client_action_id = %s AND client_db_id = %s
@@ -1212,7 +1225,7 @@ def update_client_action(
         new_owner = int(existing[5]) if existing[5] is not None else None
 
     raw_target = payload.get("target_date")
-    new_target = _clean_text(raw_target) if "target_date" in payload else existing[3]
+    new_target = normalize_action_target_date(raw_target) if "target_date" in payload else existing[3]
 
     note = _clean_text(payload.get("note"))
 

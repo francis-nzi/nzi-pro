@@ -395,7 +395,7 @@ function UpdateModal({
   const [status, setStatus] = useState(action.status);
   const [progress, setProgress] = useState(String(action.progress));
   const [note, setNote] = useState("");
-  const [targetDate, setTargetDate] = useState(action.target_date?.slice(0, 10) ?? "");
+  const [targetDate, setTargetDate] = useState((action.target_date && /^\d{4}-\d{2}-\d{2}$/.test(action.target_date) ? action.target_date : ""));
   const [ownerContactId, setOwnerContactId] = useState(
     action.owner_contact_id ? String(action.owner_contact_id) : ""
   );
@@ -542,7 +542,7 @@ function UpdateModal({
 
           <div>
             <label className="mb-1 block text-sm font-medium text-foreground">Target date</label>
-            <Input type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} />
+            <Input type="date" min="0001-01-01" max="9999-12-31" value={targetDate} onChange={e => setTargetDate(e.target.value)} />
           </div>
 
           <div className="sm:col-span-2">
@@ -701,7 +701,7 @@ function AddActionModal({
 
           <div>
             <label className="mb-1 block text-sm font-medium text-foreground">Target date</label>
-            <Input type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} />
+            <Input type="date" min="0001-01-01" max="9999-12-31" value={targetDate} onChange={e => setTargetDate(e.target.value)} />
           </div>
 
           <div className="sm:col-span-2">
@@ -901,11 +901,14 @@ function ActionRow({
 
       <td className="p-2">
         <Input
-          type="date"
-          value={action.target_date?.slice(0, 10) ?? ""}
-          onChange={(e) => void commit({ target_date: e.target.value || null })}
+          type="date" min="0001-01-01" max="9999-12-31"
+          value={(action.target_date && /^\d{4}-\d{2}-\d{2}$/.test(action.target_date) ? action.target_date : "")}
+          onChange={(e) => { if (e.target.validity.valid) void commit({ target_date: e.target.value || null }); }}
           className="h-7 w-full text-xs"
         />
+        {action.target_date && !/^\d{4}-\d{2}-\d{2}$/.test(action.target_date) && (
+          <span className="text-xs text-amber-700">Correct invalid date: {action.target_date}</span>
+        )}
       </td>
 
       <td className="p-2">
@@ -1051,8 +1054,15 @@ export default function PortalActions() {
   const [scopeFilter, setScopeFilter] = useState(ALL);
 
   const loadActions = useCallback(() => {
+    setError("");
     return apiFetch("/portal/actions")
-      .then(r => r.json() as Promise<{ items: Action[] }>)
+      .then(async (response) => {
+        if (!response.ok) {
+          const data = await response.json().catch(() => null);
+          throw new Error(typeof data?.detail === "string" ? data.detail : `Actions could not be loaded (server response ${response.status}). Please retry.`);
+        }
+        return response.json() as Promise<{ items: Action[] }>;
+      })
       .then(d => setActions(d.items ?? []))
       .catch(e => setError((e as Error).message));
   }, []);

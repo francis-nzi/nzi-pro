@@ -27,6 +27,7 @@ _EXISTING_ROW = (
     "Old Category",      # action_category
     "Scope 1",           # scope_focus
     "medium",             # action_term
+    1,                    # lever_id
 )
 
 
@@ -151,3 +152,19 @@ def test_update_client_action_normalizes_action_term(monkeypatch) -> None:
         1, 1, payload={"action_term": "Long term"}, actor="test", source="portal", con=conn,
     )
     assert conn.update_params[9] == "long"
+
+
+def test_update_client_action_rejects_five_digit_target_year(monkeypatch):
+    conn = _FakeConn()
+    _patch_common(monkeypatch, conn)
+    with pytest.raises(HTTPException) as exc:
+        report_actions.update_client_action(1, 1, payload={"target_date":"20230-12-31"}, actor="test", con=conn)
+    assert exc.value.status_code == 400
+    assert conn.update_params is None
+
+
+def test_update_client_action_accepts_valid_target_date(monkeypatch):
+    conn = _FakeConn()
+    _patch_common(monkeypatch, conn)
+    report_actions.update_client_action(1, 1, payload={"target_date":"2030-12-31"}, actor="test", con=conn)
+    assert conn.update_params[2] == "2030-12-31"
