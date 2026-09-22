@@ -1455,6 +1455,25 @@ def _period_calendar_months(resolution: Mapping[str, Any] | None) -> list[int]:
     return months
 
 
+def _scope_2_dataset_months(resolution: Mapping[str, Any] | None) -> dict[int, list[int]]:
+    """Which calendar months each Scope 2 dataset covers.
+
+    Lets a row entered as an annual total be attributed to its own dataset's
+    months rather than smeared across the whole period, so it ends up priced
+    at the factor Data Entry already shows against it.
+    """
+    out: dict[int, list[int]] = {}
+    for month_record in (resolution or {}).get("months") or []:
+        month_idx = _calendar_month_from_resolution_record(month_record)
+        if month_idx is None:
+            continue
+        raw_dataset = (month_record.get("scope_datasets") or {}).get("Scope 2")
+        if raw_dataset is None:
+            continue
+        out.setdefault(int(raw_dataset), []).append(month_idx)
+    return out
+
+
 def _blend_monthly_factor(
     month_factors: Mapping[int, float],
     month_weights: Mapping[int, float] | None = None,
@@ -1640,9 +1659,14 @@ def _allocate_quantity_to_months(
 
     Uses the row's own month_1..month_12 split when it has one (month_N is
     calendar-indexed, 1 = January), rescaled so the parts add back up to
-    effective_qty even where qty and the monthly columns disagree. A row
-    entered as an annual total only is spread evenly over the reporting
-    period, which leaves it with the unweighted blend it has always had.
+    effective_qty even where qty and the monthly columns disagree.
+
+    A row entered as an annual total carries no timing information, so the
+    caller passes the months of the row's own dataset as `period_months` and
+    it is spread evenly across those. That reproduces the factor Data Entry
+    puts against such a row -- its stored one, taken from that dataset -- so
+    the report block and the grid agree. Spreading it across the whole
+    reporting period instead would price a 2025 row partly at 2026 factors.
     """
     month_values: dict[int, float] = {}
     monthly_total = 0.0
@@ -1668,12 +1692,26 @@ def _accumulate_months(target: dict[int, float], additions: Mapping[int, float])
         target[int(month_idx)] = target.get(int(month_idx), 0.0) + float(value)
 
 
+def _row_fallback_months(
+    row: Mapping[str, Any],
+    dataset_months: Mapping[int, Sequence[int]],
+    period_months: Sequence[int],
+) -> Sequence[int]:
+    """Months to spread a row with no monthly split across."""
+    try:
+        dataset_id = int(row.get("dataset_id"))
+    except (TypeError, ValueError):
+        return period_months
+    return dataset_months.get(dataset_id) or period_months
+
+
 def _derive_energy_kwh_from_scope_rows(
     con,
     job_id: int,
-    period_months: Sequence[int] | None = None,
+    resolution: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    period_months = [int(m) for m in (period_months or []) if m] or list(range(1, 13))
+    period_months = _period_calendar_months(resolution) or list(range(1, 13))
+    dataset_months = _scope_2_dataset_months(resolution)
     parts = _job_scope_rows_select_parts(con)
     default_scope_2_country = _get_job_primary_scope_country(con, int(job_id), "Scope 2")
     rows = con.execute(
@@ -1755,7 +1793,9 @@ def _derive_energy_kwh_from_scope_rows(
         is_non_uk = bool(
             dataset_country and not _is_uk_country(dataset_country) and not _is_global_country(dataset_country)
         )
-        month_split = _allocate_quantity_to_months(row, effective_qty, period_months)
+        month_split = _allocate_quantity_to_months(
+            row, effective_qty, _row_fallback_months(row, dataset_months, period_months)
+        )
         if is_non_uk:
             non_uk_kwh += effective_qty
             _accumulate_months(non_uk_kwh_by_month, month_split)
@@ -1803,6 +1843,7 @@ def _derive_energy_kwh_from_scope_rows(
                 COALESCE(js.source_name, g.group_name, js.category) AS column_text,
                 js.qty,
                 js.apply_pct,
+                COALESCE(g.dataset_id, js.dataset_id) AS dataset_id,
                 d.country AS dataset_country
             FROM job_emission_sources js
             LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
@@ -1857,7 +1898,9 @@ def _derive_energy_kwh_from_scope_rows(
             is_non_uk = bool(
                 dataset_country and not _is_uk_country(dataset_country) and not _is_global_country(dataset_country)
             )
-            month_split = _allocate_quantity_to_months(row, effective_qty, period_months)
+            month_split = _allocate_quantity_to_months(
+                row, effective_qty, _row_fallback_months(row, dataset_months, period_months)
+            )
             if is_non_uk:
                 non_uk_kwh += effective_qty
                 _accumulate_months(non_uk_kwh_by_month, month_split)
@@ -1991,9 +2034,7 @@ def _sync_energy_emissions_from_kwh(
     renewable_kwh = min(renewable_kwh, total_kwh)
 
     if derived is None:
-        derived = _derive_energy_kwh_from_scope_rows(
-            con, int(job_id), period_months=_period_calendar_months(resolution)
-        )
+        derived = _derive_energy_kwh_from_scope_rows(con, int(job_id), resolution=resolution)
 
     weights = {
         "uk_total": derived.get("uk_kwh_by_month") or {},
@@ -2063,9 +2104,7 @@ def _sync_energy_fields(con, job_id: int, meta: dict[str, Any]) -> tuple[bool, d
         logger.debug("Failed to resolve dataset resolution for energy sync; defaulting to empty resolution", exc_info=True)
         resolution = {}
 
-    derived = _derive_energy_kwh_from_scope_rows(
-        con, int(job_id), period_months=_period_calendar_months(resolution)
-    )
+    derived = _derive_energy_kwh_from_scope_rows(con, int(job_id), resolution=resolution)
 
     changed = _sync_energy_inputs_from_scope_rows(con, int(job_id), meta, derived=derived)
     if _sync_renewables_pct_from_kwh(meta):

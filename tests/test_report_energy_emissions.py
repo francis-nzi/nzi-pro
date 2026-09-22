@@ -68,10 +68,35 @@ def test_allocation_follows_the_rows_monthly_split():
     assert split == {9: pytest.approx(200.0), 10: pytest.approx(600.0)}
 
 
-def test_allocation_spreads_annual_only_rows_over_the_period():
+def test_allocation_spreads_annual_only_rows_over_the_months_it_is_given():
     split = rtr._allocate_quantity_to_months({"qty": 1200.0}, 1200.0, [5, 6, 7, 8])
 
     assert split == {5: 300.0, 6: 300.0, 7: 300.0, 8: 300.0}
+
+
+def test_annual_only_rows_fall_back_to_their_own_datasets_months():
+    # A May-Apr period: dataset 1 covers May-Dec, dataset 69 covers Jan-Apr.
+    dataset_months = {1: [5, 6, 7, 8, 9, 10, 11, 12], 69: [1, 2, 3, 4]}
+    period = list(range(1, 13))
+
+    assert rtr._row_fallback_months({"dataset_id": 1}, dataset_months, period) == [5, 6, 7, 8, 9, 10, 11, 12]
+    assert rtr._row_fallback_months({"dataset_id": 69}, dataset_months, period) == [1, 2, 3, 4]
+    # Unknown or missing dataset: nothing better than the whole period.
+    assert rtr._row_fallback_months({"dataset_id": None}, dataset_months, period) == period
+    assert rtr._row_fallback_months({"dataset_id": 999}, dataset_months, period) == period
+
+
+def test_scope_2_dataset_months_inverts_the_resolution():
+    resolution = {
+        "months": [
+            {"date": "2025-05-01", "scope_datasets": {"Scope 2": 1}},
+            {"date": "2025-12-01", "scope_datasets": {"Scope 2": 1}},
+            {"date": "2026-01-01", "scope_datasets": {"Scope 2": 69}},
+        ]
+    }
+
+    assert rtr._scope_2_dataset_months(resolution) == {1: [5, 12], 69: [1]}
+    assert rtr._period_calendar_months(resolution) == [5, 12, 1]
 
 
 # ── T&D exclusion ────────────────────────────────────────────────────────
@@ -115,14 +140,15 @@ def test_renewable_kwh_is_grid_rated_for_location_but_zero_rated_for_market(monk
 # ── Reconciliation with Data Entry ───────────────────────────────────────
 
 
-def test_market_based_matches_data_entry_when_grid_draw_sits_in_one_factor_year(monkeypatch):
-    """Job 699's shape: a May-Apr period spanning two factor years, 18,785.5 kWh
-    of green tariff across all 12 months and 2,353.5 kWh of grid draw confined
-    to four months that all fall in the 2025 dataset.
+def test_market_based_matches_data_entry_for_an_annual_only_grid_row(monkeypatch):
+    """Job 699's real shape: a May-Apr period spanning two factor years, with
+    18,785.5 kWh of green tariff split across all 12 months and 2,353.5 kWh of
+    grid draw entered as an annual total against the 2025 dataset.
 
-    Data Entry prices that grid row at a flat 0.177, so the market-based box has
-    to land on the same 0.4166 -- it must not be diluted by 2026 factors from
-    months where only renewable kWh was drawn.
+    Data Entry prices that annual-only row at its stored factor, a flat 0.177,
+    giving 0.4166. The market-based box has to land on the same number, so the
+    row's kWh must be attributed to its own dataset's months rather than smeared
+    across a period that is a third 2026.
     """
     _patch_factor_samples(
         monkeypatch,
@@ -131,15 +157,24 @@ def test_market_based_matches_data_entry_when_grid_draw_sits_in_one_factor_year(
         ),
     )
 
-    renewable_per_month = 18785.5 / 12
-    grid_per_month = 2353.5 / 4  # Sep-Dec 2025
-    uk_by_month = {
-        m: renewable_per_month + (grid_per_month if m in (9, 10, 11, 12) else 0.0)
-        for m in range(1, 13)
-    }
+    dataset_months = {1: list(range(5, 13)), 69: [1, 2, 3, 4]}
+    period = list(range(1, 13))
+
+    # The grid row: annual total only, anchored to the 2025 dataset.
+    grid_split = rtr._allocate_quantity_to_months(
+        {"dataset_id": 1, "qty": 2353.5},
+        2353.5,
+        rtr._row_fallback_months({"dataset_id": 1}, dataset_months, period),
+    )
+    assert sorted(grid_split) == list(range(5, 13))
+
+    # The renewable row: a real 12-month split.
+    renewable_split = {m: 18785.5 / 12 for m in range(1, 13)}
+
+    uk_by_month = {m: renewable_split[m] + grid_split.get(m, 0.0) for m in range(1, 13)}
     derived = {
         "uk_kwh_by_month": uk_by_month,
-        "uk_grid_kwh_by_month": {m: (grid_per_month if m in (9, 10, 11, 12) else 0.0) for m in range(1, 13)},
+        "uk_grid_kwh_by_month": grid_split,
         "non_uk_kwh_by_month": {},
         "non_uk_grid_kwh_by_month": {},
     }
