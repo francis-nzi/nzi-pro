@@ -25,6 +25,8 @@ type JobReportVariablesSectionProps = {
   onValueChange: (fieldKey: string, nextValue: string) => void;
   onSave: () => void;
   hasFields: boolean;
+  /** Job is closed: auto-generated fields are held as reported, not recomputed. */
+  frozen?: boolean;
 };
 
 function ConsultantCombobox({
@@ -211,6 +213,7 @@ export default function JobReportVariablesSection({
   onValueChange,
   onSave,
   hasFields,
+  frozen = false,
 }: JobReportVariablesSectionProps) {
   return (
     <Card id="report-variables-section">
@@ -223,6 +226,14 @@ export default function JobReportVariablesSection({
           data quality, targets, and other one-to-one placeholders. Template-specific section commentary lives in
           <strong> Report - Variables</strong>.
         </div>
+
+        {frozen ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+            This job is closed, so its auto-generated figures are <strong>held exactly as last reported</strong>.
+            They are no longer recalculated from current data or emission factors, so they continue to match the
+            report issued to the client. Reopen the job to resume automatic updates.
+          </div>
+        ) : null}
 
         {!hasFields ? (
           <div className="text-sm text-muted-foreground">No report metadata variables available for this job.</div>
@@ -239,9 +250,15 @@ export default function JobReportVariablesSection({
                     <Label htmlFor={`setup-report-meta-${field.key}`} className="flex items-center gap-2">
                       {field.label}
                       {AUTO_REPORT_METADATA_FIELDS.has(field.key) ? (
-                        <span className="rounded bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
-                          Auto-generated
-                        </span>
+                        frozen ? (
+                          <span className="rounded bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800">
+                            Held as reported
+                          </span>
+                        ) : (
+                          <span className="rounded bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
+                            Auto-generated
+                          </span>
+                        )
                       ) : null}
                     </Label>
                     {renderFieldInput(field, fieldValues[field.key] ?? "", consultantOptions, onValueChange)}

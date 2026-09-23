@@ -2091,6 +2091,42 @@ def _sync_energy_emissions_from_kwh(
     return changed, factor_details
 
 
+# Job statuses whose report metadata is held exactly as it was last saved.
+# A closed job's figures have been reported to the client; recomputing them
+# from current factors or current rows would silently move numbers that are
+# already out, so every automatic sync is skipped for these.
+FROZEN_JOB_STATUSES = {
+    "closed",
+    "completed",
+    "job closed - all reports, invoices and support completed",
+}
+
+
+def _job_report_metadata_frozen(
+    con,
+    job_id: int,
+    existing_meta: Mapping[str, Any] | None = None,
+) -> bool:
+    """Whether this job's derived report metadata must be left alone.
+
+    Only jobs that already have stored metadata are frozen. A closed job that
+    has never had its report metadata built has nothing to preserve, and
+    leaving it permanently blank would be worse than populating it once.
+    """
+    if not existing_meta:
+        return False
+
+    try:
+        row = con.execute("SELECT status FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
+    except Exception:
+        logger.debug("Failed to read job status for report metadata freeze; treating as not frozen", exc_info=True)
+        return False
+
+    if not row or row[0] is None:
+        return False
+    return str(row[0]).strip().lower() in FROZEN_JOB_STATUSES
+
+
 def _sync_energy_fields(con, job_id: int, meta: dict[str, Any]) -> tuple[bool, dict[str, float]]:
     """Refresh every derived energy field on `meta` in one pass.
 
@@ -2461,8 +2497,8 @@ def _ensure_job_report_meta(
     energy_out: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Pass `energy_out` to receive the resolved electricity factors under
-    "factor_details" -- routes that report them alongside the metadata would
-    otherwise have to resolve them all over again."""
+    "factor_details" and the freeze state under "frozen" -- routes that report
+    them alongside the metadata would otherwise have to work them out again."""
     _ensure_report_metadata_table(con)
     defaults = _build_default_report_meta(con, int(job_id))
     existing = _fetch_report_meta_row(con, int(job_id))
@@ -2479,22 +2515,27 @@ def _ensure_job_report_meta(
         else:
             merged[key] = stored_value
 
-    energy_changed, energy_factor_details = _sync_energy_fields(con, int(job_id), merged)
-    if energy_changed:
-        changed = True
+    frozen = _job_report_metadata_frozen(con, int(job_id), existing)
     if energy_out is not None:
-        energy_out["factor_details"] = energy_factor_details
+        energy_out["frozen"] = frozen
 
-    if _sync_datasets_names_from_resolver(con, int(job_id), merged):
-        changed = True
+    if not frozen:
+        energy_changed, energy_factor_details = _sync_energy_fields(con, int(job_id), merged)
+        if energy_changed:
+            changed = True
+        if energy_out is not None:
+            energy_out["factor_details"] = energy_factor_details
 
-    # Sync employee_number from intensity_metrics (employees.value) whenever metadata is accessed
-    if _sync_employee_number_from_intensity_metrics(con, int(job_id), merged):
-        changed = True
+        if _sync_datasets_names_from_resolver(con, int(job_id), merged):
+            changed = True
 
-    # Sync premises and vehicles from intensity_metrics whenever metadata is accessed
-    if _sync_reporting_elements_from_intensity_metrics(con, int(job_id), merged):
-        changed = True
+        # Sync employee_number from intensity_metrics (employees.value) whenever metadata is accessed
+        if _sync_employee_number_from_intensity_metrics(con, int(job_id), merged):
+            changed = True
+
+        # Sync premises and vehicles from intensity_metrics whenever metadata is accessed
+        if _sync_reporting_elements_from_intensity_metrics(con, int(job_id), merged):
+            changed = True
 
     if changed:
         _upsert_report_meta(con, int(job_id), merged, updated_by)
@@ -2591,6 +2632,10 @@ def get_job_report_metadata(job_id: int, _user: dict = Depends(_current_user)):
         "fields": _get_report_metadata_fields(),
         "placeholder_key_map": dict(REPORT_METADATA_LABELS),
         "energy_emissions_factors": factor_details,
+        # Frozen metadata is served exactly as stored. The client must not
+        # recompute the derived energy fields over it, or a closed job would
+        # display figures that differ from the report already issued.
+        "metadata_frozen": bool(energy_out.get("frozen")),
     }
 
 
@@ -2625,6 +2670,7 @@ def save_job_report_metadata(
             },
         )
 
+    energy_out: dict[str, Any] = {}
     with get_conn() as con:
         _get_job_client_id(con, int(job_id))
         before = _serialize_report_meta(_fetch_report_meta_row(con, int(job_id)) or {})
@@ -2632,10 +2678,15 @@ def save_job_report_metadata(
             con,
             int(job_id),
             updated_by=actor_identifier,
+            energy_out=energy_out,
         )
         merged.update(resolved_updates)
-        _, factor_details = _sync_energy_fields(con, int(job_id), merged)
-        _sync_datasets_names_from_resolver(con, int(job_id), merged)
+        # A frozen job still accepts deliberate edits -- what it must not do is
+        # let a save quietly recompute the derived fields underneath them.
+        factor_details = energy_out.get("factor_details") or {}
+        if not energy_out.get("frozen"):
+            _, factor_details = _sync_energy_fields(con, int(job_id), merged)
+            _sync_datasets_names_from_resolver(con, int(job_id), merged)
         _upsert_report_meta(
             con,
             int(job_id),
@@ -2657,6 +2708,7 @@ def save_job_report_metadata(
             after=after,
             metadata={
                 "updated_keys": sorted(list(resolved_updates.keys())),
+                "metadata_frozen": bool(energy_out.get("frozen")),
             },
         )
 
@@ -2665,6 +2717,7 @@ def save_job_report_metadata(
         "metadata": _serialize_report_meta(refreshed),
         "updated_keys": sorted(list(resolved_updates.keys())),
         "energy_emissions_factors": factor_details,
+        "metadata_frozen": bool(energy_out.get("frozen")),
     }
 
 

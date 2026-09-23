@@ -345,6 +345,9 @@ export default function JobDetailPage() {
   const [reportMetadataApiUnavailable, setReportMetadataApiUnavailable] = useState<boolean>(false);
   const [reportMetadataEnergyFactors, setReportMetadataEnergyFactors] =
     useState<EnergyEmissionFactorDetails | null>(null);
+  // Closed jobs serve their report metadata exactly as stored; the derived
+  // energy fields must not be recomputed over figures already reported.
+  const [reportMetadataFrozen, setReportMetadataFrozen] = useState<boolean>(false);
   const [loadingSetupMilestones, setLoadingSetupMilestones] = useState<boolean>(false);
   const scopeCardRef = useRef<JobScopeCardHandle>(null);
   const [loadingScopeConfig, setLoadingScopeConfig] = useState<boolean>(false);
@@ -423,6 +426,7 @@ export default function JobDetailPage() {
       setReportMetadataFields,
       setReportMetadataValues,
       setReportMetadataEnergyFactors,
+      setReportMetadataFrozen,
       setReportMetadataStatus,
     }),
     [
@@ -472,6 +476,7 @@ export default function JobDetailPage() {
       setReportMetadataFields,
       setReportMetadataValues,
       setReportMetadataEnergyFactors,
+      setReportMetadataFrozen,
       setReportMetadataStatus,
     ]
   );
@@ -509,6 +514,7 @@ export default function JobDetailPage() {
     reportMetadataValues,
     setReportMetadataValues,
     reportMetadataEnergyFactors,
+    reportMetadataFrozen,
     teamMembers,
     datasets,
     scopeEffectiveDatasetIds,
@@ -671,6 +677,7 @@ export default function JobDetailPage() {
     setReportMetadataApiUnavailable,
     setReportMetadataValues,
     setReportMetadataEnergyFactors: setReportMetadataEnergyFactors as React.Dispatch<React.SetStateAction<unknown>>,
+    setReportMetadataFrozen,
     setScopeConfigMode,
     setScopeConfigWarnings,
     setScopeAutoResolution: setScopeAutoResolution as React.Dispatch<React.SetStateAction<unknown>>,

@@ -34,6 +34,7 @@ export default function ReportVariablesPanel({ jobId, baseUrl }: ReportVariables
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
   const [apiUnavailable, setApiUnavailable] = useState(false);
+  const [frozen, setFrozen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -65,6 +66,7 @@ export default function ReportVariablesPanel({ jobId, baseUrl }: ReportVariables
             const payload = await metaRes.json() as {
               fields?: ReportMetadataField[];
               metadata?: Record<string, unknown>;
+              metadata_frozen?: boolean;
             };
             const rawFields = Array.isArray(payload?.fields) ? payload.fields : [];
             const filtered = rawFields.filter((f) =>
@@ -79,6 +81,7 @@ export default function ReportVariablesPanel({ jobId, baseUrl }: ReportVariables
               values.client_signature_date = values.consultant_signature_date;
             }
             setFieldValues(values);
+            setFrozen(Boolean(payload?.metadata_frozen));
           } else if (metaRes.status === 404) {
             setApiUnavailable(true);
             setFields(JOB_SETUP_METADATA_FALLBACK_FIELDS);
@@ -170,6 +173,7 @@ export default function ReportVariablesPanel({ jobId, baseUrl }: ReportVariables
       })}
       onSave={() => void handleSave()}
       hasFields={fields.length > 0}
+      frozen={frozen}
     />
   );
 }

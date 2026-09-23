@@ -177,6 +177,7 @@ type JobWorkspaceDataEffectArgs = {
     setReportMetadataFields: Setter<ReportMetadataField[]>;
     setReportMetadataValues: Setter<Record<string, string>>;
     setReportMetadataEnergyFactors: Setter<EnergyEmissionFactorDetails | null>;
+    setReportMetadataFrozen: Setter<boolean>;
     setReportMetadataStatus: Setter<string>;
   };
 };
@@ -680,6 +681,7 @@ export default function useJobWorkspaceData({
         setters.setReportMetadataEnergyFactors(
           (payload?.energy_emissions_factors || null) as EnergyEmissionFactorDetails | null
         );
+        setters.setReportMetadataFrozen(Boolean(payload?.metadata_frozen));
       } catch (e) {
         const fallbackMetadata = await loadFallbackMetadataValuesFromReportData();
         if (cancelled) return;
@@ -690,6 +692,7 @@ export default function useJobWorkspaceData({
           buildMetadataFieldValues(JOB_SETUP_METADATA_FALLBACK_FIELDS, fallbackMetadata)
         );
         setters.setReportMetadataEnergyFactors(null);
+        setters.setReportMetadataFrozen(false);
         setters.setReportMetadataStatus(
           `Unable to load report metadata endpoint (${(e as Error).message}). Showing fallback fields only.`
         );

@@ -64,6 +64,7 @@ type DerivedDeps = {
   reportMetadataValues: Record<string, string>;
   setReportMetadataValues: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   reportMetadataEnergyFactors: unknown;
+  reportMetadataFrozen: boolean;
   teamMembers: TeamMember[];
   datasets: Dataset[];
   scopeEffectiveDatasetIds: Record<ScopeKey, string>;
@@ -159,6 +160,7 @@ export default function useJobWorkspaceDerivedState({
   reportMetadataValues,
   setReportMetadataValues,
   reportMetadataEnergyFactors,
+  reportMetadataFrozen,
   teamMembers,
   datasets,
   scopeEffectiveDatasetIds,
@@ -281,6 +283,11 @@ export default function useJobWorkspaceDerivedState({
   }, [matchedConsultant, setReportMetadataValues]);
 
   useEffect(() => {
+    // A closed job's figures were reported to the client under whatever rules
+    // and factors applied at the time. Leave them exactly as stored rather than
+    // recomputing them from today's, which would show a number that no longer
+    // matches the report already issued.
+    if (reportMetadataFrozen) return;
     setReportMetadataValues((prev) => {
       const nextLocation = derivedEnergyMetadataValues["energy_emissions_tco2e"] ?? "0";
       const nextMarket = derivedEnergyMetadataValues["energy_emissions_market_tco2e"] ?? "0";
@@ -296,7 +303,7 @@ export default function useJobWorkspaceDerivedState({
         energy_emissions_market_tco2e: nextMarket,
       };
     });
-  }, [derivedEnergyMetadataValues, setReportMetadataValues]);
+  }, [derivedEnergyMetadataValues, reportMetadataFrozen, setReportMetadataValues]);
 
   const unresolvedScopeCount = scopeAutoResolution?.unresolved_scopes?.length ?? 0;
   const selectedFallbackDatasetCount = useMemo(

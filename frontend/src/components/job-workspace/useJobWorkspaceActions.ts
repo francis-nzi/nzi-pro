@@ -77,6 +77,7 @@ type ActionDeps = {
   setReportMetadataApiUnavailable: React.Dispatch<React.SetStateAction<boolean>>;
   setReportMetadataValues: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   setReportMetadataEnergyFactors: React.Dispatch<React.SetStateAction<unknown>>;
+  setReportMetadataFrozen: React.Dispatch<React.SetStateAction<boolean>>;
   setScopeConfigMode: React.Dispatch<React.SetStateAction<string>>;
   setScopeConfigWarnings: React.Dispatch<React.SetStateAction<string[]>>;
   setScopeAutoResolution: React.Dispatch<React.SetStateAction<unknown>>;
@@ -127,6 +128,7 @@ export default function useJobWorkspaceActions(deps: ActionDeps) {
     setReportMetadataApiUnavailable,
     setReportMetadataValues,
     setReportMetadataEnergyFactors,
+    setReportMetadataFrozen,
     setScopeConfigMode,
     setScopeConfigWarnings,
     setScopeAutoResolution,
@@ -212,6 +214,7 @@ export default function useJobWorkspaceActions(deps: ActionDeps) {
         buildMetadataFieldValues(reportMetadataFieldsForSetup, updatedMetadata)
       );
       setReportMetadataEnergyFactors((payload?.energy_emissions_factors || null) as unknown);
+      setReportMetadataFrozen(Boolean(payload?.metadata_frozen));
 
       setReportMetadataStatus("Job setup report variables saved successfully.");
       setTimeout(() => setReportMetadataStatus(""), 3000);
