@@ -408,6 +408,44 @@ def _factor_by_id(con, factor_db_id: int) -> dict[str, Any] | None:
     }
 
 
+def _spend_factor_original_id(con, stored_original_id: Any, factor_db_id: int) -> str:
+    """The dataset original_id that identifies a spend row's factor.
+
+    Prefers the id stored on the spend entry and falls back to resolving it
+    from the factor's database id. Returns "" when neither resolves, which the
+    caller treats as unmappable rather than inventing an id for it.
+    """
+    stored = str(stored_original_id or "").strip()
+    if stored:
+        return stored
+    factor = _factor_by_id(con, int(factor_db_id))
+    return str((factor or {}).get("original_id") or "").strip()
+
+
+def _spend_held_for_review(con, job_id: int) -> dict[str, Any]:
+    """Mapped spend the push must skip because portal review hasn't approved it."""
+    row = con.execute(
+        """
+        SELECT COUNT(*), COALESCE(SUM(amount_net), 0), COALESCE(SUM(amount_gross), 0)
+        FROM job_spend_entries
+        WHERE job_id = %s
+          AND COALESCE(is_deleted, FALSE) = FALSE
+          AND factor_db_id IS NOT NULL
+          AND mapped_scope IS NOT NULL
+          AND submitted_by_portal = TRUE
+          AND COALESCE(review_status, '') <> 'approved'
+        """,
+        [int(job_id)],
+    ).fetchone()
+    if not row:
+        return {"rows": 0, "amount_net": 0.0, "amount_gross": 0.0}
+    return {
+        "rows": int(row[0] or 0),
+        "amount_net": round(_safe_float(row[1], 0.0), 2),
+        "amount_gross": round(_safe_float(row[2], 0.0), 2),
+    }
+
+
 def _factor_by_original_id(con, original_id: str) -> dict[str, Any] | None:
     """Fallback lookup by original_id when db_id is stale (e.g. after dataset re-import)."""
     category_expr = _factor_category_expr(con)
@@ -2323,21 +2361,45 @@ def sync_spend_to_scope_data(
             [int(job_id)],
         ).df()
 
-        if spend_df is None or spend_df.empty:
-            return {"ok": True, "created": 0, "updated": 0, "deactivated": 0, "processed": 0}
+        held_for_review = _spend_held_for_review(con, int(job_id))
 
-        # Aggregate by (scope, factor_db_id, site_id) → one scope row per category
+        if spend_df is None or spend_df.empty:
+            return {
+                "ok": True,
+                "created": 0,
+                "updated": 0,
+                "deactivated": 0,
+                "processed": 0,
+                "conflicts": [],
+                "held_for_review": held_for_review,
+            }
+
+        # Aggregate by (scope, factor original_id, site_id) -- one scope row per
+        # factor per site.
+        #
+        # The identity is the dataset's own original_id, never the factor's
+        # database id. The same factor carries a different db_id in each
+        # dataset year (SPEND-SIC-50-d is 102807 in the 2025 dataset and
+        # 102806 in the 2026 one), so keying on db_id made one factor look
+        # like two and pushed a second row for it. It also meant a pushed row
+        # could never be recognised as the same thing as a row added from the
+        # factor library, which carries the real original_id -- that is how
+        # job 663 ended up counting the same spend twice.
         groups: dict[tuple, dict[str, Any]] = {}
         for _, row in spend_df.iterrows():
             scope = str(row.get("mapped_scope") or "").strip()
             factor_db_id = _safe_optional_int(row.get("factor_db_id"))
             if not scope or not factor_db_id:
                 continue
+            original_id = _spend_factor_original_id(con, row.get("factor_original_id"), factor_db_id)
+            if not original_id:
+                continue
             site_id = _safe_optional_int(row.get("site_id"))
-            key = (scope, factor_db_id, site_id)
+            key = (scope, original_id, site_id)
             if key not in groups:
                 groups[key] = {
                     "scope": scope,
+                    "original_id": original_id,
                     "factor_db_id": factor_db_id,
                     "site_id": site_id,
                     "amount_gross": 0.0,
@@ -2349,30 +2411,23 @@ def sync_spend_to_scope_data(
                 }
             groups[key]["amount_gross"] += _safe_float(row.get("amount_gross"), 0.0)
 
-        # A pushed row is identified by original_id *and* site_id, not by
-        # original_id alone: rows pushed before the "-S<site>" suffix existed
-        # carry a bare SPEND-F<factor> id together with a real site_id, which
-        # is exactly the id a site-less group generates today. Keying the
-        # deactivation sweep below on the id alone therefore spared those rows
-        # whenever a job's entries lost their site -- the new site-less row was
-        # created alongside the old site-tagged one and the job counted the
-        # same spend twice.
+        # A pushed row is identified by (original_id, site_id): one row per
+        # factor per site. -1 stands in for NULL so the pair compares without
+        # NULL semantics.
         active_row_keys: list[tuple[str, int]] = []
+        conflicts: list[dict[str, Any]] = []
         created = 0
         updated = 0
 
-        for (scope, factor_db_id_key, site_id), grp in groups.items():
-            # original_id encodes factor (and site if present) so each category gets one row
-            if site_id is not None:
-                original_id = f"SPEND-F{factor_db_id_key}-S{site_id}"
-            else:
-                original_id = f"SPEND-F{factor_db_id_key}"
-            # -1 stands in for NULL so the pair compares without NULL semantics.
-            active_row_keys.append((original_id, site_id if site_id is not None else -1))
+        for (scope, original_id, site_id), grp in groups.items():
+            row_key = (original_id, site_id if site_id is not None else -1)
 
+            factor_db_id_key = grp["factor_db_id"]
             factor = _factor_by_id(con, factor_db_id_key)
             if not factor:
                 continue
+
+            active_row_keys.append(row_key)
 
             amount = grp["amount_gross"]
             factor_value = _safe_float(factor.get("factor"), 0.0)
@@ -2393,21 +2448,56 @@ def sync_spend_to_scope_data(
             data_conf = _confidence_to_hml(grp.get("mapping_confidence"))
             currency = grp["currency"]
 
-            existing = con.execute(
+            # Match on identity alone -- (job, scope, original_id, site) --
+            # not on data_source. Filtering to 'Spend Data' here meant a row
+            # added by hand for the same factor was invisible to the push,
+            # which then inserted a second row for it.
+            identity_rows = con.execute(
                 """
-                SELECT row_id
+                SELECT row_id, COALESCE(data_source, '') AS data_source
                 FROM job_scope_rows
                 WHERE job_id = %s
                   AND scope = %s
                   AND original_id = %s
                   AND site_id IS NOT DISTINCT FROM %s
-                  AND COALESCE(data_source, '') = 'Spend Data'
                   AND COALESCE(enabled, TRUE) = TRUE
                 ORDER BY row_id
-                LIMIT 1
                 """,
                 [int(job_id), scope, original_id, site_id],
-            ).fetchone()
+            ).fetchall()
+
+            manual_rows = [r for r in identity_rows if str(r[1]) != "Spend Data"]
+            spend_rows = [r for r in identity_rows if str(r[1]) == "Spend Data"]
+            existing = spend_rows[0] if spend_rows else None
+
+            if manual_rows:
+                # Drop the key again so the sweep below deactivates any spend
+                # row still sitting beside the manual one, rather than leaving
+                # both enabled and counting the spend twice.
+                if active_row_keys and active_row_keys[-1] == row_key:
+                    active_row_keys.pop()
+                existing = manual_rows[0]
+                # A row entered through CRM Data Entry owns this factor for
+                # this site. Spend must not overwrite it and must not push a
+                # second copy alongside it -- flag it for a human instead.
+                conflicts.append(
+                    {
+                        "row_id": int(existing[0]),
+                        "scope": scope,
+                        "site_id": site_id,
+                        "original_id": original_id,
+                        "report_label": report_label,
+                        "category": category,
+                        "existing_data_source": str(existing[1]) or "Company Data",
+                        "spend_amount": round(float(amount), 2),
+                        "reason": (
+                            "A manually entered row already exists for this factor and site. "
+                            "Remove or disable it to push the spend figure, or leave the spend "
+                            "row out if the manual row is the one you want to report."
+                        ),
+                    }
+                )
+                continue
 
             if existing:
                 con.execute(
@@ -2479,7 +2569,13 @@ def sync_spend_to_scope_data(
 
         deactivated = 0
         if deactivate_missing:
-            spend_pattern = "SPEND-%"
+            # Every spend-pushed row for this job is a candidate. There used
+            # to be an `original_id LIKE 'SPEND-%'` filter here, which only
+            # held while the ids were synthesised as SPEND-F<db_id>. Now that
+            # a pushed row carries the dataset's own original_id, that pattern
+            # would miss any factor not named SPEND-*, stranding it enabled
+            # after its spend mapping was removed. data_source already scopes
+            # this to rows the push owns.
             if active_row_keys:
                 placeholders = ",".join(["(%s, %s)"] * len(active_row_keys))
                 key_params: list[Any] = []
@@ -2492,13 +2588,12 @@ def sync_spend_to_scope_data(
                       SET enabled = FALSE, updated_at = NOW()
                       WHERE job_id = %s
                         AND COALESCE(data_source, '') = 'Spend Data'
-                        AND original_id LIKE %s
                         AND (original_id, COALESCE(site_id, -1)) NOT IN ({placeholders})
                       RETURNING 1
                     )
                     SELECT COUNT(*) FROM updated_rows
                     """,
-                    [int(job_id), spend_pattern] + key_params,
+                    [int(job_id)] + key_params,
                 ).fetchone()
                 deactivated = int(deactivated_row[0] or 0) if deactivated_row else 0
             else:
@@ -2509,12 +2604,11 @@ def sync_spend_to_scope_data(
                       SET enabled = FALSE, updated_at = NOW()
                       WHERE job_id = %s
                         AND COALESCE(data_source, '') = 'Spend Data'
-                        AND original_id LIKE %s
                       RETURNING 1
                     )
                     SELECT COUNT(*) FROM updated_rows
                     """,
-                    [int(job_id), spend_pattern],
+                    [int(job_id)],
                 ).fetchone()
                 deactivated = int(deactivated_row[0] or 0) if deactivated_row else 0
 
@@ -2524,6 +2618,14 @@ def sync_spend_to_scope_data(
         "updated": int(updated),
         "deactivated": int(deactivated),
         "processed": int(created + updated),
+        # Spend rows that could not be pushed because a manually entered row
+        # already owns that factor and site.
+        "conflicts": conflicts,
+        # Mapped spend deliberately left out of the push because it is still
+        # waiting on portal review. The Spend Data screen counts these under
+        # "Mapped", so without this the totals on screen and the rows that
+        # actually landed disagree with nothing to explain the gap.
+        "held_for_review": held_for_review,
         "synced_at": datetime.utcnow().isoformat() + "Z",
         "synced_by": actor,
     }

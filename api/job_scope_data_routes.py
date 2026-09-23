@@ -2428,6 +2428,35 @@ def create_scope_data_row(
                 except (ValueError, TypeError):
                     site_id = None
 
+            # One row per factor per site. The edit/repoint path has enforced
+            # this for a while but creation never did, so the same factor could
+            # be added to a site any number of times and every copy counted
+            # towards the job's total.
+            duplicate = con.execute(
+                """
+                SELECT row_id, COALESCE(data_source, '') AS data_source
+                FROM job_scope_rows
+                WHERE job_id = %s
+                  AND site_id IS NOT DISTINCT FROM %s
+                  AND scope = %s
+                  AND original_id = %s
+                  AND COALESCE(enabled, TRUE) = TRUE
+                ORDER BY row_id
+                LIMIT 1
+                """,
+                [int(job_id), site_id, str(scope), str(original_id)],
+            ).fetchone()
+            if duplicate:
+                source = str(duplicate[1]) or "Company Data"
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"This site already has a row for {original_id} in {scope} "
+                        f"(row_id {int(duplicate[0])}, added from {source}). "
+                        "Edit that row instead, or disable it before adding another."
+                    ),
+                )
+
             # Always resolve the factor from the job's active dataset for this
             # reporting year so stale values from previous-year rows are not
             # carried forward into the new row.

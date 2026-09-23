@@ -117,7 +117,23 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
   } | null>(null);
   const [replaceExisting, setReplaceExisting] = useState(true);
   const [commitResult, setCommitResult] = useState<{ inserted: number; auto_mapped: number } | null>(null);
-  const [syncResult, setSyncResult] = useState<{ created: number; updated: number; deactivated: number } | null>(null);
+  type SyncConflict = {
+    row_id: number;
+    original_id: string;
+    report_label?: string | null;
+    site_id?: number | null;
+    existing_data_source?: string | null;
+    spend_amount?: number | null;
+    reason?: string | null;
+  };
+  type HeldForReview = { rows: number; amount_net: number; amount_gross: number };
+  const [syncResult, setSyncResult] = useState<{
+    created: number;
+    updated: number;
+    deactivated: number;
+    conflicts: SyncConflict[];
+    heldForReview: HeldForReview | null;
+  } | null>(null);
 
   // The row whose mapping picker is open. The job's spend factors (a few
   // hundred at most) load once on first open and are filtered client-side.
@@ -500,7 +516,13 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
       });
       if (!res.ok) throw new Error(`Sync failed (${res.status})`);
       const data = await res.json();
-      setSyncResult({ created: data?.created ?? 0, updated: data?.updated ?? 0, deactivated: data?.deactivated ?? 0 });
+      setSyncResult({
+        created: data?.created ?? 0,
+        updated: data?.updated ?? 0,
+        deactivated: data?.deactivated ?? 0,
+        conflicts: Array.isArray(data?.conflicts) ? (data.conflicts as SyncConflict[]) : [],
+        heldForReview: (data?.held_for_review as HeldForReview | undefined) ?? null,
+      });
       dispatchJobScopeRefresh("spend-data");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Sync failed");
@@ -1033,9 +1055,58 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
             ) : null}
 
             {syncResult ? (
-              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                <strong>✓ Emissions data updated.</strong> Created {syncResult.created}, updated {syncResult.updated},
-                deactivated {syncResult.deactivated} rows.
+              <div className="space-y-3">
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                  <strong>✓ Spend pushed to Data Entry.</strong>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                    <li>
+                      <strong>{syncResult.created}</strong> new emission row(s) added
+                    </li>
+                    <li>
+                      <strong>{syncResult.updated}</strong> existing row(s) had their spend figure refreshed
+                    </li>
+                    <li>
+                      <strong>{syncResult.deactivated}</strong> row(s) switched off — spend rows from a previous push
+                      that no longer match any mapped spend, so they are no longer counted
+                    </li>
+                  </ul>
+                </div>
+
+                {syncResult.heldForReview && syncResult.heldForReview.rows > 0 ? (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    <strong>
+                      {syncResult.heldForReview.rows} mapped row(s) were not pushed — awaiting portal review.
+                    </strong>{" "}
+                    They account for {`GBP ${(syncResult.heldForReview.amount_net ?? 0).toLocaleString()}`} of spend and are
+                    still counted in the Mapped and Est. tCO₂e totals above, so those totals are higher than what
+                    actually reached Data Entry. Approve them in the portal review queue to include them.
+                  </div>
+                ) : null}
+
+                {syncResult.conflicts.length > 0 ? (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+                    <strong>
+                      {syncResult.conflicts.length} row(s) were refused — a manually entered row already covers that
+                      factor and site.
+                    </strong>
+                    <p className="mt-1">
+                      Nothing was overwritten and no duplicate was created. Review each one and either remove the
+                      manual row so the spend figure can push, or leave it if the manual row is the one to report.
+                    </p>
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                      {syncResult.conflicts.map((c) => (
+                        <li key={`${c.original_id}-${c.row_id}`}>
+                          <span className="font-medium">{c.report_label || c.original_id}</span>{" "}
+                          <span className="font-mono text-xs">({c.original_id})</span> — existing row #{c.row_id} from{" "}
+                          {c.existing_data_source || "Company Data"}
+                          {typeof c.spend_amount === "number"
+                            ? `, spend GBP ${c.spend_amount.toLocaleString()} not pushed`
+                            : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
