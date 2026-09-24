@@ -1107,8 +1107,12 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
       const result = await res.json();
       if (result?.row) {
+        // result.row is the raw stored row: its factor and calc_tco2e are the
+        // single stored factor, not the month-by-month blend the grid shows for
+        // periods spanning two datasets. Re-fetch through the scope-data
+        // resolver so the row matches a full reload (and the report).
         replaceScopeDataRowFromServer(result.row as ScopeDataRow);
-        invalidateRowDetailCache(rowEditorRow.row_id);
+        await refreshScopeDataRow(rowEditorRow.row_id);
       } else {
         await loadData();
       }
