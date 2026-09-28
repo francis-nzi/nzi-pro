@@ -55,6 +55,7 @@ def test_quote_lookups_allows_client_row_without_org_filter(monkeypatch) -> None
     conn = _FakeConn((
         "Advanced Electric Machines (AEM)", "London, UK", "GBP",
         "1 Example Road", "", "London", "", "SW1A 1AA", "United Kingdom",
+        None, None, None, None, None, None, None,
     ))
     monkeypatch.setattr(quotes_routes, "assert_client_access", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(quotes_routes, "_quote_org_id", lambda *_args, **_kwargs: "org-a")
@@ -68,6 +69,50 @@ def test_quote_lookups_allows_client_row_without_org_filter(monkeypatch) -> None
         "Advanced Electric Machines (AEM)\n1 Example Road\nLondon\nSW1A 1AA\nUnited Kingdom"
     )
     assert any("FROM clients" in sql and "WHERE db_id = %s" in sql for sql, _ in conn.queries)
+
+
+@pytest.mark.parametrize("billing_company", ["Ailsa ESG Solutions - Scotia Windows and Doors", None, "", "   "])
+@pytest.mark.parametrize("use_billing_address", [True, False])
+def test_quote_bill_to_uses_billing_company(monkeypatch, billing_company, use_billing_address):
+    registered = ("Registered Road", "", "London", "", "SW1A 1AA", "UK")
+    billing = ("Montgomerie House", "2A Byrehill Drive", "Kilwinning", "North Ayrshire", "KA13 6HN", "UK")
+    conn = _FakeConn(("Scotia Windows and Doors", "", "GBP", *registered,
+                      *(billing if use_billing_address else (None,) * 6), billing_company))
+    monkeypatch.setattr(quotes_routes, "assert_client_access", lambda *a, **k: None)
+    monkeypatch.setattr(quotes_routes, "_quote_org_id", lambda *a, **k: "org-a")
+    monkeypatch.setattr(quotes_routes, "get_conn", lambda: conn)
+    result = quotes_routes.quote_lookups(321, _user={"org_id": "org-a"})
+    expected_name = (billing_company or "").strip() or "Scotia Windows and Doors"
+    expected_address = billing if use_billing_address else registered
+    assert result["client"]["default_bill_to"] == "\n".join(
+        line for line in (expected_name, *expected_address) if line
+    )
+    assert result["client"]["client_name"] == "Scotia Windows and Doors"
+    assert any("billing_company" in sql for sql, _ in conn.queries)
+
+
+@pytest.mark.parametrize("saved_bill_to", [None, "", "Custom recipient\nCustom address"])
+def test_invoice_bill_to_uses_billing_company_unless_quote_has_saved_address(monkeypatch, saved_bill_to):
+    class InvoiceConn(_FakeConn):
+        def fetchone(self):
+            if "FROM invoices" in self._last_sql:
+                return (1, 321, None, 29 if saved_bill_to is not None else None,
+                        "INV-1", None, None, "GBP", 0, 0, 0, "Draft", "", None, 0,
+                        None, None, None, None, None, None, None, None, "")
+            if "FROM quotes" in self._last_sql:
+                return ("", saved_bill_to, "", None, "Q-29")
+            if "FROM clients" in self._last_sql:
+                return ("Scotia Windows and Doors", "Registered Road", "", "", "", "", "",
+                        "Montgomerie House", "", "Kilwinning", "", "KA13 6HN", "UK",
+                        "Ailsa ESG Solutions - Scotia Windows and Doors")
+            return None
+
+    monkeypatch.setattr(quotes_routes, "_invoice_lines_for", lambda *a, **k: [])
+    monkeypatch.setattr(quotes_routes, "get_company_profile", lambda *a, **k: {})
+    result = quotes_routes._serialize_invoice(InvoiceConn(), 1, org_id="org-a")
+    assert result["bill_to"] == (saved_bill_to or
+        "Ailsa ESG Solutions - Scotia Windows and Doors\nMontgomerie House\nKilwinning\nKA13 6HN\nUK")
+    assert result["client_name"] == "Scotia Windows and Doors"
 
 
 def test_client_dashboard_jobs_use_job_org_matching(monkeypatch) -> None:
