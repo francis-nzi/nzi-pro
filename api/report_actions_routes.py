@@ -49,6 +49,8 @@ class ActionOptionPayload(BaseModel):
 
 
 class ClientActionPayload(BaseModel):
+    site_scope: str | None = None
+    site_ids: list[int] | None = None
     client_action_id: int | None = None
     action_option_id: int | None = None
     action_name: str | None = None

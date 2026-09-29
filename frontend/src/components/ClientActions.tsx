@@ -40,7 +40,11 @@ type SuggestedActionOption = {
   lever_id?: number | null;
 };
 
+type ActionSite = { site_id: number; site_name: string; is_main: boolean };
+
 type ClientActionItem = {
+  site_scope?: "main" | "all" | "specified";
+  site_ids?: number[];
   client_action_id?: number;
   action_option_id?: number | null;
   action_name: string;
@@ -56,6 +60,7 @@ type ClientActionItem = {
 };
 
 type ClientActionsResponse = {
+  sites?: ActionSite[];
   items?: ClientActionItem[];
   suggested_options?: SuggestedActionOption[];
   term_options?: TermOption[];
@@ -81,6 +86,7 @@ export default function ClientActions({
   baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "",
   isActive = true,
 }: ClientActionsProps) {
+  const [sites, setSites] = useState<ActionSite[]>([]);
   const [items, setItems] = useState<ClientActionItem[]>([]);
   const [suggestedOptions, setSuggestedOptions] = useState<SuggestedActionOption[]>([]);
   const [levers, setLevers] = useState<LeverOption[]>([]);
@@ -112,6 +118,7 @@ export default function ClientActions({
       }
       const payload = (await res.json()) as ClientActionsResponse;
       setItems(Array.isArray(payload.items) ? payload.items : []);
+      setSites(Array.isArray(payload.sites) ? payload.sites : []);
       setSuggestedOptions(Array.isArray(payload.suggested_options) ? payload.suggested_options : []);
       setLevers(Array.isArray(payload.levers) ? payload.levers : []);
       if (Array.isArray(payload.term_options) && payload.term_options.length) {
@@ -289,6 +296,12 @@ export default function ClientActions({
       return;
     }
 
+    const missingSites = trimmedItems.find((item) => item.site_scope === "specified" && !item.site_ids?.length);
+    if (missingSites) {
+      setStatus(`"${missingSites.action_name}" needs at least one specified site before saving.`);
+      return;
+    }
+
     setSaving(true);
     setStatus("Saving actions...");
     setError("");
@@ -299,6 +312,8 @@ export default function ClientActions({
         credentials: "include",
         body: JSON.stringify({
           items: trimmedItems.map((item) => ({
+            site_scope: item.site_scope || "main",
+            site_ids: item.site_ids || [],
             client_action_id: item.client_action_id ?? null,
             action_option_id: item.action_option_id ?? null,
             action_name: item.action_name,
@@ -318,6 +333,7 @@ export default function ClientActions({
       }
       const payload = (await res.json()) as ClientActionsResponse & { ok?: boolean };
       setItems(Array.isArray(payload.items) ? payload.items : []);
+      setSites(Array.isArray(payload.sites) ? payload.sites : []);
       setSuggestedOptions(Array.isArray(payload.suggested_options) ? payload.suggested_options : []);
       setLevers(Array.isArray(payload.levers) ? payload.levers : []);
       if (Array.isArray(payload.term_options) && payload.term_options.length) {
@@ -468,6 +484,29 @@ export default function ClientActions({
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+
+                <div className="mt-4 space-y-2">
+                  <Label htmlFor={`action-sites-${index}`}>Applies to</Label>
+                  <Select value={item.site_scope || "main"} onValueChange={(value: "main" | "all" | "specified") => updateItem(index, { site_scope: value, site_ids: value === "specified" ? (item.site_ids?.length ? item.site_ids : sites.filter((site) => site.is_main).map((site) => site.site_id)) : [] })}>
+                    <SelectTrigger id={`action-sites-${index}`}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="main">Main site{sites[0] ? ` ? ${sites[0].site_name}` : " (no site set up)"}</SelectItem>
+                      <SelectItem value="all">All sites</SelectItem>
+                      <SelectItem value="specified">Specified sites</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {item.site_scope === "specified" ? (
+                    <fieldset className="space-y-2 rounded-md border p-3">
+                      <legend className="px-1 text-sm">Select sites</legend>
+                      {sites.length ? sites.map((site) => (
+                        <label key={site.site_id} className="flex items-center gap-2 text-sm">
+                          <input type="checkbox" checked={(item.site_ids || []).includes(site.site_id)} onChange={(event) => updateItem(index, { site_ids: event.target.checked ? [...(item.site_ids || []), site.site_id] : (item.site_ids || []).filter((id) => id !== site.site_id) })} />
+                          {site.site_name}{site.is_main ? " (main site)" : ""}
+                        </label>
+                      )) : <p className="text-sm text-muted-foreground">Add a site in the client?s Sites tab first.</p>}
+                    </fieldset>
+                  ) : <p className="text-xs text-muted-foreground">{item.site_scope === "all" ? "Applies to all current and future sites for this client." : sites.length ? "Uses the registered-office site, or the first site when none is marked." : "No sites yet. The main site will apply once a site is added."}</p>}
                 </div>
 
                 <div className="mt-4 space-y-2">

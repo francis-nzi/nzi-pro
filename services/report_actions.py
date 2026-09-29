@@ -364,6 +364,8 @@ def ensure_report_actions_schema(con) -> None:
         )
         """
     )
+    con.execute("ALTER TABLE client_report_actions ADD COLUMN IF NOT EXISTS site_scope VARCHAR(12) NOT NULL DEFAULT 'main'")
+    con.execute("ALTER TABLE client_report_actions ADD COLUMN IF NOT EXISTS site_ids INTEGER[] NOT NULL DEFAULT '{}'")
     con.execute(
         """
         CREATE INDEX IF NOT EXISTS ix_client_report_actions_client_id
@@ -884,6 +886,36 @@ def upsert_report_action_option(
     raise HTTPException(status_code=500, detail="Saved action option could not be reloaded")
 
 
+def list_action_sites(client_db_id: int, *, con) -> list[dict[str, Any]]:
+    rows = con.execute(
+        """SELECT site_id, site_name, is_registered_office FROM client_sites
+        WHERE client_db_id = %s
+        ORDER BY COALESCE(is_registered_office, FALSE) DESC,
+                 lower(coalesce(site_name, '')) ASC, site_id ASC""",
+        [int(client_db_id)],
+    ).fetchall()
+    return [{"site_id": int(row[0]), "site_name": str(row[1] or f"Site {row[0]}"),
+             "is_main": index == 0} for index, row in enumerate(rows or [])]
+
+
+def _normalize_action_sites(raw, saved, sites):
+    mode = raw.get("site_scope") or (saved or {}).get("site_scope") or "main"
+    if mode not in {"main", "all", "specified"}:
+        raise HTTPException(status_code=400, detail="Invalid action site scope")
+    ids = raw.get("site_ids")
+    if ids is None:
+        ids = (saved or {}).get("site_ids") or []
+    if mode != "specified":
+        return mode, []
+    if not isinstance(ids, list) or any(type(value) is not int for value in ids):
+        raise HTTPException(status_code=400, detail="Site IDs must be integers")
+    ids = sorted(set(ids))
+    allowed = {site["site_id"] for site in sites}
+    if not ids or not set(ids).issubset(allowed):
+        raise HTTPException(status_code=400, detail="Choose at least one site belonging to this client")
+    return mode, ids
+
+
 def list_client_report_actions(client_db_id: int, *, con=None) -> list[dict[str, Any]]:
     if con is None:
         with get_conn() as managed:
@@ -915,7 +947,8 @@ def list_client_report_actions(client_db_id: int, *, con=None) -> list[dict[str,
           l.lever_name,
           l.sphere_name,
           l.sub_sphere_name,
-          l.is_custom                   AS lever_is_custom
+          l.is_custom                   AS lever_is_custom,
+          a.site_scope, a.site_ids
         FROM client_report_actions a
         LEFT JOIN client_contacts cc ON cc.contact_id = a.owner_contact_id
         LEFT JOIN action_levers_lookup l ON l.lever_id = a.lever_id
@@ -955,6 +988,8 @@ def list_client_report_actions(client_db_id: int, *, con=None) -> list[dict[str,
                 "lever_sphere_name": str(row[20] or "") or None,
                 "lever_sub_sphere_name": str(row[21] or "") or None,
                 "lever_is_custom": bool(row[22]) if row[22] is not None else None,
+                "site_scope": str(row[23] or "main"),
+                "site_ids": list(row[24] or []),
             }
         )
     return items
@@ -980,7 +1015,7 @@ def replace_client_report_actions(
     state_snapshot: dict[int, dict[str, Any]] = {}
     existing_rows = con.execute(
         """
-        SELECT client_action_id, status, progress, target_date::text AS target_date, completed_at, owner_contact_id
+        SELECT client_action_id, status, progress, target_date::text AS target_date, completed_at, owner_contact_id, site_scope, site_ids
         FROM client_report_actions WHERE client_db_id = %s
         """,
         [int(client_db_id)],
@@ -992,6 +1027,8 @@ def replace_client_report_actions(
             "target_date": r[3],
             "completed_at": r[4],
             "owner_contact_id": int(r[5]) if r[5] is not None else None,
+            "site_scope": str(r[6] or "main"),
+            "site_ids": list(r[7] or []),
         }
 
     option_lookup = {
@@ -999,6 +1036,7 @@ def replace_client_report_actions(
         for item in list_report_action_options(include_inactive=True, con=con)
     }
 
+    sites = list_action_sites(client_db_id, con=con)
     seen_option_ids: set[int] = set()
     seen_names: set[str] = set()
     normalized_items: list[dict[str, Any]] = []
@@ -1053,6 +1091,7 @@ def replace_client_report_actions(
         incoming_action_id = raw_dict.get("client_action_id")
         incoming_action_id_int = int(incoming_action_id) if incoming_action_id else None
         saved_state = state_snapshot.get(incoming_action_id_int) if incoming_action_id_int else None
+        site_scope, site_ids = _normalize_action_sites(raw_dict, saved_state, sites)
 
         normalized_items.append(
             {
@@ -1070,6 +1109,8 @@ def replace_client_report_actions(
                 "target_date": saved_state["target_date"] if saved_state else normalize_action_target_date(raw_dict.get("target_date")),
                 "completed_at": saved_state["completed_at"] if saved_state else None,
                 "owner_contact_id": saved_state["owner_contact_id"] if saved_state else raw_dict.get("owner_contact_id"),
+                "site_scope": site_scope,
+                "site_ids": site_ids,
             }
         )
 
@@ -1081,9 +1122,9 @@ def replace_client_report_actions(
             INSERT INTO client_report_actions
               (client_db_id, action_option_id, action_name, description, action_term, action_category,
                scope_focus, lever_id, is_custom, sort_order, status, progress, target_date, completed_at,
-               owner_contact_id, created_by, updated_by)
+               owner_contact_id, created_by, updated_by, site_scope, site_ids)
             VALUES
-              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             [
                 int(client_db_id),
@@ -1103,6 +1144,8 @@ def replace_client_report_actions(
                 item.get("owner_contact_id"),
                 actor,
                 actor,
+                item["site_scope"],
+                item["site_ids"],
             ],
         )
 
@@ -1155,6 +1198,7 @@ def get_client_report_actions_payload(
 
     payload: dict[str, Any] = {
         "client_db_id": int(client_db_id),
+        "sites": list_action_sites(client_db_id, con=con),
         "items": items,
         "grouped": grouped,
         "term_counts": term_counts,
