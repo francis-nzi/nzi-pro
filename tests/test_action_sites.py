@@ -80,5 +80,7 @@ def test_site_choices_are_client_scoped():
     con = Conn()
     sites = actions.list_action_sites(1, con=con)
     assert "WHERE client_db_id = %s" in con.sql
+    assert "vacated_date IS NULL" in con.sql
+    assert "COALESCE(archived, FALSE) = FALSE" in con.sql
     assert sites[0]["is_main"] is True
     assert sites[1]["is_main"] is False

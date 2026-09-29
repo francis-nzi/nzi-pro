@@ -890,6 +890,8 @@ def list_action_sites(client_db_id: int, *, con) -> list[dict[str, Any]]:
     rows = con.execute(
         """SELECT site_id, site_name, is_registered_office FROM client_sites
         WHERE client_db_id = %s
+          AND vacated_date IS NULL
+          AND COALESCE(archived, FALSE) = FALSE
         ORDER BY COALESCE(is_registered_office, FALSE) DESC,
                  lower(coalesce(site_name, '')) ASC, site_id ASC""",
         [int(client_db_id)],

@@ -117,7 +117,11 @@ export default function ClientActions({
         throw new Error(detail || `Failed to load actions (${res.status})`);
       }
       const payload = (await res.json()) as ClientActionsResponse;
-      setItems(Array.isArray(payload.items) ? payload.items : []);
+      const activeSiteIds = new Set((payload.sites || []).map((site) => site.site_id));
+      setItems(Array.isArray(payload.items) ? payload.items.map((item) => ({
+        ...item,
+        site_ids: (item.site_ids || []).filter((id) => activeSiteIds.has(id)),
+      })) : []);
       setSites(Array.isArray(payload.sites) ? payload.sites : []);
       setSuggestedOptions(Array.isArray(payload.suggested_options) ? payload.suggested_options : []);
       setLevers(Array.isArray(payload.levers) ? payload.levers : []);
@@ -332,7 +336,11 @@ export default function ClientActions({
         throw new Error(detail || `Failed to save actions (${res.status})`);
       }
       const payload = (await res.json()) as ClientActionsResponse & { ok?: boolean };
-      setItems(Array.isArray(payload.items) ? payload.items : []);
+      const activeSiteIds = new Set((payload.sites || []).map((site) => site.site_id));
+      setItems(Array.isArray(payload.items) ? payload.items.map((item) => ({
+        ...item,
+        site_ids: (item.site_ids || []).filter((id) => activeSiteIds.has(id)),
+      })) : []);
       setSites(Array.isArray(payload.sites) ? payload.sites : []);
       setSuggestedOptions(Array.isArray(payload.suggested_options) ? payload.suggested_options : []);
       setLevers(Array.isArray(payload.levers) ? payload.levers : []);
