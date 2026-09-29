@@ -69,6 +69,7 @@ type TopFactor = {
 
 type Row = {
   row_id: number;
+  row_source?: "scope" | "register";
   site_id: number | null;
   scope: string | null;
   category: string | null;
@@ -141,6 +142,14 @@ const COMING_SOON_BUCKETS: Bucket[] = [];
 
 const SPEND_BUCKET: Bucket = { bucket_key: "purchased_goods_and_services", label: "Purchased Goods & Services" };
 const COMMUTING_BUCKET: Bucket = { bucket_key: "employee_commuting", label: "Employee Commuting" };
+
+function rowKey(row: Row): string {
+  return `${row.row_source || "default"}:${row.row_id}`;
+}
+
+function rowPath(bucket: string, row: Row): string {
+  return `/portal/data-entry/${bucket}/rows/${row.row_id}${row.row_source ? `?row_source=${row.row_source}` : ""}`;
+}
 
 // Skips an unnecessary "Select a site" click for the (common) case of a
 // client with only one site on their account.
@@ -223,7 +232,7 @@ export default function PortalDataEntry() {
   // new row rather than re-picking the factor from a quick-pick pill.
   const [copyingFromHistory, setCopyingFromHistory] = useState(false);
 
-  const [editingRowId, setEditingRowId] = useState<number | null>(null);
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
   const [editQty, setEditQty] = useState("");
   const [editIdentifier, setEditIdentifier] = useState("");
   const [rowActionSaving, setRowActionSaving] = useState(false);
@@ -521,12 +530,12 @@ export default function PortalDataEntry() {
     }
   }
 
-  async function saveRowEdit(rowId: number) {
+  async function saveRowEdit(row: Row) {
     if (!isPositiveQty(editQty)) return;
     setRowActionSaving(true);
     setError("");
     try {
-      const res = await apiFetch(`/portal/data-entry/${activeBucket}/rows/${rowId}`, {
+      const res = await apiFetch(rowPath(activeBucket, row), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ qty: Number(editQty), identifier: editIdentifier.trim() || null }),
@@ -563,7 +572,7 @@ export default function PortalDataEntry() {
     setMonthlyModalSaving(true);
     setError("");
     try {
-      const res = await apiFetch(`/portal/data-entry/${activeBucket}/rows/${monthlyModalRow.row_id}`, {
+      const res = await apiFetch(rowPath(activeBucket, monthlyModalRow), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -583,12 +592,12 @@ export default function PortalDataEntry() {
     }
   }
 
-  async function deleteRow(rowId: number) {
+  async function deleteRow(row: Row) {
     if (!window.confirm("Delete this row? This can't be undone.")) return;
     setRowActionSaving(true);
     setError("");
     try {
-      const res = await apiFetch(`/portal/data-entry/${activeBucket}/rows/${rowId}`, { method: "DELETE" });
+      const res = await apiFetch(rowPath(activeBucket, row), { method: "DELETE" });
       if (res.ok) {
         void loadRows(activeBucket);
       } else {
@@ -611,7 +620,7 @@ export default function PortalDataEntry() {
   // Shared between the table (desktop) and card (mobile) layouts below so the
   // edit/delete/save-cancel behavior can't drift between the two.
   function renderQtyValue(row: Row) {
-    if (editingRowId !== row.row_id) return row.qty ?? "-";
+    if (editingRowId !== rowKey(row)) return row.qty ?? "-";
     return (
       <Input
         type="number"
@@ -625,7 +634,7 @@ export default function PortalDataEntry() {
   }
 
   function renderIdentifierValue(row: Row) {
-    if (editingRowId !== row.row_id) return row.identifier || "-";
+    if (editingRowId !== rowKey(row)) return row.identifier || "-";
     return (
       <Input
         value={editIdentifier}
@@ -663,10 +672,10 @@ export default function PortalDataEntry() {
     if (dataEntryExpired) {
       return <span className="text-xs text-muted-foreground">—</span>;
     }
-    if (editingRowId === row.row_id) {
+    if (editingRowId === rowKey(row)) {
       return (
         <div className={`flex items-center ${justify} gap-2`}>
-          <Button size="sm" variant="outline" disabled={rowActionSaving || !isPositiveQty(editQty)} onClick={() => void saveRowEdit(row.row_id)}>
+          <Button size="sm" variant="outline" disabled={rowActionSaving || !isPositiveQty(editQty)} onClick={() => void saveRowEdit(row)}>
             Save
           </Button>
           <Button size="sm" variant="ghost" onClick={() => { setEditingRowId(null); setEditQty(""); setEditIdentifier(""); }}>
@@ -680,7 +689,7 @@ export default function PortalDataEntry() {
         <button
           className="text-primary hover:underline"
           onClick={() => {
-            setEditingRowId(row.row_id);
+            setEditingRowId(rowKey(row));
             setEditQty(row.qty !== null && row.qty !== undefined ? String(row.qty) : "");
             setEditIdentifier(row.identifier || "");
           }}
@@ -690,11 +699,11 @@ export default function PortalDataEntry() {
         <button className="text-primary hover:underline" onClick={() => openMonthlyModal(row)}>
           Monthly
         </button>
-        {row.review_status !== "approved" && (
+        {row.submitted_by_portal && row.review_status !== "approved" && (
           <button
             className="text-rose-700 hover:underline disabled:opacity-50"
             disabled={rowActionSaving}
-            onClick={() => void deleteRow(row.row_id)}
+            onClick={() => void deleteRow(row)}
           >
             Delete
           </button>
@@ -773,7 +782,7 @@ export default function PortalDataEntry() {
 
       {!isComingSoon && !isSpendTab && !isCommutingTab && !noJobMessage && (
       <div className="flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">{rows.length} submitted row(s) in {activeBucketLabel}</div>
+        <div className="text-sm text-muted-foreground">{rows.length} row(s) in {activeBucketLabel}</div>
         {!dataEntryExpired && (
           <Button
             onClick={() => {
@@ -1106,7 +1115,7 @@ export default function PortalDataEntry() {
                       </thead>
                       <tbody>
                         {rows.map((row) => (
-                          <tr key={row.row_id} className="border-b last:border-0">
+                          <tr key={rowKey(row)} className="border-b last:border-0">
                             <td className="p-2">{row.report_label || row.original_id}</td>
                             <td className="p-2">{sites.find((site) => site.site_id === row.site_id)?.site_name || "Not allocated"}</td>
                             {showIdentifierColumn && (
@@ -1136,10 +1145,10 @@ export default function PortalDataEntry() {
 
                   <div className="space-y-2 sm:hidden">
                     {rows.map((row) => (
-                      <div key={row.row_id} className="rounded-md border p-3 text-sm">
+                      <div key={rowKey(row)} className="rounded-md border p-3 text-sm">
                         <div className="font-medium">{row.report_label || row.original_id}</div>
                         <div className="text-xs text-muted-foreground">Site: {sites.find((site) => site.site_id === row.site_id)?.site_name || "Not allocated"}</div>
-                        {(row.identifier || editingRowId === row.row_id) && (
+                        {(row.identifier || editingRowId === rowKey(row)) && (
                           <div className="text-xs text-muted-foreground">{renderIdentifierValue(row)}</div>
                         )}
                         <div className="mt-1 flex items-baseline justify-between">

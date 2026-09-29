@@ -67,6 +67,7 @@ def _register_source_to_portal_dict(row: dict) -> dict:
     doesn't need to know which table backed a given bucket."""
     return {
         "row_id": row.get("source_id"),
+        "row_source": "register",
         "site_id": row.get("site_id"),
         "scope": row.get("scope"),
         "category": row.get("category"),
@@ -88,6 +89,25 @@ def _register_source_to_portal_dict(row: dict) -> dict:
         "submitted_by_portal": bool(row.get("submitted_by_portal")),
         "enabled": bool(row.get("enabled")),
     }
+
+
+def _row_source_type(bucket_key: str, row_source: str | None) -> str | None:
+    if row_source not in (None, "scope", "register"):
+        raise HTTPException(status_code=400, detail="Unknown row source")
+    register_type = _register_source_type_for_bucket(bucket_key)
+    if row_source == "register" and not register_type:
+        raise HTTPException(status_code=400, detail="This category has no register rows")
+    return None if row_source == "scope" else register_type
+
+
+def _assert_scope_row_bucket(con, client_db_id: int, row_id: int, bucket_key: str) -> None:
+    row = con.execute(
+        """SELECT r.category FROM job_scope_rows r JOIN jobs j ON j.job_id = r.job_id
+        WHERE r.row_id = %s AND j.client_db_id = %s""",
+        [int(row_id), int(client_db_id)],
+    ).fetchone()
+    if not row or bucket_for_category(load_bucket_category_map(con), row[0]) != bucket_key:
+        raise HTTPException(status_code=404, detail="Row not found in this category")
 
 
 def _assert_data_entry_open(con, job_id: int) -> None:
@@ -156,20 +176,19 @@ def portal_data_entry_buckets(current_user: dict = Depends(portal_user_dep)):
             ).fetchone()
             has_data["employee_commuting"] = bool(commuting_row)
 
-            # Company Vehicles / Business Travel live in job_emission_sources,
-            # not job_scope_rows -- see _BUCKET_REGISTER_SOURCE_TYPE above --
-            # so the category scan above never sees them.
+            # Travel/vehicle data may exist in either store. Preserve the
+            # scope-row flag and include register rows entered by CRM staff too.
             for bucket_key, source_type in _BUCKET_REGISTER_SOURCE_TYPE.items():
                 register_row = con.execute(
                     """
                     SELECT 1 FROM job_emission_sources
-                    WHERE job_id = %s AND source_type = %s AND submitted_by_portal = TRUE
+                    WHERE job_id = %s AND source_type = %s
                       AND (enabled = TRUE OR review_status IN ('pending_review', 'rejected'))
                     LIMIT 1
                     """,
                     [int(job_id), source_type],
                 ).fetchone()
-                has_data[bucket_key] = bool(register_row)
+                has_data[bucket_key] = has_data[bucket_key] or bool(register_row)
 
             _ensure_spend_tables(con)
             spend_row = con.execute(
@@ -340,6 +359,7 @@ def portal_data_entry_list_rows(
         job_id = _resolve_job_or_404(con, client_db_id)
         job_summary = get_job_summary(con, job_id)
 
+        rows = []
         if source_type:
             _ensure_emission_register_schema(con)
             df = con.execute(
@@ -355,16 +375,15 @@ def portal_data_entry_list_rows(
                 """,
                 [int(job_id), source_type],
             ).df()
-            if df is None or df.empty:
-                return {"job_id": job_id, "bucket_key": bucket_key, "rows": [], **job_summary}
-            df = df.astype(object).where(df.notna(), None)
-            rows = []
-            for _, row in df.iterrows():
-                row_dict = {k: row.get(k) for k in row.index}
-                if site_ids is not None and row_dict.get("site_id") not in site_ids:
-                    continue
-                rows.append(_register_source_to_portal_dict(row_dict))
-            return {"job_id": job_id, "bucket_key": bucket_key, "rows": rows, **job_summary}
+            if df is not None and not df.empty:
+                df = df.astype(object).where(df.notna(), None)
+                for _, row in df.iterrows():
+                    row_dict = {k: row.get(k) for k in row.index}
+                    if site_ids is not None and row_dict.get("site_id") not in site_ids:
+                        continue
+                    rows.append(_register_source_to_portal_dict(row_dict))
+            # CRM Data Entry can also store travel/vehicle rows in job_scope_rows.
+            # Include both stores; IDs overlap, so every row carries its source.
 
         category_map = load_bucket_category_map(con)
 
@@ -389,7 +408,7 @@ def portal_data_entry_list_rows(
         ).df()
 
     if df is None or df.empty:
-        return {"job_id": job_id, "bucket_key": bucket_key, "rows": [], **job_summary}
+        return {"job_id": job_id, "bucket_key": bucket_key, "rows": rows, **job_summary}
 
     # astype(object) first -- df.where(df.notna(), None) alone is a no-op on
     # float64 columns (pandas silently recasts the None back to NaN), which
@@ -397,14 +416,13 @@ def portal_data_entry_list_rows(
     # JSON compliant: nan") for any row with a null numeric column (qty,
     # factor, calc_tco2e, month_1..12 are all nullable).
     df = df.astype(object).where(df.notna(), None)
-    rows = []
     for _, row in df.iterrows():
         row_dict = {k: row.get(k) for k in row.index}
         if bucket_for_category(category_map, row_dict.get("category")) != bucket_key:
             continue
         if site_ids is not None and row_dict.get("site_id") not in site_ids:
             continue
-        rows.append(job_scope_row_to_dict(row_dict))
+        rows.append({**job_scope_row_to_dict(row_dict), "row_source": "scope"})
 
     return {"job_id": job_id, "bucket_key": bucket_key, "rows": rows, **job_summary}
 
@@ -580,15 +598,18 @@ def portal_data_entry_update_row(
     row_id: int,
     payload: dict = Body(...),
     current_user: dict = Depends(portal_user_dep),
+    row_source: str | None = None,
 ):
     _assert_valid_bucket(bucket_key)
     client_db_id = int(current_user["client_db_id"])
     if current_user.get("role", "ClientAdmin") not in PORTAL_ROLE_CAN_MANAGE_ACTIONS:
         raise HTTPException(status_code=403, detail="Your portal role doesn't allow this action")
 
-    source_type = _register_source_type_for_bucket(bucket_key)
+    source_type = _row_source_type(bucket_key, row_source)
 
     with get_conn() as con:
+        if row_source == "scope":
+            _assert_scope_row_bucket(con, client_db_id, row_id, bucket_key)
         if source_type:
             _ensure_emission_register_schema(con)
             existing = con.execute(
@@ -723,6 +744,7 @@ def portal_data_entry_delete_row(
     bucket_key: str,
     row_id: int,
     current_user: dict = Depends(portal_user_dep),
+    row_source: str | None = None,
 ):
     """Hard-deletes a still-pending/rejected portal submission. A still-pending
     row was never enabled (never counted in a report), so unlike the CRM's
@@ -734,9 +756,11 @@ def portal_data_entry_delete_row(
     if current_user.get("role", "ClientAdmin") not in PORTAL_ROLE_CAN_MANAGE_ACTIONS:
         raise HTTPException(status_code=403, detail="Your portal role doesn't allow this action")
 
-    source_type = _register_source_type_for_bucket(bucket_key)
+    source_type = _row_source_type(bucket_key, row_source)
 
     with get_conn() as con:
+        if row_source == "scope":
+            _assert_scope_row_bucket(con, client_db_id, row_id, bucket_key)
         if source_type:
             _ensure_emission_register_schema(con)
             existing = con.execute(
