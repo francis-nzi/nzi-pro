@@ -2422,6 +2422,11 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               <FileText className="h-4 w-4" />
                               <span className="sr-only">Detail</span>
                             </Button>
+                            {isReadOnlyConsolidatedRow(row) && row.register_source_type === "business_travel" && (
+                              <a className="text-xs font-medium text-primary underline" href={`/jobs/${jobId}/data-entry/business-travel`}>
+                                Manage entries
+                              </a>
+                            )}
                             <Button
                               variant="outline"
                               size="sm"

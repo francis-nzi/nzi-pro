@@ -267,7 +267,7 @@ export default function JobSourceRegister({
     if (initialStepSet.current) return;
     if (!summary) return;
     initialStepSet.current = true;
-    const hasData = isBusinessTravel ? businessTravelRows.length > 0 : (summary.source_count ?? 0) > 0;
+    const hasData = (summary.source_count ?? 0) > 0 || (isBusinessTravel && businessTravelRows.length > 0);
     if (hasData) setCurrentStep(3);
   }, [summary, businessTravelRows.length, isBusinessTravel]);
 
@@ -923,7 +923,7 @@ export default function JobSourceRegister({
 
   const stages = [
     { num: 1, label: "Setup", done: Boolean(summary) },
-    { num: 2, label: "Add Data", done: isBusinessTravel ? businessTravelRows.length > 0 : (summary?.source_count ?? 0) > 0 },
+    { num: 2, label: "Add Data", done: (summary?.source_count ?? 0) > 0 || (isBusinessTravel && businessTravelRows.length > 0) },
     { num: 3, label: "Job Data", done: false },
   ];
 
@@ -947,6 +947,47 @@ export default function JobSourceRegister({
           {status ? <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{status}</div> : null}
         </CardContent>
       </Card>
+
+      {isBusinessTravel && (
+<Card>
+                <CardHeader>
+                  <CardTitle>Business Travel Entries</CardTitle>
+                  <p className="text-sm text-muted-foreground">Portal and register entries are managed here. Delete removes an entry from active totals and the portal while preserving its history. Workbook imports are managed in Data Entry.</p>
+                </CardHeader>
+                <CardContent className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left">
+                        <th className="p-2">Name</th>
+                        <th className="p-2">Identity</th>
+                        <th className="p-2">Site</th>
+                        <th className="p-2 text-right">Qty</th>
+                        <th className="p-2 text-right">tCO₂e</th>
+                        <th className="p-2">Status</th>
+                        <th className="p-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sources.length ? sources.map((s) => (
+                        <tr key={s.source_id} className="border-b">
+                          <td className="p-2">{s.source_name}</td>
+                          <td className="p-2">{s.asset_identifier || s.employee_name || "-"}</td>
+                          <td className="p-2">{s.site_name || "Not allocated"}</td>
+                          <td className="p-2 text-right">{typeof s.qty === "number" ? s.qty.toLocaleString() : "-"}</td>
+                          <td className="p-2 text-right">{(s.calc_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                          <td className="p-2">{s.enabled ? "Active" : "Hidden"}</td>
+                          <td className="p-2 text-right">
+                            <Button variant="outline" size="sm" disabled={loading} onClick={() => removeSource(s.source_id, s.source_name)}>Delete</Button>
+                          </td>
+                        </tr>
+                      )) : (
+                        <tr><td colSpan={7} className="p-4 text-muted-foreground">No records yet.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+      )}
 
       {/* Stage progress indicator */}
       <div className="flex items-start px-2">
