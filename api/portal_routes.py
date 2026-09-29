@@ -1717,6 +1717,8 @@ def portal_status_bar(current_user: dict = Depends(portal_user_dep)):
 # ---------------------------------------------------------------------------
 
 class _PortalUpdateActionPayload(_BaseModel):
+    site_scope: str | None = None
+    site_ids: list[int] | None = None
     status: str | None = None
     progress: int | None = None
     note: str | None = None
@@ -1992,7 +1994,7 @@ def portal_list_actions(current_user: dict = Depends(portal_user_dep)):
     _assert_section_allowed(current_user, "actions")
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
-        from services.report_actions import ensure_report_actions_schema
+        from services.report_actions import ensure_report_actions_schema, list_action_sites
         ensure_report_actions_schema(con)
         rows = con.execute(
             """
@@ -2014,7 +2016,7 @@ def portal_list_actions(current_user: dict = Depends(portal_user_dep)):
                 a.updated_at,
                 a.lever_id,
                 l.lever_code,
-                l.lever_name
+                l.lever_name, a.site_scope, a.site_ids
             FROM client_report_actions a
             LEFT JOIN client_contacts cc ON cc.contact_id = a.owner_contact_id
             LEFT JOIN action_levers_lookup l ON l.lever_id = a.lever_id
@@ -2053,9 +2055,13 @@ def portal_list_actions(current_user: dict = Depends(portal_user_dep)):
                 "lever_id": int(r[15]) if r[15] is not None else None,
                 "lever_code": str(r[16] or "") or None,
                 "lever_name": str(r[17] or "") or None,
+                "site_scope": str(r[18] or "main"),
+                "site_ids": list(r[19] or []),
             })
 
-    return {"ok": True, "items": items}
+        sites = list_action_sites(client_db_id, con=con)
+
+    return {"ok": True, "items": items, "sites": sites}
 
 
 @router.patch("/portal/actions/{client_action_id}")

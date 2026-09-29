@@ -1242,7 +1242,7 @@ def update_client_action(
     existing = con.execute(
         """
         SELECT client_action_id, status, progress, target_date::text AS target_date, completed_at, owner_contact_id,
-               action_name, description, action_category, scope_focus, action_term, lever_id
+               action_name, description, action_category, scope_focus, action_term, lever_id, site_scope, site_ids
         FROM client_report_actions
         WHERE client_action_id = %s AND client_db_id = %s
         """,
@@ -1303,6 +1303,17 @@ def update_client_action(
         else existing[10]
     )
     new_lever_id = _resolve_lever_id(payload.get("lever_id"), con=con) if "lever_id" in payload else existing[11]
+
+    if "site_scope" in payload or "site_ids" in payload:
+        site_scope, site_ids = _normalize_action_sites(
+            payload, {"site_scope": existing[12], "site_ids": existing[13]},
+            list_action_sites(client_db_id, con=con),
+        )
+        con.execute(
+            "UPDATE client_report_actions SET site_scope = %s, site_ids = %s "
+            "WHERE client_action_id = %s AND client_db_id = %s",
+            [site_scope, site_ids, int(client_action_id), int(client_db_id)],
+        )
 
     # Auto-set completed_at on first transition to completed; clear it when re-opened
     old_completed_at = existing[4]

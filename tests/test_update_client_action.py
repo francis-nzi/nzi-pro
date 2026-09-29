@@ -168,3 +168,41 @@ def test_update_client_action_accepts_valid_target_date(monkeypatch):
     _patch_common(monkeypatch, conn)
     report_actions.update_client_action(1, 1, payload={"target_date":"2030-12-31"}, actor="test", con=conn)
     assert conn.update_params[2] == "2030-12-31"
+
+
+@pytest.mark.parametrize("payload, expected", [
+    ({"site_scope": "specified", "site_ids": [20]}, ["specified", [20], 1, 1]),
+    ({"site_scope": "all"}, ["all", [], 1, 1]),
+    ({"site_scope": "main"}, ["main", [], 1, 1]),
+])
+def test_update_action_site_allocation(monkeypatch, payload, expected):
+    class Conn(_FakeConn):
+        site_params = None
+        def execute(self, sql, params=None):
+            if "SELECT client_action_id, status" in sql:
+                return _Result(fetchone_value=(*_EXISTING_ROW, "main", []))
+            if "SET site_scope" in sql:
+                self.site_params = params
+                return _Result()
+            return super().execute(sql, params)
+    conn = Conn()
+    _patch_common(monkeypatch, conn)
+    monkeypatch.setattr(report_actions, "list_action_sites", lambda *a, **k: [{"site_id": 20}])
+    report_actions.update_client_action(1, 1, payload=payload, actor="test", con=conn)
+    assert conn.site_params == expected
+
+
+def test_update_action_rejects_other_client_or_vacated_site(monkeypatch):
+    class Conn(_FakeConn):
+        def execute(self, sql, params=None):
+            if "SELECT client_action_id, status" in sql:
+                return _Result(fetchone_value=(*_EXISTING_ROW, "main", []))
+            assert "SET site_scope" not in sql
+            return super().execute(sql, params)
+    conn = Conn()
+    _patch_common(monkeypatch, conn)
+    monkeypatch.setattr(report_actions, "list_action_sites", lambda *a, **k: [{"site_id": 20}])
+    with pytest.raises(HTTPException) as exc:
+        report_actions.update_client_action(1, 1, payload={"site_scope": "specified", "site_ids": [999]}, actor="test", con=conn)
+    assert exc.value.status_code == 400
+    assert conn.update_params is None

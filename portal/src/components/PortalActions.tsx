@@ -33,7 +33,10 @@ import LeverSelect, { type LeverOption } from "@/components/LeverSelect";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+type ActionSite = { site_id: number; site_name: string; is_main: boolean };
 type Action = {
+  site_scope?: "main" | "all" | "specified";
+  site_ids?: number[];
   client_action_id: number;
   action_name: string;
   description: string | null;
@@ -51,6 +54,18 @@ type Action = {
   lever_code?: string | null;
   lever_name?: string | null;
 };
+
+function actionSiteIds(action: Action, sites: ActionSite[]): number[] {
+  if (action.site_scope === "all") return sites.map(site => site.site_id);
+  if (action.site_scope === "specified") return (action.site_ids || []).filter(id => sites.some(site => site.site_id === id));
+  return sites.filter(site => site.is_main).map(site => site.site_id);
+}
+function actionSiteLabel(action: Action, sites: ActionSite[]): string {
+  if (action.site_scope === "all") return "All sites";
+  const ids = actionSiteIds(action, sites);
+  const names = sites.filter(site => ids.includes(site.site_id)).map(site => site.site_name).join(", ");
+  return action.site_scope === "specified" ? names || "No active sites selected" : names ? `${names} (main site)` : "Main site (not set up)";
+}
 
 type Contact = { contact_id: number; full_name: string; job_title: string | null };
 type Category = { category_id: number; name: string };
@@ -374,6 +389,7 @@ function LibraryModal({
 
 function UpdateModal({
   action,
+  sites,
   contacts,
   categories,
   levers,
@@ -381,12 +397,15 @@ function UpdateModal({
   onSaved,
 }: {
   action: Action;
+  sites: ActionSite[];
   contacts: Contact[];
   categories: Category[];
   levers: LeverOption[];
   onClose: () => void;
   onSaved: (updated: Action) => void;
 }) {
+  const [siteScope, setSiteScope] = useState(action.site_scope || "main");
+  const [siteIds, setSiteIds] = useState(actionSiteIds(action, sites));
   const [actionName, setActionName] = useState(action.action_name);
   const [description, setDescription] = useState(action.description ?? "");
   const [category, setCategory] = useState(action.action_category ?? "");
@@ -412,10 +431,13 @@ function UpdateModal({
       setError("Action lever is required.");
       return;
     }
+    if (siteScope === "specified" && !siteIds.length) { setError("Select at least one active site."); return; }
     setSaving(true);
     setError("");
     try {
       const body: Record<string, unknown> = {
+        site_scope: siteScope,
+        site_ids: siteScope === "specified" ? siteIds : [],
         action_name: actionName.trim(),
         description: description.trim() || null,
         action_category: category.trim() || null,
@@ -552,6 +574,25 @@ function UpdateModal({
             <LeverSelect value={leverId} options={levers} onValueChange={setLeverId} ariaInvalid={!leverId} />
           </div>
 
+          <div className="space-y-2 sm:col-span-2">
+            <label htmlFor="action-site-scope" className="block text-sm font-medium">Applies to</label>
+            <Select value={siteScope} onValueChange={(value: "main" | "all" | "specified") => setSiteScope(value)}>
+              <SelectTrigger id="action-site-scope"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="main">Main site{sites.find(site => site.is_main) ? ` - ${sites.find(site => site.is_main)?.site_name}` : " (not set up)"}</SelectItem>
+                <SelectItem value="all">All sites</SelectItem>
+                <SelectItem value="specified">Specified sites</SelectItem>
+              </SelectContent>
+            </Select>
+            {siteScope === "specified" && <fieldset className="space-y-2 rounded-md border p-3">
+              <legend className="px-1 text-sm">Select sites</legend>
+              {sites.map(site => <label key={site.site_id} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={siteIds.includes(site.site_id)} onChange={event => setSiteIds(ids => event.target.checked ? [...ids, site.site_id] : ids.filter(id => id !== site.site_id))} />
+                {site.site_name}{site.is_main ? " (main site)" : ""}
+              </label>)}
+              {!sites.length && <p className="text-sm text-muted-foreground">No active sites available.</p>}
+            </fieldset>}
+          </div>
           <div className="sm:col-span-2">
             <label className="mb-1 block text-sm font-medium text-foreground">Update note (optional)</label>
             <Textarea
@@ -809,11 +850,13 @@ function DescriptionInfo({ description }: { description: string }) {
 
 function ActionRow({
   action,
+  sites,
   index,
   onUpdate,
   onOpenModal,
 }: {
   action: Action;
+  sites: ActionSite[];
   index: number;
   onUpdate: (fields: Record<string, unknown>) => Promise<boolean>;
   onOpenModal: () => void;
@@ -877,6 +920,7 @@ function ActionRow({
         </div>
       </td>
 
+      <td className="p-2 break-words text-xs">{actionSiteLabel(action, sites)}</td>
       <td className="p-2 text-center">
         {action.description ? (
           <DescriptionInfo description={action.description} />
@@ -960,6 +1004,7 @@ function ActionRow({
 
 function CategorySection({
   category,
+  sites,
   actions,
   expanded,
   onToggle,
@@ -967,6 +1012,7 @@ function CategorySection({
   onOpenModal,
 }: {
   category: string;
+  sites: ActionSite[];
   actions: Action[];
   expanded: boolean;
   onToggle: () => void;
@@ -989,6 +1035,7 @@ function CategorySection({
           <table className="w-full min-w-0 table-fixed text-sm">
             <colgroup>
               <col className="w-56" />
+              <col className="w-40" />
               <col className="w-10" />
               <col className="w-20" />
               <col className="w-36" />
@@ -1000,6 +1047,7 @@ function CategorySection({
             <thead>
               <tr className="border-b bg-muted/20 text-xs text-muted-foreground">
                 <th className="p-2 text-left">Title</th>
+                <th className="p-2 text-left">Site</th>
                 <th className="p-2 text-center">Info</th>
                 <th className="p-2 text-left">Term</th>
                 <th className="p-2 text-left">Target Date</th>
@@ -1013,6 +1061,7 @@ function CategorySection({
               {actions.map((action, idx) => (
                 <ActionRow
                   key={action.client_action_id}
+                  sites={sites}
                   action={action}
                   index={idx + 1}
                   onUpdate={(fields) => onUpdate(action.client_action_id, fields)}
@@ -1030,6 +1079,8 @@ function CategorySection({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function PortalActions() {
+  const [sites, setSites] = useState<ActionSite[]>([]);
+  const [siteFilter, setSiteFilter] = useState(ALL);
   const [actions, setActions] = useState<Action[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -1061,9 +1112,9 @@ export default function PortalActions() {
           const data = await response.json().catch(() => null);
           throw new Error(typeof data?.detail === "string" ? data.detail : `Actions could not be loaded (server response ${response.status}). Please retry.`);
         }
-        return response.json() as Promise<{ items: Action[] }>;
+        return response.json() as Promise<{ items: Action[]; sites?: ActionSite[] }>;
       })
-      .then(d => setActions(d.items ?? []))
+      .then(d => { setActions(d.items ?? []); setSites(d.sites ?? []); })
       .catch(e => setError((e as Error).message));
   }, []);
 
@@ -1124,6 +1175,7 @@ export default function PortalActions() {
 
   const filtered = useMemo(() => {
     return actions.filter(a => {
+      if (siteFilter !== ALL && !actionSiteIds(a, sites).includes(Number(siteFilter))) return false;
       if (leverFilter != null && a.lever_id !== leverFilter) return false;
       if (!showCancelled && statusFilter === ALL && a.status === "cancelled") return false;
       if (statusFilter !== ALL && a.status !== statusFilter) return false;
@@ -1135,7 +1187,7 @@ export default function PortalActions() {
       }
       return true;
     });
-  }, [actions, leverFilter, showCancelled, statusFilter, termFilter, scopeFilter, search]);
+  }, [actions, sites, siteFilter, leverFilter, showCancelled, statusFilter, termFilter, scopeFilter, search]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, Action[]>();
@@ -1185,7 +1237,7 @@ export default function PortalActions() {
     });
   }
 
-  const hasFilters = !!(search || statusFilter !== ALL || termFilter !== ALL || scopeFilter !== ALL || leverFilter != null);
+  const hasFilters = !!(siteFilter !== ALL || search || statusFilter !== ALL || termFilter !== ALL || scopeFilter !== ALL || leverFilter != null);
 
   if (loading) {
     return <SkeletonLoader rows={5} />;
@@ -1253,6 +1305,13 @@ export default function PortalActions() {
             placeholder="Search actions…"
             className="h-8 w-56 text-xs"
           />
+          <Select value={siteFilter} onValueChange={setSiteFilter}>
+            <SelectTrigger className="w-48" aria-label="Filter actions by site"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All sites</SelectItem>
+              {sites.map(site => <SelectItem key={site.site_id} value={String(site.site_id)}>{site.site_name}</SelectItem>)}
+            </SelectContent>
+          </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="h-8 w-auto min-w-[9rem] text-xs"><SelectValue placeholder="All statuses" /></SelectTrigger>
             <SelectContent>
@@ -1279,7 +1338,7 @@ export default function PortalActions() {
               variant="link"
               size="sm"
               className="h-auto p-0 text-xs"
-              onClick={() => { setSearch(""); setStatusFilter(ALL); setTermFilter(ALL); setScopeFilter(ALL); setLeverFilter(null); }}
+              onClick={() => { setSearch(""); setSiteFilter(ALL); setStatusFilter(ALL); setTermFilter(ALL); setScopeFilter(ALL); setLeverFilter(null); }}
             >
               Clear filters
             </Button>
@@ -1323,6 +1382,7 @@ export default function PortalActions() {
             {grouped.map(({ category, actions: groupActions }) => (
               <div key={category} ref={(el) => { sectionRefs.current.set(category, el); }}>
                 <CategorySection
+                  sites={sites}
                   category={category}
                   actions={groupActions}
                   expanded={isExpanded(category)}
@@ -1340,6 +1400,7 @@ export default function PortalActions() {
 
       {editingAction && (
         <UpdateModal
+          sites={sites}
           action={editingAction}
           contacts={contacts}
           categories={categories}
