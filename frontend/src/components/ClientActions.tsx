@@ -43,6 +43,7 @@ type SuggestedActionOption = {
 type ActionSite = { site_id: number; site_name: string; is_main: boolean };
 
 type ClientActionItem = {
+  add_to_report?: boolean;
   site_scope?: "main" | "all" | "specified";
   site_ids?: number[];
   client_action_id?: number;
@@ -318,6 +319,7 @@ export default function ClientActions({
           items: trimmedItems.map((item) => ({
             site_scope: item.site_scope || "main",
             site_ids: item.site_ids || [],
+            add_to_report: item.add_to_report !== false,
             client_action_id: item.client_action_id ?? null,
             action_option_id: item.action_option_id ?? null,
             action_name: item.action_name,
@@ -347,7 +349,7 @@ export default function ClientActions({
       if (Array.isArray(payload.term_options) && payload.term_options.length) {
         setTermOptions(payload.term_options);
       }
-      setStatus("Actions saved. They will now feed into every report generated for this client.");
+      setStatus("Actions saved. Actions marked Add to report will appear in reports for this client.");
       void loadLeverSummary();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save actions");
@@ -380,7 +382,7 @@ export default function ClientActions({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-            The saved actions below are imported directly into every report&apos;s Actions section for this client.
+            Actions marked Add to report appear in the Actions section of reports for this client.
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
@@ -422,7 +424,7 @@ export default function ClientActions({
             <div>
               <CardTitle>Selected Actions</CardTitle>
               <CardDescription>
-                Arrange and refine the actions that should appear in this client&apos;s reports.
+                Arrange and refine actions, and choose which ones to include in this client&apos;s reports.
               </CardDescription>
             </div>
             {leverFilter != null ? (
@@ -467,6 +469,11 @@ export default function ClientActions({
                     </Button>
                   </div>
                 </div>
+
+                <label className="mb-4 flex items-center gap-2 text-sm font-medium">
+                  <input type="checkbox" checked={item.add_to_report !== false} onChange={(event) => updateItem(index, { add_to_report: event.target.checked })} />
+                  Add to report
+                </label>
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">

@@ -391,7 +391,7 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
         return "intensity_metrics", _load_job_intensity_metrics(_jid)
 
     def _fetch_job_actions():
-        return "job_actions", get_client_report_actions_payload(_client_db_id)
+        return "job_actions", get_client_report_actions_payload(_client_db_id, report_only=True)
 
     def _fetch_target_data():
         return "target_data", get_job_target_data(_jid)

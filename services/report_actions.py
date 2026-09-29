@@ -364,6 +364,7 @@ def ensure_report_actions_schema(con) -> None:
         )
         """
     )
+    con.execute("ALTER TABLE client_report_actions ADD COLUMN IF NOT EXISTS add_to_report BOOLEAN NOT NULL DEFAULT TRUE")
     con.execute("ALTER TABLE client_report_actions ADD COLUMN IF NOT EXISTS site_scope VARCHAR(12) NOT NULL DEFAULT 'main'")
     con.execute("ALTER TABLE client_report_actions ADD COLUMN IF NOT EXISTS site_ids INTEGER[] NOT NULL DEFAULT '{}'")
     con.execute(
@@ -950,7 +951,7 @@ def list_client_report_actions(client_db_id: int, *, con=None) -> list[dict[str,
           l.sphere_name,
           l.sub_sphere_name,
           l.is_custom                   AS lever_is_custom,
-          a.site_scope, a.site_ids
+          a.site_scope, a.site_ids, a.add_to_report
         FROM client_report_actions a
         LEFT JOIN client_contacts cc ON cc.contact_id = a.owner_contact_id
         LEFT JOIN action_levers_lookup l ON l.lever_id = a.lever_id
@@ -992,6 +993,7 @@ def list_client_report_actions(client_db_id: int, *, con=None) -> list[dict[str,
                 "lever_is_custom": bool(row[22]) if row[22] is not None else None,
                 "site_scope": str(row[23] or "main"),
                 "site_ids": list(row[24] or []),
+                "add_to_report": row[25] is not False,
             }
         )
     return items
@@ -1017,7 +1019,7 @@ def replace_client_report_actions(
     state_snapshot: dict[int, dict[str, Any]] = {}
     existing_rows = con.execute(
         """
-        SELECT client_action_id, status, progress, target_date::text AS target_date, completed_at, owner_contact_id, site_scope, site_ids
+        SELECT client_action_id, status, progress, target_date::text AS target_date, completed_at, owner_contact_id, site_scope, site_ids, add_to_report
         FROM client_report_actions WHERE client_db_id = %s
         """,
         [int(client_db_id)],
@@ -1031,6 +1033,7 @@ def replace_client_report_actions(
             "owner_contact_id": int(r[5]) if r[5] is not None else None,
             "site_scope": str(r[6] or "main"),
             "site_ids": list(r[7] or []),
+            "add_to_report": r[8] is not False,
         }
 
     option_lookup = {
@@ -1111,6 +1114,7 @@ def replace_client_report_actions(
                 "target_date": saved_state["target_date"] if saved_state else normalize_action_target_date(raw_dict.get("target_date")),
                 "completed_at": saved_state["completed_at"] if saved_state else None,
                 "owner_contact_id": saved_state["owner_contact_id"] if saved_state else raw_dict.get("owner_contact_id"),
+                "add_to_report": raw_dict.get("add_to_report") if raw_dict.get("add_to_report") is not None else (saved_state or {}).get("add_to_report", True),
                 "site_scope": site_scope,
                 "site_ids": site_ids,
             }
@@ -1124,9 +1128,9 @@ def replace_client_report_actions(
             INSERT INTO client_report_actions
               (client_db_id, action_option_id, action_name, description, action_term, action_category,
                scope_focus, lever_id, is_custom, sort_order, status, progress, target_date, completed_at,
-               owner_contact_id, created_by, updated_by, site_scope, site_ids)
+               owner_contact_id, created_by, updated_by, add_to_report, site_scope, site_ids)
             VALUES
-              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             [
                 int(client_db_id),
@@ -1146,6 +1150,7 @@ def replace_client_report_actions(
                 item.get("owner_contact_id"),
                 actor,
                 actor,
+                item["add_to_report"],
                 item["site_scope"],
                 item["site_ids"],
             ],
@@ -1158,6 +1163,7 @@ def get_client_report_actions_payload(
     client_db_id: int,
     *,
     include_suggested_options: bool = False,
+    report_only: bool = False,
     con=None,
 ) -> dict[str, Any]:
     if con is None:
@@ -1165,10 +1171,13 @@ def get_client_report_actions_payload(
             return get_client_report_actions_payload(
                 client_db_id,
                 include_suggested_options=include_suggested_options,
+                report_only=report_only,
                 con=managed,
             )
 
     items = list_client_report_actions(int(client_db_id), con=con)
+    if report_only:
+        items = [item for item in items if item.get("add_to_report", True)]
     term_counts = {term: 0 for term in ACTION_TERM_ORDER}
     grouped: list[dict[str, Any]] = []
 
@@ -1303,6 +1312,16 @@ def update_client_action(
         else existing[10]
     )
     new_lever_id = _resolve_lever_id(payload.get("lever_id"), con=con) if "lever_id" in payload else existing[11]
+
+    if "add_to_report" in payload:
+        if source != "crm":
+            raise HTTPException(status_code=403, detail="Report inclusion can only be edited in CRM")
+        if not isinstance(payload["add_to_report"], bool):
+            raise HTTPException(status_code=400, detail="add_to_report must be a boolean")
+        con.execute(
+            "UPDATE client_report_actions SET add_to_report = %s WHERE client_action_id = %s AND client_db_id = %s",
+            [payload["add_to_report"], int(client_action_id), int(client_db_id)],
+        )
 
     if "site_scope" in payload or "site_ids" in payload:
         site_scope, site_ids = _normalize_action_sites(

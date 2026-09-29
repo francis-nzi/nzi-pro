@@ -2016,7 +2016,7 @@ def portal_list_actions(current_user: dict = Depends(portal_user_dep)):
                 a.updated_at,
                 a.lever_id,
                 l.lever_code,
-                l.lever_name, a.site_scope, a.site_ids
+                l.lever_name, a.site_scope, a.site_ids, a.add_to_report
             FROM client_report_actions a
             LEFT JOIN client_contacts cc ON cc.contact_id = a.owner_contact_id
             LEFT JOIN action_levers_lookup l ON l.lever_id = a.lever_id
@@ -2057,6 +2057,7 @@ def portal_list_actions(current_user: dict = Depends(portal_user_dep)):
                 "lever_name": str(r[17] or "") or None,
                 "site_scope": str(r[18] or "main"),
                 "site_ids": list(r[19] or []),
+                "add_to_report": r[20] is not False,
             })
 
         sites = list_action_sites(client_db_id, con=con)

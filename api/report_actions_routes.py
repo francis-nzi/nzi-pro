@@ -49,6 +49,7 @@ class ActionOptionPayload(BaseModel):
 
 
 class ClientActionPayload(BaseModel):
+    add_to_report: bool | None = None
     site_scope: str | None = None
     site_ids: list[int] | None = None
     client_action_id: int | None = None
@@ -68,6 +69,7 @@ class ClientActionPayload(BaseModel):
 
 
 class UpdateClientActionPayload(BaseModel):
+    add_to_report: bool | None = None
     status: str | None = None
     progress: int | None = None
     target_date: str | None = None

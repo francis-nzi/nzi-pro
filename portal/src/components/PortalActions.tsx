@@ -35,6 +35,7 @@ import LeverSelect, { type LeverOption } from "@/components/LeverSelect";
 
 type ActionSite = { site_id: number; site_name: string; is_main: boolean };
 type Action = {
+  add_to_report?: boolean;
   site_scope?: "main" | "all" | "specified";
   site_ids?: number[];
   client_action_id: number;
@@ -921,6 +922,7 @@ function ActionRow({
       </td>
 
       <td className="p-2 break-words text-xs">{actionSiteLabel(action, sites)}</td>
+      <td className="p-2">{action.add_to_report === false ? "No" : "Yes"}</td>
       <td className="p-2 text-center">
         {action.description ? (
           <DescriptionInfo description={action.description} />
@@ -1036,6 +1038,7 @@ function CategorySection({
             <colgroup>
               <col className="w-56" />
               <col className="w-40" />
+              <col className="w-24" />
               <col className="w-10" />
               <col className="w-20" />
               <col className="w-36" />
@@ -1048,6 +1051,7 @@ function CategorySection({
               <tr className="border-b bg-muted/20 text-xs text-muted-foreground">
                 <th className="p-2 text-left">Title</th>
                 <th className="p-2 text-left">Site</th>
+                <th className="p-2 text-left">Add to report</th>
                 <th className="p-2 text-center">Info</th>
                 <th className="p-2 text-left">Term</th>
                 <th className="p-2 text-left">Target Date</th>

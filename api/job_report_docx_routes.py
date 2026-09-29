@@ -273,7 +273,7 @@ def generate_job_report_docx(
             int(job_id),
             updated_by=_user.get("email", "unknown"),
         )
-        job_actions = get_client_report_actions_payload(job_data["client_db_id"])
+        job_actions = get_client_report_actions_payload(job_data["client_db_id"], report_only=True)
         generation_date = datetime.now().strftime('%d %B %Y')
         render_values = _build_report_render_values(
             job_data=job_data,

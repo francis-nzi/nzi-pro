@@ -18,7 +18,7 @@ def test_portal_actions_returns_site_assignments_and_active_choices(monkeypatch)
             return self
         def fetchall(self):
             return [(1, "Energy", None, "short", None, None, False, "open", 0,
-                     None, None, None, None, None, None, 1, "L1", "Lever", "specified", [20])]
+                     None, None, None, None, None, None, 1, "L1", "Lever", "specified", [20], True)]
     monkeypatch.setattr(routes, "get_conn", lambda: Conn())
     monkeypatch.setattr(actions, "ensure_report_actions_schema", lambda *a: None)
     sites = [{"site_id": 20, "site_name": "Factory", "is_main": True}]

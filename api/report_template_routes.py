@@ -4042,7 +4042,7 @@ def get_job_report_data(
                     updated_by=_current_actor_identifier(_user),
                 )
             )
-            job_actions = get_client_report_actions_payload(int(job_row[25]), con=con)
+            job_actions = get_client_report_actions_payload(int(job_row[25]), con=con, report_only=True)
 
             job_payload = {
                 "job_id": job_row[0],

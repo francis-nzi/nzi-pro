@@ -56,7 +56,7 @@ def test_invalid_sites_rejected_before_replacing_actions(conn, scope, ids):
 
 
 def test_older_clients_preserve_saved_allocation(conn):
-    conn.existing = [(5, "open", 20, None, None, None, "specified", [20])]
+    conn.existing = [(5, "open", 20, None, None, None, "specified", [20], True)]
     actions.replace_client_report_actions(1, [{"client_action_id": 5, "action_name": "Reduce energy"}], actor="test", con=conn)
     assert conn.saved[0][-2:] == ["specified", [20]]
 
@@ -65,7 +65,7 @@ def test_read_returns_saved_allocation(monkeypatch):
     con = Conn()
     con.existing = [(5, None, "Reduce energy", None, "short", None, None, True, 10, None, None,
                      "open", 20, None, None, None, None, 1, "L1", "Lever", None, None, False,
-                     "specified", [10, 20])]
+                     "specified", [10, 20], True)]
     monkeypatch.setattr(actions, "ensure_report_actions_schema", lambda *a: None)
     result = actions.list_client_report_actions(1, con=con)
     assert result[0]["site_scope"] == "specified"
