@@ -1976,7 +1976,7 @@ export default function JobAdvancedReports({
             p == null ? "text-gray-400" : p < 0 ? "text-green-600" : p > 0 ? "text-red-600" : "text-gray-600";
 
           const perLabel = (key: string, m: { label?: string | null; divider?: number | null }) => {
-            const label = m.label?.trim() || key;
+            const label = (m.label?.trim() || key).replace(/^(?:per\s+)+/i, "");
             const d = toNum(m.divider) || 1;
             return d === 1 ? `Per ${label}` : `Per ${d.toLocaleString()} ${label}`;
           };
@@ -1987,6 +1987,11 @@ export default function JobAdvancedReports({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
               </svg>
             );
+          if (/product/i.test(`${metricKey} ${label || ""}`)) return (
+            <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: BRAND }} aria-label="Product">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 3 3 7.5v9L12 21l9-4.5v-9L12 3ZM3 7.5 12 12l9-4.5M12 12v9M7.5 5.25l9 4.5" />
+            </svg>
+          );
             const lbl = String(label ?? metricKey ?? "").toLowerCase();
             if (lbl.includes("m2") || lbl.includes("m?") || lbl.includes("sqm") || lbl.includes("floor") || lbl.includes("office") || lbl.includes("space") || lbl.includes("area") || lbl.includes("building")) return (
               <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: BRAND }}>
@@ -2011,7 +2016,7 @@ export default function JobAdvancedReports({
           const summaryParts = dedupedMetricEntries.map(([key, m]) => {
             const intensity = calcIntensity(m, totalEmissions);
             if (intensity == null) return null;
-            const label = m.label?.trim() || key;
+            const label = (m.label?.trim() || key).replace(/^(?:per\s+)+/i, "");
             const d = toNum(m.divider) || 1;
             const perStr = d === 1 ? `per ${label.toLowerCase()}` : `per ${d.toLocaleString()} ${label.toLowerCase()}`;
             return `${fmt(intensity)} tCO₂e ${perStr}`;
