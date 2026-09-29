@@ -26,6 +26,7 @@ from services.audit_log import record_audit_event
 from services.portal import PORTAL_ROLE_CAN_MANAGE_ACTIONS
 from services.portal_data_entry import (
     BUCKET_KEYS,
+    PGS_CATEGORIES,
     BUCKET_LABELS,
     PORTAL_DATA_ENTRY_EXPIRED_MESSAGE,
     bucket_for_category,
@@ -160,6 +161,8 @@ def portal_data_entry_buckets(current_user: dict = Depends(portal_user_dep)):
             ).df()
             if cat_df is not None and not cat_df.empty:
                 for category in cat_df["category"].tolist():
+                    if category in PGS_CATEGORIES:
+                        has_data["purchased_goods_and_services"] = True
                     bucket_key = bucket_for_category(category_map, category)
                     if bucket_key in has_data:
                         has_data[bucket_key] = True
@@ -199,7 +202,7 @@ def portal_data_entry_buckets(current_user: dict = Depends(portal_user_dep)):
                 """,
                 [int(job_id)],
             ).fetchone()
-            has_data["purchased_goods_and_services"] = bool(spend_row)
+            has_data["purchased_goods_and_services"] = has_data["purchased_goods_and_services"] or bool(spend_row)
 
     for b in buckets:
         b["has_data"] = has_data[b["bucket_key"]]

@@ -28,6 +28,15 @@ type SuggestedSpendLine = {
   score: number;
 };
 
+type CrmPgsRow = {
+  row_id: number;
+  report_label: string | null;
+  site_name: string | null;
+  qty: number | null;
+  uom: string | null;
+  calc_tco2e: number | null;
+};
+
 type SpendRow = {
   entry_id: number;
   site_id: number | null;
@@ -82,6 +91,7 @@ export default function PortalSpendTab() {
   const [uploadSiteId, setUploadSiteId] = useState("");
   const [editSiteId, setEditSiteId] = useState("");
   const [sitesError, setSitesError] = useState("");
+  const [crmRows, setCrmRows] = useState<CrmPgsRow[]>([]);
   const [rows, setRows] = useState<SpendRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -182,6 +192,7 @@ export default function PortalSpendTab() {
       if (res.ok) {
         const d = await res.json();
         setRows(d.rows || []);
+        setCrmRows(d.crm_rows || []);
         setJobNumber(d.job_number || null);
         setReportingYear(d.reporting_year || null);
         setDataEntryExpired(Boolean(d.portal_data_entry_expired));
@@ -807,7 +818,7 @@ export default function PortalSpendTab() {
       {!noJobMessage && (loading ? (
         <SkeletonLoader />
       ) : rows.length === 0 ? (
-        <EmptyStatePanel title="No spend data submitted yet." />
+        <EmptyStatePanel title={crmRows.length ? "No additional spend lines submitted." : "No spend data submitted yet."} />
       ) : (
         <>
           <div className="hidden overflow-x-auto rounded-md border sm:block">
@@ -968,6 +979,33 @@ export default function PortalSpendTab() {
           </div>
         </>
       ))}
+
+      {!loading && !noJobMessage && crmRows.length > 0 && (
+        <Card>
+          <CardContent className="space-y-3 pt-5">
+            <h3 className="font-semibold">CRM Purchased Goods &amp; Services</h3>
+            <p className="text-sm text-muted-foreground">
+              {crmRows.length} record(s) already included in this job. These records are managed by your NZI consultant and may include totals from approved spend lines above. Do not submit them again.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b text-left">
+                  <th className="p-2">Report label</th><th className="p-2">Site</th>
+                  <th className="p-2 text-right">Quantity</th><th className="p-2">Unit</th>
+                  <th className="p-2 text-right">tCO2e</th>
+                </tr></thead>
+                <tbody>{crmRows.map(row => <tr key={row.row_id} className="border-b">
+                  <td className="p-2">{row.report_label || "-"}</td>
+                  <td className="p-2">{row.site_name || "Not allocated"}</td>
+                  <td className="p-2 text-right">{row.qty?.toLocaleString(undefined, { maximumFractionDigits: 4 }) ?? "-"}</td>
+                  <td className="p-2">{row.uom || "-"}</td>
+                  <td className="p-2 text-right">{row.calc_tco2e?.toLocaleString(undefined, { maximumFractionDigits: 4 }) ?? "-"}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {!noJobMessage && <PortalCategoryHistoryTable fetchUrl="/portal/spend/history" />}
 

@@ -112,6 +112,24 @@ def portal_spend_history(current_user: dict = Depends(portal_user_dep)):
     return {"items": items}
 
 
+def _crm_pgs_rows(con, job_id: int, site_ids: list[int] | None) -> list[dict[str, Any]]:
+    """Report records already held in CRM; never copy these into the spend ledger."""
+    df = con.execute(
+        """SELECT r.row_id, r.report_label, r.category, r.site_id, s.site_name,
+                  r.qty, r.uom, r.calc_tco2e
+           FROM job_scope_rows r
+           LEFT JOIN client_sites s ON s.site_id = r.site_id
+           WHERE r.job_id = %s AND r.enabled = TRUE AND r.category = ANY(%s)
+           ORDER BY r.report_label, r.row_id""",
+        [int(job_id), sorted(PGS_CATEGORIES)],
+    ).df()
+    if df is None or df.empty:
+        return []
+    df = df.astype(object).where(df.notna(), None)
+    return [dict(row) for row in df.to_dict("records")
+            if site_ids is None or row.get("site_id") in site_ids]
+
+
 @router.get("/portal/spend/rows")
 def portal_spend_list_rows(current_user: dict = Depends(portal_user_dep)):
     client_db_id = int(current_user["client_db_id"])
@@ -119,6 +137,7 @@ def portal_spend_list_rows(current_user: dict = Depends(portal_user_dep)):
         _ensure_spend_tables(con)
         job_id = _resolve_job_or_404(con, client_db_id)
         job_summary = get_job_summary(con, job_id)
+        crm_rows = _crm_pgs_rows(con, job_id, current_user.get("site_ids"))
         df = con.execute(
             """
             SELECT entry_id, reference_code, spend_description, currency, conversion_rate,
@@ -135,7 +154,7 @@ def portal_spend_list_rows(current_user: dict = Depends(portal_user_dep)):
             [int(job_id)],
         ).df()
     if df is None or df.empty:
-        return {"job_id": job_id, "rows": [], **job_summary}
+        return {"job_id": job_id, "rows": [], "crm_rows": crm_rows, **job_summary}
     # astype(object) first -- see api/portal_data_entry_routes.py for why the
     # plain df.where(df.notna(), None) is a no-op on float64 columns and
     # breaks JSON serialization for rows with a null numeric field.
@@ -144,7 +163,7 @@ def portal_spend_list_rows(current_user: dict = Depends(portal_user_dep)):
     for r in rows:
         if r.get("created_at") is not None:
             r["created_at"] = str(r["created_at"])
-    return {"job_id": job_id, "rows": rows, **job_summary}
+    return {"job_id": job_id, "rows": rows, "crm_rows": crm_rows, **job_summary}
 
 
 @router.get("/portal/spend/template")
