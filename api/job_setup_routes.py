@@ -103,6 +103,9 @@ def list_datasets(_user: dict[str, str] = Depends(_current_user)):
 
     items: list[dict[str, object]] = []
     if df is not None and (not df.empty):
+        # Nullable numeric columns become NaN in pandas. Convert to object
+        # first so missing values remain None for both int() and JSON encoding.
+        df = df.astype(object).where(df.notna(), None)
         for _, r in df.iterrows():
             items.append(
                 {
