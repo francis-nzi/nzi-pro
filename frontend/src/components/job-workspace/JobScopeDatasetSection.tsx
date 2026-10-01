@@ -1,3 +1,5 @@
+import { useMemo, useState } from "react";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -45,7 +47,7 @@ type ScopeDatasetSectionProps = {
   effectiveScopeDatasets: EffectiveScopeDataset[];
   scopeCatalogStatus: string;
   scopeCatalogCount: number | null;
-  datasets: Array<{ dataset_id: number; name: string | null; year: number | null; country: string | null; analysis_type: string | null }>;
+  datasets: Array<{ dataset_id: number; name: string | null; year: number | null; country: string | null; analysis_type: string | null; source?: string | null; region?: string | null; currency?: string | null; archived?: boolean }>;
   additionalDatasetIds: string[];
   scopeDatasetIds: Record<ScopeKey, string>;
   onToggleAdditionalDataset: (datasetId: string) => void;
@@ -80,6 +82,34 @@ export default function JobScopeDatasetSection({
   onReloadCatalog,
   onSaveScopeDatasets,
 }: ScopeDatasetSectionProps) {
+  const [search, setSearch] = useState("");
+  const [country, setCountry] = useState("");
+  const [year, setYear] = useState("");
+  const [analysisType, setAnalysisType] = useState("");
+  const [archiveFilter, setArchiveFilter] = useState("active");
+  const [selectedOnly, setSelectedOnly] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
+  const countries = useMemo(() => [...new Set(datasets.map(d => d.country).filter((v): v is string => !!v))].sort(), [datasets]);
+  const years = useMemo(() => [...new Set(datasets.map(d => d.year).filter((v): v is number => v != null))].sort((a, b) => b - a), [datasets]);
+  const types = useMemo(() => [...new Set(datasets.map(d => d.analysis_type).filter((v): v is string => !!v))].sort(), [datasets]);
+  const matches = useMemo(() => {
+    const terms = search.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
+    return datasets.filter(ds => {
+      const text = [ds.name, ds.source, ds.country, ds.region, ds.currency, ds.year, ds.analysis_type, ds.dataset_id].join(" ").toLocaleLowerCase();
+      return terms.every(term => text.includes(term)) &&
+        (!country || ds.country === country) && (!year || String(ds.year) === year) &&
+        (!analysisType || ds.analysis_type === analysisType) &&
+        (archiveFilter === "all" || (archiveFilter === "archived" ? !!ds.archived : !ds.archived)) &&
+        (!selectedOnly || additionalDatasetIds.includes(String(ds.dataset_id)));
+    }).sort((a, b) => Number(b.year || 0) - Number(a.year || 0) || String(a.name || "").localeCompare(String(b.name || "")) || a.dataset_id - b.dataset_id);
+  }, [datasets, search, country, year, analysisType, archiveFilter, selectedOnly, additionalDatasetIds]);
+  const pageCount = Math.max(1, Math.ceil(matches.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const visibleDatasets = matches.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  function clearFilters() {
+    setSearch(""); setCountry(""); setYear(""); setAnalysisType(""); setArchiveFilter("active"); setSelectedOnly(false); setPage(1);
+  }
   return (
     <Card className={hidden ? "hidden" : undefined}>
       <CardHeader>
@@ -284,15 +314,45 @@ export default function JobScopeDatasetSection({
                   {scopeCatalogCount != null ? ` (${scopeCatalogCount} total)` : ""}
                 </div>
               ) : null}
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <label className="space-y-1 text-xs sm:col-span-2 lg:col-span-3">
+                  <span>Search datasets</span>
+                  <Input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search name, source, country, year, currency or ID (e.g. CEDA 2025 United Kingdom)" />
+                </label>
+                <label className="space-y-1 text-xs"><span>Country</span>
+                  <select className="h-9 w-full rounded border bg-white px-2" value={country} onChange={e => { setCountry(e.target.value); setPage(1); }}>
+                    <option value="">All countries</option>{countries.map(value => <option key={value} value={value}>{value}</option>)}
+                  </select>
+                </label>
+                <label className="space-y-1 text-xs"><span>Year</span>
+                  <select className="h-9 w-full rounded border bg-white px-2" value={year} onChange={e => { setYear(e.target.value); setPage(1); }}>
+                    <option value="">All years</option>{years.map(value => <option key={value} value={value}>{value}</option>)}
+                  </select>
+                </label>
+                <label className="space-y-1 text-xs"><span>Analysis type</span>
+                  <select className="h-9 w-full rounded border bg-white px-2" value={analysisType} onChange={e => { setAnalysisType(e.target.value); setPage(1); }}>
+                    <option value="">All types</option>{types.map(value => <option key={value} value={value}>{value}</option>)}
+                  </select>
+                </label>
+                <label className="space-y-1 text-xs"><span>Status</span>
+                  <select className="h-9 w-full rounded border bg-white px-2" value={archiveFilter} onChange={e => { setArchiveFilter(e.target.value); setPage(1); }}>
+                    <option value="active">Active</option><option value="archived">Archived</option><option value="all">All statuses</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={selectedOnly} onChange={e => { setSelectedOnly(e.target.checked); setPage(1); }} />Selected only</label>
+                <Button type="button" size="sm" variant="outline" onClick={clearFilters}>Clear filters</Button>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs" aria-live="polite">
+                <span>{matches.length ? `${(currentPage - 1) * pageSize + 1}-${Math.min(currentPage * pageSize, matches.length)}` : "0"} of {matches.length} matching datasets; {additionalDatasetIds.length} selected across all pages</span>
+                <div className="flex items-center gap-2">
+                  <Button type="button" size="sm" variant="outline" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>Previous</Button>
+                  <span>Page {currentPage} of {pageCount}</span>
+                  <Button type="button" size="sm" variant="outline" disabled={currentPage >= pageCount} onClick={() => setPage(currentPage + 1)}>Next</Button>
+                </div>
+              </div>
+              {!matches.length && <p className="text-sm">No datasets match these filters.</p>}
               <div className="max-h-52 space-y-2 overflow-auto pr-1">
-                {datasets
-                  .slice()
-                  .sort((a, b) => {
-                    const ay = Number(a.year || 0);
-                    const by = Number(b.year || 0);
-                    if (ay !== by) return by - ay;
-                    return String(a.name || "").localeCompare(String(b.name || ""));
-                  })
+                {visibleDatasets
                   .map((ds) => {
                     const id = String(ds.dataset_id);
                     const selected = additionalDatasetIds.includes(id);
@@ -302,7 +362,7 @@ export default function JobScopeDatasetSection({
                         className="flex cursor-pointer items-center justify-between rounded border border-emerald-100 bg-white/80 px-2 py-1.5 text-xs hover:bg-emerald-100/60"
                       >
                         <div className="pr-2">
-                          <div className="font-medium text-emerald-950">{ds.name || `Dataset ${id}`}</div>
+                          <div className="font-medium text-emerald-950">{ds.name || `Dataset ${id}`}{ds.archived ? " (archived)" : ""}</div>
                           <div className="text-emerald-800/80">
                             {ds.country || "Unknown"} • {ds.year || "n/a"} • {ds.analysis_type || "n/a"}
                           </div>

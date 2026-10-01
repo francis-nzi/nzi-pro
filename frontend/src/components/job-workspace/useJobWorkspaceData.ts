@@ -195,8 +195,6 @@ export default function useJobWorkspaceData({
   activeSetupSubtab,
   activeWorkspaceSubtab,
   showAdvancedDatasetConfig,
-  datasetsLength,
-  scopeConfigMode,
   scopeConfigReloadToken,
   milestoneTemplatesLength,
   milestoneTemplateCompletionsLength,
@@ -512,13 +510,12 @@ export default function useJobWorkspaceData({
 
     async function loadScopeConfigResources() {
       if (activeWorkspaceSubtab !== "setup-overview" || !showAdvancedDatasetConfig) return;
-      if (datasetsLength > 0 && scopeConfigMode !== "legacy") return;
       if (!Number.isFinite(jobId) || jobId <= 0) return;
 
       setters.setLoadingScopeConfig(true);
       setters.setScopeCatalogStatus("Loading dataset catalog...");
       try {
-        const dRes = await fetch(`${baseUrl}/admin/datasets?include_archived=true`, {
+        const dRes = await fetch(`${baseUrl}/datasets`, {
           credentials: "include",
           headers: withAuditHeaders(),
         });
@@ -537,6 +534,8 @@ export default function useJobWorkspaceData({
         } else {
           setters.setScopeCatalogStatus(`Dataset catalog request failed (${dRes.status}).`);
         }
+      } catch {
+        if (!cancelled) setters.setScopeCatalogStatus("Could not load dataset catalog. Please reload to try again.");
       } finally {
         if (!cancelled) setters.setLoadingScopeConfig(false);
       }
@@ -588,9 +587,7 @@ export default function useJobWorkspaceData({
   }, [
     activeWorkspaceSubtab,
     baseUrl,
-    datasetsLength,
     jobId,
-    scopeConfigMode,
     scopeConfigReloadToken,
     showAdvancedDatasetConfig,
     setters,
