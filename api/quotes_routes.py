@@ -61,6 +61,23 @@ def _preferred_bill_to_address_lines(billing_lines: list[Any], registered_lines:
     return [str(line or "").strip() for line in registered_lines]
 
 
+def _resolve_bill_to(saved: Any, client_name: Any, billing_company: Any,
+                     billing_lines: list[Any], registered_lines: list[Any]) -> str:
+    """Repair the legacy client-name default without replacing custom recipients."""
+    text = str(saved or "")
+    client = str(client_name or "").strip()
+    company = str(billing_company or "").strip() or client
+    if not text.strip():
+        address = _preferred_bill_to_address_lines(billing_lines, registered_lines)
+        return "\n".join(line for line in [company, *address] if line)
+    lines = text.splitlines()
+    first = next((i for i, line in enumerate(lines) if line.strip()), None)
+    if first is not None and client and lines[first].strip().casefold() == client.casefold():
+        lines[first] = company
+        return "\n".join(lines)
+    return text
+
+
 def _ensure_quote_tables(con) -> None:
     con.execute(
         """
@@ -705,13 +722,8 @@ def _serialize_invoice(con, invoice_id: int, org_id: str | None = None) -> dict[
     if contact_row:
         contact_name = str(contact_row[0] or "")
         contact_email = str(contact_row[1] or "")
-    if not bill_to.strip() and c_row:
-        # No linked quote (or its bill_to is blank) -- fall back to the
-        # client's billing company/address so the invoice always shows who it's
-        # for, instead of leaving that block empty.
-        address_lines = _preferred_bill_to_address_lines(c_row[7:13], c_row[1:7])
-        billing_company = str(c_row[13] or "").strip() or client_name
-        bill_to = "\n".join([line for line in [billing_company, *address_lines] if line])
+    if c_row:
+        bill_to = _resolve_bill_to(bill_to, client_name, c_row[13], c_row[7:13], c_row[1:7])
     return {
         "invoice_id": int(row[0]),
         "client_db_id": client_db_id,
@@ -1114,7 +1126,10 @@ def _serialize_quote(con, quote_id: int, org_id: str | None = None) -> dict[str,
         """
         SELECT quotes.quote_id, quotes.client_db_id, quotes.contact_id, quotes.quote_number, quotes.quote_date, quotes.valid_to, quotes.salesperson,
                quotes.payment_term_id, pt.name AS payment_term_name, quotes.currency_code, quotes.description, quotes.notes, quotes.status, quotes.revision_of_quote_id,
-               quotes.job_number, quotes.attention, quotes.bill_to, quotes.created_at, quotes.updated_at, quotes.org_id, c.client_name
+               quotes.job_number, quotes.attention, quotes.bill_to, quotes.created_at, quotes.updated_at, quotes.org_id, c.client_name,
+               c.billing_company, c.billing_addr_line1, c.billing_addr_line2, c.billing_addr_city,
+               c.billing_addr_region, c.billing_addr_postcode, c.billing_addr_country,
+               c.addr_line1, c.addr_line2, c.addr_city, c.addr_region, c.addr_postcode, c.addr_country
         FROM quotes
         LEFT JOIN payment_terms_lookup pt ON pt.term_id = quotes.payment_term_id
         LEFT JOIN clients c ON c.db_id = quotes.client_db_id
@@ -1185,7 +1200,7 @@ def _serialize_quote(con, quote_id: int, org_id: str | None = None) -> dict[str,
         "revision_of_quote_id": _safe_int(q[13], None),
         "job_number": str(q[14] or ""),
         "attention": str(q[15] or ""),
-        "bill_to": str(q[16] or ""),
+        "bill_to": _resolve_bill_to(q[16], q[20], q[21], q[22:28], q[28:34]),
         "created_at": q[17].isoformat() if q[17] else None,
         "updated_at": q[18].isoformat() if q[18] else None,
         "lines": lines,
