@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import ReportSiteSelection from "@/components/ReportSiteSelection";
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PoundSterling } from "lucide-react";
@@ -148,6 +149,7 @@ type SiteActivityRow = {
 };
 
 type SiteBreakdowns = {
+  excluded_site_names?: string[];
   show_site_tables?: boolean;
   show_appendix?: boolean;
   site_count?: number;
@@ -400,6 +402,7 @@ export default function JobAdvancedReports({
   const [data, setData] = useState<LiveData | null>(null);
   const [liveScopeTotals, setLiveScopeTotals] = useState<{ scope_1: number; scope_2: number; scope_3: number; total: number } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [siteSelectionRevision, setSiteSelectionRevision] = useState(0);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
@@ -493,7 +496,7 @@ export default function JobAdvancedReports({
       })
       .catch(e => setFetchError(String(e)))
       .finally(() => setLoading(false));
-  }, [jobId, baseUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [jobId, baseUrl, siteSelectionRevision]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Signal Playwright when data has loaded and Recharts has had time to paint.
   // 1500 ms covers ResponsiveContainer measurement + one rAF repaint cycle.
@@ -1016,7 +1019,7 @@ export default function JobAdvancedReports({
       .slice(0, 8);
 
     const rawTotal = siteData.reduce((sum, row) => sum + Number(row.value || 0), 0);
-    if (rawTotal <= 0 || totalEmissions <= 0) return siteData;
+    if (rawTotal <= 0 || totalEmissions <= 0 || (site_breakdowns?.excluded_site_names?.length ?? 0) > 0) return siteData;
     const scale = Math.abs(rawTotal - totalEmissions) > 0.05 ? totalEmissions / rawTotal : 1;
     return siteData.map((row) => ({ ...row, value: Number(row.value || 0) * scale }));
   })();
@@ -1069,6 +1072,7 @@ export default function JobAdvancedReports({
       data-report-ready="1"
       data-widget-pngs-ready={widgetPngsReadyState}
     >
+      {!pdfToken && <ReportSiteSelection jobId={jobId} baseUrl={baseUrl} onSaved={() => setSiteSelectionRevision(v => v + 1)} />}
       {/* In-app PDF viewer overlay */}
       {pdfBlobUrl && (
         <div className="fixed inset-0 z-50 flex flex-col bg-gray-900">

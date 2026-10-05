@@ -27,6 +27,7 @@ from typing import Optional, Any
 from core.database import get_conn
 from api.auth import _current_user
 from api.permissions import assert_job_access, assert_permission
+from services.report_sites import report_sites, excluded_report_sites, visible_report_rows
 from services.monthly_emissions import JobMonthlyEmissionsResolver
 from services.emissions_reporting import combined_row_metrics
 from api.report_template_routes import (
@@ -148,6 +149,38 @@ DEFAULT_GLOSSARY_ENTRIES: list[dict[str, str]] = [
 ]
 
 router = APIRouter()
+
+class ReportSiteSelection(BaseModel):
+    include_in_report: bool
+
+
+@router.get("/jobs/{job_id}/report-sites")
+def list_report_sites(job_id: int, _user: dict = Depends(_current_user)):
+    assert_permission(_user, "jobs.view")
+    assert_job_access(_user, int(job_id))
+    with get_conn() as con:
+        return {"sites": report_sites(con, job_id)}
+
+
+@router.patch("/jobs/{job_id}/report-sites/{site_id}")
+def update_report_site(job_id: int, site_id: int, body: ReportSiteSelection,
+                       request: Request, _user: dict = Depends(_current_user)):
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+    with get_conn() as con:
+        sites = report_sites(con, job_id)
+        before = next((s for s in sites if s["site_id"] == site_id), None)
+        if before is None:
+            raise HTTPException(status_code=404, detail="Site not found for this job")
+        con.execute("""INSERT INTO job_site_report_settings (job_id, site_id, include_in_report)
+            VALUES (%s, %s, %s) ON CONFLICT (job_id, site_id)
+            DO UPDATE SET include_in_report = EXCLUDED.include_in_report""",
+            [job_id, site_id, body.include_in_report])
+        record_audit_event(con, request=request, actor=_user, action="update",
+            entity_type="job_site_report_settings", entity_id=str(site_id), job_id=job_id,
+            metadata={"before": before["include_in_report"], "include_in_report": body.include_in_report})
+        return {"site_id": site_id, "include_in_report": body.include_in_report}
+
 
 
 class GenerateReportPayload(BaseModel):
@@ -2614,7 +2647,7 @@ def get_job_sites(job_id: int):
             
             # Get sites for this client (active and recently vacated)
             sites = con.execute("""
-                SELECT site_name, location, is_registered_office, vacated_date
+                SELECT site_name, location, is_registered_office, vacated_date, site_id
                 FROM client_sites
                 WHERE client_db_id = %s 
                   AND (archived = FALSE OR archived IS NULL)
@@ -2625,12 +2658,13 @@ def get_job_sites(job_id: int):
             result = []
             for site in sites:
                 result.append({
+                    'site_id': site[4],
                     'site_name': site[0],
                     'location': site[1],
                     'is_registered_office': site[2],
                     'vacated_date': site[3],
                 })
-            return result
+            return visible_report_rows(result, excluded_report_sites(con, job_id))
     except Exception:
         logger.debug("Failed to load job sites for report; returning empty list", exc_info=True)
         return []
@@ -2641,7 +2675,7 @@ def get_emissions_by_site(job_id: int):
     try:
         with get_conn() as con:
             resolver = JobMonthlyEmissionsResolver(con, int(job_id))
-            rows = _load_reporting_rows(con, int(job_id))
+            rows = visible_report_rows(_load_reporting_rows(con, int(job_id)), excluded_report_sites(con, job_id))
 
             if not rows:
                 return {}
@@ -2671,6 +2705,7 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
     Returns empty/hidden structures when there is 0-1 site in the reporting data.
     """
     with get_conn() as con:
+        excluded = excluded_report_sites(con, job_id)
         job_row = con.execute(
             "SELECT client_db_id FROM jobs WHERE job_id = %s",
             [int(job_id)],
@@ -2681,7 +2716,7 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
         if client_db_id is not None:
             configured_sites_df = con.execute(
                 """
-                SELECT site_name
+                SELECT site_id, site_name
                 FROM client_sites
                 WHERE client_db_id = %s
                   AND (archived = FALSE OR archived IS NULL)
@@ -2692,9 +2727,10 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
             ).df()
 
         resolver = JobMonthlyEmissionsResolver(con, int(job_id))
-        rows = _load_reporting_rows(con, int(job_id))
+        rows = visible_report_rows(_load_reporting_rows(con, int(job_id)), excluded)
 
         empty_result = {
+            "excluded_site_names": [s["site_name"] for s in excluded],
             "show_site_tables": False,
             "show_appendix": False,
             "site_count": 0,
@@ -2707,7 +2743,7 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
         if configured_sites_df is not None and not configured_sites_df.empty:
             configured_site_names = [
                 str(r.get("site_name") or "").strip()
-                for _, r in configured_sites_df.iterrows()
+                for r in visible_report_rows(configured_sites_df.to_dict("records"), excluded)
                 if str(r.get("site_name") or "").strip()
             ]
 
@@ -2726,6 +2762,7 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
                     for s in configured_site_names
                 ]
                 return {
+                    "excluded_site_names": [s["site_name"] for s in excluded],
                     "show_site_tables": True,
                     "show_appendix": False,
                     "site_count": len(configured_site_names),
@@ -2871,6 +2908,7 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
         site_count = len(scope_rows)
         if site_count <= 1:
             return {
+                "excluded_site_names": [s["site_name"] for s in excluded],
                 "show_site_tables": False,
                 "show_appendix": bool(appendix_rows),
                 "site_count": site_count,
@@ -2881,6 +2919,7 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
             }
 
         return {
+            "excluded_site_names": [s["site_name"] for s in excluded],
             "show_site_tables": True,
             "show_appendix": bool(appendix_rows),
             "site_count": site_count,
@@ -2948,7 +2987,7 @@ def _build_site_overall_comparison(current_breakdowns: dict[str, Any], benchmark
     benchmark_rows = benchmark_breakdowns.get("overall", []) if benchmark_breakdowns else []
     current_map = {str(r.get("site_name") or ""): float(r.get("total") or 0) for r in current_rows}
     benchmark_map = {str(r.get("site_name") or ""): float(r.get("total") or 0) for r in benchmark_rows}
-    site_names = sorted(set(current_map.keys()) | set(benchmark_map.keys()))
+    site_names = sorted((set(current_map.keys()) | set(benchmark_map.keys())) - set(current_breakdowns.get("excluded_site_names", [])))
     rows: list[dict[str, Any]] = []
     for site in site_names:
         cur = current_map.get(site, 0.0)
