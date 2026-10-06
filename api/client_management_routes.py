@@ -439,6 +439,12 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
             _client_select_expr(columns, "client_manager", "client_manager"),
             _client_select_expr(columns, "net_zero_year", "net_zero_year"),
             _client_select_expr(columns, "interim_year", "interim_year"),
+            _client_select_expr(columns, "target_s1_year", "target_s1_year"),
+            _client_select_expr(columns, "target_s1_pct", "target_s1_pct"),
+            _client_select_expr(columns, "target_s2_year", "target_s2_year"),
+            _client_select_expr(columns, "target_s2_pct", "target_s2_pct"),
+            _client_select_expr(columns, "target_s3_year", "target_s3_year"),
+            _client_select_expr(columns, "target_s3_pct", "target_s3_pct"),
             _client_select_expr(columns, "interim_s1_pct", "interim_s1_pct"),
             _client_select_expr(columns, "interim_s2_pct", "interim_s2_pct"),
             _client_select_expr(columns, "interim_s3_pct", "interim_s3_pct"),
@@ -505,6 +511,12 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
         "client_manager": row.get("client_manager"),
         "net_zero_year": (int(row["net_zero_year"]) if row.get("net_zero_year") is not None else None),
         "interim_year": (int(row["interim_year"]) if row.get("interim_year") is not None else None),
+        "target_s1_year": row.get("target_s1_year") if row.get("target_s1_year") is not None else row.get("interim_year"),
+        "target_s1_pct": row.get("target_s1_pct") if row.get("target_s1_pct") is not None else row.get("interim_s1_pct"),
+        "target_s2_year": row.get("target_s2_year") if row.get("target_s2_year") is not None else row.get("interim_year"),
+        "target_s2_pct": row.get("target_s2_pct") if row.get("target_s2_pct") is not None else row.get("interim_s2_pct"),
+        "target_s3_year": row.get("target_s3_year") if row.get("target_s3_year") is not None else row.get("interim_year"),
+        "target_s3_pct": row.get("target_s3_pct") if row.get("target_s3_pct") is not None else row.get("interim_s3_pct"),
         "interim_s1_pct": (int(row["interim_s1_pct"]) if row.get("interim_s1_pct") is not None else None),
         "interim_s2_pct": (int(row["interim_s2_pct"]) if row.get("interim_s2_pct") is not None else None),
         "interim_s3_pct": (int(row["interim_s3_pct"]) if row.get("interim_s3_pct") is not None else None),
@@ -609,6 +621,16 @@ def update_client(
                     normalized_body["billing_addr_postcode"] = normalized_body.get("addr_postcode", current_main_addr["addr_postcode"])
                     normalized_body["billing_addr_country"] = normalized_body.get("addr_country", current_main_addr["addr_country"])
 
+            # Keep legacy report/overview percentage fields aligned with the
+            # per-scope targets edited by the current client form.
+            for scope in (1, 2, 3):
+                target = f"target_s{scope}_pct"
+                legacy = f"interim_s{scope}_pct"
+                if target in normalized_body:
+                    normalized_body[legacy] = normalized_body[target]
+                elif legacy in normalized_body:
+                    normalized_body[target] = normalized_body[legacy]
+
             field_mapping = {
                 "client_name": "client_name",
                 "industry": "industry",
@@ -631,6 +653,12 @@ def update_client(
                 "client_manager": "client_manager",
                 "net_zero_year": "net_zero_year",
                 "interim_year": "interim_year",
+                "target_s1_year": "target_s1_year",
+                "target_s1_pct": "target_s1_pct",
+                "target_s2_year": "target_s2_year",
+                "target_s2_pct": "target_s2_pct",
+                "target_s3_year": "target_s3_year",
+                "target_s3_pct": "target_s3_pct",
                 "interim_s1_pct": "interim_s1_pct",
                 "interim_s2_pct": "interim_s2_pct",
                 "interim_s3_pct": "interim_s3_pct",

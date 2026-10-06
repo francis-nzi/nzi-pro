@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { toast } from "sonner";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -215,7 +215,6 @@ type LookupResponse = {
 export default function EditClientPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const params = useParams<{ clientId: string }>();
-  const router = useRouter();
   const clientId = Number(params?.clientId);
 
   const [, setClient] = useState<Client | null>(null);
@@ -460,11 +459,11 @@ export default function EditClientPage() {
           json.net_zero_target_reduction_pct ? String(json.net_zero_target_reduction_pct) : "90"
         );
         setTargetS1Year(json.target_s1_year ? String(json.target_s1_year) : "2035");
-        setTargetS1Pct(json.target_s1_pct ? String(json.target_s1_pct) : "50");
+        setTargetS1Pct(json.target_s1_pct != null ? String(json.target_s1_pct) : "50");
         setTargetS2Year(json.target_s2_year ? String(json.target_s2_year) : "2035");
-        setTargetS2Pct(json.target_s2_pct ? String(json.target_s2_pct) : "50");
+        setTargetS2Pct(json.target_s2_pct != null ? String(json.target_s2_pct) : "50");
         setTargetS3Year(json.target_s3_year ? String(json.target_s3_year) : "2035");
-        setTargetS3Pct(json.target_s3_pct ? String(json.target_s3_pct) : "50");
+        setTargetS3Pct(json.target_s3_pct != null ? String(json.target_s3_pct) : "50");
         setCurrency(json.currency || "GBP");
         setBenchmarkPeriodStart(json.benchmark_period_start || "");
         setBenchmarkPeriodEnd(json.benchmark_period_end || "");
@@ -718,10 +717,7 @@ export default function EditClientPage() {
         throw new Error(`Save failed: ${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
       }
 
-      setStatus("Client updated successfully!");
-      setTimeout(() => {
-        router.push(`/clients/${clientId}`);
-      }, 1000);
+      setStatus("Saved");
     } catch (e) {
       setError((e as Error).message);
       setStatus("");
@@ -755,7 +751,7 @@ export default function EditClientPage() {
         />
 
         {error ? <div className="mb-4 text-sm text-destructive">{error}</div> : null}
-        {status ? <div className="mb-4 text-sm text-muted-foreground">{status}</div> : null}
+        {status ? <div role="status" aria-live="polite" className="fixed bottom-6 right-6 z-50 rounded-lg border border-green-300 bg-green-50 px-5 py-3 text-sm font-medium text-green-900 shadow-lg">{status}</div> : null}
         {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading…</div> : null}
 
         <Tabs defaultValue="details" className="mt-2">
