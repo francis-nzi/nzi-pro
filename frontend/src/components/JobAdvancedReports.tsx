@@ -1657,19 +1657,19 @@ export default function JobAdvancedReports({
             {/* Commitment statement */}
             {(() => {
               const stmt = String(template_variables?.commitment_statement ?? "").trim();
-              const fallback = `${data.job_data.client_name ?? "This organisation"} is committed to achieving net zero greenhouse gas emissions by ${netZeroYear}. This commitment demonstrates our dedication to environmental sustainability.`;
+              const fallback = `${data.job_data.client_name ?? "This organisation"} is committed to achieving net zero greenhouse gas emissions by ${netZeroYear}, demonstrating our long-term commitment to environmental sustainability and climate action.`;
               return (
                 <p className="text-sm text-gray-700 leading-relaxed">{stmt || fallback}</p>
               );
             })()}
 
             <div>
-              <p className="text-sm font-semibold text-gray-700 mb-2">We commit to the following:</p>
-              <ul className="list-disc list-outside ml-5 space-y-1 text-sm text-gray-700">
-                <li>To achieve target reductions in greenhouse gas emissions, as set out below.</li>
-                <li>To set realistic short- and long-term targets designed to achieve our Net Zero commitments.</li>
-                <li>To report total Greenhouse Gas emissions of our business, at a minimum, on an annual basis.</li>
-              </ul>
+              <p className="text-sm font-semibold text-gray-700 mb-2">To support this commitment, {data.job_data.client_name ?? "this organisation"} will:</p>
+              <ol className="list-decimal list-outside ml-5 space-y-1 text-sm text-gray-700">
+                <li>Set near and long term greenhouse gas reduction targets aligned with science based targets and our pathway to net zero.</li>
+                <li>Implement and continually enhance our carbon reduction programme to achieve these targets.</li>
+                <li>Measure and report our greenhouse gas emissions, including Scope 1, Scope 2, and relevant Scope 3 emissions, at least annually.</li>
+              </ol>
             </div>
 
             {/* Reduction Targets table */}

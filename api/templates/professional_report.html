@@ -429,15 +429,15 @@
     {% if commitment %}
       <p>{{ commitment }}</p>
     {% else %}
-      <p><strong>{{ job_data.client_name or "The organisation" }}</strong> is committed to achieving net zero greenhouse gas emissions by <strong>{{ nz_yr }}</strong>. This commitment aligns with the UK Government's Net Zero target and demonstrates our dedication to environmental sustainability.</p>
+      <p><strong>{{ job_data.client_name or "The organisation" }}</strong> is committed to achieving net zero greenhouse gas emissions by <strong>{{ nz_yr }}</strong>, demonstrating our long-term commitment to environmental sustainability and climate action.</p>
     {% endif %}
 
-    <div class="sub-head">We commit to the following:</div>
-    <ul style="margin-left:5mm;margin-bottom:3mm;">
-      <li>For our company to achieve Net Zero we aim to achieve target reduction in emissions, as set out below.</li>
-      <li>To set realistic short- and long-term targets that are designed to achieve our Net Zero commitments.</li>
-      <li>To report the total Greenhouse Gas emissions of our business, at a minimum, on an annual basis.</li>
-    </ul>
+    <div class="sub-head">To support this commitment, {{ job_data.client_name or "the organisation" }} will:</div>
+    <ol style="margin-left: 20px; margin-bottom: 15px;">
+      <li>Set near and long term greenhouse gas reduction targets aligned with science based targets and our pathway to net zero.</li>
+      <li>Implement and continually enhance our carbon reduction programme to achieve these targets.</li>
+      <li>Measure and report our greenhouse gas emissions, including Scope 1, Scope 2, and relevant Scope 3 emissions, at least annually.</li>
+    </ol>
 
     <div class="sub-head">Reduction Targets</div>
     <table>
