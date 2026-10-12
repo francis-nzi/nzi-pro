@@ -1272,7 +1272,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   {summaryParts.map((part, i) => (
                     <React.Fragment key={i}>{i > 0 && " and "}<strong>{part}</strong></React.Fragment>
                   ))}.
-                  {employeeCount > 0 && <> The business headcount averaged {employeeCount} {employeeCount === 1 ? "person" : "people"} during the benchmark period.</>}
+                  {employeeCount > 0 && <> The business headcount averaged {employeeCount} {employeeCount === 1 ? "person" : "people"} during the reporting period.</>}
                 </p>
               )}
               {hasPathway && effectiveYearlyEmissions.length > 0 && (
