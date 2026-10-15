@@ -1,3 +1,4 @@
+import faulthandler
 import hashlib
 import os
 import time
@@ -33,12 +34,14 @@ def _get_db_url() -> str:
 CONNECT_TIMEOUT_SECONDS = 20
 CONNECT_ATTEMPTS = 3
 LOCK_TIMEOUT = "60s"
+WATCHDOG_SECONDS = 300
 
 
 def _connect(url: str) -> psycopg.Connection:
     # Without a connect timeout a stalled pooler connection hangs until the
     # Render pre-deploy limit kills the deploy, so fail fast and retry instead.
     for attempt in range(1, CONNECT_ATTEMPTS + 1):
+        print(f"Connecting to database (attempt {attempt}/{CONNECT_ATTEMPTS})", flush=True)
         try:
             conn = psycopg.connect(url, connect_timeout=CONNECT_TIMEOUT_SECONDS)
         except psycopg.OperationalError as exc:
@@ -49,6 +52,7 @@ def _connect(url: str) -> psycopg.Connection:
             continue
         # Fail rather than wait indefinitely behind another session's lock.
         conn.execute(f"SET lock_timeout = '{LOCK_TIMEOUT}'")
+        print("Connected", flush=True)
         return conn
     raise AssertionError("unreachable")
 
@@ -119,6 +123,7 @@ def apply_sql_migrations(folder: str = "sql_migrations") -> None:
                 cur.execute("SET search_path TO public")
 
                 # Apply migration.
+                print(f"Applying {path.name}", flush=True)
                 cur.execute(sql_text)
 
                 # Record it.
@@ -181,4 +186,10 @@ def _run_post_migration_maintenance(url: str) -> None:
 
 
 if __name__ == "__main__":
+    # Render's pre-deploy runs for up to 30 minutes with no output if anything
+    # stalls. Dump the stack of wherever we are stuck and exit after 5 minutes.
+    faulthandler.dump_traceback_later(WATCHDOG_SECONDS, exit=True)
+    print("Pre-deploy migrations starting", flush=True)
     apply_sql_migrations()
+    faulthandler.cancel_dump_traceback_later()
+    print("Pre-deploy migrations finished", flush=True)
