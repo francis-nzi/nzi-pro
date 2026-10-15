@@ -1,5 +1,6 @@
 import hashlib
 import os
+import time
 from pathlib import Path
 
 import psycopg
@@ -29,6 +30,29 @@ def _get_db_url() -> str:
     return _ensure_sslmode(url)
 
 
+CONNECT_TIMEOUT_SECONDS = 20
+CONNECT_ATTEMPTS = 3
+LOCK_TIMEOUT = "60s"
+
+
+def _connect(url: str) -> psycopg.Connection:
+    # Without a connect timeout a stalled pooler connection hangs until the
+    # Render pre-deploy limit kills the deploy, so fail fast and retry instead.
+    for attempt in range(1, CONNECT_ATTEMPTS + 1):
+        try:
+            conn = psycopg.connect(url, connect_timeout=CONNECT_TIMEOUT_SECONDS)
+        except psycopg.OperationalError as exc:
+            print(f"Database connect attempt {attempt}/{CONNECT_ATTEMPTS} failed: {exc}", flush=True)
+            if attempt == CONNECT_ATTEMPTS:
+                raise
+            time.sleep(5)
+            continue
+        # Fail rather than wait indefinitely behind another session's lock.
+        conn.execute(f"SET lock_timeout = '{LOCK_TIMEOUT}'")
+        return conn
+    raise AssertionError("unreachable")
+
+
 def _migration_files(folder: Path) -> list[Path]:
     files = [p for p in folder.glob("*.sql") if p.is_file()]
     include_manual = os.getenv("INCLUDE_MANUAL_SQL_MIGRATIONS", "").strip().lower() in {"1", "true", "yes"}
@@ -49,7 +73,7 @@ def apply_sql_migrations(folder: str = "sql_migrations") -> None:
     url = _get_db_url()
 
     # Use autocommit=False so each migration runs in a transaction.
-    with psycopg.connect(url) as conn:
+    with _connect(url) as conn:
         with conn.cursor() as cur:
             # Some Supabase/pooler connections do not inherit a default schema.
             # Force all migration statements to run against public.
@@ -117,7 +141,7 @@ def apply_sql_migrations(folder: str = "sql_migrations") -> None:
 
 def _run_post_migration_maintenance(url: str) -> None:
     task_key = "spend_unit_backfill_v1"
-    with psycopg.connect(url) as conn:
+    with _connect(url) as conn:
         with conn.cursor() as cur:
             cur.execute("SET search_path TO public")
             cur.execute(
@@ -147,7 +171,7 @@ def _run_post_migration_maintenance(url: str) -> None:
         # repairing existing stored rows.
         raise
 
-    with psycopg.connect(url) as conn:
+    with _connect(url) as conn:
         with conn.cursor() as cur:
             cur.execute("SET search_path TO public")
             cur.execute(
