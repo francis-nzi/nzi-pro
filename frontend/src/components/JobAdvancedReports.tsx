@@ -839,9 +839,9 @@ export default function JobAdvancedReports({
     const scope2 = toNum(scopeTotalsData?.["Scope 2"]);
     const scope3 = toNum(scopeTotalsData?.["Scope 3"]);
     const targetPct = toNum(targetData?.net_zero_target_reduction_pct ?? targetData?.target_pct) || 90;
-    const interimS1Pct = toNum(targetData?.interim_s1_pct ?? targetData?.interim_pct) || 50;
-    const interimS2Pct = toNum(targetData?.interim_s2_pct ?? targetData?.interim_pct) || 50;
-    const interimS3Pct = toNum(targetData?.interim_s3_pct ?? targetData?.interim_pct) || 50;
+    const interimS1Pct = toNum(targetData?.target_s1_pct ?? targetData?.interim_s1_pct ?? targetData?.interim_pct ?? 50);
+    const interimS2Pct = toNum(targetData?.target_s2_pct ?? targetData?.interim_s2_pct ?? targetData?.interim_pct ?? 50);
+    const interimS3Pct = toNum(targetData?.target_s3_pct ?? targetData?.interim_s3_pct ?? targetData?.interim_pct ?? 50);
     const interimYear = toNum(targetData?.interim_target_year ?? targetData?.interim_year) || null;
     const netZeroYear = toNum(targetData?.net_zero_target_year) || 2050;
 
@@ -862,7 +862,8 @@ export default function JobAdvancedReports({
     const finalFactor = (100 - targetPct) / 100;
     const iYear = interimYear && interimYear > baseline && interimYear < endYear ? interimYear : null;
 
-    const forecastScope = (bench: number, iPct: number | null, year: number): number => {
+    const forecastScope = (bench: number, iPct: number | null, year: number, scopeYear: number): number => {
+      const iYear = scopeYear > baseline && scopeYear < endYear ? scopeYear : null;
       if (year <= baseline) return bench;
       const finalTarget = bench * finalFactor;
       const iTarget = iYear != null && iPct != null ? bench * (1 - iPct / 100) : null;
@@ -879,9 +880,9 @@ export default function JobAdvancedReports({
     };
 
     const forecastTotal = (year: number): number =>
-      forecastScope(benchS1, interimS1Pct, year) +
-      forecastScope(benchS2, interimS2Pct, year) +
-      forecastScope(benchS3, interimS3Pct, year);
+      forecastScope(benchS1, interimS1Pct, year, toNum(targetData?.target_s1_year) || interimYear || 0) +
+      forecastScope(benchS2, interimS2Pct, year, toNum(targetData?.target_s2_year) || interimYear || 0) +
+      forecastScope(benchS3, interimS3Pct, year, toNum(targetData?.target_s3_year) || interimYear || 0);
 
     const yearSet = new Set<number>();
     for (let y = displayStartYear; y <= endYear; y++) yearSet.add(y);
@@ -1003,9 +1004,9 @@ export default function JobAdvancedReports({
   const interimYear =
     toNum(target_data?.interim_target_year ?? target_data?.interim_year) || null;
   const targetPct = toNum(target_data?.net_zero_target_reduction_pct ?? target_data?.target_pct) || 90;
-  const interimS1Pct = toNum(target_data?.interim_s1_pct ?? target_data?.interim_pct) || 50;
-  const interimS2Pct = toNum(target_data?.interim_s2_pct ?? target_data?.interim_pct) || 50;
-  const interimS3Pct = toNum(target_data?.interim_s3_pct ?? target_data?.interim_pct) || 50;
+  const interimS1Pct = toNum(target_data?.target_s1_pct ?? target_data?.interim_s1_pct ?? target_data?.interim_pct ?? 50);
+  const interimS2Pct = toNum(target_data?.target_s2_pct ?? target_data?.interim_s2_pct ?? target_data?.interim_pct ?? 50);
+  const interimS3Pct = toNum(target_data?.target_s3_pct ?? target_data?.interim_s3_pct ?? target_data?.interim_pct ?? 50);
 
   const scopeDonutData = buildScopeDonutItems(scope1, scope2, scope3);
   const widgetPngsReadyState = widgetPngsReady ? "1" : "0";
@@ -1036,6 +1037,9 @@ export default function JobAdvancedReports({
     currentYear: currentReportYear,
     targetYear: netZeroYear,
     interimYear,
+    interimS1Year: toNum(target_data?.target_s1_year) || interimYear,
+    interimS2Year: toNum(target_data?.target_s2_year) || interimYear,
+    interimS3Year: toNum(target_data?.target_s3_year) || interimYear,
     targetReductionPct: targetPct,
     interimS1Pct,
     interimS2Pct,
@@ -1687,19 +1691,19 @@ export default function JobAdvancedReports({
                     <>
                       <div className="grid grid-cols-[1fr_80px_100px_120px] border-b border-gray-100 bg-gray-50 px-3 py-2">
                         <span className="text-xs text-gray-700">Interim Target</span>
-                        <span className="text-center text-xs text-gray-700">{interimYear}</span>
+                        <span className="text-center text-xs text-gray-700">{toNum(target_data?.target_s1_year) || interimYear}</span>
                         <span className="text-center text-xs text-gray-700">{interimS1Pct}%</span>
                         <span className="text-xs text-gray-700">Scope 1</span>
                       </div>
                       <div className="grid grid-cols-[1fr_80px_100px_120px] border-b border-gray-100 bg-gray-50 px-3 py-2">
                         <span className="text-xs text-gray-700">Interim Target</span>
-                        <span className="text-center text-xs text-gray-700">{interimYear}</span>
+                        <span className="text-center text-xs text-gray-700">{toNum(target_data?.target_s2_year) || interimYear}</span>
                         <span className="text-center text-xs text-gray-700">{interimS2Pct}%</span>
                         <span className="text-xs text-gray-700">Scope 2</span>
                       </div>
                       <div className="grid grid-cols-[1fr_80px_100px_120px] border-b border-gray-100 bg-gray-50 px-3 py-2">
                         <span className="text-xs text-gray-700">Interim Target</span>
-                        <span className="text-center text-xs text-gray-700">{interimYear}</span>
+                        <span className="text-center text-xs text-gray-700">{toNum(target_data?.target_s3_year) || interimYear}</span>
                         <span className="text-center text-xs text-gray-700">{interimS3Pct}%</span>
                         <span className="text-xs text-gray-700">Scope 3</span>
                       </div>

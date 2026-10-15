@@ -27,6 +27,9 @@ export type BuildEmissionsReductionPathwayDataOptions = {
   currentYear?: number | null;
   targetYear?: number | null;
   interimYear?: number | null;
+  interimS1Year?: number | null;
+  interimS2Year?: number | null;
+  interimS3Year?: number | null;
   targetReductionPct?: number | null;
   interimS1Pct?: number | null;
   interimS2Pct?: number | null;
@@ -41,7 +44,7 @@ export function buildEmissionsReductionPathwayData({
   benchmarkYear,
   currentYear,
   targetYear,
-  interimYear,
+  interimYear, interimS1Year, interimS2Year, interimS3Year,
   targetReductionPct,
   interimS1Pct,
   interimS2Pct,
@@ -66,9 +69,10 @@ export function buildEmissionsReductionPathwayData({
   const benchS3 = benchmarkRow ? benchmarkRow.scope3 : scope3Fallback;
 
   const finalFactor = (100 - (targetReductionPct ?? 100)) / 100;
-  const iYear = interimYear != null && interimYear > baselineYear && interimYear < endYear ? interimYear : null;
 
-  const forecastScope = (bench: number, interimPct: number | null | undefined, year: number): number => {
+
+  const forecastScope = (bench: number, interimPct: number | null | undefined, year: number, scopeYear = interimYear): number => {
+    const iYear = scopeYear != null && scopeYear > baselineYear && scopeYear < endYear ? scopeYear : null;
     if (year <= baselineYear) return bench;
     const finalTarget = bench * finalFactor;
     const iTarget = iYear != null && interimPct != null ? bench * (1 - interimPct / 100) : null;
@@ -101,13 +105,13 @@ export function buildEmissionsReductionPathwayData({
       actual_s2: actual ? actual.scope2 : null,
       actual_s3: actual ? actual.scope3 : null,
       target_total: showTarget
-        ? forecastScope(benchS1, interimS1Pct, year) +
-          forecastScope(benchS2, interimS2Pct, year) +
-          forecastScope(benchS3, interimS3Pct, year)
+        ? forecastScope(benchS1, interimS1Pct, year, interimS1Year ?? interimYear) +
+          forecastScope(benchS2, interimS2Pct, year, interimS2Year ?? interimYear) +
+          forecastScope(benchS3, interimS3Pct, year, interimS3Year ?? interimYear)
         : null,
-      target_s1: showTarget ? forecastScope(benchS1, interimS1Pct, year) : null,
-      target_s2: showTarget && benchS2 > 0 ? forecastScope(benchS2, interimS2Pct, year) : undefined,
-      target_s3: showTarget ? forecastScope(benchS3, interimS3Pct, year) : null,
+      target_s1: showTarget ? forecastScope(benchS1, interimS1Pct, year, interimS1Year ?? interimYear) : null,
+      target_s2: showTarget && benchS2 > 0 ? forecastScope(benchS2, interimS2Pct, year, interimS2Year ?? interimYear) : undefined,
+      target_s3: showTarget ? forecastScope(benchS3, interimS3Pct, year, interimS3Year ?? interimYear) : null,
     };
   });
 }

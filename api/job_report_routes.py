@@ -3047,13 +3047,14 @@ def get_job_target_data(job_id: int) -> dict:
         if baseline_year is None:
             baseline_year = client_benchmark_year
 
-        # Per-scope interim percentages
-        interim_s1_pct = job_row[6] or 50
-        interim_s2_pct = job_row[7] or 50
-        interim_s3_pct = job_row[8] or 50
-
-        # Net Zero target reduction % from client (e.g. 90 means reduce by 90%)
-        net_zero_target_reduction_pct = job_row[15] or 90
+        # The editable per-scope client targets are authoritative. Older
+        # records fall back to shared client/job settings, preserving zero.
+        scope_years = [job_row[i] if job_row[i] is not None else interim_target_year for i in (9, 10, 11)]
+        scope_pcts = [job_row[i + 6] if job_row[i + 6] is not None else
+                      (job_row[i] if job_row[i] is not None else 50) for i in (6, 7, 8)]
+        interim_s1_pct, interim_s2_pct, interim_s3_pct = scope_pcts
+        interim_target_year = scope_years[0]
+        net_zero_target_reduction_pct = job_row[15] if job_row[15] is not None else 90
 
         return {
             'baseline_year': baseline_year,
@@ -3061,6 +3062,12 @@ def get_job_target_data(job_id: int) -> dict:
             'glossary_terms': glossary_terms,
             'interim_target_year': interim_target_year,
             'interim_year': interim_target_year,
+            'target_s1_year': scope_years[0],
+            'target_s1_pct': scope_pcts[0],
+            'target_s2_year': scope_years[1],
+            'target_s2_pct': scope_pcts[1],
+            'target_s3_year': scope_years[2],
+            'target_s3_pct': scope_pcts[2],
             'interim_pct': interim_s1_pct,
             'interim_s1_pct': interim_s1_pct,
             'interim_s2_pct': interim_s2_pct,

@@ -344,7 +344,8 @@ def portal_snapshot_data(job_id: int, current_user: dict = Depends(portal_user_d
     """Return the frozen report data snapshot that the CRM sent to this client.
 
     The snapshot is keyed by report_reviews.portal_version_id so the client
-    always sees exactly the version the CRM explicitly sent, not live data.
+    sees the emissions version the CRM explicitly sent. Interim targets reflect
+    the current client settings; the stored snapshot is never modified.
     Returns { status: 'not_sent' } with 404 if no version has been sent yet.
     """
     _assert_section_allowed(current_user, "reports")
@@ -396,6 +397,15 @@ def portal_snapshot_data(job_id: int, current_user: dict = Depends(portal_user_d
         snapshot = _json.loads(version_row[0])
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Snapshot is corrupted: {exc}") from exc
+
+    from api.job_report_routes import get_job_target_data
+    current_targets = get_job_target_data(int(job_id))
+    target_keys = {"interim_target_year", "interim_year", "interim_pct",
+                   "interim_s1_pct", "interim_s2_pct", "interim_s3_pct",
+                   "target_s1_year", "target_s2_year", "target_s3_year",
+                   "target_s1_pct", "target_s2_pct", "target_s3_pct"}
+    snapshot["target_data"] = {**(snapshot.get("target_data") or {}),
+                               **{k: v for k, v in current_targets.items() if k in target_keys}}
 
     def _dt(v):
         try:

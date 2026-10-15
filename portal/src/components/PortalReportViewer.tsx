@@ -272,10 +272,11 @@ function WrapLegend({ payload, center }: { payload?: LegendEntry[]; center?: boo
 // ─── NetZeroTrendChart ────────────────────────────────────────────────────────
 
 function NetZeroTrendChart({
-  yearlyEmissions, baselineYear, endYear, interimYear, interimPct, targetPct,
+  yearlyEmissions, baselineYear, endYear, interimYear, interimPct, targetPct, scopeTargets,
   scope1Fallback, scope2Fallback, scope3Fallback,
 }: {
   yearlyEmissions: YearlyEmission[]; baselineYear: number; endYear: number;
+  scopeTargets?: Array<{ year: number; pct: number }>;
   interimYear?: number | null; interimPct?: number; targetPct?: number;
   scope1Fallback: number; scope2Fallback: number; scope3Fallback: number;
 }) {
@@ -290,7 +291,10 @@ function NetZeroTrendChart({
     const iYear = interimYear && interimYear > bYear && interimYear < endYear ? interimYear : null;
     const iPct = interimPct ?? 50;
 
-    const forecastScope = (bench: number, year: number): number => {
+    const forecastScope = (bench: number, year: number, scopeIndex: number): number => {
+      const scopeYear = scopeTargets?.[scopeIndex]?.year ?? interimYear;
+      const iYear = scopeYear && scopeYear > bYear && scopeYear < endYear ? scopeYear : null;
+      const iPct = scopeTargets?.[scopeIndex]?.pct ?? interimPct ?? 50;
       if (year <= bYear) return bench;
       const finalTarget = bench * finalFactor;
       const iTarget = iYear != null ? bench * (1 - iPct / 100) : null;
@@ -320,13 +324,13 @@ function NetZeroTrendChart({
         actual_s1: actual ? actual.scope1 : null,
         actual_s2: actual ? actual.scope2 : null,
         actual_s3: actual ? actual.scope3 : null,
-        target_total: showTarget ? forecastScope(benchS1, year) + forecastScope(benchS2, year) + forecastScope(benchS3, year) : null,
-        target_s1: showTarget ? forecastScope(benchS1, year) : null,
-        target_s2: showTarget && benchS2 > 0 ? forecastScope(benchS2, year) : undefined,
-        target_s3: showTarget ? forecastScope(benchS3, year) : null,
+        target_total: showTarget ? forecastScope(benchS1, year, 0) + forecastScope(benchS2, year, 1) + forecastScope(benchS3, year, 2) : null,
+        target_s1: showTarget ? forecastScope(benchS1, year, 0) : null,
+        target_s2: showTarget && benchS2 > 0 ? forecastScope(benchS2, year, 1) : undefined,
+        target_s3: showTarget ? forecastScope(benchS3, year, 2) : null,
       };
     });
-  }, [yearlyEmissions, baselineYear, endYear, interimYear, interimPct, targetPct,
+  }, [yearlyEmissions, baselineYear, endYear, interimYear, interimPct, targetPct, scopeTargets,
       scope1Fallback, scope2Fallback, scope3Fallback]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasScope2 = (chartData[0]?.target_s2 ?? 0) > 0;
@@ -393,10 +397,11 @@ function NetZeroTrendChart({
 // ─── IntensityPathwayChart ────────────────────────────────────────────────────
 
 function IntensityPathwayChart({
-  yearlyEmissions, baselineYear, endYear, interimYear, interimS1Pct, interimS2Pct, interimS3Pct,
+  yearlyEmissions, baselineYear, endYear, interimYear, interimS1Pct, interimS2Pct, interimS3Pct, scopeTargets,
   targetPct, scope1Fallback, scope2Fallback, scope3Fallback, intensityMetrics,
 }: {
   yearlyEmissions: YearlyEmission[]; baselineYear: number; endYear: number;
+  scopeTargets?: Array<{ year: number; pct: number }>;
   interimYear?: number | null; interimS1Pct?: number; interimS2Pct?: number; interimS3Pct?: number;
   targetPct?: number; scope1Fallback: number; scope2Fallback: number; scope3Fallback: number;
   intensityMetrics: Record<string, { label?: string; value?: number | null; divider?: number | null }>;
@@ -418,7 +423,9 @@ function IntensityPathwayChart({
     const finalFactor = (100 - (targetPct ?? 100)) / 100;
     const iYear = interimYear && interimYear > bYear && interimYear < endYear ? interimYear : null;
 
-    const forecastScope = (bench: number, iPct: number, year: number): number => {
+    const forecastScope = (bench: number, iPct: number, year: number, scopeIndex: number): number => {
+      const scopeYear = scopeTargets?.[scopeIndex]?.year ?? interimYear;
+      const iYear = scopeYear && scopeYear > bYear && scopeYear < endYear ? scopeYear : null;
       if (year <= bYear) return bench;
       const finalTarget = bench * finalFactor;
       const iTarget = iYear != null ? bench * (1 - iPct / 100) : null;
@@ -435,9 +442,9 @@ function IntensityPathwayChart({
     };
 
     const forecastTotal = (year: number) =>
-      forecastScope(bS1, interimS1Pct ?? 50, year) +
-      forecastScope(bS2, interimS2Pct ?? 50, year) +
-      forecastScope(bS3, interimS3Pct ?? 50, year);
+      forecastScope(bS1, interimS1Pct ?? 50, year, 0) +
+      forecastScope(bS2, interimS2Pct ?? 50, year, 1) +
+      forecastScope(bS3, interimS3Pct ?? 50, year, 2);
 
     const yearSet = new Set<number>();
     for (let y = bYear; y <= endYear; y++) yearSet.add(y);
@@ -470,7 +477,7 @@ function IntensityPathwayChart({
       });
       return row;
     });
-  }, [metricEntries, yearlyEmissions, baselineYear, endYear, interimYear,
+  }, [metricEntries, yearlyEmissions, baselineYear, endYear, interimYear, scopeTargets,
       interimS1Pct, interimS2Pct, interimS3Pct, targetPct,
       scope1Fallback, scope2Fallback, scope3Fallback]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -820,10 +827,13 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
   const netZeroYear = toNum(target_data?.net_zero_target_year) || 2050;
   const interimYear = toNum(target_data?.interim_target_year ?? target_data?.interim_year) || null;
   const targetPct = toNum(target_data?.net_zero_target_reduction_pct ?? target_data?.target_pct) || 90;
-  const interimS1Pct = toNum(target_data?.interim_s1_pct ?? target_data?.interim_pct) || 50;
-  const interimS2Pct = toNum(target_data?.interim_s2_pct ?? target_data?.interim_pct) || 50;
-  const interimS3Pct = toNum(target_data?.interim_s3_pct ?? target_data?.interim_pct) || 50;
+  const interimS1Pct = toNum(target_data?.target_s1_pct ?? target_data?.interim_s1_pct ?? target_data?.interim_pct ?? 50);
+  const interimS2Pct = toNum(target_data?.target_s2_pct ?? target_data?.interim_s2_pct ?? target_data?.interim_pct ?? 50);
+  const interimS3Pct = toNum(target_data?.target_s3_pct ?? target_data?.interim_s3_pct ?? target_data?.interim_pct ?? 50);
   const interimPct = interimS1Pct;
+  const scopeTargets = [interimS1Pct, interimS2Pct, interimS3Pct].map((pct, i) => ({
+    pct, year: toNum(target_data?.[`target_s${i + 1}_year`]) || interimYear || 0,
+  }));
 
   const scopeDonutData = SCOPE_LABELS.filter(s => toNum(scope_totals?.[s]) > 0).map(s => ({ name: s, value: toNum(scope_totals?.[s]) }));
 
@@ -961,19 +971,19 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <>
                     <div className="grid grid-cols-[1fr_80px_100px_120px] border-b border-gray-100 bg-gray-50 px-3 py-2">
                       <span className="text-xs text-gray-700">Interim Target</span>
-                      <span className="text-center text-xs text-gray-700">{interimYear}</span>
+                      <span className="text-center text-xs text-gray-700">{toNum(target_data?.target_s1_year) || interimYear}</span>
                       <span className="text-center text-xs text-gray-700">{interimS1Pct}%</span>
                       <span className="text-xs text-gray-700">Scope 1</span>
                     </div>
                     <div className="grid grid-cols-[1fr_80px_100px_120px] border-b border-gray-100 bg-gray-50 px-3 py-2">
                       <span className="text-xs text-gray-700">Interim Target</span>
-                      <span className="text-center text-xs text-gray-700">{interimYear}</span>
+                      <span className="text-center text-xs text-gray-700">{toNum(target_data?.target_s2_year) || interimYear}</span>
                       <span className="text-center text-xs text-gray-700">{interimS2Pct}%</span>
                       <span className="text-xs text-gray-700">Scope 2</span>
                     </div>
                     <div className="grid grid-cols-[1fr_80px_100px_120px] border-b border-gray-100 bg-gray-50 px-3 py-2">
                       <span className="text-xs text-gray-700">Interim Target</span>
-                      <span className="text-center text-xs text-gray-700">{interimYear}</span>
+                      <span className="text-center text-xs text-gray-700">{toNum(target_data?.target_s3_year) || interimYear}</span>
                       <span className="text-center text-xs text-gray-700">{interimS3Pct}%</span>
                       <span className="text-xs text-gray-700">Scope 3</span>
                     </div>
@@ -994,7 +1004,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
               <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Emissions Reduction Pathway to {netZeroYear}</p>
               <NetZeroTrendChart
                 yearlyEmissions={effectiveYearlyEmissions} baselineYear={baselineYear} endYear={netZeroYear}
-                interimYear={interimYear} interimPct={interimPct} targetPct={targetPct}
+                scopeTargets={scopeTargets} interimYear={interimYear} interimPct={interimPct} targetPct={targetPct}
                 scope1Fallback={scope1} scope2Fallback={scope2} scope3Fallback={scope3}
               />
             </div>
@@ -1280,7 +1290,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <p className="text-sm font-semibold text-gray-700 mb-3">Emissions Reduction Pathway to {netZeroYear} for Intensity Metrics</p>
                   <IntensityPathwayChart
                     yearlyEmissions={effectiveYearlyEmissions} baselineYear={baselineYear} endYear={netZeroYear}
-                    interimYear={interimYear} interimS1Pct={interimS1Pct} interimS2Pct={interimS2Pct} interimS3Pct={interimS3Pct}
+                    scopeTargets={scopeTargets} interimYear={interimYear} interimS1Pct={interimS1Pct} interimS2Pct={interimS2Pct} interimS3Pct={interimS3Pct}
                     targetPct={targetPct} scope1Fallback={scope1} scope2Fallback={scope2} scope3Fallback={scope3}
                     intensityMetrics={intensity_metrics}
                   />
