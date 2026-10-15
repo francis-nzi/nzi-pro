@@ -88,6 +88,17 @@ def _resolve_job_or_404(con, client_db_id: int) -> int:
     return job_id
 
 
+def _manual_entry_site_id(con, user: dict, payload: dict) -> int | None:
+    sites = permitted_sites(con, user)
+    raw = payload.get("site_id")
+    if raw is None:
+        return sites[0]["site_id"] if sites else None
+    if isinstance(raw, bool) or not str(raw).isdigit():
+        raise HTTPException(400, "site_id must be a whole number")
+    site = selected_site(sites, int(raw))
+    return site["site_id"]
+
+
 def _default_client_site_id(con, client_db_id: int) -> int | None:
     """Registered office if one is flagged, else the client's first
     non-archived site, else None -- same ordering PortalCommutingTab.tsx's
@@ -513,7 +524,7 @@ def portal_commuting_create_row(
         _assert_data_entry_open(con, job_id)
         _assert_employee_id_unique(con, job_id, employee_name, row_type)
 
-        default_site_id = _default_client_site_id(con, client_db_id)
+        default_site_id = _manual_entry_site_id(con, current_user, payload)
         preview = _resolve_manual_commuting_rows(con, job_id, default_site_id, [payload])
         if preview["unresolved_count"] > 0:
             raise HTTPException(
@@ -590,7 +601,7 @@ def portal_commuting_create_row_by_vehicle(
         normalized_registration = normalize_registration(registration)
         ready_row = {
             "scope": "Scope 3",
-            "site_id": _default_client_site_id(con, client_db_id),
+            "site_id": _manual_entry_site_id(con, current_user, payload),
             "source_type": "employee_commuting",
             "source_subtype": "commuting",
             "source_name": f"{employee_name} - Employee Commuting - {factor.get('report_label')}".strip(" -"),

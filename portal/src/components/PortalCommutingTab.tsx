@@ -218,6 +218,7 @@ export default function PortalCommutingTab() {
 
   const [sites, setSites] = useState<Site[]>([]);
   const [siteUpdatingRowId, setSiteUpdatingRowId] = useState<number | null>(null);
+  const [manualSiteId, setManualSiteId] = useState<string>("");
   const defaultSiteId = sites.find((s) => s.is_registered_office)?.site_id ?? sites[0]?.site_id ?? null;
 
   useEffect(() => {
@@ -551,11 +552,12 @@ export default function PortalCommutingTab() {
         body: JSON.stringify({
           employee_name: employeeName.trim(),
           registration_number: regNumber.trim(),
+          site_id: manualSiteId ? Number(manualSiteId) : defaultSiteId,
           months: monthsPayload(),
         }),
       });
       if (res.ok) {
-        // Panel stays open (site-less form, so no site to re-pick) -- clearing
+        // Panel stays open and retains the selected site -- clearing
         // just the per-employee fields makes entering several employees' data
         // back-to-back faster than reopening the panel each time.
         resetForm();
@@ -579,6 +581,7 @@ export default function PortalCommutingTab() {
     setJustAdded(false);
     try {
       const payload: Record<string, unknown> = {
+        site_id: manualSiteId ? Number(manualSiteId) : defaultSiteId,
         row_type: rowType,
         employee_name: employeeName.trim(),
         notes: notes.trim() || null,
@@ -1046,6 +1049,15 @@ export default function PortalCommutingTab() {
             </div>
 
             <div>
+              <label htmlFor="commuting-entry-site" className="text-xs text-muted-foreground">Site</label>
+              <select id="commuting-entry-site" className="mb-3 block h-9 w-full rounded-md border bg-background px-3 text-sm"
+                value={manualSiteId || (defaultSiteId !== null ? String(defaultSiteId) : "")}
+                onChange={e => setManualSiteId(e.target.value)} disabled={saving || sites.length === 0}>
+                {sites.length === 0 && <option value="">No sites available</option>}
+                {sites.map(site => <option key={site.site_id} value={site.site_id}>
+                  {site.site_name || `Site #${site.site_id}`}{site.is_registered_office ? " (main site)" : ""}
+                </option>)}
+              </select>
               <label className="text-xs text-muted-foreground">Initials or Staff Number</label>
               <Input
                 value={employeeName}
