@@ -888,9 +888,10 @@ def _resolve_commuting_original_id(
     matched_unit = unit
     # Some activities only have a factor in one distance unit. Accept the
     # other unit here and convert the submitted quantity after the factor is
-    # resolved. Motorbike factors, for example, are stored in miles even
-    # though the portal also allows users to enter kilometres.
-    if mode in {"motorbike", "taxis", "bus", "rail", "ferry", "walking", "cycling"} and unit in {"miles", "km"}:
+    # resolved. Car and motorbike lookup entries are commonly miles-only,
+    # while uploaded workbooks may contain kilometres. Always try the exact
+    # unit first; never change mode/service to find a match.
+    if unit in {"miles", "km"}:
         alternate_unit = "km" if unit == "miles" else "miles"
         candidate_keys.append((mode, variant, alternate_unit))
 
