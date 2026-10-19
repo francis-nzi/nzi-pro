@@ -142,7 +142,7 @@ def portal_spend_list_rows(current_user: dict = Depends(portal_user_dep)):
             """
             SELECT entry_id, reference_code, spend_description, currency, conversion_rate,
                    amount_net, amount_gross, vat_pct,
-                   mapped_scope, mapped_category, mapped_report_label,
+                   mapped_scope, mapped_category, mapped_report_label, factor_db_id,
                    mapping_status, review_status, review_note, created_at,
                    month_1, month_2, month_3, month_4, month_5, month_6,
                    month_7, month_8, month_9, month_10, month_11, month_12, site_id,

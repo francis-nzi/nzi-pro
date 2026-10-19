@@ -190,6 +190,9 @@ class _PushConn:
     def fetchone(self):
         return self._fetchone
 
+    def fetchall(self):
+        return []
+
     def df(self):
         return self._result_df
 
@@ -205,7 +208,7 @@ def _push(monkeypatch, entries):
         lambda _con, db_id: {"factor": 0.1, "scope": "Scope 3", "category": "Energy",
                              "report_label": "x", "dataset_id": 1, "original_id": f"F{db_id}"},
     )
-    spend_data_routes.sync_spend_to_scope_data(
+    conn.result = spend_data_routes.sync_spend_to_scope_data(
         job_id=663, body={"deactivate_missing": True}, _user={"email": "t@x"},
     )
     return conn
@@ -230,22 +233,36 @@ def test_push_deactivation_is_keyed_on_original_id_and_site() -> None:
 
 
 def test_push_sweep_params_pair_each_id_with_its_site(monkeypatch) -> None:
-    # Job 663's shape: every entry arrived through the portal with no site, so
-    # the groups are site-less and generate a bare SPEND-F<factor> id -- the
-    # same id legacy rows carry alongside a real site_id. The sweep must send
-    # -1 as this group's site so those legacy rows fall outside the keep-list
-    # and get deactivated instead of double-counting.
+    # Job 663's shape: every entry arrived through the portal with no site.
+    # The sweep must send -1 as this group's site so rows for the same factor
+    # at a real site fall outside the keep-list and get deactivated instead
+    # of double-counting.
     conn = _push(monkeypatch, [_entry(1, None), _entry(2, None)])
 
     assert "(original_id, COALESCE(site_id, -1)) NOT IN" in conn.deactivate_sql
-    # params: job_id, pattern, then (original_id, site) pairs
+    # params: job_id, then (original_id, site) pairs keyed on the dataset id
     assert conn.deactivate_params[0] == 663
-    assert conn.deactivate_params[2] == "SPEND-F38024"
-    assert conn.deactivate_params[3] == -1
+    assert conn.deactivate_params[1] == "SPEND-SIC-1"
+    assert conn.deactivate_params[2] == -1
 
 
 def test_push_sweep_keeps_the_site_when_entries_carry_one(monkeypatch) -> None:
     conn = _push(monkeypatch, [_entry(1, 123)])
 
-    assert conn.deactivate_params[2] == "SPEND-F38024-S123"
-    assert conn.deactivate_params[3] == 123
+    assert conn.deactivate_params[1] == "SPEND-SIC-1"
+    assert conn.deactivate_params[2] == 123
+
+
+def test_push_sweep_only_counts_rows_it_switches_off(monkeypatch) -> None:
+    # Rows an earlier push already disabled must not be swept (and counted)
+    # again -- job 663 reported 117 "switched off" on every re-push.
+    conn = _push(monkeypatch, [_entry(1, None)])
+
+    assert "COALESCE(enabled, TRUE) = TRUE" in conn.deactivate_sql
+
+
+def test_push_reports_held_spend_by_reason(monkeypatch) -> None:
+    conn = _push(monkeypatch, [_entry(1, None)])
+
+    held = conn.result["held_for_review"]
+    assert set(held) >= {"rows", "amount_net", "unconfirmed", "pending_review", "rejected"}

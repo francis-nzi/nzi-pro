@@ -50,6 +50,7 @@ type SpendRow = {
   mapped_scope: string | null;
   mapped_category: string | null;
   mapped_report_label: string | null;
+  factor_db_id: number | null;
   mapping_status: string | null;
   review_status: "pending_review" | "approved" | "rejected" | null;
   review_note: string | null;
@@ -124,6 +125,7 @@ export default function PortalSpendTab() {
   const [topCategories, setTopCategories] = useState<TopSpendCategory[]>([]);
   const [suggestedSpendLines, setSuggestedSpendLines] = useState<SuggestedSpendLine[]>([]);
   const [suggesting, setSuggesting] = useState(false);
+  const [confirmingSuggested, setConfirmingSuggested] = useState(false);
 
   const [jobNumber, setJobNumber] = useState<string | null>(null);
   const [reportingYear, setReportingYear] = useState<number | null>(null);
@@ -408,6 +410,29 @@ export default function PortalSpendTab() {
     }
   }
 
+  // A category your NZI consultant suggested (auto-mapped from your GL code or
+  // description) that nobody has confirmed yet. It doesn't count until it is
+  // confirmed and approved, so it gets its own status and a one-click confirm.
+  function needsConfirming(row: SpendRow) {
+    return row.factor_db_id != null && row.mapping_status !== "mapped" && !row.review_status;
+  }
+
+  async function confirmSuggested(targets: SpendRow[]) {
+    setConfirmingSuggested(true);
+    setError("");
+    const failures: string[] = [];
+    try {
+      for (const row of targets) {
+        if (row.factor_db_id == null) continue;
+        const err = await confirmCategory(row.entry_id, { db_id: row.factor_db_id });
+        if (err) failures.push(`${row.reference_code || row.spend_description || `#${row.entry_id}`}: ${err}`);
+      }
+    } finally {
+      setConfirmingSuggested(false);
+    }
+    if (failures.length > 0) setError(`Couldn't confirm ${failures.length} line(s) — ${failures.join("; ")}`);
+  }
+
   function startEdit(row: SpendRow) {
     setEditingEntryId(row.entry_id);
     setEditSiteId(row.site_id == null ? "" : String(row.site_id));
@@ -501,11 +526,31 @@ export default function PortalSpendTab() {
   }
 
   const uncategorizedCount = rows.filter((r) => r.mapping_status !== "mapped").length;
+  const toConfirmRows = rows.filter(needsConfirming);
+  const noCategoryCount = rows.filter((r) => r.factor_db_id == null).length;
   const categorizingRow = rows.find((r) => r.entry_id === categorizingEntryId) || null;
 
   // Shared between the table (desktop) and card (mobile) layouts below.
   function renderStatus(row: SpendRow) {
     const review = row.review_status ? REVIEW_LABEL[row.review_status] : null;
+    if (!review && needsConfirming(row)) {
+      return (
+        <div className="space-y-1">
+          <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-800">Suggested — please confirm</span>
+          {!dataEntryExpired && (
+            <div>
+              <button
+                className="text-xs text-primary underline disabled:opacity-50"
+                disabled={confirmingSuggested}
+                onClick={() => void confirmSuggested([row])}
+              >
+                Confirm
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
     if (!review) return <span className="text-xs text-muted-foreground">Not yet categorised</span>;
     return (
       <>
@@ -590,10 +635,16 @@ export default function PortalSpendTab() {
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
           {rows.length} spend line(s) submitted
-          {uncategorizedCount > 0 && ` · ${uncategorizedCount} not yet categorised`}
+          {noCategoryCount > 0 && ` · ${noCategoryCount} not yet categorised`}
+          {toConfirmRows.length > 0 && ` · ${toConfirmRows.length} with a suggested category to confirm or change`}
         </div>
         {!dataEntryExpired && (
           <div className="flex gap-2">
+            {toConfirmRows.length > 0 && (
+              <Button variant="outline" onClick={() => void confirmSuggested(toConfirmRows)} disabled={confirmingSuggested}>
+                {confirmingSuggested ? "Confirming…" : `Confirm Suggested (${toConfirmRows.length})`}
+              </Button>
+            )}
             {uncategorizedCount > 0 && (
               <Button variant="outline" onClick={() => void runBulkSuggest()} disabled={bulkSuggesting}>
                 {bulkSuggesting ? "Suggesting…" : `Suggest Categories (${uncategorizedCount})`}
@@ -893,7 +944,7 @@ export default function PortalSpendTab() {
                           )}
                           {/* Approved rows included: confirm-category already
                               allows it and resets the row to pending_review. */}
-                          {row.mapping_status === "mapped" && (
+                          {(row.mapping_status === "mapped" || needsConfirming(row)) && (
                             <button className="ml-2 text-xs text-primary underline" onClick={() => openCategoryPicker(row.entry_id)}>
                               change
                             </button>
@@ -967,7 +1018,7 @@ export default function PortalSpendTab() {
                       Pick a category
                     </button>
                   )}
-                  {row.mapping_status === "mapped" && (
+                  {(row.mapping_status === "mapped" || needsConfirming(row)) && (
                     <button className="ml-2 text-xs text-primary underline" onClick={() => openCategoryPicker(row.entry_id)}>
                       change
                     </button>

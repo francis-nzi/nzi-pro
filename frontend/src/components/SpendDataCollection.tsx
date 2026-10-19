@@ -122,11 +122,29 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
     original_id: string;
     report_label?: string | null;
     site_id?: number | null;
+    site_name?: string | null;
     existing_data_source?: string | null;
+    existing_report_label?: string | null;
+    existing_qty?: number | null;
+    existing_uom?: string | null;
+    existing_tco2e?: number | null;
+    existing_notes?: string | null;
+    other_matching_rows?: number | null;
     spend_amount?: number | null;
+    spend_currency?: string | null;
+    spend_lines?: number | null;
+    spend_tco2e?: number | null;
     reason?: string | null;
   };
-  type HeldForReview = { rows: number; amount_net: number; amount_gross: number };
+  type HeldBucket = { rows: number; amount_net: number };
+  type HeldForReview = {
+    rows: number;
+    amount_net: number;
+    amount_gross: number;
+    unconfirmed?: HeldBucket;
+    pending_review?: HeldBucket;
+    rejected?: HeldBucket;
+  };
   const [syncResult, setSyncResult] = useState<{
     created: number;
     updated: number;
@@ -1066,45 +1084,121 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                       <strong>{syncResult.updated}</strong> existing row(s) had their spend figure refreshed
                     </li>
                     <li>
-                      <strong>{syncResult.deactivated}</strong> row(s) switched off — spend rows from a previous push
-                      that no longer match any mapped spend, so they are no longer counted
+                      <strong>{syncResult.deactivated}</strong> spend row(s) switched off by this push — they came from an
+                      earlier push and no longer match any approved, mapped spend line (for example the line was
+                      remapped, deleted or sent back for review), so they no longer count
                     </li>
                   </ul>
+                  <p className="mt-2 text-xs text-emerald-900/80">
+                    Spend lines are combined into one emission row per factor per site, so these counts are emission
+                    rows, not spend lines.
+                  </p>
                 </div>
 
                 {syncResult.heldForReview && syncResult.heldForReview.rows > 0 ? (
                   <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                     <strong>
-                      {syncResult.heldForReview.rows} mapped row(s) were not pushed — awaiting portal review.
-                    </strong>{" "}
-                    They account for {`GBP ${(syncResult.heldForReview.amount_net ?? 0).toLocaleString()}`} of spend and are
-                    still counted in the Mapped and Est. tCO₂e totals above, so those totals are higher than what
-                    actually reached Data Entry. Approve them in the portal review queue to include them.
+                      {syncResult.heldForReview.rows} client portal spend line(s) were not pushed —{" "}
+                      {`GBP ${(syncResult.heldForReview.amount_net ?? 0).toLocaleString()}`} net.
+                    </strong>
+                    <p className="mt-1">
+                      Lines the client enters in the portal only count once they are approved here. They are still
+                      included in the Mapped and Est. tCO₂e totals above, so those totals are higher than what reached
+                      Data Entry.
+                    </p>
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                      {(syncResult.heldForReview.unconfirmed?.rows ?? 0) > 0 ? (
+                        <li>
+                          <strong>{syncResult.heldForReview.unconfirmed?.rows}</strong> categorised by suggestion but not
+                          yet confirmed by anyone ({`GBP ${(syncResult.heldForReview.unconfirmed?.amount_net ?? 0).toLocaleString()}`}).
+                          These show as &ldquo;Not yet categorised&rdquo; in the portal. Approve them in{" "}
+                          <em>Pending Portal Spend Submissions</em> at the top of this page if the category is right,
+                          or ask the client to confirm or change it.
+                        </li>
+                      ) : null}
+                      {(syncResult.heldForReview.pending_review?.rows ?? 0) > 0 ? (
+                        <li>
+                          <strong>{syncResult.heldForReview.pending_review?.rows}</strong> submitted by the client and
+                          waiting for your review ({`GBP ${(syncResult.heldForReview.pending_review?.amount_net ?? 0).toLocaleString()}`}).
+                          Approve them in <em>Pending Portal Spend Submissions</em> at the top of this page.
+                        </li>
+                      ) : null}
+                      {(syncResult.heldForReview.rejected?.rows ?? 0) > 0 ? (
+                        <li>
+                          <strong>{syncResult.heldForReview.rejected?.rows}</strong> rejected and sent back to the client
+                          ({`GBP ${(syncResult.heldForReview.rejected?.amount_net ?? 0).toLocaleString()}`}). They stay out
+                          until the client re-picks a category and you approve it.
+                        </li>
+                      ) : null}
+                    </ul>
+                    <p className="mt-2">Re-push after approving to bring them into Data Entry.</p>
                   </div>
                 ) : null}
 
                 {syncResult.conflicts.length > 0 ? (
                   <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
                     <strong>
-                      {syncResult.conflicts.length} row(s) were refused — a manually entered row already covers that
-                      factor and site.
+                      {syncResult.conflicts.length} spend total(s) were not pushed because Data Entry already has a
+                      row for the same factor and site.
                     </strong>
                     <p className="mt-1">
-                      Nothing was overwritten and no duplicate was created. Review each one and either remove the
-                      manual row so the spend figure can push, or leave it if the manual row is the one to report.
+                      Someone has entered (or uploaded) a row in Data Entry using the same emission factor, for the same
+                      site, as these spend lines. Pushing as well would count that spend twice, so nothing was
+                      overwritten and no duplicate was added. For each one below, compare the two figures and decide
+                      which to report:
                     </p>
-                    <ul className="mt-2 list-disc space-y-1 pl-5">
-                      {syncResult.conflicts.map((c) => (
-                        <li key={`${c.original_id}-${c.row_id}`}>
-                          <span className="font-medium">{c.report_label || c.original_id}</span>{" "}
-                          <span className="font-mono text-xs">({c.original_id})</span> — existing row #{c.row_id} from{" "}
-                          {c.existing_data_source || "Company Data"}
-                          {typeof c.spend_amount === "number"
-                            ? `, spend GBP ${c.spend_amount.toLocaleString()} not pushed`
-                            : null}
-                        </li>
-                      ))}
+                    <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                      <li>
+                        <strong>Use the spend figure:</strong> in Data Entry, delete or switch off the existing row, then
+                        Re-Push.
+                      </li>
+                      <li>
+                        <strong>Keep the existing row:</strong> do nothing. The spend lines stay out of the report and
+                        this notice will show again on each push.
+                      </li>
                     </ul>
+                    <div className="mt-3 space-y-2">
+                      {syncResult.conflicts.map((c) => (
+                        <div key={`${c.original_id}-${c.row_id}`} className="rounded border border-red-200 bg-white/70 p-2">
+                          <div>
+                            <span className="font-medium">{c.report_label || c.original_id}</span>{" "}
+                            <span className="font-mono text-xs">({c.original_id})</span>
+                            {c.site_name ? <> · {c.site_name}</> : c.site_id == null ? <> · no site</> : null}
+                          </div>
+                          <div className="mt-1 grid gap-1 text-xs sm:grid-cols-2">
+                            <div>
+                              <div className="font-semibold">Existing Data Entry row #{c.row_id}</div>
+                              <div>
+                                Source: {c.existing_data_source || "Company Data"}
+                                {c.existing_report_label && c.existing_report_label !== c.report_label
+                                  ? ` · ${c.existing_report_label}`
+                                  : ""}
+                              </div>
+                              {typeof c.existing_qty === "number" ? (
+                                <div>
+                                  {c.existing_qty.toLocaleString()} {c.existing_uom || ""}
+                                  {typeof c.existing_tco2e === "number" ? ` → ${c.existing_tco2e.toLocaleString()} tCO₂e` : ""}
+                                </div>
+                              ) : null}
+                              {c.existing_notes ? <div className="italic">Note: {c.existing_notes}</div> : null}
+                              {c.other_matching_rows ? (
+                                <div>Plus {c.other_matching_rows} more row(s) with the same factor and site.</div>
+                              ) : null}
+                            </div>
+                            <div>
+                              <div className="font-semibold">Spend not pushed</div>
+                              {typeof c.spend_amount === "number" ? (
+                                <div>
+                                  {c.spend_currency || "GBP"} {c.spend_amount.toLocaleString()} gross
+                                  {c.spend_lines ? ` from ${c.spend_lines} spend line(s)` : ""}
+                                  {typeof c.spend_tco2e === "number" ? ` → ${c.spend_tco2e.toLocaleString()} tCO₂e` : ""}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ) : null}
               </div>

@@ -158,6 +158,11 @@ export default function PendingPortalSpendSubmissions({ jobId, baseUrl, onReview
                         Code: {row.reference_code || "-"} &middot; {row.mapped_report_label || row.mapped_category || "No category"} &middot;{" "}
                         Net {row.amount_net?.toFixed(2) ?? "-"} {row.currency} &middot; VAT {row.vat_pct ?? 0}%
                       </div>
+                      {row.review_status === null && (
+                        <div className="mt-1 text-xs text-amber-700">
+                          Categorised by suggestion — the client hasn&apos;t confirmed it. Approve if the category is right.
+                        </div>
+                      )}
                       {row.review_status === "rejected" && (
                         <div className="mt-1 text-xs text-rose-700">
                           Previously rejected: {row.review_note || "no reason given"} (client can still re-pick a category)

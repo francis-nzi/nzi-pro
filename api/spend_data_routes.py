@@ -422,11 +422,25 @@ def _spend_factor_original_id(con, stored_original_id: Any, factor_db_id: int) -
     return str((factor or {}).get("original_id") or "").strip()
 
 
+def _site_name(con, site_id: int | None) -> str | None:
+    if site_id is None:
+        return None
+    row = con.execute("SELECT site_name FROM client_sites WHERE site_id = %s", [int(site_id)]).fetchone()
+    return str(row[0]).strip() if row and row[0] else None
+
+
 def _spend_held_for_review(con, job_id: int) -> dict[str, Any]:
-    """Mapped spend the push must skip because portal review hasn't approved it."""
-    row = con.execute(
+    """Mapped spend the push must skip because portal review hasn't approved it.
+
+    Split by why it is held, because each needs a different person to act:
+    "unconfirmed" rows carry a category the CRM suggested but nobody has
+    submitted for review yet (review_status NULL), "pending_review" rows the
+    client has submitted, and "rejected" rows were sent back to the client.
+    """
+    rows = con.execute(
         """
-        SELECT COUNT(*), COALESCE(SUM(amount_net), 0), COALESCE(SUM(amount_gross), 0)
+        SELECT COALESCE(review_status, 'unconfirmed') AS bucket,
+               COUNT(*), COALESCE(SUM(amount_net), 0), COALESCE(SUM(amount_gross), 0)
         FROM job_spend_entries
         WHERE job_id = %s
           AND COALESCE(is_deleted, FALSE) = FALSE
@@ -434,16 +448,21 @@ def _spend_held_for_review(con, job_id: int) -> dict[str, Any]:
           AND mapped_scope IS NOT NULL
           AND submitted_by_portal = TRUE
           AND COALESCE(review_status, '') <> 'approved'
+        GROUP BY 1
         """,
         [int(job_id)],
-    ).fetchone()
-    if not row:
-        return {"rows": 0, "amount_net": 0.0, "amount_gross": 0.0}
-    return {
-        "rows": int(row[0] or 0),
-        "amount_net": round(_safe_float(row[1], 0.0), 2),
-        "amount_gross": round(_safe_float(row[2], 0.0), 2),
-    }
+    ).fetchall()
+    result: dict[str, Any] = {"rows": 0, "amount_net": 0.0, "amount_gross": 0.0}
+    for bucket in ("unconfirmed", "pending_review", "rejected"):
+        result[bucket] = {"rows": 0, "amount_net": 0.0}
+    for bucket, count, net, gross in rows or []:
+        key = str(bucket) if str(bucket) in ("unconfirmed", "pending_review", "rejected") else "pending_review"
+        result[key]["rows"] += int(count or 0)
+        result[key]["amount_net"] = round(result[key]["amount_net"] + _safe_float(net, 0.0), 2)
+        result["rows"] += int(count or 0)
+        result["amount_net"] = round(result["amount_net"] + _safe_float(net, 0.0), 2)
+        result["amount_gross"] = round(result["amount_gross"] + _safe_float(gross, 0.0), 2)
+    return result
 
 
 def _factor_by_original_id(con, original_id: str) -> dict[str, Any] | None:
@@ -1582,7 +1601,15 @@ def list_pending_review_spend_rows(job_id: int, _user: dict = Depends(_current_u
                    mapping_status, review_status, review_note, created_at
             FROM job_spend_entries
             WHERE job_id = %s AND COALESCE(is_deleted, FALSE) = FALSE
-              AND submitted_by_portal = TRUE AND review_status IN ('pending_review', 'rejected')
+              AND submitted_by_portal = TRUE
+              AND (
+                   review_status IN ('pending_review', 'rejected')
+                   -- Portal lines the CRM categorised (auto-map or "Suggest")
+                   -- that the client never confirmed. They hold the push like
+                   -- any other unapproved portal line, so they must be
+                   -- reviewable here too, or nothing can ever release them.
+                   OR (review_status IS NULL AND factor_db_id IS NOT NULL)
+              )
             ORDER BY created_at DESC
             """,
             [int(job_id)],
@@ -2408,8 +2435,10 @@ def sync_spend_to_scope_data(
                     "mapped_category": str(row.get("mapped_category") or "").strip(),
                     "mapping_confidence": row.get("mapping_confidence"),
                     "dataset_id": row.get("dataset_id"),
+                    "lines": 0,
                 }
             groups[key]["amount_gross"] += _safe_float(row.get("amount_gross"), 0.0)
+            groups[key]["lines"] += 1
 
         # A pushed row is identified by (original_id, site_id): one row per
         # factor per site. -1 stands in for NULL so the pair compares without
@@ -2454,7 +2483,8 @@ def sync_spend_to_scope_data(
             # which then inserted a second row for it.
             identity_rows = con.execute(
                 """
-                SELECT row_id, COALESCE(data_source, '') AS data_source
+                SELECT row_id, COALESCE(data_source, '') AS data_source,
+                       report_label, qty, uom, factor, ghg_unit, apply_pct, notes
                 FROM job_scope_rows
                 WHERE job_id = %s
                   AND scope = %s
@@ -2479,17 +2509,31 @@ def sync_spend_to_scope_data(
                 existing = manual_rows[0]
                 # A row entered through CRM Data Entry owns this factor for
                 # this site. Spend must not overwrite it and must not push a
-                # second copy alongside it -- flag it for a human instead.
+                # second copy alongside it -- flag it for a human instead,
+                # with enough of both sides to decide which one to keep.
+                existing_factor = _safe_float(existing[5], 0.0)
+                existing_apply = _safe_float(existing[7], 100.0) / 100.0
+                existing_divisor = 1.0 if str(existing[6] or "").strip().lower().startswith("t") else 1000.0
                 conflicts.append(
                     {
                         "row_id": int(existing[0]),
                         "scope": scope,
                         "site_id": site_id,
+                        "site_name": _site_name(con, site_id),
                         "original_id": original_id,
                         "report_label": report_label,
                         "category": category,
                         "existing_data_source": str(existing[1]) or "Company Data",
+                        "existing_report_label": existing[2],
+                        "existing_qty": round(_safe_float(existing[3], 0.0), 2),
+                        "existing_uom": existing[4],
+                        "existing_tco2e": round(_safe_float(existing[3], 0.0) * existing_factor * existing_apply / existing_divisor, 3),
+                        "existing_notes": existing[8],
+                        "other_matching_rows": len(manual_rows) - 1,
                         "spend_amount": round(float(amount), 2),
+                        "spend_currency": currency,
+                        "spend_lines": int(grp.get("lines") or 0),
+                        "spend_tco2e": round(calc_tco2e, 3),
                         "reason": (
                             "A manually entered row already exists for this factor and site. "
                             "Remove or disable it to push the spend figure, or leave the spend "
@@ -2569,6 +2613,9 @@ def sync_spend_to_scope_data(
 
         deactivated = 0
         if deactivate_missing:
+            # Only rows still switched on are swept, so the count reports what
+            # this push actually turned off -- not every spend row any earlier
+            # push already disabled.
             # Every spend-pushed row for this job is a candidate. There used
             # to be an `original_id LIKE 'SPEND-%'` filter here, which only
             # held while the ids were synthesised as SPEND-F<db_id>. Now that
@@ -2588,6 +2635,7 @@ def sync_spend_to_scope_data(
                       SET enabled = FALSE, updated_at = NOW()
                       WHERE job_id = %s
                         AND COALESCE(data_source, '') = 'Spend Data'
+                        AND COALESCE(enabled, TRUE) = TRUE
                         AND (original_id, COALESCE(site_id, -1)) NOT IN ({placeholders})
                       RETURNING 1
                     )
@@ -2604,6 +2652,7 @@ def sync_spend_to_scope_data(
                       SET enabled = FALSE, updated_at = NOW()
                       WHERE job_id = %s
                         AND COALESCE(data_source, '') = 'Spend Data'
+                        AND COALESCE(enabled, TRUE) = TRUE
                       RETURNING 1
                     )
                     SELECT COUNT(*) FROM updated_rows
