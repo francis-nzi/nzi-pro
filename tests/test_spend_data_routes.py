@@ -266,3 +266,14 @@ def test_push_reports_held_spend_by_reason(monkeypatch) -> None:
 
     held = conn.result["held_for_review"]
     assert set(held) >= {"rows", "amount_net", "unconfirmed", "pending_review", "rejected"}
+
+
+def test_crm_mapping_approves_portal_rows() -> None:
+    # A consultant choosing or confirming a portal line's category in the CRM
+    # is the review; otherwise the line stays held from the push with no
+    # queue entry left to approve it from.
+    import inspect
+
+    for fn in (spend_data_routes.map_spend_row, spend_data_routes.approve_all_suggested_spend_mappings):
+        assert "_CRM_MAPPING_APPROVES_PORTAL_ROW" in inspect.getsource(fn)
+    assert "submitted_by_portal = TRUE THEN 'approved'" in spend_data_routes._CRM_MAPPING_APPROVES_PORTAL_ROW

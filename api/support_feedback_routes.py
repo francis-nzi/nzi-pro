@@ -96,6 +96,9 @@ def health():
         "ok": True,
         "service": "NZI Pro API",
         "database": "ok",
+        # Render sets this on every deploy; it shows which commit is live
+        # when the web app and API may be on different builds.
+        "commit": (os.getenv("RENDER_GIT_COMMIT") or "")[:8] or None,
     }
 
 

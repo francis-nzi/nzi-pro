@@ -429,6 +429,18 @@ def _site_name(con, site_id: int | None) -> str | None:
     return str(row[0]).strip() if row and row[0] else None
 
 
+# SET fragment (one %s: the reviewer) for CRM actions that choose or confirm
+# a spend row's category. Portal review exists so a client's own category pick
+# isn't counted until a consultant has looked at it; when the consultant picks
+# or confirms it in the CRM, that is the review. Without this, a portal line
+# remapped in the CRM stayed held from the push with nothing left to approve.
+_CRM_MAPPING_APPROVES_PORTAL_ROW = """
+    review_status = CASE WHEN submitted_by_portal = TRUE THEN 'approved' ELSE review_status END,
+    reviewed_by = CASE WHEN submitted_by_portal = TRUE THEN %s ELSE reviewed_by END,
+    reviewed_at = CASE WHEN submitted_by_portal = TRUE THEN NOW() ELSE reviewed_at END,
+"""
+
+
 def _spend_held_for_review(con, job_id: int) -> dict[str, Any]:
     """Mapped spend the push must skip because portal review hasn't approved it.
 
@@ -1012,16 +1024,17 @@ def approve_all_suggested_spend_mappings(job_id: int, _user: dict = Depends(_cur
                 continue
 
             con.execute(
-                """
+                f"""
                 UPDATE job_spend_entries
                 SET mapping_status='mapped',
                     mapping_confidence=COALESCE(mapping_confidence, 'High'),
                     mapped_by=%s,
                     mapped_at=NOW(),
+                    {_CRM_MAPPING_APPROVES_PORTAL_ROW}
                     updated_at=NOW()
                 WHERE entry_id=%s
                 """,
-                [actor, entry_id],
+                [actor, actor, entry_id],
             )
             approved += 1
 
@@ -1547,12 +1560,13 @@ def map_spend_row(job_id: int, entry_id: int, body: dict = Body(...), _user: dic
         amount = _gross_from_net(_safe_float(row[3], 0.0), _safe_float(row[4], 0.0))
         emissions = amount * _safe_float(factor.get("factor"), 0.0)
         con.execute(
-            """
+            f"""
             UPDATE job_spend_entries
             SET dataset_id=%s, factor_db_id=%s, factor_original_id=%s,
                 mapped_scope=%s, mapped_category=%s, mapped_report_label=%s,
                 mapping_status='mapped', mapping_confidence=%s,
                 mapped_by=%s, mapped_at=NOW(),
+                {_CRM_MAPPING_APPROVES_PORTAL_ROW}
                 estimated_emissions_tco2e=%s, updated_at=NOW()
             WHERE entry_id=%s
             """,
@@ -1564,6 +1578,7 @@ def map_spend_row(job_id: int, entry_id: int, body: dict = Body(...), _user: dic
                 factor.get("category"),
                 factor.get("report_label"),
                 confidence,
+                actor,
                 actor,
                 emissions,
                 int(entry_id),
