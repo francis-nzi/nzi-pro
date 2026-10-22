@@ -42,6 +42,8 @@ from services.dataset_selector import get_applicable_datasets
 from services.portal import PORTAL_ROLE_CAN_MANAGE_ACTIONS
 from services.portal_data_entry import (
     PGS_CATEGORIES,
+    is_spend_unit,
+    refresh_currency_units,
     PORTAL_DATA_ENTRY_EXPIRED_MESSAGE,
     get_job_summary,
     get_portal_data_entry_status,
@@ -106,14 +108,16 @@ def portal_spend_history(current_user: dict = Depends(portal_user_dep)):
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         current_job_id = resolve_current_job_for_client(con, client_db_id)
+        refresh_currency_units(con)
         items = load_client_category_history(
-            con, client_db_id, lambda cat: cat in PGS_CATEGORIES, current_job_id=current_job_id
+            con, client_db_id, lambda cat, uom: cat in PGS_CATEGORIES and is_spend_unit(uom) is not False, current_job_id=current_job_id
         )
     return {"items": items}
 
 
 def _crm_pgs_rows(con, job_id: int, site_ids: list[int] | None) -> list[dict[str, Any]]:
     """Report records already held in CRM; never copy these into the spend ledger."""
+    refresh_currency_units(con)
     df = con.execute(
         """SELECT r.row_id, r.report_label, r.category, r.site_id, s.site_name,
                   r.qty, r.uom, r.calc_tco2e
@@ -126,8 +130,11 @@ def _crm_pgs_rows(con, job_id: int, site_ids: list[int] | None) -> list[dict[str
     if df is None or df.empty:
         return []
     df = df.astype(object).where(df.notna(), None)
+    # Physical-unit PG&S rows (e.g. Water Supply in m3) are shown on the
+    # Other tab instead -- see bucket_for_category.
     return [dict(row) for row in df.to_dict("records")
-            if site_ids is None or row.get("site_id") in site_ids]
+            if (site_ids is None or row.get("site_id") in site_ids)
+            and is_spend_unit(row.get("uom")) is not False]
 
 
 @router.get("/portal/spend/rows")

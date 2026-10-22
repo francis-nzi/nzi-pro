@@ -71,7 +71,7 @@ def test_register_import_uses_existing_register_and_review(monkeypatch):
         monkeypatch.setattr(routes,name,lambda *args,**kwargs: None)
     monkeypatch.setattr(routes,"_resolve_job_or_404",lambda *args: 663)
     monkeypatch.setattr(routes,"load_bucket_category_map",lambda *args: {})
-    monkeypatch.setattr(routes,"bucket_for_category",lambda mapping,category: category)
+    monkeypatch.setattr(routes,"bucket_for_category",lambda mapping,category,uom=None: category)
     monkeypatch.setattr(routes,"_resolve_scope_row_factor_for_creation",lambda *args: (1,2,0.1,"tCO2e"))
     monkeypatch.setattr(routes,"_lookup_factor_from_reference",lambda *args: {})
     for bucket,source in [("company_vehicles","asset"),("business_travel","business_travel")]:
@@ -155,3 +155,14 @@ def test_commuting_download_uses_selected_permitted_site(monkeypatch):
     wb=load_workbook(io.BytesIO(response.body))
     assert wb["Employee Commuting"]["B6"].value == "Factory"
     with pytest.raises(HTTPException): routes.portal_commuting_template({"client_db_id":5},site_id=999)
+
+
+def test_activity_based_pgs_factor_goes_to_other_tab() -> None:
+    # Water Supply is filed under Purchased Goods and Services but priced per
+    # cubic metre, so the spend ledger can't take it -- it belongs on Other.
+    from services.portal_data_entry import bucket_for_category
+
+    assert bucket_for_category({}, "Purchased Goods and Services", "cubic metres") == "other"
+    assert bucket_for_category({}, "Purchased Goods and Services", "GBP") is None
+    assert bucket_for_category({}, "Purchased Goods and Services") is None
+    assert bucket_for_category({}, "Employee Commuting", "km") is None

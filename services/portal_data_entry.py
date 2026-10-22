@@ -66,6 +66,22 @@ PGS_CATEGORIES = {"Purchased Goods and Services", "Investments"}
 # ingestion). They must never fall into "other" as a catch-all.
 _EXCLUDED_CATEGORIES = {"Employee Commuting", *PGS_CATEGORIES}
 
+# Currency codes that spend-based factors use as their unit. Only a factor
+# priced per currency belongs to the Purchased Goods & Services spend ledger;
+# PG&S factors with a physical unit (Water Supply in cubic metres, paper by
+# the tonne) can't be entered there, so they go to the generic tabs instead.
+# Refreshed from datasets.currency by load_bucket_category_map.
+_DEFAULT_CURRENCY_UNITS = {"GBP", "EUR", "USD"}
+_currency_units: set[str] = set(_DEFAULT_CURRENCY_UNITS)
+
+
+def is_spend_unit(uom: str | None) -> bool | None:
+    """True for a currency unit, False for a physical one, None if unknown."""
+    text = str(uom or "").strip().upper()
+    if not text:
+        return None
+    return text in _currency_units
+
 
 def ensure_portal_data_entry_schema(con) -> None:
     """Create/seed portal_data_entry_buckets and add the review-workflow
@@ -111,15 +127,27 @@ def ensure_portal_data_entry_schema(con) -> None:
     _schema_seeded = True
 
 
+def refresh_currency_units(con) -> None:
+    global _currency_units
+    try:
+        rows = con.execute(
+            "SELECT DISTINCT UPPER(TRIM(currency)) FROM datasets WHERE COALESCE(TRIM(currency), '') <> ''"
+        ).fetchall()
+        _currency_units = _DEFAULT_CURRENCY_UNITS | {str(r[0]) for r in rows or [] if r and r[0]}
+    except Exception:
+        _currency_units = set(_DEFAULT_CURRENCY_UNITS)
+
+
 def load_bucket_category_map(con) -> dict[str, str]:
     """Returns {category_value: bucket_key} for every mapped category."""
+    refresh_currency_units(con)
     df = con.execute("SELECT bucket_key, match_category FROM portal_data_entry_buckets WHERE match_category IS NOT NULL").df()
     if df is None or df.empty:
         return {}
     return {str(row["match_category"]): str(row["bucket_key"]) for _, row in df.iterrows()}
 
 
-def bucket_for_category(category_map: dict[str, str], category: str | None) -> str | None:
+def bucket_for_category(category_map: dict[str, str], category: str | None, uom: str | None = None) -> str | None:
     """Returns None for categories deliberately excluded from this generic
     table (Employee Commuting, Purchased Goods and Services -- handled by
     other flows entirely) so they never leak into "Other" as a catch-all.
@@ -128,6 +156,11 @@ def bucket_for_category(category_map: dict[str, str], category: str | None) -> s
     text = str(category or "").strip()
     if not text:
         return "other"
+    # Activity-based PG&S factors (Water Supply in m3) have no home on the
+    # spend tab, which only prices currency amounts. Without a unit the
+    # factor's kind is unknown, so it stays excluded as before.
+    if text in PGS_CATEGORIES and is_spend_unit(uom) is False:
+        return category_map.get(text, "other")
     if text in _EXCLUDED_CATEGORIES:
         return None
     return category_map.get(text, "other")
@@ -217,7 +250,7 @@ def load_client_category_history(
     else:
         scope_df["activity_name"] = scope_df["category"]
 
-    scope_df = scope_df[scope_df["category"].apply(category_filter)]
+    scope_df = scope_df[scope_df.apply(lambda r: bool(category_filter(r["category"], r.get("uom"))), axis=1)]
     if scope_df.empty:
         return []
 
@@ -576,7 +609,7 @@ def get_previous_bucket_rows(
         original_id = r.get("original_id")
         if not original_id or original_id in seen:
             continue
-        if bucket_for_category(category_map, r.get("category")) != bucket_key:
+        if bucket_for_category(category_map, r.get("category"), r.get("uom")) != bucket_key:
             continue
         seen.add(str(original_id))
         out.append(

@@ -28,7 +28,7 @@ class Conn:
     def fetchone(self):
         if "SELECT r.category" in self.sql:
             assert "j.client_db_id = %s" in self.sql
-            return (self.category,) if self.category else None
+            return (self.category, None) if self.category else None
         return self.existing
 
 
@@ -107,7 +107,7 @@ def test_invalid_source_rejected():
 def test_bucket_flag_preserves_crm_rows_without_register_submissions(monkeypatch):
     class FlagsConn(Conn):
         def df(self):
-            return pd.DataFrame([{"category": "Business Travel"}])
+            return pd.DataFrame([{"category": "Business Travel", "uom": None}])
         def fetchone(self): return None
     con = FlagsConn()
     setup(monkeypatch, con)

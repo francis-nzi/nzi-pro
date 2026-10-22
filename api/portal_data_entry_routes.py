@@ -30,6 +30,7 @@ from services.portal_data_entry import (
     BUCKET_LABELS,
     PORTAL_DATA_ENTRY_EXPIRED_MESSAGE,
     bucket_for_category,
+    is_spend_unit,
     ensure_portal_data_entry_schema,
     get_job_summary,
     get_portal_data_entry_status,
@@ -103,11 +104,11 @@ def _row_source_type(bucket_key: str, row_source: str | None) -> str | None:
 
 def _assert_scope_row_bucket(con, client_db_id: int, row_id: int, bucket_key: str) -> None:
     row = con.execute(
-        """SELECT r.category FROM job_scope_rows r JOIN jobs j ON j.job_id = r.job_id
+        """SELECT r.category, r.uom FROM job_scope_rows r JOIN jobs j ON j.job_id = r.job_id
         WHERE r.row_id = %s AND j.client_db_id = %s""",
         [int(row_id), int(client_db_id)],
     ).fetchone()
-    if not row or bucket_for_category(load_bucket_category_map(con), row[0]) != bucket_key:
+    if not row or bucket_for_category(load_bucket_category_map(con), row[0], row[1]) != bucket_key:
         raise HTTPException(status_code=404, detail="Row not found in this category")
 
 
@@ -154,16 +155,16 @@ def portal_data_entry_buckets(current_user: dict = Depends(portal_user_dep)):
             # a CRM soft-delete (enabled=FALSE, review_status untouched) doesn't.
             cat_df = con.execute(
                 """
-                SELECT DISTINCT category FROM job_scope_rows
+                SELECT DISTINCT category, uom FROM job_scope_rows
                 WHERE job_id = %s AND (enabled = TRUE OR review_status IN ('pending_review', 'rejected'))
                 """,
                 [int(job_id)],
             ).df()
             if cat_df is not None and not cat_df.empty:
-                for category in cat_df["category"].tolist():
-                    if category in PGS_CATEGORIES:
+                for category, uom in cat_df[["category", "uom"]].itertuples(index=False):
+                    if category in PGS_CATEGORIES and is_spend_unit(uom) is not False:
                         has_data["purchased_goods_and_services"] = True
-                    bucket_key = bucket_for_category(category_map, category)
+                    bucket_key = bucket_for_category(category_map, category, uom)
                     if bucket_key in has_data:
                         has_data[bucket_key] = True
 
@@ -261,7 +262,7 @@ def portal_data_entry_factors(
     )
     matched = [
         f for f in (result.get("factors") or [])
-        if bucket_for_category(category_map, f.get("category")) == bucket_key
+        if bucket_for_category(category_map, f.get("category"), f.get("uom")) == bucket_key
     ]
     return {
         "job_id": job_id,
@@ -339,7 +340,7 @@ def portal_data_entry_history(
         items = load_client_category_history(
             con,
             client_db_id,
-            lambda cat: bucket_for_category(category_map, cat) == bucket_key,
+            lambda cat, uom: bucket_for_category(category_map, cat, uom) == bucket_key,
             current_job_id=current_job_id,
         )
 
@@ -421,7 +422,7 @@ def portal_data_entry_list_rows(
     df = df.astype(object).where(df.notna(), None)
     for _, row in df.iterrows():
         row_dict = {k: row.get(k) for k in row.index}
-        if bucket_for_category(category_map, row_dict.get("category")) != bucket_key:
+        if bucket_for_category(category_map, row_dict.get("category"), row_dict.get("uom")) != bucket_key:
             continue
         if site_ids is not None and row_dict.get("site_id") not in site_ids:
             continue
@@ -469,11 +470,6 @@ def _create_portal_data_entry_row(con, request, bucket_key, payload, current_use
     submitted_category = (
         payload.get("category") or payload.get("level_1") or payload.get("level_2")
     )
-    if bucket_for_category(category_map, submitted_category) != bucket_key:
-        raise HTTPException(
-            status_code=400,
-            detail=f"That category doesn't belong under {BUCKET_LABELS[bucket_key]}",
-        )
 
     # Verify the site really belongs to this client before attaching a row to it.
     site_row = con.execute(
@@ -498,6 +494,16 @@ def _create_portal_data_entry_row(con, request, bucket_key, payload, current_use
 
     def _resolved(field: str):
         return payload.get(field) or _factor_taxonomy.get(field)
+
+    # Checked against the factor's own unit from the library, not the
+    # client's payload: it decides whether a PG&S factor is spend-based.
+    if bucket_for_category(
+        category_map, submitted_category, _factor_taxonomy.get("uom") or payload.get("uom")
+    ) != bucket_key:
+        raise HTTPException(
+            status_code=400,
+            detail=f"That category doesn't belong under {BUCKET_LABELS[bucket_key]}",
+        )
 
     source_type = _register_source_type_for_bucket(bucket_key)
     if source_type:
