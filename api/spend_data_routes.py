@@ -441,7 +441,35 @@ _CRM_MAPPING_APPROVES_PORTAL_ROW = """
 """
 
 
-def _spend_held_for_review(con, job_id: int) -> dict[str, Any]:
+def _site_filter_sql(column: str, site_ids: list[int | None] | None) -> tuple[str, list[Any]]:
+    """AND-clause limiting `column` to the chosen sites (None = no site), or
+    nothing when every site is in play."""
+    if site_ids is None:
+        return "", []
+    keys = [-1 if sid is None else int(sid) for sid in site_ids]
+    if not keys:
+        return " AND FALSE", []
+    return f" AND COALESCE({column}, -1) IN ({','.join(['%s'] * len(keys))})", keys
+
+
+def _parse_site_ids(raw: Any) -> list[int | None] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="site_ids must be a list")
+    out: list[int | None] = []
+    for value in raw:
+        if value is None:
+            out.append(None)
+            continue
+        try:
+            out.append(int(value))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="site_ids must be site ids or null")
+    return out
+
+
+def _spend_held_for_review(con, job_id: int, site_ids: list[int | None] | None = None) -> dict[str, Any]:
     """Mapped spend the push must skip because portal review hasn't approved it.
 
     Split by why it is held, because each needs a different person to act:
@@ -449,8 +477,9 @@ def _spend_held_for_review(con, job_id: int) -> dict[str, Any]:
     submitted for review yet (review_status NULL), "pending_review" rows the
     client has submitted, and "rejected" rows were sent back to the client.
     """
+    site_sql, site_params = _site_filter_sql("site_id", site_ids)
     rows = con.execute(
-        """
+        f"""
         SELECT COALESCE(review_status, 'unconfirmed') AS bucket,
                COUNT(*), COALESCE(SUM(amount_net), 0), COALESCE(SUM(amount_gross), 0)
         FROM job_spend_entries
@@ -460,9 +489,10 @@ def _spend_held_for_review(con, job_id: int) -> dict[str, Any]:
           AND mapped_scope IS NOT NULL
           AND submitted_by_portal = TRUE
           AND COALESCE(review_status, '') <> 'approved'
+          {site_sql}
         GROUP BY 1
         """,
-        [int(job_id)],
+        [int(job_id), *site_params],
     ).fetchall()
     result: dict[str, Any] = {"rows": 0, "amount_net": 0.0, "amount_gross": 0.0}
     for bucket in ("unconfirmed", "pending_review", "rejected"):
@@ -2370,6 +2400,12 @@ def sync_spend_to_scope_data(
     """
     actor = str(_user.get("email") or "system")
     deactivate_missing = bool(body.get("deactivate_missing", True))
+    # Optional: push only these sites (None in the list = spend with no site).
+    # Everything about other sites -- their spend, their pushed rows, their
+    # manual rows -- is left exactly as it is, so a client's spend can be
+    # brought in one site at a time.
+    site_ids = _parse_site_ids(body.get("site_ids"))
+    site_filter_sql, site_filter_params = _site_filter_sql("site_id", site_ids)
 
     with get_conn() as con:
         _ensure_spend_tables(con)
@@ -2386,7 +2422,7 @@ def sync_spend_to_scope_data(
             pass
 
         spend_df = con.execute(
-            """
+            f"""
             SELECT entry_id, amount_net, amount_gross, conversion_currency, currency, vat_pct, notes,
                    site_id,
                    factor_db_id, factor_original_id, dataset_id,
@@ -2398,12 +2434,13 @@ def sync_spend_to_scope_data(
               AND factor_db_id IS NOT NULL
               AND mapped_scope IS NOT NULL
               AND (submitted_by_portal = FALSE OR review_status = 'approved')
+              {site_filter_sql}
             ORDER BY entry_id
             """,
-            [int(job_id)],
+            [int(job_id), *site_filter_params],
         ).df()
 
-        held_for_review = _spend_held_for_review(con, int(job_id))
+        held_for_review = _spend_held_for_review(con, int(job_id), site_ids)
 
         if spend_df is None or spend_df.empty:
             return {
@@ -2414,6 +2451,7 @@ def sync_spend_to_scope_data(
                 "processed": 0,
                 "conflicts": [],
                 "held_for_review": held_for_review,
+                "site_ids": site_ids,
             }
 
         # Aggregate by (scope, factor original_id, site_id) -- one scope row per
@@ -2652,27 +2690,29 @@ def sync_spend_to_scope_data(
                         AND COALESCE(data_source, '') = 'Spend Data'
                         AND COALESCE(enabled, TRUE) = TRUE
                         AND (original_id, COALESCE(site_id, -1)) NOT IN ({placeholders})
+                        {site_filter_sql}
                       RETURNING 1
                     )
                     SELECT COUNT(*) FROM updated_rows
                     """,
-                    [int(job_id)] + key_params,
+                    [int(job_id)] + key_params + site_filter_params,
                 ).fetchone()
                 deactivated = int(deactivated_row[0] or 0) if deactivated_row else 0
             else:
                 deactivated_row = con.execute(
-                    """
+                    f"""
                     WITH updated_rows AS (
                       UPDATE job_scope_rows
                       SET enabled = FALSE, updated_at = NOW()
                       WHERE job_id = %s
                         AND COALESCE(data_source, '') = 'Spend Data'
                         AND COALESCE(enabled, TRUE) = TRUE
+                        {site_filter_sql}
                       RETURNING 1
                     )
                     SELECT COUNT(*) FROM updated_rows
                     """,
-                    [int(job_id)],
+                    [int(job_id)] + site_filter_params,
                 ).fetchone()
                 deactivated = int(deactivated_row[0] or 0) if deactivated_row else 0
 
@@ -2690,6 +2730,7 @@ def sync_spend_to_scope_data(
         # "Mapped", so without this the totals on screen and the rows that
         # actually landed disagree with nothing to explain the gap.
         "held_for_review": held_for_review,
+        "site_ids": site_ids,
         "synced_at": datetime.utcnow().isoformat() + "Z",
         "synced_by": actor,
     }

@@ -210,6 +210,23 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
   }, [selectedSiteId, sites]);
 
   const hasRows = (summary?.count ?? 0) > 0;
+
+  // Sites that have spend lines, for choosing which ones a push covers. A
+  // job's spend often arrives one site at a time; pushing every site each
+  // time re-pushed (and clashed with) sites that were already settled.
+  const pushSiteOptions = useMemo(() => {
+    const seen = new Map<string, { key: string; site_id: number | null; label: string; lines: number }>();
+    for (const e of entries) {
+      const key = e.site_id == null ? "none" : String(e.site_id);
+      const existing = seen.get(key);
+      if (existing) existing.lines += 1;
+      else seen.set(key, { key, site_id: e.site_id ?? null, label: e.site_name || (e.site_id == null ? "No site" : `Site ${e.site_id}`), lines: 1 });
+    }
+    return Array.from(seen.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [entries]);
+  // Keys of sites left OUT of the push; empty = every site.
+  const [pushExcludedSites, setPushExcludedSites] = useState<Set<string>>(new Set());
+  const pushSiteCount = pushSiteOptions.filter((o) => !pushExcludedSites.has(o.key)).length;
   const unmappedCount = summary?.unmapped ?? 0;
   const mappedCount = summary?.mapped ?? 0;
   const totalCount = summary?.count ?? 0;
@@ -530,7 +547,13 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
       const res = await fetch(`${baseUrl}/jobs/${jobId}/spend-data/sync-to-scope`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deactivate_missing: true }),
+        body: JSON.stringify({
+          deactivate_missing: true,
+          // Omitted when every site is ticked, so the push covers the whole job.
+          ...(pushExcludedSites.size > 0
+            ? { site_ids: pushSiteOptions.filter((o) => !pushExcludedSites.has(o.key)).map((o) => o.site_id) }
+            : {}),
+        }),
       });
       if (!res.ok) throw new Error(`Sync failed (${res.status})`);
       const data = await res.json();
@@ -1072,6 +1095,36 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
               </div>
             ) : null}
 
+            {pushSiteOptions.length > 1 ? (
+              <div className="rounded-md border px-4 py-3 text-sm">
+                <div className="font-medium">Sites to push</div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Only the ticked sites are pushed. Spend rows, manual rows and earlier pushes for unticked sites are
+                  left exactly as they are in Data Entry.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                  {pushSiteOptions.map((o) => (
+                    <label key={o.key} className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        className="size-4"
+                        checked={!pushExcludedSites.has(o.key)}
+                        onChange={() =>
+                          setPushExcludedSites((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(o.key)) next.delete(o.key);
+                            else next.add(o.key);
+                            return next;
+                          })
+                        }
+                      />
+                      {o.label} <span className="text-xs text-muted-foreground">({o.lines})</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             {syncResult ? (
               <div className="space-y-3">
                 <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -1206,8 +1259,10 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
 
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setCurrentStep(3)}>← Back to Map Rows</Button>
-              <Button disabled={loading || unmappedCount > 0 || !hasRows} onClick={syncToEmissionsData}>
-                {loading ? "Pushing…" : syncResult ? "Re-Push to Emissions" : "Push Spend Rows to Emissions Data"}
+              <Button disabled={loading || unmappedCount > 0 || !hasRows || pushSiteCount === 0} onClick={syncToEmissionsData}>
+                {loading
+                  ? "Pushing…"
+                  : `${syncResult ? "Re-Push" : "Push"}${pushExcludedSites.size > 0 ? ` ${pushSiteCount} site(s)` : ""} to Emissions`}
               </Button>
             </div>
           </CardContent>

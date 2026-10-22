@@ -277,3 +277,30 @@ def test_crm_mapping_approves_portal_rows() -> None:
     for fn in (spend_data_routes.map_spend_row, spend_data_routes.approve_all_suggested_spend_mappings):
         assert "_CRM_MAPPING_APPROVES_PORTAL_ROW" in inspect.getsource(fn)
     assert "submitted_by_portal = TRUE THEN 'approved'" in spend_data_routes._CRM_MAPPING_APPROVES_PORTAL_ROW
+
+
+def test_push_can_be_limited_to_chosen_sites(monkeypatch) -> None:
+    # Job 663: pushing Poland must not touch UK spend or UK rows.
+    conn = _PushConn([_entry(1, 377)])
+    monkeypatch.setattr(spend_data_routes, "get_conn", lambda *_a, **_k: conn)
+    monkeypatch.setattr(spend_data_routes, "_ensure_spend_tables", lambda *_a, **_k: None)
+    monkeypatch.setattr(spend_data_routes, "_job_client_id", lambda *_a, **_k: 205)
+    monkeypatch.setattr(
+        spend_data_routes,
+        "_factor_by_id",
+        lambda _con, db_id: {"factor": 0.1, "scope": "Scope 3", "category": "Energy",
+                             "report_label": "x", "dataset_id": 1, "original_id": f"F{db_id}"},
+    )
+    result = spend_data_routes.sync_spend_to_scope_data(
+        job_id=663, body={"site_ids": [377]}, _user={"email": "t@x"},
+    )
+
+    assert result["site_ids"] == [377]
+    assert "COALESCE(site_id, -1) IN (%s)" in conn.deactivate_sql
+    assert conn.deactivate_params[-1] == 377
+
+
+def test_site_filter_maps_no_site_to_minus_one() -> None:
+    sql, params = spend_data_routes._site_filter_sql("site_id", [None, 5])
+    assert params == [-1, 5] and "IN (%s,%s)" in sql
+    assert spend_data_routes._site_filter_sql("site_id", None) == ("", [])
