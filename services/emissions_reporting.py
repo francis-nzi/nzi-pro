@@ -98,13 +98,47 @@ def resolve_site_name(row: Mapping[str, Any], site_lookup: Mapping[int, str] | N
     return fallback
 
 
+def register_month_columns_sql(con, alias: str = "js") -> str:
+    """month_1..month_12 select list for job_emission_sources, NULL where the
+    column hasn't been added on this database yet."""
+    cols = _table_columns(con, "job_emission_sources")
+    return ", ".join(
+        f"{alias}.month_{i} AS month_{i}" if f"month_{i}" in cols else f"NULL::numeric AS month_{i}"
+        for i in range(1, 13)
+    )
+
+
+def _has_month_values(row: Mapping[str, Any]) -> bool:
+    return any(_safe_float(row.get(f"month_{i}")) is not None for i in range(1, 13))
+
+
+def is_static_register_row(row: Mapping[str, Any]) -> bool:
+    """True for a register row that is priced from its stored tCO2e alone.
+
+    Only register rows with no monthly breakdown qualify. One with monthly
+    quantities is priced month by month like a Data Entry row, so callers
+    must hand combined_row_metrics the job's resolver for it.
+    """
+    record_type = str(row.get("record_type") or "legacy").strip().lower()
+    return record_type == "source_register" and not _has_month_values(row)
+
+
 def combined_row_metrics(row: Mapping[str, Any], resolver=None) -> dict[str, Any]:
     """Return row metrics for mixed legacy + source-register emissions rows.
 
-    Source-register rows already persist their calculated tCO2e, so we can avoid
-    re-running the heavier legacy resolver for those rows.
+    Register rows (Asset Register, Business Travel) with a monthly breakdown
+    are priced month by month through the resolver, exactly like Data Entry
+    rows: each month takes the factor from that month's dataset. Their stored
+    calc_tco2e was priced once, against a single dataset year, so a reporting
+    period spanning two factor years (e.g. Apr 2024 - Mar 2025) was reported
+    entirely at one year's factors.
+
+    Register rows without monthly quantities keep their stored tCO2e, which
+    is also the only thing rows from crp_scope_entries carry.
     """
     record_type = str(row.get("record_type") or "legacy").strip().lower()
+    if record_type == "source_register" and resolver is not None and _has_month_values(row):
+        return resolver.row_metrics(row)
     if record_type == "source_register":
         qty = _safe_float(row.get("qty")) or 0.0
         factor = _safe_float(row.get("factor"))
@@ -159,6 +193,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
 
     placeholders = ",".join(["%s"] * len(job_ids))
     factor_category_expr = _factor_lookup_category_expr(con)
+    register_months_sql = register_month_columns_sql(con)
     df = con.execute(
         f"""
         WITH job_context AS (
@@ -286,9 +321,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                     NULLIF(TRIM(CAST(g.category AS VARCHAR)), ''),
                     'Unknown'
                 ) AS activity_name,
-                NULL::numeric AS month_1, NULL::numeric AS month_2, NULL::numeric AS month_3, NULL::numeric AS month_4,
-                NULL::numeric AS month_5, NULL::numeric AS month_6, NULL::numeric AS month_7, NULL::numeric AS month_8,
-                NULL::numeric AS month_9, NULL::numeric AS month_10, NULL::numeric AS month_11, NULL::numeric AS month_12,
+                {register_months_sql},
                 FALSE AS is_auto_generated
             FROM job_emission_sources js
             JOIN job_context jc ON jc.job_id = js.job_id
@@ -344,8 +377,7 @@ def attach_exact_emissions(con, rows_df):
     emissions_vals: list[float] = []
 
     for _, row in rows_df.iterrows():
-        row_type = str(row.get("record_type") or "legacy").strip().lower()
-        if row_type == "source_register":
+        if is_static_register_row(row):
             metrics = combined_row_metrics(row)
         else:
             job_id = _safe_float(row.get("job_id"))

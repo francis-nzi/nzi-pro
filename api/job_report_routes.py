@@ -29,7 +29,7 @@ from api.auth import _current_user
 from api.permissions import assert_job_access, assert_permission
 from services.report_sites import report_sites, excluded_report_sites, visible_report_rows
 from services.monthly_emissions import JobMonthlyEmissionsResolver
-from services.emissions_reporting import combined_row_metrics
+from services.emissions_reporting import combined_row_metrics, register_month_columns_sql
 from api.report_template_routes import (
     _get_job_report_metadata,
     _build_report_render_values,
@@ -1598,18 +1598,7 @@ def _load_source_register_rows(con, job_id: int) -> list[dict[str, Any]]:
             js.notes,
             NULL::NUMERIC AS source_qty,
             NULL::VARCHAR AS source_uom,
-            NULL::NUMERIC AS month_1,
-            NULL::NUMERIC AS month_2,
-            NULL::NUMERIC AS month_3,
-            NULL::NUMERIC AS month_4,
-            NULL::NUMERIC AS month_5,
-            NULL::NUMERIC AS month_6,
-            NULL::NUMERIC AS month_7,
-            NULL::NUMERIC AS month_8,
-            NULL::NUMERIC AS month_9,
-            NULL::NUMERIC AS month_10,
-            NULL::NUMERIC AS month_11,
-            NULL::NUMERIC AS month_12,
+            {register_month_columns_sql(con)},
             js.enabled,
             js.created_at,
             js.updated_at,

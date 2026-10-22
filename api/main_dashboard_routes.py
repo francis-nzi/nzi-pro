@@ -15,7 +15,7 @@ from core.database import get_conn
 from api.auth import _current_user
 from services.tenancy import require_org
 from services.monthly_emissions import JobMonthlyEmissionsResolver
-from services.emissions_reporting import combined_row_metrics, load_combined_emissions_summary_rows, load_combined_reporting_rows
+from services.emissions_reporting import combined_row_metrics, is_static_register_row, load_combined_emissions_summary_rows, load_combined_reporting_rows
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -363,8 +363,7 @@ def _attach_dashboard_emissions(con, scope_df):
     resolver_by_job: dict[int, JobMonthlyEmissionsResolver] = {}
     emissions_vals: list[float] = []
     for _, row in scope_df.iterrows():
-        row_type = str(row.get("record_type") or "legacy").strip().lower()
-        if row_type == "source_register":
+        if is_static_register_row(row):
             metrics = combined_row_metrics(row)
         else:
             row_job_id = _normalize_int_value(row.get("job_id"))

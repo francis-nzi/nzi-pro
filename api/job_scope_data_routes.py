@@ -1195,11 +1195,72 @@ _REGISTER_CONSOLIDATION = {
 }
 
 
+def _price_register_groups(
+    con,
+    job_id: int,
+    resolver,
+    where_sql: str,
+    params: list[Any],
+) -> dict[tuple, dict[str, Any]]:
+    """Month-priced totals per consolidated register line.
+
+    Each register entry is priced through the same resolver as Data Entry
+    rows, so a period spanning two factor years takes each month's factor
+    from that month's dataset. The stored calc_tco2e was priced once against
+    a single dataset year. Keyed like the consolidation GROUP BY.
+    """
+    from services.emissions_reporting import combined_row_metrics, register_month_columns_sql
+
+    df = con.execute(
+        f"""
+        SELECT
+            'source_register' AS record_type,
+            s.source_type, s.site_id, s.factor_db_id AS group_key_factor_db_id,
+            s.scope,
+            COALESCE(g.dataset_id, s.dataset_id) AS dataset_id,
+            COALESCE(g.factor_db_id, s.factor_db_id) AS factor_db_id,
+            COALESCE(g.original_id, s.original_id) AS original_id,
+            COALESCE(g.uom, s.uom) AS uom,
+            COALESCE(g.factor, s.factor) AS factor,
+            COALESCE(g.ghg_unit, s.ghg_unit) AS ghg_unit,
+            s.apply_pct, s.qty, s.calc_tco2e, s.notes,
+            {register_month_columns_sql(con, "s")}
+        FROM job_emission_sources s
+        LEFT JOIN job_emission_groups g ON g.group_id = s.group_id
+        WHERE {where_sql}
+        """,
+        params,
+    ).df()
+    out: dict[tuple, dict[str, Any]] = {}
+    if df is None or df.empty:
+        return out
+    for _, row in df.iterrows():
+        metrics = combined_row_metrics(row, resolver)
+        key = (str(row.get("source_type")), _safe_int(row.get("site_id")), _safe_int(row.get("group_key_factor_db_id")))
+        agg = out.setdefault(key, {"calc_tco2e": 0.0, "before": 0.0, "qty": 0.0, "weighted_factor": 0.0,
+                                   "blended": False, "monthly": False, "dataset_labels": set(), "months": {}})
+        qty = float(metrics.get("display_qty") or 0.0)
+        agg["calc_tco2e"] += float(metrics.get("calc_tco2e") or 0.0)
+        agg["before"] += float(metrics.get("tco2e_before_apply") or 0.0)
+        agg["qty"] += qty
+        agg["weighted_factor"] += qty * float(metrics.get("display_factor") or 0.0)
+        agg["blended"] = agg["blended"] or bool(metrics.get("factor_blended"))
+        agg["monthly"] = agg["monthly"] or bool(metrics.get("uses_monthly_factors"))
+        if metrics.get("dataset_label"):
+            agg["dataset_labels"].add(str(metrics["dataset_label"]))
+        for detail in metrics.get("monthly_factor_details") or []:
+            month = agg["months"].setdefault(int(detail.get("month_index") or 0), {**detail, "qty": 0.0, "emissions_tco2e": 0.0})
+            month["qty"] += float(detail.get("qty") or 0.0)
+            month["emissions_tco2e"] += float(detail.get("emissions_tco2e") or 0.0)
+    return out
+
+
 def _load_register_consolidated_rows(
     con,
     job_id: int,
     scope: str | None = None,
     include_disabled: bool = False,
+    resolver=None,
 ) -> list[dict[str, Any]]:
     """One read-only row per (site, factor, register), mirroring how Employee
     Commuting consolidates. Grouped the same way job_scope_rows is keyed, so
@@ -1263,6 +1324,14 @@ def _load_register_consolidated_rows(
         logger.warning("Failed to load consolidated register rows for job %s", job_id, exc_info=True)
         return []
 
+    priced: dict[tuple, dict[str, Any]] = {}
+    if resolver is not None:
+        try:
+            priced = _price_register_groups(con, int(job_id), resolver, " AND ".join(where), params)
+        except Exception:
+            # Fall back to the stored totals rather than drop the lines.
+            logger.warning("Failed to month-price register rows for job %s", job_id, exc_info=True)
+
     out: list[dict[str, Any]] = []
     for raw in rows or []:
         (
@@ -1324,6 +1393,18 @@ def _load_register_consolidated_rows(
             "register_label": meta["label"],
             "register_entry_count": count,
         })
+        agg = priced.get((str(source_type), _safe_int(site_id), _safe_int(factor_db_id)))
+        if agg and agg["monthly"]:
+            labels = sorted(agg["dataset_labels"])
+            out[-1].update({
+                "calc_tco2e": round(agg["calc_tco2e"], 4),
+                "tco2e_before_apply": round(agg["before"], 4),
+                "factor": (agg["weighted_factor"] / agg["qty"]) if agg["qty"] else _safe_float(factor),
+                "factor_blended": agg["blended"],
+                "uses_monthly_factors": True,
+                "dataset_label": labels[0] if len(labels) == 1 else ("; ".join(labels) or None),
+                "monthly_factor_details": [agg["months"][k] for k in sorted(agg["months"], key=lambda m: (agg["months"][m].get("year") or 0, m))],
+            })
     return out
 
 
@@ -1587,7 +1668,7 @@ def get_job_scope_data(
             register_rows: list[dict[str, Any]] = []
             if row_id is None:
                 register_rows = _load_register_consolidated_rows(
-                    con, int(job_id), scope=scope, include_disabled=include_disabled
+                    con, int(job_id), scope=scope, include_disabled=include_disabled, resolver=resolver
                 )
                 rows.extend(register_rows)
 

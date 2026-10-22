@@ -1081,7 +1081,7 @@ def portal_metrics(
 
 @router.get("/portal/reporting-data")
 def portal_reporting_data(current_user: dict = Depends(portal_user_dep)):
-    from services.emissions_reporting import load_combined_reporting_rows, combined_row_metrics
+    from services.emissions_reporting import load_combined_reporting_rows, combined_row_metrics, is_static_register_row
     from services.monthly_emissions import JobMonthlyEmissionsResolver
     from services.tenancy import org_context
 
@@ -1159,8 +1159,7 @@ def portal_reporting_data(current_user: dict = Depends(portal_user_dep)):
             resolver_cache: dict[int, Any] = {}
             emissions_vals: list[float] = []
             for _, row in scope_df.iterrows():
-                row_type = str(row.get("record_type") or "legacy").strip().lower()
-                if row_type == "source_register":
+                if is_static_register_row(row):
                     metrics = combined_row_metrics(row)
                 else:
                     row_job_id = int(row.get("job_id"))

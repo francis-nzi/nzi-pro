@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from core.database import get_conn
 from api.auth import _current_user
 from services.monthly_emissions import JobMonthlyEmissionsResolver
-from services.emissions_reporting import combined_row_metrics, load_combined_reporting_rows
+from services.emissions_reporting import combined_row_metrics, is_static_register_row, load_combined_reporting_rows
 
 router = APIRouter()
 
@@ -249,8 +249,7 @@ def get_client_reporting(
             emissions_vals: list[float] = []
             quantity_vals: list[float] = []
             for _, row in scope_df.iterrows():
-                row_type = str(row.get("record_type") or "legacy").strip().lower()
-                if row_type == "source_register":
+                if is_static_register_row(row):
                     metrics = combined_row_metrics(row)
                 else:
                     row_job_id = int(row.get('job_id'))

@@ -174,7 +174,7 @@ def load_client_category_history(
     # importing at call time avoids a module-load-order dependency between
     # the two route files.
     from api.client_reporting_routes import _build_year_jobs, _clean_label, _dataset_category_label, _load_client_jobs
-    from services.emissions_reporting import combined_row_metrics, load_combined_reporting_rows
+    from services.emissions_reporting import combined_row_metrics, is_static_register_row, load_combined_reporting_rows
     from services.monthly_emissions import JobMonthlyEmissionsResolver
 
     jobs_df = _load_client_jobs(con, int(client_db_id), crp_only=False)
@@ -194,8 +194,7 @@ def load_client_category_history(
     quantity_vals: list[float] = []
     uom_vals: list[str] = []
     for _, row in scope_df.iterrows():
-        row_type = str(row.get("record_type") or "legacy").strip().lower()
-        if row_type == "source_register":
+        if is_static_register_row(row):
             metrics = combined_row_metrics(row)
         else:
             row_job_id = int(row.get("job_id"))
@@ -287,7 +286,7 @@ def load_legacy_commuting_rows(con, job_ids: list[int]) -> list[dict[str, Any]]:
     JobMonthlyEmissionsResolver pipeline load_client_category_history uses,
     so figures always reconcile with the CRM's reported totals."""
     from api.client_reporting_routes import _clean_label, _dataset_category_label
-    from services.emissions_reporting import combined_row_metrics, load_combined_reporting_rows
+    from services.emissions_reporting import combined_row_metrics, is_static_register_row, load_combined_reporting_rows
     from services.monthly_emissions import JobMonthlyEmissionsResolver
 
     if not job_ids:
@@ -309,8 +308,7 @@ def load_legacy_commuting_rows(con, job_ids: list[int]) -> list[dict[str, Any]]:
     resolver_by_job: dict[int, Any] = {}
     out: list[dict[str, Any]] = []
     for _, row in scope_df.iterrows():
-        row_type = str(row.get("record_type") or "legacy").strip().lower()
-        if row_type == "source_register":
+        if is_static_register_row(row):
             metrics = combined_row_metrics(row)
         else:
             row_job_id = int(row.get("job_id"))

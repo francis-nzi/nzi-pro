@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from core.database import get_conn
 from api.auth import _current_user
 from services.monthly_emissions import JobMonthlyEmissionsResolver
-from services.emissions_reporting import combined_row_metrics, resolve_site_name, _site_name_lookup
+from services.emissions_reporting import combined_row_metrics, register_month_columns_sql, resolve_site_name, _site_name_lookup
 from typing import Any
 
 router = APIRouter()
@@ -268,9 +268,7 @@ def _load_data_output_rows(con, job_id: int):
                 NULL::numeric AS source_qty,
                 NULL::text AS source_uom,
                 FALSE AS is_custom_entry,
-                NULL::numeric AS month_1, NULL::numeric AS month_2, NULL::numeric AS month_3, NULL::numeric AS month_4,
-                NULL::numeric AS month_5, NULL::numeric AS month_6, NULL::numeric AS month_7, NULL::numeric AS month_8,
-                NULL::numeric AS month_9, NULL::numeric AS month_10, NULL::numeric AS month_11, NULL::numeric AS month_12,
+                {register_month_columns_sql(con)},
                 'source_register'::text AS record_type,
                 COALESCE(js.data_source, CASE WHEN js.source_type = 'business_travel' THEN 'Business Travel Register' ELSE 'Asset Register' END) AS data_source,
                 COALESCE(js.data_confidence, 'M') AS data_confidence,

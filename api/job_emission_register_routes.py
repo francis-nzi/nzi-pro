@@ -550,6 +550,36 @@ def _resolve_factor(con, scope: str, original_id: str | None, factor_db_id: int 
     return out
 
 
+# Register types whose entries are priced month by month when they carry a
+# monthly breakdown -- the same rule the reports apply (combined_row_metrics).
+# Employee Commuting is priced through its consolidated job_scope_rows instead.
+_MONTH_PRICED_SOURCE_TYPES = {"asset", "business_travel"}
+
+
+def _month_price_register_rows(con, job_id: int, rows: list[dict[str, Any]]) -> None:
+    """Replace each eligible entry's stored calc_tco2e with its month-priced
+    figure, so this screen shows what the reports count. The stored figure was
+    priced once at a single dataset year; a period spanning two factor years
+    takes each month's factor from that month's dataset instead."""
+    from services.emissions_reporting import combined_row_metrics, is_static_register_row
+    from services.monthly_emissions import JobMonthlyEmissionsResolver
+
+    resolver = None
+    for row in rows:
+        if str(row.get("source_type") or "") not in _MONTH_PRICED_SOURCE_TYPES:
+            continue
+        candidate = {**row, "record_type": "source_register"}
+        if is_static_register_row(candidate):
+            continue
+        try:
+            if resolver is None:
+                resolver = JobMonthlyEmissionsResolver(con, int(job_id))
+            row["calc_tco2e"] = combined_row_metrics(candidate, resolver).get("calc_tco2e")
+        except Exception:
+            # Keep the stored figure rather than fail the whole register.
+            return
+
+
 def _list_register(con, job_id: int, source_type: str | None, include_disabled: bool) -> dict[str, Any]:
     group_where = ["job_id=%s"]
     group_params: list[Any] = [int(job_id)]
@@ -628,6 +658,7 @@ def _list_register(con, job_id: int, source_type: str | None, include_disabled: 
     groups: list[dict[str, Any]] = []
     group_map: dict[int, list[dict[str, Any]]] = {}
     source_rows = [] if sources_df is None or sources_df.empty else sources_df.to_dict("records")
+    _month_price_register_rows(con, int(job_id), source_rows)
     for row in source_rows:
         gid = row.get("group_id")
         if gid is None:
