@@ -760,7 +760,23 @@ def _candidate_dataset_ids(con, job_id: int, scope: str) -> list[int]:
     return ordered
 
 
-def _resolve_factor_record(con, job_id: int, original_id: str, scope: str) -> dict[str, Any] | None:
+def _resolve_factor_record(
+    con,
+    job_id: int,
+    original_id: str,
+    scope: str,
+    cache: dict[tuple[str, str], dict[str, Any] | None] | None = None,
+) -> dict[str, Any] | None:
+    # A workbook repeats the same few factors across every employee row, and
+    # each uncached lookup opens fresh connections to rank datasets. Callers
+    # resolving many rows pass one cache so a large upload stays well inside
+    # the portal proxy's 30s limit.
+    if cache is not None:
+        key = (str(original_id), scope)
+        if key not in cache:
+            cache[key] = _resolve_factor_record(con, job_id, original_id, scope)
+        return dict(cache[key]) if cache[key] else None
+
     parts = _factor_select_parts(con)
     rows = con.execute(
         f"""
@@ -816,7 +832,12 @@ def _resolve_factor_record(con, job_id: int, original_id: str, scope: str) -> di
     }
 
 
-def _resolve_commuting_factor_record(con, job_id: int, original_id: str) -> dict[str, Any] | None:
+def _resolve_commuting_factor_record(
+    con,
+    job_id: int,
+    original_id: str,
+    cache: dict[tuple[str, str], dict[str, Any] | None] | None = None,
+) -> dict[str, Any] | None:
     """
     Resolve a commuting factor record, preferring the dedicated employee commuting
     identifier suffix when it exists.
@@ -831,7 +852,7 @@ def _resolve_commuting_factor_record(con, job_id: int, original_id: str) -> dict
     candidates.append(base_id)
 
     for candidate in candidates:
-        factor_record = _resolve_factor_record(con, int(job_id), candidate, "Scope 3")
+        factor_record = _resolve_factor_record(con, int(job_id), candidate, "Scope 3", cache)
         if factor_record:
             return factor_record
     return None
@@ -954,6 +975,7 @@ def _resolve_preview_rows(
 ) -> dict[str, Any]:
     ready_rows: list[dict[str, Any]] = []
     unresolved_rows: list[dict[str, Any]] = []
+    factor_cache: dict[tuple[str, str], dict[str, Any] | None] = {}
     unit_fallback_count = 0
     job_employee_headcount = _job_employee_count(con, int(job_id))
     employee_headcount = _effective_employee_count(con, int(job_id), employee_count_override)
@@ -1000,7 +1022,7 @@ def _resolve_preview_rows(
                 )
                 continue
 
-            factor_record = _resolve_commuting_factor_record(con, int(job_id), original_id)
+            factor_record = _resolve_commuting_factor_record(con, int(job_id), original_id, factor_cache)
             if not factor_record:
                 unresolved_rows.append(
                     {
@@ -1093,7 +1115,7 @@ def _resolve_preview_rows(
             )
             continue
 
-        factor_record = _resolve_factor_record(con, int(job_id), original_id, "Scope 3")
+        factor_record = _resolve_factor_record(con, int(job_id), original_id, "Scope 3", factor_cache)
         if not factor_record:
             unresolved_rows.append(
                 {
@@ -1426,6 +1448,7 @@ def _resolve_manual_commuting_rows(
 ) -> dict[str, Any]:
     ready_rows: list[dict[str, Any]] = []
     unresolved_rows: list[dict[str, Any]] = []
+    factor_cache: dict[tuple[str, str], dict[str, Any] | None] = {}
 
     for idx, entry in enumerate(entries, start=1):
         parsed_row = _manual_entry_to_parsed_row({**entry, "row_number": idx})
@@ -1489,7 +1512,7 @@ def _resolve_manual_commuting_rows(
                 )
                 continue
 
-            factor_record = _resolve_commuting_factor_record(con, int(job_id), original_id)
+            factor_record = _resolve_commuting_factor_record(con, int(job_id), original_id, factor_cache)
             if not factor_record:
                 unresolved_rows.append(
                     {
@@ -1595,7 +1618,7 @@ def _resolve_manual_commuting_rows(
             )
             continue
 
-        factor_record = _resolve_factor_record(con, int(job_id), original_id, "Scope 3")
+        factor_record = _resolve_factor_record(con, int(job_id), original_id, "Scope 3", factor_cache)
         if not factor_record:
             unresolved_rows.append(
                 {
