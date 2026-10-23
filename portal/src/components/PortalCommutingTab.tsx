@@ -148,7 +148,15 @@ export default function PortalCommutingTab() {
   const [uploadPreview, setUploadPreview] = useState<{
     ready_count: number;
     unresolved_count: number;
-    ready_rows: Record<string, unknown>[];
+    total_tco2e?: number;
+    ready_rows: {
+      employee_name?: string | null;
+      source_name?: string | null;
+      site_id?: number | null;
+      qty?: number | null;
+      uom?: string | null;
+      calc_tco2e?: number | null;
+    }[];
     unresolved_rows: { employee_name?: string; reason?: string }[];
   } | null>(null);
   const [uploadBusy, setUploadBusy] = useState(false);
@@ -954,6 +962,54 @@ export default function PortalCommutingTab() {
                       <li key={index}>{row.employee_name || "Unnamed row"}: {row.reason || "Could not resolve row"}</li>
                     ))}
                   </ul>
+                )}
+                {uploadPreview.ready_rows.length > 0 && (
+                  <div className="max-h-96 overflow-auto rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0">
+                        <tr className="border-b bg-muted">
+                          <th className="p-2 text-left">Initials / Staff No.</th>
+                          <th className="p-2 text-left">Activity</th>
+                          <th className="p-2 text-left">Site</th>
+                          <th className="p-2 text-right">Qty</th>
+                          <th className="p-2 text-right">tCO&#8322;e</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {uploadPreview.ready_rows.map((row, idx) => {
+                          const employee = row.employee_name || "";
+                          // source_name is "<employee> - Employee Commuting - <mode>"; show it without the name prefix.
+                          const activity = (row.source_name || "").replace(`${employee} - `, "").replace(" - ", ": ");
+                          const site = sites.find((s) => s.site_id === row.site_id);
+                          return (
+                            <tr key={idx} className="border-b last:border-0">
+                              <td className="p-2">{employee || "-"}</td>
+                              <td className="p-2">{activity || "-"}</td>
+                              <td className="p-2">{site?.site_name || "-"}</td>
+                              <td className="p-2 text-right font-mono">
+                                {row.qty !== null && row.qty !== undefined ? row.qty.toLocaleString() : "-"} {row.uom || ""}
+                              </td>
+                              <td className="p-2 text-right font-mono">
+                                {row.calc_tco2e !== null && row.calc_tco2e !== undefined
+                                  ? row.calc_tco2e.toLocaleString(undefined, { maximumFractionDigits: 3 })
+                                  : "-"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      {uploadPreview.total_tco2e !== undefined && (
+                        <tfoot>
+                          <tr className="border-t bg-muted/50 font-medium">
+                            <td className="p-2" colSpan={4}>Total</td>
+                            <td className="p-2 text-right font-mono">
+                              {uploadPreview.total_tco2e.toLocaleString(undefined, { maximumFractionDigits: 3 })}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
+                  </div>
                 )}
                 <Button
                   size="sm"
