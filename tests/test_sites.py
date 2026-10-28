@@ -210,3 +210,73 @@ def test_sync_creates_site_when_none_exists(monkeypatch) -> None:
     sql, params = conn.updates[0]
     assert "INSERT INTO client_sites" in sql
     assert params[3] == "The Motte, Berkhamsted, HP4 1HR, United Kingdom"
+
+
+# ── Registered address → job report metadata sync (update_client) ─────────────
+
+
+class _ReportMetaConn:
+    def __init__(self, updated_job_ids, table_exists=True):
+        self._updated = [(j,) for j in updated_job_ids]
+        self._table_exists = table_exists
+        self._last_sql = ""
+        self.updates: list[tuple[str, list]] = []
+
+    def execute(self, sql: str, params=None):
+        self._last_sql = sql
+        if sql.strip().upper().startswith("UPDATE JOB_REPORT_METADATA"):
+            self.updates.append((sql, params or []))
+        return self
+
+    def fetchone(self):
+        return ("job_report_metadata" if self._table_exists else None,)
+
+    def fetchall(self):
+        return self._updated
+
+
+_OLD_ADDR = ("20 Field Lane", "Kessingland", "Lowestoft", "Suffolk", "NR33 7QB", "United Kingdom")
+_NEW_ADDR = ("61 Alexandra Road", "", "Lowestoft", "Suffolk", "NR33 1PL", "United Kingdom")
+
+
+def _sync_report(monkeypatch, conn, **kwargs):
+    events: list[dict] = []
+    monkeypatch.setattr(client_routes, "record_audit_event", lambda *_a, **k: events.append(k))
+    defaults = dict(
+        client_db_id=129, new_parts=_NEW_ADDR, previous_parts=_OLD_ADDR,
+        request=None, actor={"email": "consultant@example.com"},
+    )
+    defaults.update(kwargs)
+    client_routes._sync_report_registered_address_from_client(conn, **defaults)
+    return events
+
+
+def test_report_address_follows_client_address_on_open_jobs(monkeypatch) -> None:
+    conn = _ReportMetaConn([786])
+    events = _sync_report(monkeypatch, conn)
+
+    assert len(conn.updates) == 1
+    sql, params = conn.updates[0]
+    assert params[0] == "61 Alexandra Road, Lowestoft, Suffolk, NR33 1PL, United Kingdom"
+    assert params[1] == "consultant@example.com"
+    assert params[2] == 129
+    # only rows still holding the previously derived address are touched
+    assert "m.registered_address = ?" in sql
+    assert params[3] == "20 Field Lane, Kessingland, Lowestoft, Suffolk, NR33 7QB, United Kingdom"
+    # closed jobs keep the address they were reported with
+    assert "closed" in params[4:]
+    assert [e["job_id"] for e in events] == [786]
+
+
+def test_report_address_sync_is_noop_when_address_unchanged(monkeypatch) -> None:
+    conn = _ReportMetaConn([786])
+    _sync_report(monkeypatch, conn, new_parts=_OLD_ADDR)
+
+    assert conn.updates == []
+
+
+def test_report_address_sync_skips_when_metadata_table_missing(monkeypatch) -> None:
+    conn = _ReportMetaConn([], table_exists=False)
+    _sync_report(monkeypatch, conn)
+
+    assert conn.updates == []

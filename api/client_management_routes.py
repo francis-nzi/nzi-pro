@@ -133,6 +133,75 @@ def _sync_registered_office_site_from_address(
         )
 
 
+def _sync_report_registered_address_from_client(
+    con,
+    *,
+    client_db_id: int,
+    new_parts: tuple,
+    previous_parts: tuple,
+    request,
+    actor: dict[str, str],
+) -> None:
+    """Carry a registered-address change into the client's job report metadata.
+
+    The report copies the address into job_report_metadata once, when the
+    job's metadata is first built, and only refills it while it is blank -- so
+    without this a client address change never reached the report. A job is
+    only updated while it still holds the address derived from the previous
+    client address: a hand-edited report address is the consultant's, and a
+    closed job's report has already been issued (see FROZEN_JOB_STATUSES)."""
+    from api.report_template_routes import (
+        FROZEN_JOB_STATUSES,
+        _build_registered_address,
+        _current_actor_identifier,
+    )
+
+    new_address = _build_registered_address(list(new_parts))
+    previous_address = _build_registered_address(list(previous_parts))
+    if previous_address is None or new_address == previous_address:
+        return
+
+    table = con.execute("SELECT to_regclass('job_report_metadata')").fetchone()
+    if not table or table[0] is None:
+        return
+
+    frozen = sorted(FROZEN_JOB_STATUSES)
+    rows = con.execute(
+        f"""
+        UPDATE job_report_metadata m
+        SET registered_address = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+        FROM jobs j
+        WHERE j.job_id = m.job_id
+          AND j.client_db_id = ?
+          AND m.registered_address = ?
+          AND LOWER(TRIM(COALESCE(j.status, ''))) NOT IN ({', '.join(['?'] * len(frozen))})
+        RETURNING m.job_id
+        """,
+        [
+            new_address,
+            _current_actor_identifier(actor),
+            int(client_db_id),
+            previous_address,
+            *frozen,
+        ],
+    ).fetchall()
+
+    for row in rows or []:
+        record_audit_event(
+            con,
+            request=request,
+            actor=actor,
+            action="update",
+            entity_type="job_report_metadata",
+            entity_id=int(row[0]),
+            job_id=int(row[0]),
+            client_id=int(client_db_id),
+            before={"registered_address": previous_address},
+            after={"registered_address": new_address},
+            metadata={"synced_from": "client_registered_address"},
+        )
+
+
 @router.post("/clients")
 def create_client(
     request: Request,
@@ -730,6 +799,15 @@ def update_client(
                         org_id=org_id,
                         new_location=_compose_registered_address(*current[1:7]),
                         previous_location=_compose_registered_address(*existing_client[1:7]),
+                        request=request,
+                        actor=_user,
+                    )
+                if current:
+                    _sync_report_registered_address_from_client(
+                        con,
+                        client_db_id=int(client_db_id),
+                        new_parts=tuple(current[1:7]),
+                        previous_parts=tuple(existing_client[1:7]),
                         request=request,
                         actor=_user,
                     )
