@@ -235,19 +235,20 @@ class _ReportMetaConn:
         return self._updated
 
 
-_OLD_ADDR = ("20 Field Lane", "Kessingland", "Lowestoft", "Suffolk", "NR33 7QB", "United Kingdom")
-_NEW_ADDR = ("61 Alexandra Road", "", "Lowestoft", "Suffolk", "NR33 1PL", "United Kingdom")
+_OLD_ADDR = "20 Field Lane, Kessingland, Lowestoft, Suffolk, NR33 7QB, United Kingdom"
+_NEW_ADDR = "61 Alexandra Road, Lowestoft, Suffolk, NR33 1PL, United Kingdom"
 
 
 def _sync_report(monkeypatch, conn, **kwargs):
     events: list[dict] = []
     monkeypatch.setattr(client_routes, "record_audit_event", lambda *_a, **k: events.append(k))
     defaults = dict(
-        client_db_id=129, new_parts=_NEW_ADDR, previous_parts=_OLD_ADDR,
+        client_db_id=129, field="registered_address",
+        new_value=_NEW_ADDR, previous_value=_OLD_ADDR,
         request=None, actor={"email": "consultant@example.com"},
     )
     defaults.update(kwargs)
-    client_routes._sync_report_registered_address_from_client(conn, **defaults)
+    client_routes._sync_report_meta_field_from_client(conn, **defaults)
     return events
 
 
@@ -257,12 +258,12 @@ def test_report_address_follows_client_address_on_open_jobs(monkeypatch) -> None
 
     assert len(conn.updates) == 1
     sql, params = conn.updates[0]
-    assert params[0] == "61 Alexandra Road, Lowestoft, Suffolk, NR33 1PL, United Kingdom"
+    assert params[0] == _NEW_ADDR
     assert params[1] == "consultant@example.com"
     assert params[2] == 129
     # only rows still holding the previously derived address are touched
     assert "m.registered_address = ?" in sql
-    assert params[3] == "20 Field Lane, Kessingland, Lowestoft, Suffolk, NR33 7QB, United Kingdom"
+    assert params[3] == _OLD_ADDR
     # closed jobs keep the address they were reported with
     assert "closed" in params[4:]
     assert [e["job_id"] for e in events] == [786]
@@ -270,7 +271,30 @@ def test_report_address_follows_client_address_on_open_jobs(monkeypatch) -> None
 
 def test_report_address_sync_is_noop_when_address_unchanged(monkeypatch) -> None:
     conn = _ReportMetaConn([786])
-    _sync_report(monkeypatch, conn, new_parts=_OLD_ADDR)
+    _sync_report(monkeypatch, conn, new_value=_OLD_ADDR)
+
+    assert conn.updates == []
+
+
+def test_report_company_number_follows_client_company_reg(monkeypatch) -> None:
+    conn = _ReportMetaConn([786])
+    events = _sync_report(
+        monkeypatch, conn, field="company_number", new_value="09876543", previous_value="3284676",
+    )
+
+    assert len(conn.updates) == 1
+    sql, params = conn.updates[0]
+    assert "SET company_number = ?" in sql
+    assert "m.company_number = ?" in sql
+    assert params[0] == "09876543"
+    assert params[3] == "3284676"
+    assert events[0]["metadata"] == {"synced_from": "client_company_reg"}
+
+
+def test_report_sync_skips_when_previous_value_was_blank(monkeypatch) -> None:
+    # A blank report value is refilled from the client when the report loads.
+    conn = _ReportMetaConn([786])
+    _sync_report(monkeypatch, conn, field="company_number", new_value="09876543", previous_value=None)
 
     assert conn.updates == []
 

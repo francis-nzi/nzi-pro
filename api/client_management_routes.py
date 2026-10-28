@@ -133,32 +133,37 @@ def _sync_registered_office_site_from_address(
         )
 
 
-def _sync_report_registered_address_from_client(
+# Report metadata fields copied from the client record, and the client field
+# each one is synced from (recorded in the audit event).
+_CLIENT_SYNCED_REPORT_FIELDS = {
+    "registered_address": "client_registered_address",
+    "company_number": "client_company_reg",
+}
+
+
+def _sync_report_meta_field_from_client(
     con,
     *,
     client_db_id: int,
-    new_parts: tuple,
-    previous_parts: tuple,
+    field: str,
+    new_value: str | None,
+    previous_value: str | None,
     request,
     actor: dict[str, str],
 ) -> None:
-    """Carry a registered-address change into the client's job report metadata.
+    """Carry a client field change into the client's job report metadata.
 
-    The report copies the address into job_report_metadata once, when the
-    job's metadata is first built, and only refills it while it is blank -- so
-    without this a client address change never reached the report. A job is
-    only updated while it still holds the address derived from the previous
-    client address: a hand-edited report address is the consultant's, and a
-    closed job's report has already been issued (see FROZEN_JOB_STATUSES)."""
-    from api.report_template_routes import (
-        FROZEN_JOB_STATUSES,
-        _build_registered_address,
-        _current_actor_identifier,
-    )
+    The report copies the registered address and company number into
+    job_report_metadata once, when the job's metadata is first built, and only
+    refills them while blank -- so without this a client change never reached
+    the report. A job is only updated while it still holds the value derived
+    from the previous client value: a hand-edited report value is the
+    consultant's, and a closed job's report has already been issued (see
+    FROZEN_JOB_STATUSES)."""
+    from api.report_template_routes import FROZEN_JOB_STATUSES, _current_actor_identifier
 
-    new_address = _build_registered_address(list(new_parts))
-    previous_address = _build_registered_address(list(previous_parts))
-    if previous_address is None or new_address == previous_address:
+    synced_from = _CLIENT_SYNCED_REPORT_FIELDS[field]
+    if previous_value is None or new_value == previous_value:
         return
 
     table = con.execute("SELECT to_regclass('job_report_metadata')").fetchone()
@@ -169,19 +174,19 @@ def _sync_report_registered_address_from_client(
     rows = con.execute(
         f"""
         UPDATE job_report_metadata m
-        SET registered_address = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+        SET {field} = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
         FROM jobs j
         WHERE j.job_id = m.job_id
           AND j.client_db_id = ?
-          AND m.registered_address = ?
+          AND m.{field} = ?
           AND LOWER(TRIM(COALESCE(j.status, ''))) NOT IN ({', '.join(['?'] * len(frozen))})
         RETURNING m.job_id
         """,
         [
-            new_address,
+            new_value,
             _current_actor_identifier(actor),
             int(client_db_id),
-            previous_address,
+            previous_value,
             *frozen,
         ],
     ).fetchall()
@@ -196,10 +201,15 @@ def _sync_report_registered_address_from_client(
             entity_id=int(row[0]),
             job_id=int(row[0]),
             client_id=int(client_db_id),
-            before={"registered_address": previous_address},
-            after={"registered_address": new_address},
-            metadata={"synced_from": "client_registered_address"},
+            before={field: previous_value},
+            after={field: new_value},
+            metadata={"synced_from": synced_from},
         )
+
+
+def _clean_company_reg(value: object) -> str | None:
+    text = str(value).strip() if value is not None else ""
+    return text or None
 
 
 @router.post("/clients")
@@ -651,6 +661,13 @@ def update_client(
             ).fetchone()
             if not existing_client:
                 raise HTTPException(status_code=404, detail="Client not found")
+            previous_company_reg = None
+            if "company_reg" in body and "company_reg" in _client_column_names(con):
+                reg_row = con.execute(
+                    "SELECT company_reg FROM clients WHERE db_id = ? AND org_id = ?",
+                    [int(client_db_id), org_id],
+                ).fetchone()
+                previous_company_reg = reg_row[0] if reg_row and _clean_company_reg(reg_row[0]) else None
 
             updates = []
             params = []
@@ -803,14 +820,28 @@ def update_client(
                         actor=_user,
                     )
                 if current:
-                    _sync_report_registered_address_from_client(
+                    from api.report_template_routes import _build_registered_address
+
+                    _sync_report_meta_field_from_client(
                         con,
                         client_db_id=int(client_db_id),
-                        new_parts=tuple(current[1:7]),
-                        previous_parts=tuple(existing_client[1:7]),
+                        field="registered_address",
+                        new_value=_build_registered_address(list(current[1:7])),
+                        previous_value=_build_registered_address(list(existing_client[1:7])),
                         request=request,
                         actor=_user,
                     )
+
+            if previous_company_reg is not None:
+                _sync_report_meta_field_from_client(
+                    con,
+                    client_db_id=int(client_db_id),
+                    field="company_number",
+                    new_value=_clean_company_reg(normalized_body["company_reg"]),
+                    previous_value=previous_company_reg,
+                    request=request,
+                    actor=_user,
+                )
 
             after = _client_audit_snapshot(con, int(client_db_id), org_id)
             record_audit_event(
