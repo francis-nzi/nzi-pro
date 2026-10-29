@@ -220,6 +220,8 @@ export const AUTO_REPORT_METADATA_FIELDS = new Set<string>([
 ]);
 
 export const JOB_SETUP_METADATA_KEYS = [
+  "company_number",
+  "registered_address",
   "premises_owned",
   "premises_leased",
   "vehicles_owned",
@@ -251,6 +253,18 @@ export const JOB_SETUP_METADATA_KEY_ORDER = new Map(
 );
 
 export const JOB_SETUP_METADATA_FALLBACK_FIELDS: ReportMetadataField[] = [
+  {
+    key: "company_number",
+    label: "Company Number",
+    field_type: "text",
+    section: "Organisation Details",
+  },
+  {
+    key: "registered_address",
+    label: "Registered Address",
+    field_type: "textarea",
+    section: "Organisation Details",
+  },
   {
     key: "premises_owned",
     label: "Premises Owned",

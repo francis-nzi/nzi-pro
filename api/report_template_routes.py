@@ -564,6 +564,11 @@ REPORT_METADATA_LABELS: dict[str, str] = {
     "client_signature_date": "Client Signature Date",
 }
 
+# Copied from the client record. While the job is open they follow the client,
+# unless a consultant has typed a different value for this job's report; each
+# has a matching <key>_overridden flag column on job_report_metadata.
+REPORT_METADATA_CLIENT_FIELDS = ("company_number", "registered_address")
+
 REPORT_METADATA_TEXTAREA_FIELDS = {
     "registered_address",
     "commitment_commentary",
@@ -2373,7 +2378,47 @@ def _ensure_report_metadata_table(con) -> None:
         ADD COLUMN IF NOT EXISTS vehicles_leased INTEGER
         """
     )
+    for key in REPORT_METADATA_CLIENT_FIELDS:
+        con.execute(
+            f"""
+            ALTER TABLE job_report_metadata
+            ADD COLUMN IF NOT EXISTS {key}_overridden BOOLEAN DEFAULT FALSE
+            """
+        )
     _report_metadata_table_seeded = True
+
+
+def _fetch_client_field_overrides(con, job_id: int) -> set[str]:
+    """The client-derived fields a consultant has hand-edited on this job."""
+    flags_sql = ", ".join(
+        f"COALESCE({key}_overridden, FALSE)" for key in REPORT_METADATA_CLIENT_FIELDS
+    )
+    row = con.execute(
+        f"SELECT {flags_sql} FROM job_report_metadata WHERE job_id = %s",
+        [int(job_id)],
+    ).fetchone()
+    if not row:
+        return set()
+    return {key for key, flag in zip(REPORT_METADATA_CLIENT_FIELDS, row) if flag}
+
+
+def _sync_client_fields_from_client(
+    meta: dict[str, Any],
+    defaults: Mapping[str, Any],
+    overridden: set[str],
+) -> bool:
+    """Keep the company number and registered address on the client's current
+    record. Without this they were copied once, when the job's metadata was
+    first built, so a later client change never reached the report."""
+    changed = False
+    for key in REPORT_METADATA_CLIENT_FIELDS:
+        if key in overridden:
+            continue
+        client_value = defaults.get(key)
+        if client_value is not None and meta.get(key) != client_value:
+            meta[key] = client_value
+            changed = True
+    return changed
 
 
 def _build_default_report_meta(con, job_id: int) -> dict[str, Any]:
@@ -2520,6 +2565,11 @@ def _ensure_job_report_meta(
         energy_out["frozen"] = frozen
 
     if not frozen:
+        if existing is not None and _sync_client_fields_from_client(
+            merged, defaults, _fetch_client_field_overrides(con, int(job_id))
+        ):
+            changed = True
+
         energy_changed, energy_factor_details = _sync_energy_fields(con, int(job_id), merged)
         if energy_changed:
             changed = True
@@ -2658,7 +2708,11 @@ def save_job_report_metadata(
             continue
         if resolved_key in REPORT_METADATA_AUTO_SYNC_FIELDS:
             continue
-        resolved_updates[resolved_key] = _coerce_report_meta_value(resolved_key, value)
+        coerced = _coerce_report_meta_value(resolved_key, value)
+        if resolved_key == "registered_address" and coerced is not None:
+            # Typed one line per row in the form; the report prints it on one line.
+            coerced = _build_registered_address(re.split(r"\s*[\r\n]+\s*", coerced))
+        resolved_updates[resolved_key] = coerced
 
     if unknown_keys:
         raise HTTPException(
@@ -2680,6 +2734,24 @@ def save_job_report_metadata(
             updated_by=actor_identifier,
             energy_out=energy_out,
         )
+        # A client-derived value saved unchanged (the form resends every field)
+        # keeps its override flag; one matching the client, or cleared, follows
+        # the client again; any other new value is the consultant's override.
+        client_defaults = _build_default_report_meta(con, int(job_id))
+        overridden = _fetch_client_field_overrides(con, int(job_id))
+        override_flags: dict[str, bool] = {}
+        for key in REPORT_METADATA_CLIENT_FIELDS:
+            if key not in resolved_updates:
+                continue
+            value = resolved_updates[key]
+            client_value = client_defaults.get(key)
+            if value is None or value == client_value:
+                resolved_updates[key] = client_value
+                override_flags[key] = False
+            elif value != merged.get(key):
+                override_flags[key] = True
+            else:
+                override_flags[key] = key in overridden
         merged.update(resolved_updates)
         # A frozen job still accepts deliberate edits -- what it must not do is
         # let a save quietly recompute the derived fields underneath them.
@@ -2693,6 +2765,13 @@ def save_job_report_metadata(
             merged,
             updated_by=actor_identifier,
         )
+        if override_flags:
+            con.execute(
+                "UPDATE job_report_metadata SET "
+                + ", ".join(f"{key}_overridden = %s" for key in override_flags)
+                + " WHERE job_id = %s",
+                [*override_flags.values(), int(job_id)],
+            )
 
         refreshed = _fetch_report_meta_row(con, int(job_id)) or merged
         after = _serialize_report_meta(refreshed)

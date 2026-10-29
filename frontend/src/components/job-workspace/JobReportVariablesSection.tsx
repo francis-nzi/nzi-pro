@@ -262,7 +262,12 @@ export default function JobReportVariablesSection({
                       ) : null}
                     </Label>
                     {renderFieldInput(field, fieldValues[field.key] ?? "", consultantOptions, onValueChange)}
-                    {field.key === "datasets_names" ? (
+                    {field.key === "company_number" || field.key === "registered_address" ? (
+                      <div className="text-xs text-muted-foreground">
+                        Follows the client record while the job is open. Edit to use a different value on this
+                        job&apos;s report only; clear it to follow the client again.
+                      </div>
+                    ) : field.key === "datasets_names" ? (
                       <div className="text-xs text-muted-foreground">
                         Derived automatically from the job&apos;s active datasets and reporting period.
                       </div>
