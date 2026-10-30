@@ -2,10 +2,14 @@
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from typing import Optional
+
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+from api.admin_routes import _ensure_client_file_types_lookup_table
 from api.auth import _current_user
+from api.permissions import assert_client_access
 from api.job_files_routes import (
     _ensure_job_files_table,
     _mime_type_for_filename,
@@ -56,11 +60,33 @@ def _ensure_client_files_table(con) -> None:
         "ALTER TABLE client_files ADD COLUMN IF NOT EXISTS external_web_url TEXT",
         "ALTER TABLE client_files ADD COLUMN IF NOT EXISTS external_path TEXT",
         "ALTER TABLE client_files ADD COLUMN IF NOT EXISTS notes TEXT",
+        # Client portal allocation -- same columns and meaning as on job_files.
+        "ALTER TABLE client_files ADD COLUMN IF NOT EXISTS portal_visible BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE client_files ADD COLUMN IF NOT EXISTS portal_description TEXT",
+        "ALTER TABLE client_files ADD COLUMN IF NOT EXISTS portal_expires_at TIMESTAMP",
+        "ALTER TABLE client_files ADD COLUMN IF NOT EXISTS pinned BOOLEAN DEFAULT FALSE",
     ]:
         try:
             con.execute(_stmt)
         except Exception:
             pass
+
+
+def _client_file_type_names(con, *, active_only: bool = True) -> list[str]:
+    _ensure_client_file_types_lookup_table(con)
+    where = "WHERE COALESCE(is_active, TRUE) = TRUE" if active_only else ""
+    rows = con.execute(f"SELECT name FROM client_file_types_lookup {where} ORDER BY name").fetchall()
+    return [str(r[0]) for r in rows or []]
+
+
+def _resolve_client_file_type(con, file_type: str) -> str:
+    """The lookup's name for an active client file type. Older callers send the
+    legacy snake_case keys ("time_report"), which match their names here."""
+    wanted = str(file_type or "").strip().replace("_", " ").lower() or "general"
+    for name in _client_file_type_names(con):
+        if name.lower() == wanted:
+            return name
+    raise HTTPException(status_code=400, detail="file_type is not an active client file type")
 
 
 def _safe_client_filename(client_id: int, filename: str) -> str:
@@ -114,7 +140,8 @@ def list_client_files(client_id: int, _user: dict = Depends(_current_user)):
                 """
                 SELECT file_id, client_db_id, file_type, file_name, file_size,
                        mime_type, description, uploaded_by, uploaded_at,
-                       storage_provider, external_web_url, notes
+                       storage_provider, external_web_url, notes,
+                       portal_visible, portal_description, portal_expires_at, pinned
                 FROM client_files
                 WHERE client_db_id = %s
                 ORDER BY uploaded_at DESC
@@ -155,6 +182,10 @@ def list_client_files(client_id: int, _user: dict = Depends(_current_user)):
                     "storage_provider": str(r[9] or "local"),
                     "external_web_url": str(r[10]) if r[10] else None,
                     "notes": str(r[11]) if r[11] else None,
+                    "portal_visible": bool(r[12]),
+                    "portal_description": str(r[13]) if r[13] else None,
+                    "portal_expires_at": str(r[14]) if r[14] else None,
+                    "pinned": bool(r[15]),
                 })
             for r in jr:
                 files.append({
@@ -195,6 +226,7 @@ async def upload_client_file(
     """Upload a file directly to a client."""
     with get_conn() as con:
         _ensure_client_files_table(con)
+        resolved_file_type = _resolve_client_file_type(con, file_type)
         user_id = str(_user.get("user_id") or "")
         storage_info, mime_type = _save_client_upload(file, client_id)
         row = con.execute(
@@ -208,7 +240,7 @@ async def upload_client_file(
             """,
             [
                 int(client_id),
-                str(file_type or "general"),
+                resolved_file_type,
                 str(file.filename or "unknown"),
                 str(storage_info.get("file_path") or ""),
                 storage_info.get("file_size"),
@@ -223,6 +255,64 @@ async def upload_client_file(
             ],
         ).fetchone()
         return {"ok": True, "file_id": int(row[0]), "file_name": file.filename}
+
+
+@router.get("/clients/{client_id}/file-types")
+def list_client_file_types(client_id: int, _user: dict = Depends(_current_user)):
+    """Active client file types, managed in Admin > Lookups > Client File Types."""
+    assert_client_access(_user, int(client_id))
+    with get_conn() as con:
+        return {"file_types": _client_file_type_names(con)}
+
+
+@router.patch("/clients/{client_id}/files/{file_id}/portal")
+def update_client_file_portal_settings(
+    client_id: int,
+    file_id: int,
+    portal_visible: Optional[bool] = Body(None),
+    portal_description: Optional[str] = Body(None),
+    portal_expires_at: Optional[str] = Body(None),
+    pinned: Optional[bool] = Body(None),
+    _user: dict = Depends(_current_user),
+):
+    """Allocate a client file to the client portal -- the client-level twin of
+    PATCH /jobs/{job_id}/files/{file_id}/portal."""
+    assert_client_access(_user, int(client_id))
+    with get_conn() as con:
+        _ensure_client_files_table(con)
+        exists = con.execute(
+            "SELECT 1 FROM client_files WHERE file_id = %s AND client_db_id = %s",
+            [int(file_id), int(client_id)],
+        ).fetchone()
+        if not exists:
+            raise HTTPException(status_code=404, detail="File not found")
+
+        updates = []
+        params: list = []
+        if portal_visible is not None:
+            updates.append("portal_visible = %s")
+            params.append(bool(portal_visible))
+        if portal_description is not None:
+            updates.append("portal_description = %s")
+            params.append(portal_description or None)
+        if portal_expires_at is not None:
+            if portal_expires_at.strip() == "" or portal_expires_at.strip().lower() == "null":
+                updates.append("portal_expires_at = NULL")
+            else:
+                updates.append("portal_expires_at = %s")
+                params.append(portal_expires_at)
+        if pinned is not None:
+            updates.append("pinned = %s")
+            params.append(bool(pinned))
+        if not updates:
+            return {"ok": True, "message": "No changes to update"}
+
+        params.extend([int(file_id), int(client_id)])
+        con.execute(
+            f"UPDATE client_files SET {', '.join(updates)} WHERE file_id = %s AND client_db_id = %s",
+            params,
+        )
+    return {"ok": True, "message": "Portal settings updated"}
 
 
 @router.delete("/clients/{client_id}/files/{file_id}")

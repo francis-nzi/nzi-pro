@@ -2287,36 +2287,70 @@ def portal_files(current_user: dict = Depends(portal_user_dep)):
             [client_db_id],
         ).fetchall()
 
+        # Files uploaded to the client itself (CRM client > Files) that a
+        # consultant has allocated to the portal.
+        from api.client_files_routes import _ensure_client_files_table
+        _ensure_client_files_table(con)
+        client_rows = con.execute(
+            """
+            SELECT file_id, file_name, file_type,
+                   COALESCE(portal_description, description) AS description,
+                   file_size, storage_provider, uploaded_at, pinned
+            FROM client_files
+            WHERE client_db_id = %s
+              AND portal_visible = TRUE
+              AND (portal_expires_at IS NULL OR portal_expires_at > NOW())
+            """,
+            [client_db_id],
+        ).fetchall()
+
     def _dt(v):
         try:
             return v.isoformat() if v else None
         except Exception:
             return str(v) if v else None
 
-    return {
-        "ok": True,
-        "files": [
-            {
-                "file_id": int(r[0]),
-                "job_id": int(r[1]),
-                "reporting_year": int(r[2]) if r[2] is not None else None,
-                "job_title": str(r[3] or ""),
-                "file_name": str(r[4] or ""),
-                "file_type": str(r[5] or ""),
-                "description": str(r[6] or "") or None,
-                "file_size": int(r[7]) if r[7] is not None else None,
-                "storage_provider": str(r[8] or "local"),
-                "uploaded_at": _dt(r[9]),
-                "job_number": str(r[10] or ""),
-                "pinned": bool(r[11]) if r[11] is not None else False,
-            }
-            for r in (rows or [])
-        ],
-    }
+    files = [
+        {
+            "source": "job",
+            "file_id": int(r[0]),
+            "job_id": int(r[1]),
+            "reporting_year": int(r[2]) if r[2] is not None else None,
+            "job_title": str(r[3] or ""),
+            "file_name": str(r[4] or ""),
+            "file_type": str(r[5] or ""),
+            "description": str(r[6] or "") or None,
+            "file_size": int(r[7]) if r[7] is not None else None,
+            "storage_provider": str(r[8] or "local"),
+            "uploaded_at": _dt(r[9]),
+            "job_number": str(r[10] or ""),
+            "pinned": bool(r[11]) if r[11] is not None else False,
+        }
+        for r in (rows or [])
+    ]
+    files.extend(
+        {
+            "source": "client",
+            "file_id": int(r[0]),
+            "job_id": None,
+            "reporting_year": None,
+            "job_title": "",
+            "file_name": str(r[1] or ""),
+            "file_type": str(r[2] or ""),
+            "description": str(r[3] or "") or None,
+            "file_size": int(r[4]) if r[4] is not None else None,
+            "storage_provider": str(r[5] or "local"),
+            "uploaded_at": _dt(r[6]),
+            "job_number": "",
+            "pinned": bool(r[7]) if r[7] is not None else False,
+        }
+        for r in (client_rows or [])
+    )
+    files.sort(key=lambda f: f["uploaded_at"] or "", reverse=True)
+    return {"ok": True, "files": files}
 
 
-@router.get("/portal/files/{file_id}/download")
-def portal_file_download(file_id: int, current_user: dict = Depends(portal_user_dep)):
+def _portal_file_response(file_name: str, local_path: str, item_id: str, storage: str, mime: str):
     """Proxy file download through the server — never redirect to SharePoint directly."""
     import io as _io
     import pathlib as _pathlib
@@ -2324,6 +2358,70 @@ def portal_file_download(file_id: int, current_user: dict = Depends(portal_user_
     from fastapi.responses import Response as _Response, StreamingResponse as _StreamingResponse
     from api.onedrive_routes import _graph_token, _drive_base_path, _graph_download
 
+    if storage == "onedrive":
+        if not item_id:
+            raise HTTPException(status_code=404, detail="External file ID missing")
+        token = _graph_token()
+        drive_base = _drive_base_path(token)
+        content, content_type = _graph_download(
+            f"{drive_base}/items/{_urlparse.quote(item_id)}/content",
+            token,
+        )
+        return _StreamingResponse(
+            _io.BytesIO(content),
+            media_type=content_type or mime,
+            headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+        )
+
+    p = _pathlib.Path(local_path)
+    if not local_path or not p.exists():
+        raise HTTPException(status_code=404, detail="File not found on server")
+
+    return _Response(
+        content=p.read_bytes(),
+        media_type=mime,
+        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+    )
+
+
+@router.get("/portal/client-files/{file_id}/download")
+def portal_client_file_download(file_id: int, current_user: dict = Depends(portal_user_dep)):
+    """Download a client-level file allocated to the portal. Its own route
+    because client_files and job_files ids overlap."""
+    _assert_section_allowed(current_user, "files")
+    # Client-level files aren't tied to a site; site-scoped accounts don't
+    # get the Files tab (see _assert_section_allowed), so refuse them here too.
+    if current_user.get("site_ids") is not None:
+        raise HTTPException(status_code=403, detail="Not available for a site-scoped account")
+
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        row = con.execute(
+            """
+            SELECT file_name, file_path, external_item_id, storage_provider, mime_type
+            FROM client_files
+            WHERE file_id = %s
+              AND client_db_id = %s
+              AND portal_visible = TRUE
+              AND (portal_expires_at IS NULL OR portal_expires_at > NOW())
+            """,
+            [file_id, client_db_id],
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return _portal_file_response(
+        str(row[0] or "download"),
+        str(row[1] or "").strip(),
+        str(row[2] or "").strip(),
+        str(row[3] or "local"),
+        str(row[4] or "application/octet-stream"),
+    )
+
+
+@router.get("/portal/files/{file_id}/download")
+def portal_file_download(file_id: int, current_user: dict = Depends(portal_user_dep)):
+    """Proxy file download through the server — never redirect to SharePoint directly."""
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         row = con.execute(
@@ -2358,33 +2456,10 @@ def portal_file_download(file_id: int, current_user: dict = Depends(portal_user_
         if linked_site_id is None or linked_site_id not in site_ids:
             raise HTTPException(status_code=403, detail="Not available for a site-scoped account")
 
-    file_name      = str(row[1] or "download")
-    local_path     = str(row[2] or "").strip()
-    item_id        = str(row[3] or "").strip()
-    storage        = str(row[4] or "local")
-    mime           = str(row[5] or "application/octet-stream")
-
-    if storage == "onedrive":
-        if not item_id:
-            raise HTTPException(status_code=404, detail="External file ID missing")
-        token = _graph_token()
-        drive_base = _drive_base_path(token)
-        content, content_type = _graph_download(
-            f"{drive_base}/items/{_urlparse.quote(item_id)}/content",
-            token,
-        )
-        return _StreamingResponse(
-            _io.BytesIO(content),
-            media_type=content_type or mime,
-            headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
-        )
-
-    p = _pathlib.Path(local_path)
-    if not local_path or not p.exists():
-        raise HTTPException(status_code=404, detail="File not found on server")
-
-    return _Response(
-        content=p.read_bytes(),
-        media_type=mime,
-        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+    return _portal_file_response(
+        str(row[1] or "download"),
+        str(row[2] or "").strip(),
+        str(row[3] or "").strip(),
+        str(row[4] or "local"),
+        str(row[5] or "application/octet-stream"),
     )

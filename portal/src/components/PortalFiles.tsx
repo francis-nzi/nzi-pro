@@ -16,8 +16,13 @@ import {
 } from "@/components/ui/select";
 import { EmptyStatePanel, ErrorPanel, SkeletonLoader } from "@/components/shared/DataStates";
 
-async function downloadPortalFile(fileId: number, fileName: string) {
-  const res = await apiFetch(`/portal/files/${fileId}/download`);
+async function downloadPortalFile(file: PortalFile) {
+  // Client-level files have their own route: their ids overlap job files'.
+  const path = file.source === "client"
+    ? `/portal/client-files/${file.file_id}/download`
+    : `/portal/files/${file.file_id}/download`;
+  const fileName = file.file_name;
+  const res = await apiFetch(path);
   if (!res.ok) throw new Error(`Download failed (${res.status})`);
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
@@ -33,8 +38,10 @@ async function downloadPortalFile(fileId: number, fileName: string) {
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type PortalFile = {
+  /** "client" = uploaded to the client itself, not to one of its jobs. */
+  source: "job" | "client";
   file_id: number;
-  job_id: number;
+  job_id: number | null;
   reporting_year: number | null;
   job_title: string;
   job_number: string;
@@ -114,13 +121,17 @@ function ExternalLinkIcon({ className }: { className?: string }) {
   );
 }
 
+function fileKey(file: PortalFile): string {
+  return `${file.source}-${file.file_id}`;
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function PortalFiles() {
   const [files, setFiles] = useState<PortalFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [downloading, setDownloading] = useState<Record<number, boolean>>({});
+  const [downloading, setDownloading] = useState<Record<string, boolean>>({});
 
   // Filters
   const [search, setSearch] = useState("");
@@ -141,7 +152,11 @@ export default function PortalFiles() {
 
   // Derived filter options
   const jobOptions = Array.from(
-    new Map(files.map(f => [f.job_id, { jobId: f.job_id, label: f.job_number ? `${f.job_number} — ${f.job_title}` : f.job_title }])).values()
+    new Map(
+      files
+        .filter((f) => f.job_id != null)
+        .map(f => [f.job_id, { jobId: f.job_id, label: f.job_number ? `${f.job_number} — ${f.job_title}` : f.job_title }])
+    ).values()
   );
   const fileTypes = Array.from(new Set(files.map((f) => f.file_type).filter(Boolean))).sort();
   const years = Array.from(new Set(files.map((f) => f.reporting_year).filter((y): y is number => y != null)))
@@ -164,10 +179,11 @@ export default function PortalFiles() {
   const pinned = files.filter((f) => f.pinned);
 
   function handleDownload(file: PortalFile) {
-    setDownloading(d => ({ ...d, [file.file_id]: true }));
-    downloadPortalFile(file.file_id, file.file_name)
+    const key = fileKey(file);
+    setDownloading(d => ({ ...d, [key]: true }));
+    downloadPortalFile(file)
       .catch(() => {})
-      .finally(() => setDownloading(d => ({ ...d, [file.file_id]: false })));
+      .finally(() => setDownloading(d => ({ ...d, [key]: false })));
   }
 
   if (loading) {
@@ -201,9 +217,9 @@ export default function PortalFiles() {
           </CardHeader>
           <CardContent className="space-y-2 pt-0">
             {pinned.map((file) => {
-              const isDownloading = downloading[file.file_id] ?? false;
+              const isDownloading = downloading[fileKey(file)] ?? false;
               return (
-                <div key={file.file_id} className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
+                <div key={fileKey(file)} className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
                   <FileIcon className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
                     <span className="truncate text-sm font-medium text-foreground">{file.file_name}</span>
@@ -307,9 +323,9 @@ export default function PortalFiles() {
       ) : (
         <div className="divide-y divide-border rounded-xl border border-border bg-card">
           {visible.map((file) => {
-            const isDownloading = downloading[file.file_id] ?? false;
+            const isDownloading = downloading[fileKey(file)] ?? false;
             return (
-              <div key={file.file_id} className="flex items-start gap-4 px-5 py-4">
+              <div key={fileKey(file)} className="flex items-start gap-4 px-5 py-4">
                 <FileIcon className="mt-0.5 h-5 w-5 flex-shrink-0 text-muted-foreground" />
 
                 <div className="min-w-0 flex-1">

@@ -49,6 +49,7 @@ const LOOKUP_TABLES = [
   { key: "processes_lookup", label: "Processes", idCol: "process_id", nameCol: "name" },
   { key: "job_item_categories_lookup", label: "Job Item Categories", idCol: "category_id", nameCol: "name" },
   { key: "job_file_types_lookup", label: "Job File Types", idCol: "file_type_id", nameCol: "display_name" },
+  { key: "client_file_types_lookup", label: "Client File Types", idCol: "client_file_type_id", nameCol: "name" },
   { key: "uom_lookup", label: "UoM", idCol: "uom_id", nameCol: "name" },
   { key: "action_categories_lookup", label: "Action Categories", idCol: "category_id", nameCol: "name" },
   { key: "governance_subjects_lookup", label: "Governance Subjects", idCol: "governance_subject_id", nameCol: "name" },
