@@ -18,6 +18,7 @@ from services.srs_readiness import (
     get_srs_readiness_summary,
     list_assessments,
     list_srs_readiness_questions,
+    reopen_assessment,
     save_client_srs_responses,
     start_assessment,
     update_assessment_meta,
@@ -69,6 +70,10 @@ class UpdateAssessmentPayload(BaseModel):
     period_label: str | None = None
     conducted_on: str | None = None
     workshop_notes: str | None = None
+
+
+class ReopenAssessmentPayload(BaseModel):
+    reason: str | None = None
 
 
 def _assert_srs_access(user: dict[str, Any], client_db_id: int) -> None:
@@ -220,6 +225,25 @@ def finalise_client_srs_assessment(
     actor = _actor_identifier(_user)
     with get_conn(autocommit=False) as con:
         assessment = finalise_assessment(int(assessment_id), int(client_db_id), actor=actor, con=con)
+        summary = get_srs_readiness_summary(int(client_db_id), con=con)
+    return {"ok": True, "assessment": assessment, "summary": summary}
+
+
+@router.post("/clients/{client_db_id}/srs-readiness/assessments/{assessment_id}/reopen")
+def reopen_client_srs_assessment(
+    client_db_id: int,
+    assessment_id: int,
+    payload: ReopenAssessmentPayload = Body(default=ReopenAssessmentPayload()),
+    _user: dict = Depends(_current_user),
+):
+    _assert_srs_access(_user, int(client_db_id))
+    if not (user_has_permission(_user, "jobs.reporting.view") or user_has_permission(_user, "jobs.edit")):
+        assert_permission(_user, "jobs.reporting.view")
+    actor = _actor_identifier(_user)
+    with get_conn(autocommit=False) as con:
+        assessment = reopen_assessment(
+            int(assessment_id), int(client_db_id), actor=actor, reason=payload.reason, con=con,
+        )
         summary = get_srs_readiness_summary(int(client_db_id), con=con)
     return {"ok": True, "assessment": assessment, "summary": summary}
 

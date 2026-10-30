@@ -159,6 +159,70 @@ def test_baseline_flow_and_progression(con, client_id):
     assert flat["delta_vs_previous"] == 0
 
 
+def test_reopen_corrects_scores_and_records_history(con, client_id):
+    """The client realised it over-stated some scores after finalising."""
+    qids = _q_ids(con)
+    a1 = srs.start_assessment(
+        client_id, period_year=2026, conducted_on="2026-10-29", label="2026 Review", period_label=None,
+        actor="tester", con=con,
+    )
+    srs.save_client_srs_responses(
+        client_id, [{"question_id": q, "score": 3, "status": "not_started"} for q in qids],
+        actor="tester", con=con,
+    )
+    srs.finalise_assessment(a1["assessment_id"], client_id, actor="tester", con=con)
+
+    reopened = srs.reopen_assessment(
+        a1["assessment_id"], client_id, actor="corrector", reason="Over-stated governance", con=con,
+    )
+    assert reopened["status"] == "draft" and reopened["reopened"] is True
+
+    # A reopened round can't be discarded -- that would delete a signed-off round.
+    with pytest.raises(HTTPException) as exc:
+        srs.delete_assessment(a1["assessment_id"], client_id, con=con)
+    assert exc.value.status_code == 409
+
+    srs.save_client_srs_responses(
+        client_id, [{"question_id": qids[0], "score": 1, "status": "not_started"}],
+        actor="corrector", con=con,
+    )
+    fin = srs.finalise_assessment(a1["assessment_id"], client_id, actor="corrector", con=con)
+    assert fin["status"] == "finalised" and fin["is_baseline"] is True and fin["reopened"] is False
+
+    events = next(a for a in srs.list_assessments(client_id, con=con) if a["assessment_id"] == a1["assessment_id"])["events"]
+    assert [e["event_type"] for e in events] == ["started", "finalised", "reopened", "refinalised"]
+    assert events[2]["reason"] == "Over-stated governance" and events[2]["actor"] == "corrector"
+    assert all(e["occurred_at"] for e in events)
+    assert len(events[3]["changes"]) == 1
+    assert events[3]["changes"][0]["from"] == 3 and events[3]["changes"][0]["to"] == 1
+
+    row = con.execute(
+        "SELECT score FROM srs_readiness_responses WHERE client_db_id=%s AND question_id=%s",
+        [client_id, qids[0]],
+    ).fetchone()
+    assert row[0] == 1  # live gauges carry the correction
+
+
+def test_only_latest_finalised_round_can_be_reopened(con, client_id):
+    a1 = srs.start_assessment(
+        client_id, period_year=2026, conducted_on="2026-02-01", label="Baseline", period_label=None,
+        actor="tester", con=con,
+    )
+    srs.finalise_assessment(a1["assessment_id"], client_id, actor="tester", con=con)
+    a2 = srs.start_assessment(
+        client_id, period_year=2027, conducted_on="2027-02-01", label=None, period_label=None,
+        actor="tester", con=con,
+    )
+    with pytest.raises(HTTPException) as exc:
+        srs.reopen_assessment(a1["assessment_id"], client_id, actor="tester", con=con)
+    assert exc.value.status_code == 409  # a draft is already open
+
+    srs.finalise_assessment(a2["assessment_id"], client_id, actor="tester", con=con)
+    with pytest.raises(HTTPException) as exc:
+        srs.reopen_assessment(a1["assessment_id"], client_id, actor="tester", con=con)
+    assert exc.value.status_code == 409  # superseded by the 2027 round
+
+
 def test_discard_draft_reverts_score_mirror(con, client_id):
     qids = _q_ids(con)
     a1 = srs.start_assessment(

@@ -75,7 +75,38 @@ type SrsAssessment = {
   conducted_on: string | null;
   status: "draft" | "finalised";
   is_baseline: boolean;
+  /** A finalised round put back into draft to correct its scores. */
+  reopened?: boolean;
+  events?: SrsAssessmentEvent[];
 };
+
+type SrsAssessmentEvent = {
+  event_type: "started" | "finalised" | "reopened" | "refinalised";
+  reason: string | null;
+  changes: { question_code: string; from: number | null; to: number | null }[] | null;
+  actor: string | null;
+  occurred_at: string | null;
+};
+
+const EVENT_LABELS: Record<SrsAssessmentEvent["event_type"], string> = {
+  started: "Started",
+  finalised: "Finalised",
+  reopened: "Reopened",
+  refinalised: "Re-finalised",
+};
+
+function formatEventTime(value: string | null): string {
+  if (!value) return "";
+  const parsed = new Date(value.replace(" ", "T"));
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString("en-GB", {
+    day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+function scoreName(score: number | null): string {
+  return score == null ? "not scored" : SCORE_OPTIONS.find((o) => o.value === score)?.label ?? String(score);
+}
 
 type OwnerOptions = {
   contacts: { id: number; name: string; detail?: string | null }[];
@@ -158,6 +189,26 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
   });
   const lastFinalised = assessments.find((a) => a.status === "finalised") ?? null;
   const scoringLocked = !draft;
+  const [showHistory, setShowHistory] = useState(false);
+  const history = useMemo(
+    () =>
+      assessments
+        .flatMap((a) => (a.events ?? []).map((e) => ({ ...e, label: a.label })))
+        .sort((x, y) => String(y.occurred_at ?? "").localeCompare(String(x.occurred_at ?? ""))),
+    [assessments],
+  );
+
+  function reopenLastFinalised() {
+    if (!lastFinalised) return;
+    const reason = window.prompt(
+      `Reopen "${lastFinalised.label}" to correct its scores?\n\nReason (recorded in the history):`,
+      "",
+    );
+    if (reason === null) return;
+    void assessmentAction("POST", `/assessments/${lastFinalised.assessment_id}/reopen`, {
+      reason: reason.trim() || null,
+    });
+  }
 
   useEffect(() => {
     void loadData();
@@ -398,19 +449,26 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
         {draft ? (
           <>
             <div className="text-sm">
-              <span className="font-medium">Survey in progress</span> — {draft.label}
+              <span className="font-medium">{draft.reopened ? "Reopened for correction" : "Survey in progress"}</span>
+              {" "}— {draft.label}
               {draft.period_label ? ` · ${draft.period_label}` : ""} · conducted {draft.conducted_on}
-              <div className="text-xs text-muted-foreground">Scores are editable. Finalise to timestamp this round.</div>
+              <div className="text-xs text-muted-foreground">
+                {draft.reopened
+                  ? "Scores are editable. Finalise again to close it; the changed scores are recorded in the history."
+                  : "Scores are editable. Finalise to timestamp this round."}
+              </div>
             </div>
             <div className="flex shrink-0 gap-2">
               <Button size="sm" disabled={assessmentBusy}
                 onClick={() => void assessmentAction("POST", `/assessments/${draft.assessment_id}/finalise`)}>
-                Finalise &amp; timestamp
+                {draft.reopened ? "Re-finalise & timestamp" : "Finalise & timestamp"}
               </Button>
-              <Button size="sm" variant="outline" disabled={assessmentBusy}
-                onClick={() => { if (confirm("Discard this in-progress survey round? Scores revert to the last finalised round.")) void assessmentAction("DELETE", `/assessments/${draft.assessment_id}`); }}>
-                Discard
-              </Button>
+              {!draft.reopened && (
+                <Button size="sm" variant="outline" disabled={assessmentBusy}
+                  onClick={() => { if (confirm("Discard this in-progress survey round? Scores revert to the last finalised round.")) void assessmentAction("DELETE", `/assessments/${draft.assessment_id}`); }}>
+                  Discard
+                </Button>
+              )}
             </div>
           </>
         ) : (
@@ -421,24 +479,70 @@ export default function ClientSrsReadiness({ clientDbId, baseUrl }: { clientDbId
                 ? `Last: ${lastFinalised.label} (${lastFinalised.conducted_on})`
                 : "No assessment has been conducted yet."}
               <div className="text-xs text-muted-foreground">
-                Scores are locked between surveys — start a new round to re-score with the client.
+                Scores are locked between surveys — start a new round to re-score with the client, or reopen
+                the last round to correct it.
               </div>
             </div>
-            <Button size="sm" className="shrink-0" disabled={assessmentBusy} onClick={() => {
-              setStartForm({
-                period_year: String(thisYear),
-                conducted_on: new Date().toISOString().slice(0, 10),
-                period_label: "",
-                label: lastFinalised ? `${thisYear} Review` : "Baseline",
-              });
-              setShowStart(true);
-            }}>
-              Start new assessment
-            </Button>
+            <div className="flex shrink-0 gap-2">
+              {lastFinalised && (
+                <Button size="sm" variant="outline" disabled={assessmentBusy} onClick={reopenLastFinalised}>
+                  Reopen to correct
+                </Button>
+              )}
+              <Button size="sm" disabled={assessmentBusy} onClick={() => {
+                setStartForm({
+                  period_year: String(thisYear),
+                  conducted_on: new Date().toISOString().slice(0, 10),
+                  period_label: "",
+                  label: lastFinalised ? `${thisYear} Review` : "Baseline",
+                });
+                setShowStart(true);
+              }}>
+                Start new assessment
+              </Button>
+            </div>
           </>
         )}
       </div>
       {assessmentError && <div className="text-sm text-red-600">{assessmentError}</div>}
+
+      {/* Assessment history */}
+      {history.length > 0 && (
+        <div className="rounded-lg border">
+          <button
+            type="button"
+            onClick={() => setShowHistory((v) => !v)}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium"
+          >
+            {showHistory ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            Assessment history
+            <span className="text-xs font-normal text-muted-foreground">({history.length})</span>
+          </button>
+          {showHistory && (
+            <ul className="divide-y border-t text-sm">
+              {history.map((e, i) => (
+                <li key={`${e.label}-${e.event_type}-${e.occurred_at}-${i}`} className="px-3 py-2">
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-medium">{EVENT_LABELS[e.event_type] ?? e.event_type}</span>
+                    <span>{e.label}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {formatEventTime(e.occurred_at)}{e.actor ? ` · ${e.actor}` : ""}
+                    </span>
+                  </div>
+                  {e.reason && <div className="text-xs text-muted-foreground">Reason: {e.reason}</div>}
+                  {e.event_type === "refinalised" && (
+                    <div className="text-xs text-muted-foreground">
+                      {e.changes && e.changes.length > 0
+                        ? e.changes.map((c) => `${c.question_code}: ${scoreName(c.from)} → ${scoreName(c.to)}`).join("; ")
+                        : "No scores changed."}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* Start-assessment modal */}
       {showStart && (
