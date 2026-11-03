@@ -2359,7 +2359,7 @@ export default function JobAdvancedReports({
                   <span className="text-xs text-gray-500">{r.scope}</span>
                   <span className="text-xs text-gray-700 pr-2">{r.label}</span>
                   {hasBenchmark && <span className="text-xs text-gray-600 text-right">{fmt(r.benchmark)}</span>}
-                  {hasPrevYear && <span className="text-xs text-gray-600 text-right">{r.prevYear > 0 ? fmt(r.prevYear) : "-"}</span>}
+                  {hasPrevYear && <span className="text-xs text-gray-600 text-right">{fmt(r.prevYear)}</span>}
                   <span className="text-xs text-gray-700 text-right">{fmt(r.current)}</span>
                   {hasBenchmark && (
                     pct === null
@@ -2376,7 +2376,7 @@ export default function JobAdvancedReports({
                 <span className="text-xs font-semibold text-gray-700">{scope}</span>
                 <span className="text-xs font-semibold text-gray-700">Sub-total</span>
                 {hasBenchmark && <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeBenchmark)}</span>}
-                {hasPrevYear && <span className="text-xs font-semibold text-gray-700 text-right">{scopePrevYear > 0 ? fmt(scopePrevYear) : "-"}</span>}
+                {hasPrevYear && <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopePrevYear)}</span>}
                 <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeCurrent)}</span>
                 {hasBenchmark && (
                   subPct === null
@@ -2414,7 +2414,7 @@ export default function JobAdvancedReports({
                   <div className={`grid ${cols} border-t-2 border-gray-300 px-3 py-2 bg-gray-50`}>
                     <span className={`text-xs font-bold text-gray-700 uppercase col-span-2`}>Total Emissions</span>
                     {hasBenchmark && <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandBenchmarkTotal)}</span>}
-                    {hasPrevYear && <span className="text-xs font-bold text-gray-700 text-right">{grandPrevYearTotal > 0 ? fmt(grandPrevYearTotal) : "-"}</span>}
+                    {hasPrevYear && <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandPrevYearTotal)}</span>}
                     <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandCurrentTotal)}</span>
                     {hasBenchmark && <span className="text-xs font-bold text-right" style={{ color: grandPct < 0 ? "#16a34a" : grandPct > 0 ? "#dc2626" : "#6b7280" }}>{grandPct >= 0 ? "+" : ""}{fmt(grandPct, 1)}%</span>}
                   </div>
