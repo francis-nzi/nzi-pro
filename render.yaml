@@ -60,7 +60,7 @@ services:
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
-        value: 22
+        value: 22.23.4
       - key: NEXT_PUBLIC_API_BASE_URL
         sync: false
       - key: BACKEND_API_BASE_URL
@@ -75,7 +75,7 @@ services:
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
-        value: 22
+        value: 22.23.4
       - key: NEXT_PUBLIC_API_BASE_URL
         sync: false
       - key: BACKEND_API_BASE_URL
@@ -90,7 +90,7 @@ services:
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
-        value: 22
+        value: 22.23.4
       - key: NEXT_PUBLIC_SITE_URL
         sync: false
       - key: NEXT_PUBLIC_API_BASE_URL
