@@ -2339,6 +2339,14 @@ export default function JobAdvancedReports({
 
           const benchmarkColHeader = colHdr(bmYearLabel ? `BL ${bmYearLabel}` : "BL");
 
+          // A zero baseline has no percentage change, except when the current
+          // figure also shows as 0.0 -- then the row reads 0.0 -> 0.0, so 0.0%.
+          // Returns null (shown as "-") for a zero baseline with real emissions now.
+          const pctVsBaseline = (current: number, baseline: number): number | null => {
+            if (baseline !== 0) return ((current - baseline) / baseline) * 100;
+            return Math.round(current * 10) === 0 ? 0 : null;
+          };
+
           const tableRows: React.ReactElement[] = [];
           let rowIdx = 0;
           for (const scope of scopeOrder) {
@@ -2352,7 +2360,7 @@ export default function JobAdvancedReports({
               // figure -- NOT relative to the grand benchmark total, which would
               // just measure this row's size against the whole report instead
               // of whether it went up or down.
-              const pct = r.benchmark !== 0 ? ((r.current - r.benchmark) / r.benchmark) * 100 : null;
+              const pct = pctVsBaseline(r.current, r.benchmark);
               const bg = rowIdx % 2 === 0 ? "bg-white" : "bg-gray-50";
               tableRows.push(
                 <div key={`${r.scope}-${r.label}`} className={`grid ${cols} border-b border-gray-100 px-3 py-2 ${bg}`}>
@@ -2370,7 +2378,7 @@ export default function JobAdvancedReports({
               );
               rowIdx++;
             });
-            const subPct = scopeBenchmark !== 0 ? ((scopeCurrent - scopeBenchmark) / scopeBenchmark) * 100 : null;
+            const subPct = pctVsBaseline(scopeCurrent, scopeBenchmark);
             tableRows.push(
               <div key={`subtotal-${scope}`} className={`grid ${cols} border-b border-gray-200 px-3 py-2`} style={{ backgroundColor: `${BRAND}12` }}>
                 <span className="text-xs font-semibold text-gray-700">{scope}</span>
