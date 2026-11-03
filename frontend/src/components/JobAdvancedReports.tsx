@@ -2619,9 +2619,6 @@ export default function JobAdvancedReports({
                   .
                 </p>
               )}
-              <p className="text-sm text-gray-700">
-                <span className="font-semibold">Assurance Level:</span> Limited Assurance
-              </p>
 
               {/* Consultant signature */}
               <div className="pt-3 space-y-1 max-w-xs">

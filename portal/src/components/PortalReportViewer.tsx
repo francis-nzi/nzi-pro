@@ -1798,7 +1798,6 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                 {data.job_data.reporting_period_end ? formatDate(data.job_data.reporting_period_end) : ""}.
               </p>
             )}
-            <p className="text-sm text-gray-700"><span className="font-semibold">Assurance Level:</span> Limited Assurance</p>
             <div className="pt-3 space-y-1 max-w-xs">
               {report_metadata?.consultant_name && (
                 <p className="text-base italic" style={{ fontFamily: "Georgia, serif" }}>{report_metadata.consultant_name}</p>
