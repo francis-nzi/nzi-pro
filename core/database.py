@@ -243,6 +243,13 @@ def get_conn(*, autocommit: bool = True):
             except Exception as exc:
                 last_exc = exc
                 logger.warning("Pool borrow failed (attempt %d/%d): %s", attempt + 1, _CONNECT_ATTEMPTS, exc)
+                if type(exc).__name__ == "PoolTimeout":
+                    # The pool is healthy but saturated. A direct connection
+                    # here would open a session outside the pool and push the
+                    # total past Supabase's 15-session cap, turning a burst
+                    # into EMAXCONNSESSION failures for every request. Wait
+                    # for a pooled connection to free up instead.
+                    continue
 
         # Fallback: direct connection (pool not ready yet, unavailable, or just failed above)
         try:

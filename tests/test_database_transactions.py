@@ -103,3 +103,32 @@ def test_pool_exit_error_is_not_swallowed(monkeypatch):
     with pytest.raises(RuntimeError, match="commit failed"):
         with connection:
             pass
+
+
+def test_saturated_pool_retries_without_opening_direct_connections(monkeypatch):
+    class PoolTimeout(Exception):
+        pass
+
+    raw = _FakeRawConnection(autocommit=True)
+    calls = {"borrows": 0}
+
+    class _SaturatedThenFreePool(_FakePool):
+        def connection(self, *, timeout: int):
+            calls["borrows"] += 1
+            if calls["borrows"] < 3:
+                raise PoolTimeout("couldn't get a connection after 5.00 sec")
+            return super().connection(timeout=timeout)
+
+    pool = _SaturatedThenFreePool(raw)
+    monkeypatch.setattr(database, "_get_pool", lambda: pool)
+    monkeypatch.setattr(database.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(
+        "psycopg.connect",
+        lambda *a, **k: pytest.fail("must not open a direct connection while the pool is merely saturated"),
+        raising=False,
+    )
+
+    with database.get_conn():
+        pass
+
+    assert calls["borrows"] == 3
