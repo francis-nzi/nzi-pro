@@ -740,7 +740,38 @@ def _portal_org_id(con, client_db_id: int) -> str | None:
     return None
 
 
+def _portal_client_baseline_year(con, client_db_id: int) -> int | None:
+    """Explicit clients.benchmark_year, else the year of benchmark_period_end."""
+    row = con.execute(
+        "SELECT benchmark_year, benchmark_period_end FROM clients WHERE db_id = %s",
+        [int(client_db_id)],
+    ).fetchone()
+    if not row:
+        return None
+    try:
+        if row[0] is not None:
+            return int(row[0])
+        if row[1] is not None:
+            return int(str(row[1])[:4])
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
 def _portal_load_jobs(con, client_db_id: int):
+    """Portal-visible jobs, excluding any year before the client's baseline."""
+    jobs_df = _portal_load_jobs_all(con, client_db_id)
+    baseline = _portal_client_baseline_year(con, client_db_id)
+    if baseline is not None and jobs_df is not None and not jobs_df.empty:
+        keep = [
+            (y := _portal_safe_year(v)) is None or y >= baseline
+            for v in jobs_df["dashboard_year"]
+        ]
+        jobs_df = jobs_df[keep].reset_index(drop=True)
+    return jobs_df
+
+
+def _portal_load_jobs_all(con, client_db_id: int):
     return con.execute(
         """
         SELECT j.job_id, j.reporting_year,
