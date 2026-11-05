@@ -81,8 +81,12 @@ def _active_user_from_identifier(identifier: str) -> Optional[Dict[str, str]]:
                 """,
                 [ident],
             ).fetchone()
-    except Exception:
-        row = None
+    except Exception as exc:
+        # A database outage is not a logout. Returning None here made the API
+        # answer 401 "Unknown or inactive user", which the front end treats as
+        # an expired session: it clears the login and redirects to /login,
+        # looping for as long as the database is unreachable.
+        raise HTTPException(status_code=503, detail="Authentication service temporarily unavailable") from exc
 
     if not row:
         return None

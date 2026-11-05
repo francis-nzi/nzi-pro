@@ -192,3 +192,16 @@ def test_logout_records_audit_event(monkeypatch):
     assert result == {"ok": True}
     assert calls and calls[0]["action"] == "logout"
     assert calls[0]["metadata"]["mfa"] is True
+
+
+def test_database_outage_is_503_not_a_logout(monkeypatch):
+    def _boom():
+        raise RuntimeError("EMAXCONNSESSION")
+
+    monkeypatch.setattr(auth_module, "get_user_by_id", lambda _ident: None)
+    monkeypatch.setattr(auth_module, "get_conn", _boom)
+
+    with pytest.raises(HTTPException) as exc_info:
+        auth_module._active_user_from_identifier("someone@example.com")
+
+    assert exc_info.value.status_code == 503
