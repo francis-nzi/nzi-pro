@@ -1090,13 +1090,25 @@ def portal_reporting_data(current_user: dict = Depends(portal_user_dep)):
     # Step 1: look up client + org_id without org context (clients table is not org-scoped in our queries)
     with get_conn() as con:
         client_row = con.execute(
-            "SELECT client_name, org_id FROM clients WHERE db_id = %s", [client_db_id]
+            "SELECT client_name, org_id, benchmark_year, benchmark_period_end FROM clients WHERE db_id = %s",
+            [client_db_id],
         ).fetchone()
         if not client_row:
             raise HTTPException(status_code=404, detail="Client not found")
         _org_id = str(client_row[1]) if client_row[1] else None
+        # Same rule as the CRM reporting endpoint: explicit benchmark_year,
+        # else the year of benchmark_period_end.
+        client_benchmark_year = None
+        try:
+            if client_row[2] is not None:
+                client_benchmark_year = int(client_row[2])
+            elif client_row[3] is not None:
+                client_benchmark_year = int(str(client_row[3])[:4])
+        except (TypeError, ValueError):
+            client_benchmark_year = None
 
     empty_resp = {
+        "benchmark_year": client_benchmark_year,
         "client_db_id": client_db_id,
         "client_name": str(client_row[0] or ""),
         "years": [], "by_scope": [], "by_scope_category": [], "by_activity": [], "by_site": [],
@@ -1237,6 +1249,7 @@ def portal_reporting_data(current_user: dict = Depends(portal_user_dep)):
             return {
                 "client_db_id": client_db_id,
                 "client_name": str(client_row[0] or ""),
+                "benchmark_year": client_benchmark_year,
                 "years": years_with_data,
                 "by_scope": [row for row in by_scope if row["year"] in years_with_data],
                 "by_scope_category": [row for row in by_scope_category if row["year"] in years_with_data],

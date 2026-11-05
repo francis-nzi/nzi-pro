@@ -26,6 +26,7 @@ type ActivityDetail = {
 };
 
 type ReportingData = {
+  benchmark_year?: number | null;
   years: number[];
   by_scope: Array<{ year: number; [key: string]: number | string }>;
   by_scope_category: Array<{ year: number; scopes: ScopeCategoryData }>;
@@ -214,7 +215,9 @@ export default function PortalReporting() {
 
   const { years, by_scope, by_scope_category, by_activity, by_site, by_activity_detail } = data;
   const latestYear = years[years.length - 1];
-  const benchmarkYear = years[0];
+  // Client's configured baseline year; fall back to the earliest year with data.
+  const benchmarkYear =
+    data.benchmark_year != null && years.includes(data.benchmark_year) ? data.benchmark_year : years[0];
   const displayYears = Array.from(new Set([benchmarkYear, ...years.slice(-4)]));
   const hasComparison = years.length > 1;
   const showBenchmarkNote = years.length > 4;
@@ -250,6 +253,9 @@ export default function PortalReporting() {
       <>
         {displayYears.map(yr => (
           <th key={yr} className={`text-right p-2 border whitespace-nowrap text-xs font-medium ${yr === benchmarkYear && showBenchmarkNote ? "text-gray-400" : "text-gray-600"}`}>
+            {yr === benchmarkYear && (
+              <span className="mr-1 inline-block rounded-full bg-amber-400 px-1.5 py-0 text-[9px] font-bold leading-4 text-white align-middle">BL</span>
+            )}
             {yr}{yr === benchmarkYear && showBenchmarkNote ? " ★" : ""}
           </th>
         ))}
@@ -489,7 +495,8 @@ export default function PortalReporting() {
             // an in-progress/not-yet-started latest year would otherwise
             // compare against 0 and show a misleading -100% change.
             const yearsWithData = sortedYears.filter(y => y.byKey.size > 0);
-            const intensityBenchmarkYear = yearsWithData[0]?.year ?? null;
+            const intensityBenchmarkEntry = yearsWithData.find(y => y.year === benchmarkYear) ?? yearsWithData[0];
+            const intensityBenchmarkYear = intensityBenchmarkEntry?.year ?? null;
             const intensityLatestYear = yearsWithData[yearsWithData.length - 1]?.year ?? null;
             const hasIntensityComparison =
               intensityBenchmarkYear !== null && intensityLatestYear !== null && intensityBenchmarkYear !== intensityLatestYear;
@@ -508,7 +515,7 @@ export default function PortalReporting() {
                 </thead>
                 <tbody>
                   {metricKeys.map(({ key, label, divider }) => {
-                    const benchmarkIntensity = intensityBenchmarkYear !== null ? yearsWithData[0]?.byKey.get(key)?.intensity ?? 0 : 0;
+                    const benchmarkIntensity = intensityBenchmarkYear !== null ? intensityBenchmarkEntry?.byKey.get(key)?.intensity ?? 0 : 0;
                     const latestIntensity =
                       intensityLatestYear !== null ? yearsWithData[yearsWithData.length - 1]?.byKey.get(key)?.intensity ?? 0 : 0;
                     return (
@@ -772,6 +779,9 @@ export default function PortalReporting() {
                     <th className="text-left p-2 border text-xs font-medium text-gray-600">Activity</th>
                     {displayYears.map(yr => (
                       <th key={yr} className={`text-right p-2 border text-xs font-medium whitespace-nowrap ${yr === benchmarkYear && showBenchmarkNote ? "text-gray-400" : "text-gray-600"}`}>
+                        {yr === benchmarkYear && (
+                          <span className="mr-1 inline-block rounded-full bg-amber-400 px-1.5 py-0 text-[9px] font-bold leading-4 text-white align-middle">BL</span>
+                        )}
                         {yr}{yr === benchmarkYear && showBenchmarkNote ? " ★" : ""}
                       </th>
                     ))}
