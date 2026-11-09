@@ -1383,7 +1383,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         data_source: "Company Data",
         data_confidence: row.data_confidence || "M",
         is_custom_entry: false,
-        site_id: siteFilter !== "All" ? parseInt(siteFilter) : null,
+        site_id: row.site_id ?? (siteFilter !== "All" ? parseInt(siteFilter) : null),
         auto_add_td: autoAddTd,
       };
 
@@ -1417,6 +1417,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     const rowsToAdd = filteredPreviousYearRows.filter((r) => selectedPreviousRowIds.has(r.row_id));
     if (rowsToAdd.length === 0) return;
     setBulkAdding(true);
+    const failures: string[] = [];
     try {
       for (const row of rowsToAdd) {
         const payload = {
@@ -1439,7 +1440,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
           data_source: "Company Data",
           data_confidence: row.data_confidence || "M",
           is_custom_entry: false,
-          site_id: siteFilter !== "All" ? parseInt(siteFilter) : null,
+          site_id: row.site_id ?? (siteFilter !== "All" ? parseInt(siteFilter) : null),
           auto_add_td: autoAddTd,
         };
         const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data`, {
@@ -1451,15 +1452,19 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
           credentials: "include",
           body: JSON.stringify(payload),
         });
+        if (res.status === 409) continue; // already on this job for that site
         if (!res.ok) {
           const text = await res.text();
-          setError(`Failed to add row "${row.report_label}": ${text}`);
-          break;
+          failures.push(`"${row.report_label}": ${text}`);
         }
       }
       setSelectedPreviousRowIds(new Set());
       await loadData();
-      setError("");
+      setError(
+        failures.length > 0
+          ? `${failures.length} of ${rowsToAdd.length} rows failed to add. First: ${failures[0]}`
+          : ""
+      );
     } catch (e) {
       setError((e as Error).message);
     } finally {
