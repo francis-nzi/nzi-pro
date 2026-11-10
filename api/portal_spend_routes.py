@@ -241,7 +241,8 @@ def portal_spend_template(current_user: dict = Depends(portal_user_dep), site_id
 
 def _portal_spend_sites(con, current_user):
     rows = con.execute("""SELECT site_id, site_name FROM client_sites
-        WHERE client_db_id=%s AND COALESCE(archived,FALSE)=FALSE ORDER BY site_name""",
+        WHERE client_db_id=%s AND COALESCE(archived,FALSE)=FALSE
+          AND (vacated_date IS NULL OR vacated_date > CURRENT_DATE) ORDER BY site_name""",
         [int(current_user["client_db_id"])]).fetchall()
     allowed = current_user.get("site_ids")
     return [{"site_id": int(r[0]), "site_name": r[1]} for r in rows

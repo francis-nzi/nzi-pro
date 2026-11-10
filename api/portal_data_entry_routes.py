@@ -225,6 +225,7 @@ def portal_data_entry_sites(current_user: dict = Depends(portal_user_dep)):
             SELECT site_id, site_name, COALESCE(is_registered_office, FALSE)
             FROM client_sites
             WHERE client_db_id = %s AND COALESCE(archived, FALSE) = FALSE
+              AND (vacated_date IS NULL OR vacated_date > CURRENT_DATE)
             ORDER BY site_name
             """,
             [client_db_id],

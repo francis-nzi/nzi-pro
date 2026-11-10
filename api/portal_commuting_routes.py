@@ -109,6 +109,7 @@ def _default_client_site_id(con, client_db_id: int) -> int | None:
         """
         SELECT site_id FROM client_sites
         WHERE client_db_id = %s AND COALESCE(archived, FALSE) = FALSE
+          AND (vacated_date IS NULL OR vacated_date > CURRENT_DATE)
         ORDER BY COALESCE(is_registered_office, FALSE) DESC, site_id ASC
         LIMIT 1
         """,
