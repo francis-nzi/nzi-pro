@@ -3550,11 +3550,49 @@ def delete_scope_data_row(
                 raise HTTPException(status_code=404, detail="Row not found")
 
             if before and before.get("auto_pair_kind") == "employee_commuting":
-                raise HTTPException(
-                    status_code=403,
-                    detail="This row is consolidated from approved Employee Commuting data and can't be deleted "
-                           "directly — make changes on the Employee Commuting tab instead.",
+                # A consolidated line is normally owned by the Employee Commuting
+                # tab. If every commuting entry behind it has since been removed
+                # it is an orphan (nothing on that tab can ever clear it), so let
+                # staff remove it here. sync_commuting_scope_rows hard-deletes
+                # consolidated rows the same way.
+                backing = con.execute(
+                    """
+                    SELECT 1 FROM job_emission_sources
+                    WHERE job_id = %s
+                      AND source_type = 'employee_commuting'
+                      AND COALESCE(enabled, TRUE) = TRUE
+                      AND site_id IS NOT DISTINCT FROM %s
+                      AND factor_db_id IS NOT DISTINCT FROM %s
+                    LIMIT 1
+                    """,
+                    [int(job_id), before.get("site_id"), before.get("factor_db_id")],
+                ).fetchone()
+                if backing:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="This row is consolidated from approved Employee Commuting data and can't be deleted "
+                               "directly — make changes on the Employee Commuting tab instead.",
+                    )
+                con.execute("DELETE FROM job_scope_rows WHERE row_id = %s", [int(row_id)])
+                record_audit_event(
+                    con,
+                    request=request,
+                    actor=_user,
+                    action="delete",
+                    entity_type="job_scope_row",
+                    entity_id=int(row_id),
+                    job_id=int(job_id),
+                    before=before,
+                    after=None,
                 )
+                return {
+                    "ok": True,
+                    "row_id": int(row_id),
+                    "job_id": int(job_id),
+                    "cascaded_row_id": None,
+                    "unlinked_row_id": None,
+                    "unlinked_row_ids": [],
+                }
 
             # Soft delete by setting enabled=FALSE
             con.execute(

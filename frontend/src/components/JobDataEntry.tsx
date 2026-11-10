@@ -2449,9 +2449,15 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               size="sm"
                               className="h-9 w-9 rounded-full p-0 text-destructive hover:text-destructive"
                               onClick={() => deleteRow(row.row_id)}
-                              disabled={deletingRowId === row.row_id || isReadOnlyConsolidatedRow(row)}
+                              disabled={deletingRowId === row.row_id || isRegisterConsolidatedRow(row)}
                               aria-label="Delete row"
-                              title={isReadOnlyConsolidatedRow(row) ? `Consolidated line — remove entries on the ${consolidatedOwnerScreen(row)} tab` : "Delete row"}
+                              title={
+                                isRegisterConsolidatedRow(row)
+                                  ? `Consolidated line — remove entries on the ${consolidatedOwnerScreen(row)} tab`
+                                  : isCommutingConsolidatedRow(row)
+                                    ? "Consolidated Employee Commuting line — can only be deleted once no commuting entries remain behind it"
+                                    : "Delete row"
+                              }
                             >
                               <Trash2 className="h-4 w-4" />
                               <span className="sr-only">{deletingRowId === row.row_id ? "Deleting..." : "Delete"}</span>

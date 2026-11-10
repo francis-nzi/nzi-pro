@@ -778,5 +778,6 @@ def portal_commuting_delete_row(source_id: int, current_user: dict = Depends(por
         _assert_data_entry_open(con, int(existing[2]))
 
         con.execute("DELETE FROM job_emission_sources WHERE source_id = %s", [int(source_id)])
+        sync_commuting_scope_rows(con, int(existing[2]))
 
     return {"ok": True, "source_id": source_id}
