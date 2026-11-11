@@ -87,7 +87,21 @@ class _PgConn:
     def __enter__(self):
         return self
 
+    def _set_statement_timeout(self, timeout_ms: int) -> None:
+        self._conn.cursor().execute(
+            "SELECT set_config('statement_timeout', %s, false)", [f"{int(timeout_ms)}ms"]
+        )
+        self._statement_timeout_set = True
+
     def __exit__(self, exc_type, exc, tb):
+        if getattr(self, "_statement_timeout_set", False) and self._pool_ctx is not None:
+            # Pooled connections are reused: never hand a borrowed timeout on
+            # to the next request. If the connection is mid-failed-transaction
+            # the RESET fails, but the rollback below discards the SET anyway.
+            try:
+                self._conn.cursor().execute("RESET statement_timeout")
+            except Exception:
+                logger.debug("statement_timeout reset failed", exc_info=True)
         if self._pool_ctx is not None:
             # The pool context commits/rolls back transactional connections
             # before returning them to the pool.  Do not swallow commit errors:
@@ -210,8 +224,22 @@ _CONNECT_ATTEMPTS = 3
 _CONNECT_RETRY_BACKOFF_SECONDS = 0.25
 
 
-def get_conn(*, autocommit: bool = True):
+def _with_statement_timeout(con: _PgConn, statement_timeout_ms: int | None) -> _PgConn:
+    if statement_timeout_ms:
+        try:
+            con._set_statement_timeout(statement_timeout_ms)
+        except Exception:
+            # A missing cap must not fail the request it was meant to protect.
+            logger.warning("Could not apply statement_timeout", exc_info=True)
+    return con
+
+
+def get_conn(*, autocommit: bool = True, statement_timeout_ms: int | None = None):
     """Borrow a connection, retrying transient failures a couple of times.
+
+    statement_timeout_ms caps each query on this borrow (reset before the
+    connection returns to the pool), so a runaway read cannot hold one of the
+    few pooled connections for half a minute and stall every other request.
 
     Supabase's session-mode pooler has a hard ceiling on total client
     sessions (see the pool sizing comment above); under real concurrent
@@ -239,7 +267,9 @@ def get_conn(*, autocommit: bool = True):
                 except Exception:
                     pool_ctx.__exit__(*sys.exc_info())
                     raise
-                return _PgConn(raw_conn, autocommit=autocommit, _pool_ctx=pool_ctx)
+                return _with_statement_timeout(
+                    _PgConn(raw_conn, autocommit=autocommit, _pool_ctx=pool_ctx), statement_timeout_ms
+                )
             except Exception as exc:
                 last_exc = exc
                 logger.warning("Pool borrow failed (attempt %d/%d): %s", attempt + 1, _CONNECT_ATTEMPTS, exc)
@@ -265,7 +295,7 @@ def get_conn(*, autocommit: bool = True):
         url = _ensure_sslmode(url)
         try:
             conn = psycopg.connect(url, autocommit=autocommit, connect_timeout=5)
-            return _PgConn(conn, autocommit=autocommit)
+            return _with_statement_timeout(_PgConn(conn, autocommit=autocommit), statement_timeout_ms)
         except Exception as exc:
             last_exc = exc
             logger.warning("Direct connection failed (attempt %d/%d): %s", attempt + 1, _CONNECT_ATTEMPTS, exc)

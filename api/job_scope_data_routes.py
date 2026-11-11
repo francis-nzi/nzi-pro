@@ -3681,6 +3681,9 @@ def get_top_template_factors(
     return {"job_id": int(job_id), "category": category, "items": items}
 
 
+TEMPLATE_FACTORS_STATEMENT_TIMEOUT_MS = 15_000
+
+
 @router.get("/jobs/{job_id}/template-factors")
 def get_template_factors(
     job_id: int,
@@ -3700,7 +3703,27 @@ def get_template_factors(
     Supports pagination (limit/offset) and search filtering.
     """
     try:
-        with get_conn() as con:
+        # Resolve the job's datasets before borrowing this request's own
+        # connection: both helpers open their own, and nesting them inside
+        # the block below made every factor search hold two pooled
+        # connections at once.
+        dataset_map: dict[str, int] = {}
+        try:
+            resolved = get_scope_primary_datasets(int(job_id))
+            for scope_val, dataset_id in (resolved or {}).items():
+                if scope_val and dataset_id is not None:
+                    dataset_map[str(scope_val)] = int(dataset_id)
+        except Exception:
+            # Fall back to legacy manual scope config.
+            logger.debug("Falling back to legacy manual scope config after scope dataset resolution failed", exc_info=True)
+            dataset_map = {}
+
+        if not dataset_map:
+            dataset_map = _legacy_scope_dataset_map(int(job_id))
+
+        # Searches fire per keystroke and are abandoned freely; cap each query
+        # so a slow one can't hold a pooled connection and stall everyone.
+        with get_conn(statement_timeout_ms=TEMPLATE_FACTORS_STATEMENT_TIMEOUT_MS) as con:
             _ensure_job_scope_rows_schema(con)
             # Verify job exists
             job_row = con.execute(
@@ -3726,21 +3749,6 @@ def get_template_factors(
             search_term = (search or "").strip().lower()
             category_term = str(category or "").strip()
 
-            dataset_map: dict[str, int] = {}
-
-            # Primary mode: automatic dataset resolution.
-            try:
-                resolved = get_scope_primary_datasets(int(job_id))
-                for scope_val, dataset_id in (resolved or {}).items():
-                    if scope_val and dataset_id is not None:
-                        dataset_map[str(scope_val)] = int(dataset_id)
-            except Exception:
-                # Fall back to legacy manual scope config.
-                logger.debug("Falling back to legacy manual scope config after scope dataset resolution failed", exc_info=True)
-                dataset_map = {}
-
-            if not dataset_map:
-                dataset_map = _legacy_scope_dataset_map(int(job_id))
             extra_dataset_ids = _additional_dataset_ids(con, int(job_id))
 
             # ---------------------------------------------------------------

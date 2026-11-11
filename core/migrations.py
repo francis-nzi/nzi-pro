@@ -2300,13 +2300,17 @@ def run_migrations():
         # emission_factor_year_values and falls back to factor_lookup.
         # All read paths are updated to use this view; writes still go to
         # factor_lookup until Phase 3.
+        # Kept identical to sql_migrations/0078_v_factor_lookup_filter_pushdown.sql.
+        # No DISTINCT ON: it forced Postgres to build all ~270k rows before any
+        # WHERE applied (~1s per factor-search query). The NOT EXISTS keeps the
+        # same "lowest factor_year_value_id" pick while letting filters push down.
         try:
             con.execute(
                 """
                 CREATE OR REPLACE VIEW v_factor_lookup AS
-                SELECT DISTINCT ON (fl.db_id)
+                SELECT
                     fl.db_id,
-                    COALESCE(efyv.dataset_id, fl.dataset_id)                                           AS dataset_id,
+                    fl.dataset_id                                                                       AS dataset_id,
                     fl.file_name,
                     COALESCE(efyv.year, fl.year)                                                        AS year,
                     COALESCE(NULLIF(TRIM(efyv.original_id), ''), NULLIF(TRIM(fl.original_id), ''))     AS original_id,
@@ -2337,12 +2341,24 @@ def run_migrations():
                     AND efa.original_id = fl.original_id
                 LEFT JOIN emission_factor_definitions efd
                     ON  efd.factor_id = efa.factor_id
-                LEFT JOIN emission_factor_year_values efyv
+                LEFT JOIN (
+                    SELECT y.*
+                    FROM emission_factor_year_values y
+                    WHERE y.superseded_by IS NULL
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM emission_factor_year_values y2
+                          WHERE y2.factor_id      = y.factor_id
+                            AND y2.dataset_id     = y.dataset_id
+                            AND y2.superseded_by IS NULL
+                            AND y2.year IS NOT DISTINCT FROM y.year
+                            AND y2.factor_year_value_id < y.factor_year_value_id
+                      )
+                ) efyv
                     ON  efyv.factor_id      = efa.factor_id
                     AND efyv.dataset_id     = fl.dataset_id
-                    AND efyv.superseded_by IS NULL
                     AND (efyv.year = fl.year OR (efyv.year IS NULL AND fl.year IS NULL))
-                ORDER BY fl.db_id, efyv.factor_year_value_id NULLS LAST
+                ORDER BY fl.db_id
                 """
             )
         except Exception as exc:
