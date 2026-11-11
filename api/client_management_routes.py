@@ -19,6 +19,7 @@ from api.client_management_helpers import (
     _upload_client_logo_to_onedrive,
 )
 from api.permissions import assert_client_access, assert_permission
+from core.benchmark_year import resolve_benchmark_year
 from core.database import get_conn
 from services.audit_log import fetch_row_dict, record_audit_event
 from services.client_benchmark import ensure_client_benchmark_columns
@@ -308,7 +309,7 @@ def create_client(
                     body.get("status", "Active"),
                     body.get("net_zero_year"),
                     body.get("net_zero_target_reduction_pct", 90),
-                    body.get("benchmark_year"),
+                    resolve_benchmark_year(body.get("benchmark_year"), body.get("benchmark_period_end")),
                     body.get("benchmark_period_start"),
                     body.get("benchmark_period_end"),
                     body.get("benchmark_scope_1_tco2e"),
@@ -672,6 +673,12 @@ def update_client(
             updates = []
             params = []
             normalized_body = dict(body)
+            # The edit form saves the baseline period but never the year, so
+            # keep clients.benchmark_year in step with the period end.
+            if normalized_body.get("benchmark_period_end"):
+                normalized_body["benchmark_year"] = resolve_benchmark_year(
+                    normalized_body.get("benchmark_year"), normalized_body["benchmark_period_end"]
+                )
             billing_related_fields = {
                 "billing_same_as_main",
                 "billing_addr_line1",

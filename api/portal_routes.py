@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 from pydantic import BaseModel, Field
 
 from api.portal_auth_routes import portal_user_dep
+from core.benchmark_year import resolve_benchmark_year
 from core.database import get_conn
 from pydantic import BaseModel as _BaseModel, Field as _Field
 from services.portal import (
@@ -741,21 +742,14 @@ def _portal_org_id(con, client_db_id: int) -> str | None:
 
 
 def _portal_client_baseline_year(con, client_db_id: int) -> int | None:
-    """Explicit clients.benchmark_year, else the year of benchmark_period_end."""
+    """Year of benchmark_period_end, else the stored clients.benchmark_year."""
     row = con.execute(
         "SELECT benchmark_year, benchmark_period_end FROM clients WHERE db_id = %s",
         [int(client_db_id)],
     ).fetchone()
     if not row:
         return None
-    try:
-        if row[0] is not None:
-            return int(row[0])
-        if row[1] is not None:
-            return int(str(row[1])[:4])
-    except (TypeError, ValueError):
-        pass
-    return None
+    return resolve_benchmark_year(row[0], row[1])
 
 
 def _portal_load_jobs(con, client_db_id: int):
@@ -1127,16 +1121,8 @@ def portal_reporting_data(current_user: dict = Depends(portal_user_dep)):
         if not client_row:
             raise HTTPException(status_code=404, detail="Client not found")
         _org_id = str(client_row[1]) if client_row[1] else None
-        # Same rule as the CRM reporting endpoint: explicit benchmark_year,
-        # else the year of benchmark_period_end.
-        client_benchmark_year = None
-        try:
-            if client_row[2] is not None:
-                client_benchmark_year = int(client_row[2])
-            elif client_row[3] is not None:
-                client_benchmark_year = int(str(client_row[3])[:4])
-        except (TypeError, ValueError):
-            client_benchmark_year = None
+        # Same rule as the CRM reporting endpoint.
+        client_benchmark_year = resolve_benchmark_year(client_row[2], client_row[3])
 
     empty_resp = {
         "benchmark_year": client_benchmark_year,

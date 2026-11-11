@@ -6,6 +6,7 @@ Provides year-over-year emissions comparison data for client reporting.
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Depends, Query
+from core.benchmark_year import resolve_benchmark_year
 from core.database import get_conn
 from api.auth import _current_user
 from services.monthly_emissions import JobMonthlyEmissionsResolver
@@ -177,18 +178,9 @@ def get_client_reporting(
             if not client_check:
                 raise HTTPException(status_code=404, detail="Client not found")
 
-            # Prefer the explicit benchmark_year; fall back to the year of
-            # benchmark_period_end when only the period (not the year) was set --
-            # e.g. a third-party-supplied benchmark entered on Client -> Targets.
-            # Without this, the YoY table's "BM" badge falls back to the earliest
-            # job year instead of the client's real benchmark year (see
-            # job_live_report_routes.py's _effective_benchmark_year for the same fix).
-            client_benchmark_year = int(client_check[1]) if client_check[1] is not None else None
-            if client_benchmark_year is None and client_check[2] is not None:
-                try:
-                    client_benchmark_year = int(str(client_check[2])[:4])
-                except Exception:
-                    client_benchmark_year = None
+            # The baseline period end decides the year; a stale stored
+            # benchmark_year must not move the YoY table's "BL" badge.
+            client_benchmark_year = resolve_benchmark_year(client_check[1], client_check[2])
             
             # Use all client jobs so the comparison table reflects every reporting
             # year that exists for the client, including non-CRP historical jobs.
