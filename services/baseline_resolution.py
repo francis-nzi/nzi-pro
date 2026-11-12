@@ -22,6 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from core.benchmark_year import resolve_benchmark_year
+
 
 @dataclass(frozen=True)
 class Baseline:
@@ -53,15 +55,6 @@ def _as_float(value: Any) -> float | None:
         return None
     try:
         return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _as_year(value: Any) -> int | None:
-    if value is None:
-        return None
-    try:
-        return int(str(value)[:4])
     except (TypeError, ValueError):
         return None
 
@@ -114,12 +107,13 @@ def resolve_baseline(
     if total is None and has_figures:
         total = sum(v for v in (s1, s2, s3) if v is not None)
 
-    # benchmark_year first, then the year of benchmark_period_end. Same
-    # precedence as _early_benchmark_year, _effective_benchmark_year and the
-    # other derivations this will eventually replace.
-    year = _as_year(bm_year)
-    if year is None:
-        year = _as_year(bm_end)
+    # The year of benchmark_period_end first, then benchmark_year. The period
+    # is what the client edit screen saves and what the report's donut and
+    # bar charts key on; benchmark_year has no editor and can go stale. When
+    # it was preferred, a stale benchmark_year later than the period (client
+    # 414: 2026 against a period ending March 2025) made the trend drop the
+    # real baseline job, so the report compared the current year to itself.
+    year = resolve_benchmark_year(bm_year, bm_end)
 
     if bm_start is None and bm_end is None and year is None and not has_figures:
         return None

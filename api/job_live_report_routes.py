@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 
 from api.auth import _current_user
+from core.benchmark_year import resolve_benchmark_year
 from core.database import get_conn
 from api.job_intensity_routes import _load_job_intensity_metrics
 from api.job_report_routes import (
@@ -355,17 +356,12 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
     # ── Parallel fetch of all independent data sources ────────────────────────
     _jid = int(job_id)
     _client_db_id = int(job_data.get("client_db_id") or 0)
-    _benchmark_year = job_data.get("benchmark_year")
     # Derive effective benchmark year early (before parallel tasks) so
-    # get_benchmark_emissions uses it. Falls back to benchmark_period_end year.
-    _early_benchmark_year = _benchmark_year
-    if _early_benchmark_year is None:
-        _bm_pe_early = job_data.get("benchmark_period_end")
-        if _bm_pe_early:
-            try:
-                _early_benchmark_year = int(str(_bm_pe_early)[:4])
-            except Exception:
-                pass
+    # get_benchmark_emissions uses it. Period end first: benchmark_year has
+    # no editor and can go stale (see resolve_baseline).
+    _early_benchmark_year = resolve_benchmark_year(
+        job_data.get("benchmark_year"), job_data.get("benchmark_period_end")
+    )
 
     scope_totals: dict[str, Any] = {}
     categories: list[dict[str, Any]] = []
@@ -476,16 +472,7 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
 
     # ── Sequential: depends on results above ──────────────────────────────────
 
-    # Resolve effective benchmark year: prefer explicit baseline_year, fall back
-    # to the year of benchmark_period_end (which is always populated for CRP jobs).
-    _effective_benchmark_year = _benchmark_year
-    if _effective_benchmark_year is None:
-        _bm_pe = job_data.get("benchmark_period_end")
-        if _bm_pe:
-            try:
-                _effective_benchmark_year = int(str(_bm_pe)[:4])
-            except Exception:
-                pass
+    _effective_benchmark_year = _early_benchmark_year
     # job_data is returned to the frontend as-is (see the payload below), so
     # without this, job.benchmark_year stays the raw (often unset) clients.benchmark_year
     # instead of the resolved value every fetch above already uses internally.

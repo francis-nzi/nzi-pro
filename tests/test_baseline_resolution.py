@@ -1,10 +1,10 @@
 """Step 1 of RE_BASELINING_DESIGN.md: one resolver, with _build_yearly_emissions
 as its first caller.
 
-resolve_baseline is a thin wrapper over today's clients.benchmark_* columns, so
-these lock in the *current* precedence -- benchmark_year first, then the year of
-benchmark_period_end -- rather than an improved one. Step 2 swaps the
-implementation for client_baselines and these tests should still pass.
+resolve_baseline is a thin wrapper over today's clients.benchmark_* columns.
+Precedence is the year of benchmark_period_end, then benchmark_year -- the
+period is what the edit screen saves; benchmark_year can go stale. Step 2 swaps
+the implementation for client_baselines and these tests should still pass.
 """
 from __future__ import annotations
 
@@ -61,8 +61,16 @@ def test_client_with_a_period_but_no_benchmark_year_derives_the_year():
     assert baseline.source == "client_record"
 
 
-def test_benchmark_year_wins_over_the_period_end_year():
-    con = _ClientConn(_client_row(bm_start=PRIOR_START, bm_end=PRIOR_END, bm_year=2019))
+def test_period_end_year_wins_over_a_stale_benchmark_year():
+    """WRC Recycling (client 414): benchmark_year held 2026 against a period
+    ending March 2025. The period is what the edit screen saves, so it wins."""
+    con = _ClientConn(_client_row(bm_start=PRIOR_START, bm_end=PRIOR_END, bm_year=2026))
+
+    assert resolve_baseline(con, 1).year == 2025
+
+
+def test_benchmark_year_is_used_when_there_is_no_period():
+    con = _ClientConn(_client_row(bm_year=2019))
 
     assert resolve_baseline(con, 1).year == 2019
 
@@ -238,6 +246,20 @@ def test_the_baseline_year_itself_is_kept(_stub_year_totals):
     )
 
     assert [e["year"] for e in live._build_yearly_emissions(conn, 248)] == [2025, 2026]
+
+
+def test_a_stale_later_benchmark_year_does_not_drop_the_baseline_job(_stub_year_totals):
+    """WRC Recycling: benchmark_year 2026, period ending 2025. Preferring the
+    stale year removed the 2025 job, so the report compared 2026 to itself."""
+    conn = _YearlyConn(
+        _jobs_frame([
+            [437, 2025, PRIOR_START, PRIOR_END, 364, None],
+            [699, 2026, CURRENT_START, CURRENT_END, 364, None],
+        ]),
+        _client_row(bm_start=PRIOR_START, bm_end=PRIOR_END, bm_year=2026),
+    )
+
+    assert [e["year"] for e in live._build_yearly_emissions(conn, 414)] == [2025, 2026]
 
 
 def test_cached_baseline_figures_are_still_prepended_when_no_job_covers_them(_stub_year_totals):
