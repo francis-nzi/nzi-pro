@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from core.benchmark_year import resolve_benchmark_year
+from services.client_benchmark import has_client_benchmark_figures
 
 
 @dataclass(frozen=True)
@@ -100,7 +101,9 @@ def resolve_baseline(
 
     bm_start, bm_end, bm_year, s1, s2, s3, total = row
     s1, s2, s3, total = _as_float(s1), _as_float(s2), _as_float(s3), _as_float(total)
-    has_figures = any(v is not None for v in (s1, s2, s3, total))
+    # Same rule as get_client_benchmark_metrics: all-zero figures are not a
+    # baseline, so a baseline job (if any) is used instead.
+    has_figures = has_client_benchmark_figures(s1, s2, s3, total)
 
     # Mirrors services/client_benchmark.py: a total that was never stored is
     # derived from whichever scopes were.

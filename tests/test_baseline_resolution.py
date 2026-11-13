@@ -89,6 +89,29 @@ def test_client_with_cached_figures_only():
     assert baseline.year == 2022
 
 
+def test_all_zero_figures_are_not_a_baseline():
+    """ABtec later had its cached figures typed over with zeros once a real
+    2022 job existed. Zeros must not stand in for that job's footprint."""
+    con = _ClientConn(_client_row(
+        bm_start=date(2022, 1, 1), bm_end=date(2022, 12, 31), s1=0.0, s2=0.0, s3=0.0, total=0.0
+    ))
+
+    baseline = resolve_baseline(con, 243)
+
+    assert baseline.has_figures is False
+    assert baseline.year == 2022
+
+
+def test_get_client_benchmark_metrics_ignores_all_zero_figures():
+    from services.client_benchmark import get_client_benchmark_metrics
+
+    zeros = _ClientConn((None, 90, 0.0, 0.0, 0.0, 0.0))
+    real = _ClientConn((None, 90, 0.0, 6.7, 30.2, 36.9))
+
+    assert get_client_benchmark_metrics(zeros, 243) is None
+    assert get_client_benchmark_metrics(real, 243)["total"] == 36.9
+
+
 def test_a_missing_total_is_derived_from_the_scopes():
     """Mirrors services/client_benchmark.py so the wrapper stays faithful."""
     con = _ClientConn(_client_row(bm_end=date(2022, 12, 31), s1=1.0, s2=2.0, s3=3.0, total=None))

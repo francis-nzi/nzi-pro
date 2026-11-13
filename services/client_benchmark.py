@@ -41,6 +41,12 @@ def _as_float(value: Any) -> float | None:
         return None
 
 
+def has_client_benchmark_figures(*values: float | None) -> bool:
+    """True when the client record carries a usable baseline footprint:
+    at least one figure stored and at least one of them non-zero."""
+    return any(v is not None and v != 0 for v in values)
+
+
 def get_client_benchmark_metrics(con, client_db_id: int) -> dict[str, Any] | None:
     """Return benchmark emissions captured directly on the client record."""
     row = con.execute(
@@ -68,7 +74,11 @@ def get_client_benchmark_metrics(con, client_db_id: int) -> dict[str, Any] | Non
     scope3 = _as_float(row[4])
     total = _as_float(row[5])
 
-    if all(value is None for value in (scope1, scope2, scope3, total)):
+    # All-zero figures are not a baseline footprint -- they are what's left
+    # when someone "clears" the boxes by typing 0. Treating them as figures
+    # made get_benchmark_emissions return a zero baseline ahead of a real
+    # baseline job (ABtec, client 243: BL total 0.0, baseline intensity "-").
+    if not has_client_benchmark_figures(scope1, scope2, scope3, total):
         return None
 
     if total is None:
