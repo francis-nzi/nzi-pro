@@ -519,7 +519,7 @@ def _render_certificate_pdf_bytes(certificate: dict[str, Any], company_profile: 
 
     c.setFillColor(dark)
     c.setFont("Helvetica-Bold", 13.5)
-    c.drawString(left_x, lower_top + 18 * mm, "Verified by Net Zero International")
+    c.drawString(left_x, lower_top + 18 * mm, "Confirmed by Net Zero International")
     c.setStrokeColor(colors.HexColor("#bfc5cc"))
     c.setLineWidth(0.9)
     c.line(left_x, lower_top + 14 * mm, left_x + 48 * mm, lower_top + 14 * mm)

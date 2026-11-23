@@ -261,7 +261,7 @@ export default function JobEmissionsCertificate({ jobId, baseUrl = apiBaseUrl() 
 
                 <div className="mt-20 grid gap-8 md:grid-cols-3">
                   <div>
-                    <div className="text-lg font-semibold text-slate-800">Verified by Net Zero International</div>
+                    <div className="text-lg font-semibold text-slate-800">Confirmed by Net Zero International</div>
                     <div className="mt-4 h-px w-52 bg-slate-300" />
                     <div className="mt-4 text-sm font-medium uppercase tracking-[0.18em] text-slate-500">
                       Authorised Signatory
@@ -302,7 +302,7 @@ export default function JobEmissionsCertificate({ jobId, baseUrl = apiBaseUrl() 
             </div>
 
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-              Verified by Net Zero International.
+              Confirmed by Net Zero International.
               <div className="mt-1 text-emerald-800">
                 This certificate may be downloaded for client records and reporting packs.
               </div>

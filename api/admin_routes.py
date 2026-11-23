@@ -855,7 +855,7 @@ def _ensure_job_types_lookup_table(con, org_id: str | None) -> None:
             ("Net Zero Bronze/Core - CRP Only", "- Carbon Reduction Plan report only", 975, 0, True, True, "crp"),
             (
                 "Net Zero Gold",
-                "Includes:\n-  Dedicated Customer Relationship Manager\n- Preparation and submission of carbon data for 1 x Carbon Reduction Report\n- 1 x verified Carbon Reduction Report \n- Report compliant with relevant frameworks, including SECR, NHS Evergreen and PPN006\n- 12 Months carbon accounting software license for 1 Site \n- Quarterly Net Zero updates, advice and support\n- Regulatory and legislative updates\n- Online promotional activities\n- 1 x CPD accredited training place\n- 20% discount on all further training places",
+                "Includes:\n-  Dedicated Customer Relationship Manager\n- Preparation and submission of carbon data for 1 x Carbon Reduction Report\n- 1 x Carbon Reduction Report\n- Report compliant with relevant frameworks, including SECR, NHS Evergreen and PPN006\n- 12 Months carbon accounting software license for 1 Site \n- Quarterly Net Zero updates, advice and support\n- Regulatory and legislative updates\n- Online promotional activities\n- 1 x CPD accredited training place\n- 20% discount on all further training places",
                 2950,
                 0,
                 False,

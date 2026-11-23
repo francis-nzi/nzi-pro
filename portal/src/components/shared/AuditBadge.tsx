@@ -6,7 +6,7 @@ export type AuditLevel = "verified" | "estimated" | "self-reported"
 
 const CONFIG: Record<AuditLevel, { label: string; icon: typeof ShieldCheck; className: string }> = {
   verified: {
-    label: "Verified",
+    label: "Confirmed",
     icon: ShieldCheck,
     className: "border-transparent bg-status-success/10 text-status-success",
   },
