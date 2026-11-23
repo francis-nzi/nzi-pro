@@ -1785,19 +1785,10 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
         <CardHeader className="pb-3"><SectionHeader title="Declaration and Sign Off" /></CardHeader>
         <CardContent className="space-y-5">
           <div className="rounded-lg border-2 border-red-400 p-5 space-y-3">
-            <p className="text-base font-bold" style={{ color: "#c0392b" }}>Independent Verification Statement</p>
+            <p className="text-base font-bold" style={{ color: "#c0392b" }}>Statement of Compilation</p>
             <p className="text-sm text-gray-700 leading-relaxed">
-              This greenhouse gas emissions report has been prepared in accordance with the GHG Protocol Corporate Accounting and Reporting Standard. The data and calculations have been independently verified by Net Zero International.
+              Net Zero International hereby confirms that this carbon emissions inventory and reduction plan has been compiled, calculated and formatted in accordance with the Greenhouse Gas (GHG) Protocol and relevant public procurement standards (including PPN 006). All source data provided by the client has been processed using recognised emission factors and methodologies.
             </p>
-            {(data.job_data.reporting_period_start || data.job_data.reporting_period_end) && (
-              <p className="text-sm text-gray-700">
-                <span className="font-semibold">Verification Scope:</span>{" "}
-                All Scope 1, 2, and 3 emissions for the reporting period{" "}
-                {data.job_data.reporting_period_start ? formatDate(data.job_data.reporting_period_start) : ""}
-                {data.job_data.reporting_period_start && data.job_data.reporting_period_end ? " to " : ""}
-                {data.job_data.reporting_period_end ? formatDate(data.job_data.reporting_period_end) : ""}.
-              </p>
-            )}
             <div className="pt-3 space-y-1 max-w-xs">
               {report_metadata?.consultant_name && (
                 <p className="text-base italic" style={{ fontFamily: "Georgia, serif" }}>{report_metadata.consultant_name}</p>

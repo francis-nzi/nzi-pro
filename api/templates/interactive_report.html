@@ -2252,11 +2252,6 @@
                         <td class="text-center">?</td>
                     </tr>
                     <tr>
-                        <td><strong>ISO 14064-3</strong></td>
-                        <td>Verification of GHG assertions</td>
-                        <td class="text-center">?</td>
-                    </tr>
-                    <tr>
                         <td><strong>SECR</strong></td>
                         <td>Streamlined Energy and Carbon Reporting (UK)</td>
                         <td class="text-center">?</td>
@@ -2361,28 +2356,21 @@
             {% set signature_date_tv = report_metadata.get('consultant_signature_date') or tv.get('signature_date') %}
             
             <div class="certification-box no-break">
-                <div class="certification-title">Independent Verification Statement</div>
-                
-                <p>
-                    This greenhouse gas emissions report has been prepared in accordance with the 
-                    GHG Protocol Corporate Accounting and Reporting Standard. The data and calculations 
-                    have been independently verified by Net Zero International.
-                </p>
-
-                <p style="margin-top: 20px;">
-                    <strong>Verification Scope:</strong> All Scope 1, 2, and 3 emissions for the reporting period 
-                    {% if job_data.period_start.strftime %}{{ job_data.period_start.strftime('%d %B %Y') }}{% else %}{{ job_data.period_start }}{% endif %} to {% if job_data.period_end.strftime %}{{ job_data.period_end.strftime('%d %B %Y') }}{% else %}{{ job_data.period_end }}{% endif %}.
-                </p>
+                <div class="certification-title">Statement of Compilation</div>
 
                 <p>
-                    <strong>Verification Standard:</strong> ISO 14064-3:2019
+                    Net Zero International hereby confirms that this carbon emissions inventory and
+                    reduction plan has been compiled, calculated and formatted in accordance with the
+                    Greenhouse Gas (GHG) Protocol and relevant public procurement standards (including
+                    PPN 006). All source data provided by the client has been processed using recognised
+                    emission factors and methodologies.
                 </p>
 
                 <div class="signature-block">
                     <div>
                         <div class="signature-sign">{{ signatory_name_tv or 'Net Zero International' }}</div>
                         <div class="signature-line"></div>
-                        <div class="signature-label">{{ signatory_position_tv or 'Lead Verifier' }}</div>
+                        <div class="signature-label">{{ signatory_position_tv or 'Consultant' }}</div>
                         <div class="signature-value">{{ signatory_name_tv or 'Net Zero International' }}</div>
                     </div>
                     <div>
