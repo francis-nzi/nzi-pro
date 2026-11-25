@@ -30,6 +30,9 @@ services:
         sync: false
       - key: NZI_JWT_SECRET
         sync: false
+      # Read-only figures for the console's import checks (api/console_import_routes.py). Set the value in the dashboard; never here.
+      - key: NZI_CONSOLE_IMPORT_TOKEN
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: OPENAI_API_KEY
