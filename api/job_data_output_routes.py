@@ -149,8 +149,18 @@ def _calc_emissions_tco2e(
     return float(emissions)
 
 
-def _load_data_output_rows(con, job_id: int):
+def _load_data_output_rows(con, job_id: int, *, include_disabled: bool = False):
+    """Rows V7's report counts for a job.
+
+    With ``include_disabled`` the disabled rows come back too, each flagged in a
+    ``row_enabled`` column, for the console-import figures endpoint. The default
+    leaves the query exactly as the report paths have always run it.
+    """
     factor_category_expr = _factor_category_expr(con)
+    legacy_enabled_col = ", jsr.enabled AS row_enabled" if include_disabled else ""
+    legacy_enabled_filter = "" if include_disabled else "AND jsr.enabled = TRUE"
+    source_enabled_col = ", COALESCE(js.enabled, TRUE) AS row_enabled" if include_disabled else ""
+    source_enabled_filter = "" if include_disabled else "AND COALESCE(js.enabled, TRUE) = TRUE"
     df = con.execute(
         f"""
         WITH legacy_rows AS (
@@ -205,7 +215,7 @@ def _load_data_output_rows(con, job_id: int):
                         ELSE TRIM(CAST({factor_category_expr} AS VARCHAR))
                     END
                 ) AS report_label,
-                NULL::numeric AS calc_tco2e
+                NULL::numeric AS calc_tco2e{legacy_enabled_col}
             FROM job_scope_rows jsr
             LEFT JOIN client_sites s ON jsr.site_id = s.site_id
             LEFT JOIN datasets d ON d.dataset_id = jsr.dataset_id
@@ -229,7 +239,7 @@ def _load_data_output_rows(con, job_id: int):
                 LIMIT 1
             ) fl ON TRUE
             WHERE jsr.job_id = %s
-              AND jsr.enabled = TRUE
+              {legacy_enabled_filter}
         ),
         source_rows AS (
             SELECT
@@ -291,7 +301,7 @@ def _load_data_output_rows(con, job_id: int):
                         ELSE TRIM(CAST({factor_category_expr} AS VARCHAR))
                     END
                 ) AS report_label,
-                js.calc_tco2e
+                js.calc_tco2e{source_enabled_col}
             FROM job_emission_sources js
             LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
             LEFT JOIN client_sites cs ON cs.site_id = js.site_id
@@ -316,7 +326,7 @@ def _load_data_output_rows(con, job_id: int):
                 LIMIT 1
             ) fl ON TRUE
             WHERE js.job_id = %s
-              AND COALESCE(js.enabled, TRUE) = TRUE
+              {source_enabled_filter}
               -- Employee Commuting is represented via its consolidated
               -- job_scope_rows rows (legacy_rows above), not directly here --
               -- see services/employee_commuting_consolidation.py. Including
